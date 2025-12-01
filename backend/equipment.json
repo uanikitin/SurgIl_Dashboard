@@ -1,0 +1,30 @@
+[
+  {
+    "code": "wellhead_sensor",
+    "label": "Датчик устья",
+    "short": "ДУ",
+    "color": "#3b82f6",
+    "icon": "manometr.png"
+  },
+  {
+    "code": "line_sensor",
+    "label": "Датчик шлейфа",
+    "short": "ДШ",
+    "color": "#16a34a",
+    "icon": "manometr.png"
+  },
+  {
+    "code": "annulus_sensor",
+    "label": "Датчик затрубного пространства",
+    "short": "ДЗ",
+    "color": "#f59e0b",
+    "icon": "manometr.png"
+  },
+  {
+    "code": "wellhead_gateway",
+    "label": "Шлюз устьевой",
+    "short": "ШУ",
+    "color": "#ef4444",
+    "icon": "gateway_3.png"
+  }
+]

@@ -1,0 +1,1569 @@
+body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #f3f4f6;
+}
+
+:root {
+  --status-watch-color: #007bff; /* Наблюдение — синий */
+  --status-adapt-color: #17a2b8; /* Адаптация — бирюзовый */
+  --status-opt-color:   #28a745; /* Оптимизация — зелёный */
+  --status-dev-color:   #ffc107; /* Освоение — жёлтый */
+  --status-off-color:   #6c757d; /* Не обслуживается — серый */
+  --status-idle-color:  #fd7e14; /* Простой — оранжевый */
+  --status-other-color: #343a40; /* Другое — тёмный */
+}
+
+.status-badge.status-watch  { background-color: var(--status-watch-color); }
+.status-badge.status-adapt  { background-color: var(--status-adapt-color); }
+.status-badge.status-opt    { background-color: var(--status-opt-color); }
+.status-badge.status-dev    { background-color: var(--status-dev-color); }
+.status-badge.status-off    { background-color: var(--status-off-color); }
+.status-badge.status-idle   { background-color: var(--status-idle-color); }
+.status-badge.status-other  { background-color: var(--status-other-color); }
+
+.top-bar {
+    background: #111827;
+    color: #e5e7eb;
+    padding: 10px 20px;
+    display: flex;
+    flex-direction: column;
+}
+
+.top-bar .logo {
+    font-weight: 600;
+    font-size: 18px;
+}
+
+.top-bar .subtitle {
+    font-size: 13px;
+    color: #9ca3af;
+}
+
+.page-content {
+    padding: 20px;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.controls {
+    margin-bottom: 20px;
+}
+
+.controls-row {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.tiles-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 16px;
+}
+
+.well-tile {
+    background: #ffffff;
+    border-radius: 10px;
+    padding: 12px 14px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.15);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.well-tile__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+}
+
+.well-tile__name {
+    font-weight: 600;
+    font-size: 15px;
+}
+
+.well-tile__status {
+    font-size: 12px;
+    color: #4b5563;
+}
+
+.well-tile__coords {
+    font-size: 12px;
+    color: #6b7280;
+}
+
+.well-tile__description {
+    font-size: 13px;
+    color: #374151;
+}
+
+.well-tile__footer {
+    display: flex;
+    justify-content: flex-end;
+}
+
+button {
+    border: none;
+    background: #2563eb;
+    color: white;
+    border-radius: 6px;
+    padding: 6px 10px;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+button:hover {
+    background: #1d4ed8;
+}
+
+.breadcrumbs {
+    margin-bottom: 12px;
+    font-size: 13px;
+}
+
+.breadcrumbs a {
+    color: #2563eb;
+    text-decoration: none;
+}
+
+.breadcrumbs a:hover {
+    text-decoration: underline;
+}
+
+.well-page__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-bottom: 16px;
+}
+
+.well-page__header h1 {
+    margin: 0;
+    font-size: 22px;
+}
+
+.well-page__id {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: #6b7280;
+}
+
+.well-page__status .label {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: #6b7280;
+}
+
+.well-page__status .value {
+    font-size: 14px;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: #e5e7eb;
+}
+
+.well-page__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+}
+
+.card {
+    background: #ffffff;
+    border-radius: 10px;
+    padding: 14px 16px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+.card h2 {
+    margin-top: 0;
+    font-size: 16px;
+}
+
+.card .hint {
+    font-size: 11px;
+    color: #9ca3af;
+}
+
+/* ===== Форма на странице скважины ===== */
+
+.well-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.well-form__row {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+}
+
+.well-form__field {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13px;
+}
+
+.well-form__field label {
+    font-weight: 500;
+    color: #374151;
+}
+
+.well-form__field input,
+.well-form__field textarea {
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    padding: 6px 8px;
+    font-size: 14px;
+    font-family: inherit;
+    resize: vertical;
+}
+
+.well-form__field input:focus,
+.well-form__field textarea:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.2);
+}
+
+.well-form__hint {
+    margin-top: 6px;
+    font-size: 12px;
+    color: #6b7280;
+}
+
+.well-form__actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 4px;
+}
+
+/* ===== Главная: раскладка панель слева + плитки справа ===== */
+.visual-layout {
+    display: flex;              /* делим на две колонки */
+    gap: 24px;
+    align-items: flex-start;
+    margin-top: 16px;
+}
+
+/* Левая панель управления */
+.visual-sidebar {
+    flex: 0 0 260px;            /* фиксированная ширина ~260px */
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 16px 20px;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+
+.visual-sidebar h2 {
+    font-size: 18px;
+    margin: 0 0 12px 0;
+}
+
+/* Список чекбоксов вертикально, с прокруткой если их много */
+.well-checkbox-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: calc(100vh - 220px);   /* чтобы панель не уходила далеко вниз */
+    overflow-y: auto;
+}
+
+/*.well-checkbox-item {*/
+/*    display: flex;*/
+/*    align-items: center;*/
+/*    gap: 6px;*/
+/*    font-size: 14px;*/
+/*}*/
+
+.well-checkbox-item input[type="checkbox"] {
+    margin: 0;
+}
+
+.well-checkbox-name {
+    font-weight: 500;
+}
+
+.well-checkbox-id {
+    font-size: 12px;
+    color: #6b7280;  /* серый */
+}
+
+/* Кнопки под чекбоксами */
+.well-filter-form .form-actions {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* Правая часть — сетка плиток */
+.tiles-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 16px;
+}
+
+/* Поле поиска в панели выбора скважин */
+.well-search {
+    margin-bottom: 10px;
+}
+
+.well-search input {
+    width: 100%;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid #d1d5db; /* светло-серый */
+    font-size: 14px;
+    box-sizing: border-box;
+}
+
+/* === Мини-карта скважины === */
+#well-map {
+    margin-top: 16px;
+    width: 100%;
+    height: 260px;          /* высота карты */
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 4px 10px rgba(15, 23, 42, 0.12);
+}
+
+/* === Список событий на странице скважины === */
+.events-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+}
+
+.events-list__item {
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    background: #f5f5f5;
+    border: 1px solid #e0e0e0;
+}
+
+.events-list__empty,
+.events-list__error {
+    padding: 0.5rem 0.75rem;
+    color: #666;
+    font-style: italic;
+}
+
+.events-list__error {
+    color: #b00020;
+}
+
+.event-line {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+}
+
+.event-line__time {
+    font-weight: 500;
+}
+
+.event-line__type {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    color: #555;
+}
+
+.event-line__desc {
+    color: #333;
+}
+
+/* === Список событий на странице скважины === */
+.events-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+
+    /* Делает список прокручиваемым, если событий много */
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.events-list__item {
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    background: #f5f5f5;
+    border: 1px solid #e0e0e0;
+}
+
+.events-list__empty,
+.events-list__error {
+    padding: 0.5rem 0.75rem;
+    color: #666;
+    font-style: italic;
+}
+
+.events-list__error {
+    color: #b00020;
+}
+
+.event-line {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+}
+
+.event-line__time {
+    font-weight: 500;
+}
+
+.event-line__type {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    color: #555;
+}
+
+.event-line__desc {
+    color: #333;
+}
+
+/* === "Окно" с последним событием === */
+.last-event-box {
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    background: #eef7ff;
+    border: 1px solid #c6ddff;
+    margin-bottom: 0.75rem;
+}
+
+.last-event-box__title {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    color: #3367a3;
+    margin-bottom: 0.25rem;
+}
+
+.last-event-box__time {
+    font-weight: 500;
+}
+
+.last-event-box__type {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    color: #555;
+    margin-bottom: 0.25rem;
+}
+
+.last-event-box__desc {
+    color: #333;
+}
+
+/* Кнопки экспорта под списком */
+.events-actions {
+    margin-top: 0.75rem;
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.events-actions .btn-secondary {
+    text-decoration: none;
+}
+
+.events-scroll {
+  max-height: 320px;
+  overflow-y: auto;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0;
+  border-radius: 8px;
+  border: 1px solid #eee;
+  background-color: #fafafa;
+}
+
+.event-row {
+  padding: 0.4rem 0.8rem;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.event-row:last-child {
+  border-bottom: none;
+}
+
+.event-row__head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.event-row__time {
+  color: #555;
+}
+
+.event-row__type {
+  color: #888;
+}
+
+.event-row__line,
+.event-row__desc,
+.event-row__meta {
+  font-size: 0.9rem;
+  margin-top: 0.2rem;
+}
+
+/* === События по скважине === */
+
+.events-scroll {
+  max-height: 240px;          /* примерно 4–5 строк */
+  overflow-y: auto;
+  padding-right: 0.5rem;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.event-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 4px 8px;
+  font-size: 0.9rem;
+  border-bottom: 1px solid #eee;
+}
+
+.event-row:last-child {
+  border-bottom: none;
+}
+
+.event-row__time {
+  flex: 0 0 auto;
+  width: 9rem;                /* место под дату-время */
+  font-family: monospace;
+  color: #666;
+}
+
+.event-row__type {
+  flex: 0 0 auto;
+  font-weight: 600;
+  color: #333;
+  white-space: nowrap;
+}
+
+.event-row__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #333;
+  white-space: nowrap;        /* всё в одну строку */
+  overflow: hidden;
+  text-overflow: ellipsis;    /* обрезаем хвост "..." */
+}
+
+/* === Таблица событий по скважине === */
+
+.events-table-wrapper {
+  max-height: 200px;          /* ~5–6 строк */
+  overflow-y: auto;
+  margin-top: 0.5rem;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+/* Чтобы скролл был внутри таблицы, а заголовок оставался сверху */
+.events-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.events-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f0f0f0;
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid #ddd;
+}
+
+.events-table__row td {
+  padding: 4px 8px;
+  border-bottom: 1px solid #eee;
+  vertical-align: top;
+}
+
+.events-table__row:last-child td {
+  border-bottom: none;
+}
+
+.events-table__time {
+  white-space: nowrap;
+  font-family: monospace;
+  color: #555;
+  width: 9.5rem;
+}
+
+.events-table__type {
+  white-space: nowrap;
+  font-weight: 600;
+  width: 10rem;
+}
+
+.events-table__details {
+  color: #333;
+}
+
+.events-table__operator {
+  white-space: nowrap;
+  color: #333;
+  width: 11rem;
+}
+
+
+
+.events-table__reagent,
+.events-table__qty,
+.events-table__p {
+  white-space: nowrap;
+}
+
+/* Форма фильтра */
+.events-filter__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.events-filter select,
+.events-filter input[type="date"],
+.events-filter button {
+  font-size: 0.85rem;
+  padding: 3px 6px;
+}
+
+/* Статистика */
+
+.events-stats-summary ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.9rem;
+}
+
+.events-stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.events-stats-table th,
+.events-stats-table td {
+  padding: 4px 6px;
+  border: 1px solid #ddd;
+}
+
+
+/* новая колонка геостатуса */
+.events-table__geo {
+  white-space: nowrap;
+}
+
+/* Карточки статистики */
+.events-stats-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.events-stats-card {
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  color: #222;
+}
+
+.events-stats-card__title {
+  font-size: 0.8rem;
+  opacity: 0.85;
+  margin-bottom: 0.2rem;
+}
+
+.events-stats-card__value {
+  font-size: 1.35rem;
+  font-weight: 600;
+}
+
+.events-stats-card__sub {
+  font-size: 0.8rem;
+  margin-top: 0.1rem;
+}
+
+/* Цвета карточек */
+.events-stats-card--reagent {
+  background: #e3f9e3;
+  border: 1px solid #b5e7b5;
+}
+
+.events-stats-card--purge {
+  background: #ffe3e3;
+  border: 1px solid #f5b5b5;
+}
+
+.events-stats-card--pressure {
+  background: #e3ebff;
+  border: 1px solid #b5c5f5;
+}
+
+.events-stats-card--interval {
+  background: #fff6d9;
+  border: 1px solid #f1da9c;
+}
+
+.events-stats-period {
+  font-size: 0.85rem;
+  margin-bottom: 0.5rem;
+}
+
+.status-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.status-tile {
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  min-width: 220px;
+}
+
+.status-tile__name {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.status-tile__period {
+  font-size: 0.8rem;
+  opacity: 0.9;
+}
+
+.status-tile__days {
+  margin-top: 0.25rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+/* Цвета по статусам (коды из _status_css_code) */
+.status-tile.status-watch  { background:#e3f2fd; }
+.status-tile.status-adapt  { background:#fff3e0; }
+.status-tile.status-opt    { background:#e8f5e9; }
+.status-tile.status-dev    { background:#ede7f6; }
+.status-tile.status-off    { background:#eeeeee; }
+.status-tile.status-idle   { background:#ffebee; }
+.status-tile.status-other  { background:#f3e5f5; }
+
+/* ===== Статусы скважины (сеткой) ===== */
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.status-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.status-column-header {
+  font-weight: 600;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  margin-bottom: 0.25rem;
+}
+
+.status-card {
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  background: #f8f9fb;
+  font-size: 0.9rem;
+}
+
+.status-card-dates {
+  font-weight: 500;
+}
+
+.status-card-days {
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
+.status-card-actions {
+  margin-top: 0.25rem;
+}
+
+.btn-xs {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.5rem;
+}
+
+.well-tile__status {
+    margin-top: 4px;
+    font-size: 0.85rem;
+}
+
+.well-tile__status-name {
+    font-weight: 600;
+}
+
+.well-tile__status-meta {
+    opacity: 0.8;
+    font-size: 0.8rem;
+}
+
+.well-tile__status-empty {
+    color: #999;
+    font-size: 0.85rem;
+}
+
+.well-tile__today {
+    margin-top: 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: #f5f7ff;
+    font-size: 0.85rem;
+    line-height: 1.3;
+}
+/* Карта на главной */
+#wells-map {
+  width: 100%;
+  height: 360px;
+  margin-bottom: 1.5rem;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Цветные карточки статуса на плитках */
+.well-tile__status {
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  line-height: 1.3;
+}
+
+.well-tile__status.status-watch {
+  background: #e3f2fd;
+  border-left: 4px solid var(--status-watch-color);
+}
+
+.well-tile__status.status-adapt {
+  background: #fff3e0;
+  border-left: 4px solid var(--status-adapt-color);
+}
+
+.well-tile__status.status-opt {
+  background: #e8f5e9;
+  border-left: 4px solid var(--status-opt-color);
+}
+
+.well-tile__status.status-dev {
+  background: #f3e5f5;
+  border-left: 4px solid var(--status-dev-color);
+}
+
+.well-tile__status.status-off {
+  background: #eeeeee;
+  border-left: 4px solid var(--status-off-color);
+}
+
+.well-tile__status.status-idle {
+  background: #fffde7;
+  border-left: 4px solid var(--status-idle-color);
+}
+
+.well-tile__status.status-other {
+  background: #eceff1;
+  border-left: 4px solid var(--status-other-color);
+}
+
+/* Блок статистики событий на плитке */
+.well-tile__events {
+  margin-top: 0.6rem;
+  font-size: 0.85rem;
+  line-height: 1.3;
+}
+.well-tile__events strong {
+  font-weight: 600;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+}
+
+/* Цвета статусов — один источник правды */
+.status-watch {
+    background-color: var(--status-watch-color);
+}
+.status-adapt {
+    background-color: var(--status-adapt-color);
+}
+.status-opt {
+    background-color: var(--status-opt-color);
+}
+.status-dev {
+    background-color: var(--status-dev-color);
+}
+.status-off {
+    background-color: var(--status-off-color);
+}
+.status-idle {
+    background-color: var(--status-idle-color);
+}
+.status-other {
+    background-color: var(--status-other-color);
+}
+
+/* Базовый вид пина на карте */
+.map-pin {
+    width: 18px;
+    height: 18px;
+    border-radius: 50% 50% 50% 0;
+    transform: rotate(-45deg);
+    border: 2px solid #ffffff;
+    box-shadow: 0 0 2px rgba(0, 0, 0, 0.4);
+}
+
+/* Те же классы статусов для пинов */
+.map-pin.status-watch { background-color: var(--status-watch-color); }
+.map-pin.status-adapt { background-color: var(--status-adapt-color); }
+.map-pin.status-opt   { background-color: var(--status-opt-color); }
+.map-pin.status-dev   { background-color: var(--status-dev-color); }
+.map-pin.status-off   { background-color: var(--status-off-color); }
+.map-pin.status-idle  { background-color: var(--status-idle-color); }
+.map-pin.status-other { background-color: var(--status-other-color); }
+
+.well-tile__stats {
+    margin-top: 0.75rem;
+    border-top: 1px solid #eee;
+    padding-top: 0.5rem;
+    font-size: 13px;
+}
+
+.well-tile__stats-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 2px;
+}
+
+.well-tile__stats-row .muted {
+    margin-left: 4px;
+    opacity: 0.7;
+}
+
+.map-block {
+    margin-top: 2rem;
+}
+
+.map-block h2 {
+    margin-bottom: 0.5rem;
+}
+
+#wells-map {
+    width: 100%;
+    height: 480px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+}
+
+/* Сводка по статусам над картой */
+.map-status-summary {
+    margin-bottom: 8px;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.map-status-line {
+    margin-bottom: 2px;
+}
+
+.map-status-name {
+    font-weight: 600;
+    margin-right: 4px;
+}
+
+.map-status-count {
+    font-weight: 500;
+    margin-right: 6px;
+    color: #333;
+}
+
+.map-status-wells {
+    color: #555;
+}
+
+/* Подписи над маркерами */
+.leaflet-tooltip.well-label-tooltip {
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 4px;
+    padding: 2px 6px;
+    border: 1px solid #ccc;
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+.status-filter {
+  margin-top: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.status-filter__label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.status-filter__select {
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid #ced4da;
+  font-size: 0.9rem;
+}
+
+.status-filter__hint {
+  margin-top: 0.25rem;
+  font-size: 0.78rem;
+  color: #6c757d;
+}
+
+/* текст рядом с чекбоксом в одну строку */
+.well-checkbox-text {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  white-space: nowrap;
+  font-size: 0.9rem;
+}
+
+.well-checkbox-status {
+  font-size: 0.85rem;
+}
+
+/* для списка слева — только цвет текста, без фона */
+.well-checkbox-status.status-watch  { color: var(--status-watch-color);  background: transparent; }
+.well-checkbox-status.status-adapt  { color: var(--status-adapt-color);  background: transparent; }
+.well-checkbox-status.status-opt    { color: var(--status-opt-color);    background: transparent; }
+.well-checkbox-status.status-dev    { color: var(--status-dev-color);    background: transparent; }
+.well-checkbox-status.status-off    { color: var(--status-off-color);    background: transparent; }
+.well-checkbox-status.status-idle   { color: var(--status-idle-color);   background: transparent; }
+.well-checkbox-status.status-other  { color: var(--status-other-color);  background: transparent; }
+
+
+/* Строка скважины в левой панели */
+.well-checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+}
+
+.well-checkbox-item input[type="checkbox"] {
+  margin: 0;
+}
+
+.well-checkbox-name {
+  font-weight: 500;
+}
+
+/* Серый текст по умолчанию для статуса */
+.well-checkbox-status {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+/* ==== Цвета строк по статусу (фон лёгкий, слева цветная полоска) ==== */
+
+.well-checkbox-item.status-watch {
+  border-left: 4px solid var(--status-watch-color);
+  background: #f3f6ff;          /* общий мягкий фон */
+}
+.well-checkbox-item.status-adapt {
+  border-left: 4px solid var(--status-adapt-color);
+  background: #f3f6ff;
+}
+.well-checkbox-item.status-opt {
+  border-left: 4px solid var(--status-opt-color);
+  background: #f3f6ff;
+}
+.well-checkbox-item.status-dev {
+  border-left: 4px solid var(--status-dev-color);
+  background: #f3f6ff;
+}
+.well-checkbox-item.status-off {
+  border-left: 4px solid var(--status-off-color);
+  background: #f3f6ff;
+}
+.well-checkbox-item.status-idle {
+  border-left: 4px solid var(--status-idle-color);
+  background: #f3f6ff;
+}
+.well-checkbox-item.status-other {
+  border-left: 4px solid var(--status-other-color);
+  background: #f3f6ff;
+}
+
+/* Цвет самого текста статуса под цвет линии */
+.well-checkbox-item.status-watch  .well-checkbox-status { color: var(--status-watch-color); }
+.well-checkbox-item.status-adapt  .well-checkbox-status { color: var(--status-adapt-color); }
+.well-checkbox-item.status-opt    .well-checkbox-status { color: var(--status-opt-color); }
+.well-checkbox-item.status-dev    .well-checkbox-status { color: var(--status-dev-color); }
+.well-checkbox-item.status-off    .well-checkbox-status { color: var(--status-off-color); }
+.well-checkbox-item.status-idle   .well-checkbox-status { color: var(--status-idle-color); }
+.well-checkbox-item.status-other  .well-checkbox-status { color: var(--status-other-color); }
+
+/* Общий стиль цветного бейджа названия скважины */
+.well-name-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 1.05em;
+    margin-bottom: 6px;
+
+    /* делаем текст белым по умолчанию (переопределим ниже) */
+    color: #fff;
+}
+
+/* === Цвета по статусу (полупрозрачные) === */
+
+/* Наблюдение — синий */
+.well-name-badge.status-watch {
+    background-color: color-mix(in srgb, var(--status-watch-color) 20%, transparent);
+    color: var(--status-watch-color);
+}
+
+/* Адаптация — бирюзовый */
+.well-name-badge.status-adapt {
+    background-color: color-mix(in srgb, var(--status-adapt-color) 20%, transparent);
+    color: var(--status-adapt-color);
+}
+
+/* Оптимизация — зелёный */
+.well-name-badge.status-opt {
+    background-color: color-mix(in srgb, var(--status-opt-color) 20%, transparent);
+    color: var(--status-opt-color);
+}
+
+/* Освоение — жёлтый */
+.well-name-badge.status-dev {
+    background-color: color-mix(in srgb, var(--status-dev-color) 20%, transparent);
+    color: var(--status-dev-color);
+}
+
+/* Не обслуживается — серый */
+.well-name-badge.status-off {
+    background-color: color-mix(in srgb, var(--status-off-color) 20%, transparent);
+    color: var(--status-off-color);
+}
+
+/* Простой — оранжевый */
+.well-name-badge.status-idle {
+    background-color: color-mix(in srgb, var(--status-idle-color) 20%, transparent);
+    color: var(--status-idle-color);
+}
+
+/* Другое — тёмный */
+.well-name-badge.status-other {
+    background-color: color-mix(in srgb, var(--status-other-color) 20%, transparent);
+    color: var(--status-other-color);
+}
+
+
+
+/* ===== Цвета квадрата по статусу ===== */
+/* предполагаем, что уже есть переменные:
+   --status-watch-color, --status-adapt-color и т.д. */
+
+.well-badge-square.status-watch {
+    background-color: var(--status-watch-color);
+}
+
+.well-badge-square.status-adapt {
+    background-color: var(--status-adapt-color);
+}
+
+.well-badge-square.status-opt {
+    background-color: var(--status-opt-color);
+}
+
+.well-badge-square.status-dev {
+    background-color: var(--status-dev-color);
+}
+
+.well-badge-square.status-off {
+    background-color: var(--status-off-color);
+}
+
+.well-badge-square.status-idle {
+    background-color: var(--status-idle-color);
+}
+
+.well-badge-square.status-other {
+    background-color: var(--status-other-color);
+}
+
+
+
+/* Сетка заголовка: 3 колонки фиксированных долей */
+.well-header-grid {
+    display: grid;
+    grid-template-columns: 1fr 2fr 1fr;  /* 25% / 50% / 25% от ширины карточки */
+    column-gap: 0.75rem;
+    align-items: flex-start;             /* всё прижато к верхнему краю */
+}
+
+/* Колонки – растянуть содержимое по ширине */
+.well-header-col {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;                /* ВАЖНО: плитка на всю ширину колонки */
+}
+
+/* Общий стиль плиток */
+.well-header-badge {
+    box-sizing: border-box;
+    width: 100%;                         /* <<< ВСЕ плитки одинаковой ширины */
+    max-width: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;             /* текст по центру по вертикали */
+    align-items: center;                 /* и по горизонтали */
+    padding: 0.25rem 0.5rem;
+    border-radius: 14px;
+}
+
+/* ЛЕВАЯ плитка "Скв 89" */
+.well-header-badge--well {
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+/* ЦЕНТРАЛЬНАЯ плитка статуса – чуть меньше шрифт */
+.well-header-badge--status {
+    font-size: 0.8rem;
+}
+
+/* Текст под статусом (дата и суток) */
+.well-header-meta--status {
+    font-size: 0.75rem;
+    line-height: 1.2;
+}
+
+/* ПРАВАЯ плитка "Канал N" */
+.well-header-badge--channel {
+    background: #eef3ff;
+    border: 1px solid #b9c8ff;
+    color: #2b3e8a;
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-align: center;
+    white-space: normal;  /* перенос строк внутри плитки, чтобы не вылезать */
+}
+
+/* Иконка канала под плиткой */
+.well-channel-icon {
+    margin-top: 0.15rem;
+    display: flex;
+    justify-content: center;
+}
+.well-channel-icon svg {
+    width: 18px;
+    height: 18px;
+}
+/* Центр — статус — всегда занимает 2 строки одинаковой высоты */
+.well-header-badge--status {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    /* вот это решает проблему */
+    white-space: normal !important;
+    text-align: center;
+    line-height: 1.15;
+
+    /* фиксированная высота, чтобы ВСЕ плитки были одинаковые */
+    min-height: 34px;   /* подгоняем точно под 2 строки */
+    max-height: 34px;
+    overflow: hidden;
+}
+.well-header-grid {
+    display: grid;
+    grid-template-columns: .5fr 3fr .5fr;
+    column-gap: 8px;
+    align-items: start;
+}
+
+.well-header-col {
+    width: 100%;
+}
+
+/* Контейнер под иконку */
+.channel-icon-wrapper {
+    width: 50%;
+    margin: 4px auto 0 auto;      /* по центру */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Сама иконка */
+.channel-icon {
+    width: 100%;      /* ровно половина ширины плитки канала */
+    height: auto;
+    opacity: 0.9;     /* слегка приглушенная */
+}
+
+.channel-icon {
+    width: 50%;
+    display: block;
+    margin: 4px auto 0 auto;   /* центрируем */
+}
+
+
+/* === Блок оборудования внутри плитки === */
+.well-equipment-box {
+    background: #f8fafc;              /* светлый фон */
+    border: 1px solid #e2e8f0;        /* тонкая рамка */
+    border-radius: 10px;
+    padding: 8px 10px;
+    margin-top: 10px;
+}
+
+/* заголовок + линия снизу */
+.equipment-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin-bottom: 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #d1d5db;
+}
+
+/* сетка 4 × N */
+.equipment-badges {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+}
+
+/* каждая иконка */
+.equipment-badge {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+/* фиксированный размер иконок */
+/*.well-equipment-box .equipment-icon {*/
+/*    width: 50px !important;*/
+/*    height: 50px !important;*/
+/*    object-fit: contain;*/
+/*}*/
+/*.well-equipment-box .equipment-icon,*/
+/*.equipment-badge img,*/
+/*.well-tile__equipment img {*/
+/*    width: 80% !important;*/
+/*    height: auto !important;*/
+/*    max-height: 80px !important; !* ограничитель *!*/
+/*}*/
+
+/* подпись */
+.equipment-label {
+    margin-top: 3px;
+    font-size: 0.75rem;
+    line-height: 1.1;
+}
+
+/* если оборудования нет */
+.equipment-empty {
+    padding: 6px 2px;
+    font-size: 0.85rem;
+    text-align: center;
+    color: #6b7280;
+}
+/* ===== Жёсткая изоляция размеров иконок ===== */
+.equipment-badge img,
+.well-tile__equipment img {
+    width: 50px !important;
+    height: 50px !important;
+    max-width: 50px !important;
+    max-height: 50px !important;
+    flex-shrink: 0 !important;
+    object-fit: contain !important;
+}
+
+
+.equipment-badge {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+/* --- Компаактная карточка заметок --- */
+#notes-card {
+    padding-top: 16px;
+    padding-bottom: 16px;
+}
+
+/* Строки формы ближе друг к другу */
+#notes-card .form-row,
+#notes-card .form-group {
+    margin-bottom: 8px;
+}
+
+/* Кнопка "Добавить запись" чуть ближе к низу */
+#notes-card .btn,
+#notes-card button {
+    margin-top: 8px;
+    margin-bottom: 4px;
+}
+
+/* --- Строчный вид истории заметок --- */
+#notes-card .notes-history {
+    margin-top: 8px;
+}
+
+#notes-card .note-item {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 2px 0;
+}
+
+#notes-card .note-date {
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+#notes-card .note-sep {
+    flex: 0 0 auto;
+}
+
+#notes-card .note-text {
+    flex: 1 1 auto;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;  /* если текст длинный — обрежется с … */
+    color: #4b5563;           /* чуть светлее, если используешь tailwind — ~ text-gray-600 */
+    font-size: 0.95rem;
+}
+
+/* === Цвета событий в таблице: фон обычный, красим только колонку "Тип" === */
+
+/* 0. Убираем любые фоны и полоски слева у всех строк таблицы событий */
+.events-table tr {
+  background: transparent !important;
+  border-left: none !important;
+}
+
+/* 1. Базовый цвет текста для всех ячеек */
+.events-table td {
+  color: #333 !important;
+}
+
+/* 2. Красим ТОЛЬКО колонку "Тип".
+   Здесь предполагаем, что "Тип" — это ВТОРАЯ колонка в таблице.
+   Если у тебя она третья — поменяешь на :nth-child(3)
+*/
+
+/* Реагент */
+.events-table tr.events-table__row--reagent td:nth-child(2),
+.events-table tr[data-event-type="reagent"] td:nth-child(2) {
+  color: #e53935 !important;
+  font-weight: 700;
+}
+
+/* Давление */
+.events-table tr.events-table__row--pressure td:nth-child(2),
+.events-table tr[data-event-type="pressure"] td:nth-child(2) {
+  color: #3949ab !important;
+  font-weight: 700;
+}
+
+/* Продувка */
+.events-table tr.events-table__row--purge td:nth-child(2),
+.events-table tr[data-event-type="purge"] td:nth-child(2) {
+  color: #ffa000 !important;
+  font-weight: 700;
+}
+
+/* Оборудование */
+.events-table tr.events-table__row--equip td:nth-child(2),
+.events-table tr[data-event-type="equip"] td:nth-child(2) {
+  color: #43a047 !important;
+  font-weight: 700;
+}
+
+/* Прочее / заметка */
+.events-table tr.events-table__row--other td:nth-child(2),
+.events-table tr.events-table__row--note  td:nth-child(2),
+.events-table tr[data-event-type="other"] td:nth-child(2),
+.events-table tr[data-event-type="note"]  td:nth-child(2) {
+  color: #9e9e9e !important;
+  font-weight: 600;
+}
+
+.events-date-separator td {
+    background: rgba(0,0,0,0.03);        /* мягкий нейтральный фон */
+    font-weight: 600;
+    color: #374151;
+    border-top: 1px solid #e5e7eb;
+    border-bottom: 1px solid #e5e7eb;
+    padding: 6px 10px;
+    font-size: 14px;
+}
+
+.events-date-separator__icon {
+    margin-right: 6px;
+    opacity: 0.7;
+    font-size: 15px;
+}
+
+
+/*!* Иконки оборудования на странице WELL — жёсткий размер *!*/
+.well-eq-icon {
+    width: 60px !important;
+    height: 60px !important;
+    max-width: 60px !important;
+    max-height: 60px !important;
+    object-fit: contain !important;
+    display: block;
+    flex-shrink: 0;
+}

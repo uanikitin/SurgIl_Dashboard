@@ -1,0 +1,47 @@
+[
+    {
+    "code": "status-watch",
+    "label": "Наблюдение",
+    "color": "#007bff",
+    "icon": "status-watch.svg"
+  },
+  {
+    "code": "status-adapt",
+    "label": "Адаптация",
+    "color": "#17a2b8",
+    "icon": "status-adapt.svg"
+  },
+  {
+    "code": "status-opt",
+    "label": "Оптимизация",
+    "color": "#28a745",
+    "icon": "status-opt.svg"
+  },
+  {
+    "code": "status-dev",
+    "label": "Освоение",
+    "color": "#ffc107",
+    "icon": "status-dev.svg"
+  },
+  {
+    "code": "status-off",
+    "label": "Не обслуживается",
+    "color": "#6c757d",
+    "icon": "status-off.svg"
+  },
+  {
+    "code": "status-idle",
+    "label": "Простой",
+    "color": "#fd7e14",
+    "icon": "status-idle.svg"
+  },
+  {
+    "code": "status-other",
+    "label": "Другое",
+    "color": "#343a40",
+    "icon": "status-other.svg"
+  }
+]
+
+
+

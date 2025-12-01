@@ -1,0 +1,584 @@
+
+
+{% extends "base.html" %}
+
+{% block title %}СУРГИЛ · Визуализация скважин{% endblock %}
+
+{% block extra_head %}
+<link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+>
+{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+    <h1>Скважины</h1>
+</div>
+
+<div class="visual-layout">
+    {# ===== ЛЕВАЯ КОЛОНКА: панель выбора скважин ===== #}
+    <aside class="visual-sidebar">
+        <h2>Выбор скважин</h2>
+
+        <div class="well-search">
+            <input
+                type="text"
+                id="well-search-input"
+                placeholder="Поиск: 1367, 131, ID или часть названия..."
+                oninput="filterWellCheckboxes()"
+            >
+        </div>
+
+        <div class="status-filter">
+            <label for="status-filter-select" class="status-filter__label">
+                Выбор скважин по статусу
+            </label>
+
+            <select id="status-filter-select" class="status-filter-select">
+                <option value="all">Все статусы</option>
+                <option value="status-watch">Наблюдение</option>
+                <option value="status-adapt">Адаптация</option>
+                <option value="status-opt">Оптимизация</option>
+                <option value="status-dev">Освоение</option>
+                <option value="status-off">Не обслуживается</option>
+                <option value="status-idle">Простой</option>
+                <option value="status-other">Другое</option>
+            </select>
+
+            <div class="status-filter__hint">
+                По умолчанию показываются все статусы.
+            </div>
+        </div>
+
+        <form method="get" action="/visual" class="well-filter-form">
+            <div class="well-checkbox-list">
+
+                {# --- порядок и названия статус-групп --- #}
+                {% set status_groups = [
+                    ('status-watch', 'Наблюдение'),
+                    ('status-adapt', 'Адаптация'),
+                    ('status-opt',   'Оптимизация'),
+                    ('status-dev',   'Освоение'),
+                    ('status-off',   'Не обслуживается'),
+                    ('status-idle',  'Простой'),
+                    ('status-other', 'Другое')
+                ] %}
+
+                {# --- сначала группы с заданным статусом --- #}
+                {% for css_code, title in status_groups %}
+                    {% set ns = namespace(have=false) %}
+                    {% for w in all_wells %}
+                        {% if w.current_status_css == css_code %}
+                            {% if not ns.have %}
+                                <div class="status-group">
+                                    <div class="status-group__header">{{ title }}</div>
+                                    {% set ns.have = true %}
+                            {% endif %}
+
+                            <label
+                                class="well-checkbox-item {{ w.current_status_css or '' }}"
+                                data-label="{{ (w.number or w.id)|string }} {{ w.name or '' }} {{ w.current_status or '' }}"
+                                data-status-css="{{ w.current_status_css or '' }}"
+                            >
+                                <input
+                                    type="checkbox"
+                                    name="selected"
+                                    value="{{ w.id }}"
+                                    {% if w.id in selected_ids %}checked{% endif %}
+                                >
+                                <span class="well-checkbox-name">
+                                    Скв {{ w.number or w.id }}
+                                </span>
+                                <span class="well-checkbox-status">
+                                    {% if w.current_status %}
+                                        · {{ w.current_status }}
+                                    {% else %}
+                                        · статус не задан
+                                    {% endif %}
+                                </span>
+                            </label>
+                        {% endif %}
+                    {% endfor %}
+                    {% if ns.have %}
+                        </div> {# закрываем .status-group #}
+                    {% endif %}
+                {% endfor %}
+
+                {# --- отдельный блок "Статус не задан" --- #}
+                {% set ns = namespace(have=false) %}
+                {% for w in all_wells %}
+                    {% if not w.current_status_css %}
+                        {% if not ns.have %}
+                            <div class="status-group">
+                                <div class="status-group__header">Статус не задан</div>
+                                {% set ns.have = true %}
+                        {% endif %}
+
+                        <label
+                            class="well-checkbox-item"
+                            data-label="{{ (w.number or w.id)|string }} {{ w.name or '' }}"
+                            data-status-css=""
+                        >
+                            <input
+                                type="checkbox"
+                                name="selected"
+                                value="{{ w.id }}"
+                                {% if w.id in selected_ids %}checked{% endif %}
+                            >
+                            <span class="well-checkbox-name">
+                                Скв {{ w.number or w.id }}
+                            </span>
+                            <span class="well-checkbox-status">
+                                · статус не задан
+                            </span>
+                        </label>
+                    {% endif %}
+                {% endfor %}
+                {% if ns.have %}
+                    </div>
+                {% endif %}
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn-primary">
+                    Показать выбранные
+                </button>
+                <a href="/visual" class="btn-secondary">
+                    Сбросить выбор
+                </a>
+            </div>
+        </form>
+    </aside>
+
+    {# ===== ПРАВАЯ ЧАСТЬ: плитки выбранных скважин ===== #}
+    <section class="tiles-grid">
+        {% if wells %}
+            {% for w in wells %}
+                <article
+                    class="well-tile"
+                    data-well-id="{{ w.id }}"
+                    data-lat="{{ w.lat or '' }}"
+                    data-lon="{{ w.lon or '' }}"
+                    data-name="Скв {{ w.number or w.id }}"
+                    data-status="{{ w.current_status or '' }}"
+                    data-status-css="{{ w.current_status_css or '' }}"
+                    data-status-start="{{ w.current_status_start.isoformat() if w.current_status_start else '' }}"
+                    data-status-days="{{ w.current_status_days or '' }}"
+                >
+<header class="well-tile__header">
+    <div class="well-header-grid">
+        {# ==== ЛЕВАЯ КОЛОНКА: СКВАЖИНА + ID ==== #}
+        <div class="well-header-col well-header-col--left">
+            <div class="well-header-badge well-header-badge--well well-name-badge {{ w.current_status_css or '' }}">
+                <span class="well-header-badge-line">Скв</span>
+                <span class="well-header-badge-line">{{ w.number or w.id }}</span>
+            </div>
+            <div class="well-header-meta">
+                ID: {{ w.id }}
+            </div>
+        </div>
+
+        {# ==== ЦЕНТРАЛЬНАЯ КОЛОНКА: СТАТУС + ДАТА + СУТКИ ==== #}
+        <div class="well-header-col well-header-col--center">
+            {% if w.current_status %}
+                <div class="well-header-badge well-header-badge--status status-badge {{ w.current_status_css or '' }}">
+                    {{ w.current_status }}
+                </div>
+                <div class="well-header-meta well-header-meta--status">
+                    {% if w.current_status_start %}
+                        c {{ w.current_status_start.strftime("%d.%m.%Y %H:%M") }}<br>
+                    {% endif %}
+                    {% if w.current_status_days is not none %}
+                        <strong>{{ "%.1f"|format(w.current_status_days) }}</strong> сут.
+                    {% endif %}
+                </div>
+            {% else %}
+                <div class="well-header-badge well-header-badge--status well-header-badge--empty">
+                    статус не задан
+                </div>
+            {% endif %}
+        </div>
+
+              {# ==== ПРАВАЯ КОЛОНКА: КАНАЛ СВЯЗИ ==== #}
+        <div class="well-header-col well-header-col--right">
+            {% if w.current_channel %}
+                <div class="well-header-badge well-header-badge--channel well-name-badge">
+                    <span class="well-header-badge-line">Канал</span>
+                    <span class="well-header-badge-line">{{ w.current_channel }}</span>
+                </div>
+
+                {# Иконка под плиткой канала (только если канал есть) #}
+                <div class="channel-icon-wrapper">
+                    <img
+                        src="{{ url_for('static', path='icons/pngegg-2.png') }}"
+                        class="channel-icon"
+                        alt="Канал связи"
+                    >
+                </div>
+            {% else %}
+                {# Плейсхолдер без иконки, чтобы высота колонки не прыгала #}
+                <div class="well-header-badge well-header-badge--channel well-name-badge well-header-badge--empty">
+                    <span class="well-header-badge-line">Канал</span>
+                    <span class="well-header-badge-line">—</span>
+                </div>
+            {% endif %}
+        </div>
+</header>
+
+                    <div class="well-tile__coords">
+    {% if w.lat is not none and w.lon is not none %}
+        Координаты: {{ "%.6f"|format(w.lat) }}, {{ "%.6f"|format(w.lon) }}
+    {% else %}
+        Координаты не заданы
+    {% endif %}
+</div>
+{# ==== БЛОК ОБОРУДОВАНИЯ НА ПЛИТКЕ ==== #}
+<div class="well-equipment-box">
+
+    <div class="equipment-title">
+        Установленное оборудование
+    </div>
+
+    {% if w.equipment_active %}
+        <div class="equipment-badges">
+            {% for eq in w.equipment_active %}
+                {% set conf = equipment_by_code.get(eq.type_code) %}
+                {% if conf %}
+                    <div class="equipment-badge">
+                        <img
+                            src="{{ url_for('static', path='icons/' ~ conf.icon) }}"
+                            class="equipment-icon"
+                            alt="{{ conf.label }}"
+                        >
+                        <div class="equipment-label">
+                            {{ conf.short or conf.label }}
+                        </div>
+                    </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="equipment-empty muted">
+            Оборудование не установлено
+        </div>
+    {% endif %}
+
+</div>
+
+                    <div class="well-tile__description">
+                        {{ w.description or "Описание не задано" }}
+                    </div>
+
+                         <div class="well-tile__stats">
+                            {# ---- СЕГОДНЯ ---- #}
+                            <div class="well-tile__stats-row">
+                                <span>События за сегодня:</span>
+                                <strong>{{ w.events_today_total or 0 }}</strong>
+                            </div>
+
+                            {# время обновления страницы (время запроса в БД) #}
+                            <div class="well-tile__stats-row">
+                                <span class="muted">Обновлено:</span>
+                                <span class="muted">
+                                    {{ updated_at.strftime("%d.%m.%Y %H:%M:%S") }}
+                                </span>
+                            </div>
+
+                            <div class="well-tile__stats-row">
+                                <span>Вбросы реагента (сегодня):</span>
+                                <strong>{{ w.events_today_reagents or 0 }}</strong>
+                                {% if w.events_today_reagent_qty is not none %}
+                                    <span class="muted">
+                                        ({{ "%.1f"|format(w.events_today_reagent_qty or 0.0) }} шт)
+                                    </span>
+                                {% endif %}
+                            </div>
+
+                            <div class="well-tile__stats-row">
+                                <span>Замеры давления (сегодня):</span>
+                                <strong>{{ w.events_today_pressure or 0 }}</strong>
+                            </div>
+
+                            <div class="well-tile__stats-row">
+                                <span>Типы реагентов (сегодня):</span>
+                                <strong>{{ w.events_today_reagent_types or "—" }}</strong>
+                            </div>
+
+                            {# ---- РАЗДЕЛИТЕЛЬ ---- #}
+                            <hr style="border:0; border-top:1px solid #eee; margin: 6px 0;">
+
+                            {# ---- ВЧЕРА ---- #}
+                            <div class="well-tile__stats-row">
+                                <span>События за вчера:</span>
+                                <strong>{{ w.events_yesterday_total or 0 }}</strong>
+                            </div>
+
+                            <div class="well-tile__stats-row">
+                                <span>Типы реагентов за вчера:</span>
+                                <strong>{{ w.events_yesterday_reagent_types or "—" }}</strong>
+                            </div>
+                        </div>
+
+                    <footer class="well-tile__footer">
+                        <button type="button" onclick="openWellPage({{ w.id }})">
+                            Открыть скважину
+                        </button>
+                    </footer>
+                </article>
+            {% endfor %}
+        {% else %}
+            <p>
+                Нет скважин для отображения.
+                Отметь нужные слева и нажми «Показать выбранные».
+            </p>
+        {% endif %}
+    </section>
+</div>
+
+{# ===== БЛОК КАРТЫ ПОД ПЛИТКАМИ ===== #}
+<div class="map-block">
+    <h2>Карта скважин</h2>
+
+    <div id="map-status-summary" class="map-status-summary"></div>
+
+    <div id="wells-map"></div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+></script>
+
+<script>
+  // ==== Переход на страницу скважины из кнопки на плитке ====
+  function openWellPage(id) {
+    if (!id) return;
+    window.location.href = "/well/" + id;
+  }
+
+  // ==== Фильтр чекбоксов по строке поиска ====
+  function filterWellCheckboxes() {
+    const input = document.getElementById("well-search-input");
+    const term = (input?.value || "").toLowerCase().trim();
+    const items = document.querySelectorAll(".well-checkbox-item");
+
+    items.forEach(item => {
+      const label = (item.dataset.label || "").toLowerCase();
+      item.style.display = label.includes(term) ? "" : "none";
+    });
+  }
+
+  // ==== Фильтр плиток по статусу (выпадающий список, с сохранением выбора) ====
+
+  const STATUS_FILTER_KEY = "surgil_status_filter_select";
+
+  function getSelectedStatusValue() {
+    const select = document.getElementById("status-filter-select");
+    if (!select) return "all";
+    return select.value || "all";
+  }
+
+  function saveStatusFilterToStorage() {
+    const value = getSelectedStatusValue();
+    try {
+      localStorage.setItem(STATUS_FILTER_KEY, value);
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  function loadStatusFilterFromStorage() {
+    try {
+      const raw = localStorage.getItem(STATUS_FILTER_KEY);
+      return raw || "all";
+    } catch (e) {
+      return "all";
+    }
+  }
+
+  function applyStatusFilter() {
+    const selected = getSelectedStatusValue();
+    const tiles = document.querySelectorAll(".well-tile");
+
+    if (selected === "all") {
+      tiles.forEach(tile => {
+        tile.style.display = "";
+      });
+      return;
+    }
+
+    tiles.forEach(tile => {
+      const css = tile.dataset.statusCss || "";
+      const classes = css.split(/\s+/).filter(Boolean);
+      const match = classes.includes(selected);
+      tile.style.display = match ? "" : "none";
+    });
+  }
+
+  function initStatusFilter() {
+    const select = document.getElementById("status-filter-select");
+    if (!select) return;
+
+    const stored = loadStatusFilterFromStorage();
+    if (stored && stored !== "all") {
+      select.value = stored;
+    }
+
+    select.addEventListener("change", () => {
+      saveStatusFilterToStorage();
+      applyStatusFilter();
+    });
+
+    applyStatusFilter();
+  }
+
+  // ==== Цвет статуса по CSS-классу через CSS-переменные :root ====
+  function getStatusColor(cssCode) {
+    const cls =
+      (cssCode || "")
+        .split(/\s+/)
+        .find(c => c.startsWith("status-")) || "status-other";
+
+    const varName = `--${cls}-color`;
+
+    const value = getComputedStyle(document.documentElement)
+      .getPropertyValue(varName)
+      .trim();
+
+    return value || "#343a40";
+  }
+
+  // ==== SVG-иконка маркера нужного цвета ====
+  function createStatusIcon(color) {
+    return L.divIcon({
+      className: "custom-status-marker",
+      html: `
+        <svg width="28" height="36" viewBox="0 0 24 24"
+             xmlns="http://www.w3.org/2000/svg">
+          <path fill="${color}"
+                d="M12 2C8 2 5 5 5 9c0 5 7 13 7 13s7-8 7-13c0-4-3-7-7-7z"/>
+          <circle cx="12" cy="9" r="4" fill="#ffffff" />
+        </svg>
+      `,
+      iconSize: [28, 36],
+      iconAnchor: [14, 36],
+      popupAnchor: [0, -30]
+    });
+  }
+
+  function formatStatusStart(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d)) return iso;
+
+    const pad = n => String(n).padStart(2, "0");
+    const day = pad(d.getDate());
+    const month = pad(d.getMonth() + 1);
+    const year = d.getFullYear();
+    const hours = pad(d.getHours());
+    const minutes = pad(d.getMinutes());
+
+    return `${day}.${month}.${year} ${hours}:${minutes}`;
+  }
+
+  // ==== Инициализация карты под плитками ====
+  (function () {
+    const mapEl = document.getElementById("wells-map");
+    if (!mapEl) return;
+
+    const tiles = Array.from(document.querySelectorAll(".well-tile"));
+
+    const wells = tiles
+      .map(tile => {
+        const lat = parseFloat(tile.dataset.lat || "");
+        const lon = parseFloat(tile.dataset.lon || "");
+        if (isNaN(lat) || isNaN(lon)) return null;
+
+        return {
+          lat,
+          lon,
+          id: tile.dataset.wellId || "",
+          name: tile.dataset.name || "",
+          statusCss: tile.dataset.statusCss || "",
+          status: tile.dataset.status || "",
+          statusStart: tile.dataset.statusStart || "",
+          statusDays: tile.dataset.statusDays || ""
+        };
+      })
+      .filter(Boolean);
+
+    if (!wells.length) {
+      mapEl.innerHTML = "Нет скважин с координатами для отображения на карте.";
+      return;
+    }
+
+    const map = L.map("wells-map", {
+      scrollWheelZoom: false
+    });
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap contributors"
+    }).addTo(map);
+
+    const group = L.featureGroup();
+
+    wells.forEach(w => {
+      const color = getStatusColor(w.statusCss);
+      const icon = createStatusIcon(color);
+
+      const marker = L.marker([w.lat, w.lon], { icon });
+
+      let popupHtml = `${w.name}<br>`;
+
+      if (w.status) {
+        popupHtml += `Статус: ${w.status}<br>`;
+        if (w.statusStart) {
+          popupHtml += `с ${formatStatusStart(w.statusStart)}`;
+        }
+        if (w.statusDays) {
+          popupHtml += ` · ${w.statusDays} сут.`;
+        }
+        popupHtml += "<br>";
+      }
+
+      popupHtml += `lat: ${w.lat.toFixed(5)}, lon: ${w.lon.toFixed(5)}`;
+
+      if (w.id) {
+        popupHtml +=
+          `<br><a href="/well/${w.id}" target="_blank">` +
+          `Открыть страницу скважины</a>`;
+      }
+
+      marker.bindPopup(popupHtml);
+
+      marker.bindTooltip(w.name, {
+        direction: "top",
+        offset: [0, -5]
+      });
+
+      group.addLayer(marker);
+    });
+
+    group.addTo(map);
+    try {
+      map.fitBounds(group.getBounds().pad(0.2));
+    } catch (e) {
+      const first = wells[0];
+      map.setView([first.lat, first.lon], 11);
+    }
+  })();
+
+  document.addEventListener("DOMContentLoaded", () => {
+    initStatusFilter();
+  });
+</script>
+{% endblock %}

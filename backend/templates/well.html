@@ -1,0 +1,1780 @@
+{# backend/templates/well.html #}
+{% extends "base.html" %}
+
+{# ---------- Заголовок вкладки браузера ---------- #}
+{% block title %}
+  Скважина: Скв {{ well.number or well.id }}
+{% endblock %}
+
+{# Дополнительные стили только для этой страницы #}
+{% block extra_head %}
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+
+  <style>
+    /* === Жёсткое переопределение оформления таблицы событий на странице скважины === */
+
+    /* 0. Убираем любые подсветки строк и левые полоски */
+    .events-table tr,
+    .events-table__row {
+      background: transparent !important;
+      border-left: none !important;
+    }
+
+    /* 1. Базовый вид всех ячеек */
+    .events-table td {
+      color: #333 !important;
+      font-weight: 400;
+    }
+
+    /* 2. Колонка "Тип" — наша целевая */
+    .events-table__type {
+      font-weight: 600;
+    }
+
+    /* 3. Красим ТОЛЬКО колонку "Тип" по типу события */
+
+    /* реагент */
+    .events-table__row--reagent .events-table__type {
+      color: #e53935 !important;
+      font-weight: 700;
+    }
+
+    /* давление */
+    .events-table__row--pressure .events-table__type {
+      color: #3949ab !important;
+      font-weight: 700;
+    }
+
+    /* продувка */
+    .events-table__row--purge .events-table__type {
+      color: #ffa000 !important;
+      font-weight: 700;
+    }
+
+    /* оборудование */
+    .events-table__row--equip .events-table__type {
+      color: #43a047 !important;
+      font-weight: 700;
+    }
+
+    /* прочее / заметка */
+    .events-table__row--other .events-table__type,
+    .events-table__row--note  .events-table__type {
+      color: #9e9e9e !important;
+      font-weight: 600;
+    }
+  </style>
+{% endblock %}
+
+{# ---------- Основное содержимое страницы ---------- #}
+{% block content %}
+
+<div class="page-header">
+  <a href="/visual"
+     style="
+       display:inline-flex;
+       align-items:center;
+       gap:10px;
+       padding:8px 14px;
+       border-radius:999px;
+       background:#f3f4f6;
+       border:1px solid #e5e7eb;
+       text-decoration:none;
+       color:#111827;
+       font-size:14px;
+       line-height:1.2;
+     ">
+    <span aria-hidden="true" style="
+      width:24px;
+      height:24px;
+      border-radius:999px;
+      background:#e5e7eb;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    ">
+      <svg viewBox="0 0 20 20" width="14" height="14" style="display:block;">
+        <path d="M12.5 4.5L8 9l4.5 4.5"
+              fill="none"
+              stroke="#111827"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              stroke-linejoin="round"/>
+      </svg>
+    </span>
+    <span>Назад к списку скважин</span>
+  </a>
+</div>
+
+<div class="well-header-row">
+  <div>
+    <h1>Скважина: Скв {{ well.number or well.id }}</h1>
+    <p class="well-id">ID в базе: {{ well.id }}</p>
+  </div>
+
+  {# ищем css-класс для текущего статуса по сетке well_status.grid #}
+  {% set ns = namespace(current_css='') %}
+  {% if well_status and well_status.current_status and well_status.grid %}
+    {% for col in well_status.grid %}
+      {% if col.label == well_status.current_status %}
+        {% set ns.current_css = col.css %}
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+  {% set current_css = ns.current_css %}
+</div>
+
+{# ===== ВЕРХНЯЯ СЕТКА: СТАТУС + КАНАЛ + ОБОРУДОВАНИЕ + КОНСТРУКЦИЯ + КАРТА ===== #}
+{% if well_construction or (well.lat is not none and well.lon is not none) %}
+<div
+  style="
+    display:grid;
+    grid-template-columns:25% 15% 60%;
+    gap:12px 16px;
+    margin:16px 0 24px;
+    align-items:stretch;
+    box-sizing:border-box;
+  "
+>
+
+  {# === РЯД 1, КОЛОНКА 1: ТЕКУЩИЙ СТАТУС === #}
+  <div style="height:100%;">
+    {% if well_status and well_status.current_status %}
+      <div
+        class="status-card {{ current_css }}"
+        style="
+          height:100%;
+          border-radius:12px;
+          padding:10px 14px;
+          box-sizing:border-box;
+          display:flex;
+          flex-direction:column;
+        "
+      >
+        <div style="
+          font-size:11px;
+          text-transform:uppercase;
+          font-weight:700;
+          letter-spacing:0.05em;
+          opacity:0.9;
+        ">
+          Текущий статус
+        </div>
+
+        <div style="font-size:20px; font-weight:800; margin-top:4px;">
+          {{ well_status.current_status }}
+        </div>
+
+        {% if well_status.current_note %}
+          <div style="font-size:11px; margin-top:4px; opacity:0.9;">
+            {{ well_status.current_note }}
+          </div>
+        {% endif %}
+
+        {% if well_status.current_start %}
+          <div style="font-size:10px; margin-top:auto; opacity:0.8;">
+            С {{ well_status.current_start.strftime("%d.%m.%Y %H:%M") }}
+            {% if well_status.current_end %}
+              по {{ well_status.current_end.strftime("%d.%m.%Y %H:%M") }}
+            {% else %}
+              по настоящее время
+            {% endif %}
+          </div>
+        {% endif %}
+      </div>
+    {% else %}
+      <div
+        style="
+          height:100%;
+          background:#f3f4f6;
+          border-radius:12px;
+          padding:10px 14px;
+          border:1px dashed #d1d5db;
+          box-sizing:border-box;
+          display:flex;
+          flex-direction:column;
+          justify-content:center;
+          color:#6b7280;
+        "
+      >
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.05em;">
+          Текущий статус
+        </div>
+        <div style="font-size:16px; margin-top:4px; font-weight:700;">
+          Не задан
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+  {# === РЯД 1, КОЛОНКА 2: КАНАЛ СВЯЗИ === #}
+  <div style="height:100%;">
+    {% if channel_current %}
+      <div
+        style="
+          height:100%;
+          background:#e0f2fe;
+          border-radius:12px;
+          padding:10px 14px;
+          border:1px solid #bfdbfe;
+          box-sizing:border-box;
+          display:flex;
+          flex-direction:column;
+        "
+      >
+        <div style="
+            font-size:11px;
+            text-transform:uppercase;
+            color:#2563eb;
+            font-weight:700;
+            letter-spacing:0.05em;
+        ">
+          Канал связи
+        </div>
+
+        {# увеличенный шрифт номера канала #}
+        <div style="font-size:26px; font-weight:800; margin-top:4px; color:#1d4ed8;">
+          {{ channel_current.channel }}
+        </div>
+
+        {% if channel_current.note %}
+          <div style="font-size:11px; margin-top:4px; color:#374151;">
+            {{ channel_current.note }}
+          </div>
+        {% endif %}
+
+        {% if channel_current.started_at %}
+          <div style="font-size:10px; margin-top:auto; color:#6b7280;">
+            с {{ channel_current.started_at.strftime("%d.%m.%Y %H:%M") }}
+          </div>
+        {% endif %}
+      </div>
+    {% else %}
+      <div
+        style="
+          height:100%;
+          background:#f3f4f6;
+          border-radius:12px;
+          padding:10px 14px;
+          border:1px dashed #d1d5db;
+          box-sizing:border-box;
+          display:flex;
+          flex-direction:column;
+          justify-content:center;
+          color:#6b7280;
+        "
+      >
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.05em;">
+          Канал связи
+        </div>
+        <div style="font-size:14px; margin-top:4px; font-weight:600;">
+          Не задан
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+  {# === РЯД 1, КОЛОНКА 3: ОБОРУДОВАНИЕ (совпадает по колонке с картой) === #}
+  <div style="height:100%;">
+    <div style="margin-bottom:4px;">
+      <h2 style="margin:0; font-size:14px; font-weight:/* Иконки оборудования на странице WELL — жёсткий размер */
+.well-eq-icon {
+    width: 56px !important;
+    height: 56px !important;
+    max-width: 56px !important;
+    max-height: 56px !important;
+    object-fit: contain !important;
+    display: block;
+    flex-shrink: 0;
+}00;">Оборудование</h2>
+    </div>
+
+    {% if current_equipment %}
+      <div
+        style="
+          height:100%;
+          display:flex;
+          flex-wrap:wrap;
+          gap:8px;
+          align-content:flex-start;
+          overflow-y:auto;
+          padding-right:4px;
+          box-sizing:border-box;
+        "
+      >
+        {% for eq in current_equipment %}
+          {% set eq_type = equipment_by_code.get(eq.type_code) %}
+          <div
+            style="
+              background:#fffbeb;         /* если захочешь только рамку — поменяй на background:transparent; */
+              border-radius:12px;
+              padding:12px 12px;
+              border:1px solid #fcd34d;
+              min-width:230px;
+              max-width:260px;
+              box-sizing:border-box;
+              display:flex;
+              align-items:flex-start;
+              gap:8px;
+              font-size:12px;
+            "
+          >
+            <div style="flex:1 1 auto;">
+              <div style="
+                  font-size:11px;
+                  text-transform:uppercase;
+                  color:#b45309;
+                  font-weight:700;
+                  letter-spacing:0.05em;
+              ">
+                {{ eq_type.label if eq_type else eq.type_code }}
+              </div>
+
+              <div style="font-size:14px; font-weight:700; margin-top:2px; color:#92400e;">
+                SN: {{ eq.serial_number or "—" }}
+              </div>
+
+              {% if eq.channel %}
+                <div style="font-size:11px; margin-top:2px; color:#78350f;">
+                  Канал: {{ eq.channel }}
+                </div>
+              {% endif %}
+
+              {% if eq.installed_at %}
+                <div style="font-size:10px; margin-top:2px; color:#6b7280;">
+                  Устан.: {{ eq.installed_at.strftime("%d.%m.%Y %H:%M") }}
+                </div>
+              {% endif %}
+
+              {% if eq.note %}
+                <div style="font-size:11px; margin-top:2px; color:#4b5563;">
+                  {{ eq.note }}
+                </div>
+              {% endif %}
+            </div>
+
+<!--            {% if eq_type and eq_type.icon %}-->
+<!--              <div style="flex:0 0 auto;">-->
+<!--                <img-->
+<!--                  src="{{ url_for('static', path='icons/' ~ eq_type.icon) }}"-->
+<!--                  alt="{{ eq_type.label }}"-->
+<!--                  style="width:60px; height:60px; object-fit:contain;"-->
+<!--                >-->
+<!--              </div>-->
+                        {% if eq_type and eq_type.icon %}
+              <div style="flex:0 0 auto;">
+                <img
+                  src="{{ url_for('static', path='icons/' ~ eq_type.icon) }}"
+                  alt="{{ eq_type.label }}"
+                  class="well-eq-icon"
+                >
+              </div>
+            {% endif %}
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p style="font-size:12px; color:#6b7280; margin:0;">
+        Активное оборудование не установлено.
+      </p>
+    {% endif %}
+  </div>
+
+  {# === РЯД 2, КОЛОНКИ 1–2: КОНСТРУКЦИЯ СКВАЖИНЫ === #}
+  <div
+    style="
+      grid-column:1 / span 2;
+      background:#f9fafb;
+      border-radius:16px;
+      padding:16px 18px;
+      border:1px solid #e5e7eb;
+      box-shadow:0 4px 10px rgba(15,23,42,0.06);
+      min-height:260px;
+      display:flex;
+      flex-direction:column;
+    "
+  >
+    <h2 style="margin-top:0; margin-bottom:12px; font-size:18px; font-weight:700;">
+      Конструкция скважины
+    </h2>
+
+    {% if well_construction %}
+      {# — твой прежний блок с параметрами конструкции и таблицей перфорации — #}
+      <div style="display:grid; grid-template-columns:auto 1fr; gap:6px 16px; font-size:13px;">
+
+        <div style="font-weight:600; color:#374151;">Диаметр эксплуатационной колонны, мм:</div>
+        <div>
+          {% set v = well_construction["prod_casing_diam_mm"] %}
+          {% if v is not none and v == v %}{{ v }}{% else %}-{% endif %}
+        </div>
+
+        <div style="font-weight:600; color:#374151;">Глубина спуска эксплуатационной колонны, м:</div>
+        <div>
+          {% set v = well_construction["prod_casing_depth_m"] %}
+          {% if v is not none and v == v %}{{ v }}{% else %}-{% endif %}
+        </div>
+
+        <div style="font-weight:600; color:#374151;">Текущий забой, м:</div>
+        <div>
+          {% set v = well_construction["current_bottomhole_m"] %}
+          {% if v is not none and v == v %}{{ v }}{% else %}-{% endif %}
+        </div>
+
+        <div style="font-weight:600; color:#374151;">Горизонт:</div>
+        <div>
+          {% set v = well_construction["horizon"] %}
+          {% if v is not none and v == v %}{{ v }}{% else %}-{% endif %}
+        </div>
+
+        <div style="font-weight:600; color:#374151;">Диаметр НКТ, мм:</div>
+        <div>
+          {% set v = well_construction["tubing_diam_mm"] %}
+          {% if v is not none and v == v %}{{ v }}{% else %}-{% endif %}
+        </div>
+
+        <div style="font-weight:600; color:#374151;">Глубина башмака НКТ, м:</div>
+        <div>
+          {% set v = well_construction["tubing_shoe_depth_m"] %}
+          {% if v is not none and v == v %}{{ v }}{% else %}-{% endif %}
+        </div>
+
+        <div style="font-weight:600; color:#374151;">Глубина пакера, м:</div>
+        <div>
+          {% set v = well_construction["packer_depth_m"] %}
+          {% if v is not none and v == v %}{{ v }}{% else %}-{% endif %}
+        </div>
+
+        <div style="font-weight:600; color:#374151;">Глубина переводника, м:</div>
+        <div>
+          {% set v = well_construction["adapter_depth_m"] %}
+          {% if v is not none and v == v %}{{ v }}{% else %}-{% endif %}
+        </div>
+
+        <div style="font-weight:600; color:#374151;">Глубина непрохода шаблона, м:</div>
+        <div>
+          {% set v = well_construction["pattern_stuck_depth_m"] %}
+          {% if v is not none and v == v %}{{ v }}{% else %}-{% endif %}
+        </div>
+
+        <div style="font-weight:600; color:#374151;">Диаметр штуцера, мм:</div>
+        <div>
+          {% set v = well_construction["choke_diam_mm"] %}
+          {% if v is not none and v == v %}{{ v }}{% else %}-{% endif %}
+        </div>
+
+        <div style="font-weight:600; color:#374151;">Дата актуализации:</div>
+        <div>
+          {% set v = well_construction["data_as_of"] %}
+          {% if v is not none and v == v %}{{ v }}{% else %}-{% endif %}
+        </div>
+      </div>
+
+      {% if perforation_intervals and perforation_intervals|length > 0 %}
+        <h3 style="margin-top:16px; margin-bottom:6px; font-size:14px; font-weight:600;">
+          Интервалы перфорации
+        </h3>
+        <table class="table-history" style="font-size:12px;">
+          <thead>
+            <tr>
+              <th>№</th>
+              <th>Сверху, м</th>
+              <th>Снизу, м</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in perforation_intervals %}
+              <tr>
+                <td>{{ p.interval_index }}</td>
+                <td>{{ p.top_depth_m }}</td>
+                <td>{{ p.bottom_depth_m }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p style="margin-top:10px; color:#6b7280; font-size:13px;">
+          Интервалы перфорации не указаны.
+        </p>
+      {% endif %}
+    {% else %}
+      <div style="margin-top:8px; font-size:13px; color:#6b7280;">
+        Конструкция скважины не заполнена.
+      </div>
+    {% endif %}
+  </div>
+
+  {# === РЯД 2, КОЛОНКА 3: КАРТА / ПРИВЯЗКА === #}
+  <div
+    style="
+      background:#f9fafb;
+      border-radius:16px;
+      padding:12px 12px 16px;
+      border:1px solid #e5e7eb;
+      box-shadow:0 4px 10px rgba(15,23,42,0.06);
+      min-height:260px;
+      display:flex;
+      flex-direction:column;
+    "
+  >
+    {% if well.lat is not none and well.lon is not none %}
+      <div style="
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+        margin-bottom:8px;
+      ">
+        <h2 style="margin:0; font-size:18px; font-weight:700;">
+          Карта / привязка
+        </h2>
+        <div style="font-size:12px; color:#6b7280;">
+          Lat: {{ well.lat }} · Lon: {{ well.lon }}
+        </div>
+      </div>
+
+      <div id="well-map"
+           style="flex:1 1 auto; min-height:260px; border-radius:12px; overflow:hidden;">
+      </div>
+    {% else %}
+      <div style="
+        flex:1 1 auto;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        font-size:14px;
+        color:#6b7280;
+      ">
+        Координаты скважины не заданы.
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endif %}
+
+
+      <article class="card">
+      <h2>Статистика по событиям</h2>
+
+      <form method="get" class="events-filter">
+        <div class="events-filter__row">
+          <label for="preset">Период:</label>
+          <select id="preset" name="preset">
+            <option value="all"   {% if preset == 'all' %}selected{% endif %}>С начала базы</option>
+            <option value="day"   {% if preset == 'day' %}selected{% endif %}>Последние сутки</option>
+            <option value="month" {% if preset == 'month' %}selected{% endif %}>Последний месяц</option>
+            <option value="custom" {% if preset == 'custom' %}selected{% endif %}>Произвольный период</option>
+          </select>
+
+          <label for="start">с</label>
+          <input type="date" id="start" name="start" value="{{ start_date_value or '' }}">
+
+          <label for="end">по</label>
+          <input type="date" id="end" name="end" value="{{ end_date_value or '' }}">
+
+          <button type="submit">Показать</button>
+        </div>
+      </form>
+
+            {% if stats %}
+        <div class="events-stats-cards">
+          <div class="events-stats-card events-stats-card--reagent">
+            <div class="events-stats-card__title">Вбросов реагента</div>
+            <div class="events-stats-card__value">
+              {{ stats.summary.total_reagent_injections }}
+            </div>
+            <div class="events-stats-card__sub">
+              Всего реагента:
+              {{ "%.2f"|format(stats.summary.total_reagent_qty) }}
+            </div>
+          </div>
+
+          <div class="events-stats-card events-stats-card--purge">
+            <div class="events-stats-card__title">Продувок</div>
+            <div class="events-stats-card__value">
+              {{ stats.summary.total_purges }}
+            </div>
+          </div>
+
+          <div class="events-stats-card events-stats-card--pressure">
+            <div class="events-stats-card__title">Замеров давления</div>
+            <div class="events-stats-card__value">
+              {{ stats.summary.total_measurements }}
+            </div>
+          </div>
+
+          <div class="events-stats-card events-stats-card--interval">
+            <div class="events-stats-card__title">
+              Средний интервал между вбросами
+            </div>
+            <div class="events-stats-card__value">
+              {% if stats.summary.global_avg_interval_hours is not none %}
+                {{ "%.1f"|format(stats.summary.global_avg_interval_hours) }} ч
+              {% else %}
+                —
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <p class="events-stats-period">
+          Период:
+          {% if stats.start %}{{ stats.start.strftime("%d.%m.%Y") }}{% else %}—{% endif %}
+          —
+          {% if stats.end %}{{ stats.end.strftime("%d.%m.%Y") }}{% else %}—{% endif %}
+        </p>
+
+        {% if stats.per_reagent %}
+          <h3>По реагентам</h3>
+          <table class="events-stats-table">
+            <thead>
+              <tr>
+                <th>Реагент</th>
+                <th>Количество вбросов</th>
+                <th>Суммарное количество</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in stats.per_reagent %}
+                <tr>
+                  <td>{{ r.reagent }}</td>
+                  <td>{{ r.injections }}</td>
+                  <td>{{ "%.2f"|format(r.total_qty) }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+      {% else %}
+        <p>Нет данных для расчёта статистики.</p>
+      {% endif %}
+    </article>
+
+    </article>
+
+
+
+
+
+<div class="well-layout">
+  {# Левая часть: карточки информации #}
+  <section class="well-grid">
+    <article class="card" id="notes-card">
+      <h2>Описание / наблюдения</h2>
+
+      <div style="
+        display:grid;
+        grid-template-columns:minmax(0, 2fr) minmax(0, 3fr);
+        gap:16px;
+        align-items:stretch;
+      ">
+
+        {# ===== ЛЕВАЯ ПАНЕЛЬ: добавление / редактирование заметки ===== #}
+        <div style="
+          background:#f9fafb;
+          border-radius:12px;
+          padding:10px 10px;
+          border:1px solid #e5e7eb;
+          display:flex;
+          flex-direction:column;
+          height:100%;
+        ">
+
+          <div style="font-size:13px; color:#4b5563; margin-bottom:10px;">
+            <strong>Текстовое описание скважины:</strong><br>
+            {% if well.description %}
+              <span>{{ well.description }}</span>
+            {% else %}
+              <span style="color:#9ca3af;">Описание пока не задано.</span>
+            {% endif %}
+          </div>
+
+          {# определяем, редактируем ли существующую заметку #}
+          {% if note_edit is defined and note_edit %}
+            {% set current_note = note_edit %}
+          {% else %}
+            {% set current_note = None %}
+          {% endif %}
+
+          <form method="post"
+                action="/well/{{ well.id }}/notes/save"
+                class="well-form">
+
+            <input type="hidden" name="note_id"
+                   value="{% if current_note %}{{ current_note.id }}{% endif %}">
+
+            <div class="form-group" style="margin-bottom:10px;">
+              <label for="noteTimeInput">Дата / время наблюдения</label>
+              <input
+                type="datetime-local"
+                id="noteTimeInput"
+                name="note_time"
+                style="width:50%; max-width:50%; box-sizing:border-box;"
+                value="{% if current_note and current_note.created_at %}{{ current_note.created_at.strftime('%Y-%m-%dT%H:%M') }}{% endif %}"
+              />
+            </div>
+
+            <div class="form-group" style="margin-bottom:10px;">
+              <label for="noteTextInput">Заметка / наблюдение</label>
+              <textarea
+                id="noteTextInput"
+                name="note_text"
+                rows="4"
+                style="width:100%; max-width:100%; box-sizing:border-box; min-height:110px;"
+                placeholder="Например: Наблюдается падение давления, увеличился дебит воды..."
+              >{% if current_note %}{{ current_note.text }}{% endif %}</textarea>
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" class="btn-primary">
+                {% if current_note %}Сохранить изменения{% else %}Добавить запись{% endif %}
+              </button>
+
+              {% if current_note %}
+                <a href="/well/{{ well.id }}#notes-card" class="btn-secondary btn-xs">
+                  Отменить редактирование
+                </a>
+              {% endif %}
+            </div>
+          </form>
+        </div>
+
+        {# ===== ПРАВАЯ ЧАСТЬ: список заметок из базы ===== #}
+        <div style="
+          background:#f9fafb;
+          border-radius:12px;
+          padding:12px 14px;
+          border:1px solid #e5e7eb;
+          max-height:340px;
+          overflow:auto;
+          display:flex;
+          flex-direction:column;
+          height:100%;
+        ">
+<h3 style="margin-top:0; font-size:14px; font-weight:600;">История заметок</h3>
+
+{% if notes is defined and notes %}
+  <div id="notesList"
+       style="display:flex; flex-direction:column; gap:3px;">
+    {% for n in notes %}
+      <div
+        class="note-row"
+        data-note-id="{{ n.id }}"
+        onclick="selectNote({{ n.id }})"
+        style="
+          border-radius:6px;
+          border:1px solid #e5e7eb;
+          padding:3px 6px;
+          background:#ffffff;
+          font-size:12px;
+          line-height:1.2;
+          cursor:pointer;
+          display:flex;
+          align-items:baseline;
+          gap:4px;
+        "
+      >
+        <span style="font-weight:600; color:#111827; white-space:nowrap;">
+          {{ n.created_at.strftime("%d.%m.%Y %H:%M") if n.created_at else "—" }}
+        </span>
+        <span>—</span>
+        <span style="
+          color:#4b5563;
+          white-space:nowrap;
+          overflow:hidden;
+          text-overflow:ellipsis;
+        ">
+          {{ n.text }}
+        </span>
+      </div>
+    {% endfor %}
+  </div>
+
+  <div style="margin-top:6px; display:flex; justify-content:flex-end; gap:8px;">
+    <button type="button"
+            class="btn-secondary btn-xs"
+            onclick="editSelectedNote()">
+      Изменить
+    </button>
+    <button type="button"
+            class="btn-secondary btn-xs danger"
+            onclick="deleteSelectedNote()">
+      Удалить
+    </button>
+  </div>
+
+  <form id="noteDeleteForm" method="post" style="display:none;"></form>
+
+{% else %}
+  <p style="font-size:13px; color:#6b7280;">
+    Для этой скважины ещё нет заметок.
+  </p>
+{% endif %}
+        </div>
+
+      </div>
+    </article>
+
+<!--                 <article class="card">-->
+<!--  <h2>SMOD настройки</h2>-->
+
+<!--  {# -&#45;&#45; ПЛИТКА АКТИВНОГО КАНАЛА -&#45;&#45; #}-->
+<!--  {% if channel_current %}-->
+<!--    <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:20px;">-->
+<!--      <div style="-->
+<!--          background:#e0f2fe;-->
+<!--          border-radius:12px;-->
+<!--          padding:14px 18px;-->
+<!--          border:1px solid #bfdbfe;-->
+<!--          min-width:240px;-->
+<!--      ">-->
+<!--        <div style="-->
+<!--            font-size:12px;-->
+<!--            text-transform:uppercase;-->
+<!--            color:#2563eb;-->
+<!--            font-weight:700;-->
+<!--            letter-spacing:0.05em;-->
+<!--        ">-->
+<!--          КАНАЛ СВЯЗИ-->
+<!--        </div>-->
+
+<!--        <div style="font-size:26px; font-weight:800; margin-top:4px; color:#1d4ed8;">-->
+<!--          {{ channel_current.channel }}-->
+<!--        </div>-->
+
+<!--        {% if channel_current.note %}-->
+<!--          <div style="font-size:13px; margin-top:6px; color:#374151;">-->
+<!--            {{ channel_current.note }}-->
+<!--          </div>-->
+<!--        {% endif %}-->
+
+<!--        {% if channel_current.started_at %}-->
+<!--          <div style="font-size:11px; margin-top:6px; color:#6b7280;">-->
+<!--            Активен с {{ channel_current.started_at.strftime("%d.%m.%Y %H:%M") }}-->
+<!--          </div>-->
+<!--        {% endif %}-->
+<!--      </div>-->
+<!--    </div>-->
+<!--  {% else %}-->
+<!--    <div style="-->
+<!--        background:#f3f4f6;-->
+<!--        border-radius:12px;-->
+<!--        padding:10px 14px;-->
+<!--        border:1px dashed #d1d5db;-->
+<!--        margin-bottom:16px;-->
+<!--        min-width:240px;-->
+<!--    ">-->
+<!--      <span style="font-size:13px; color:#6b7280;">-->
+<!--        КАНАЛ СВЯЗИ НЕ ЗАДАН-->
+<!--      </span>-->
+<!--    </div>-->
+<!--  {% endif %}-->
+
+  <article class="card">
+  <h2>История каналов</h2>
+
+  {% if channel_history %}
+    <div class="events-table-wrapper">
+      <table class="table-history" style="width:80%; table-layout:auto;">
+        <thead>
+          <tr>
+            <th>Канал</th>
+            <th>Начало</th>
+            <th>Окончание</th>
+            <th>Примечание</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ch in channel_history %}
+            <tr
+              class="channel-row"
+              data-channel-id="{{ ch.id }}"
+              onclick="selectChannel({{ ch.id }})"
+            >
+              <td>{{ ch.channel }}</td>
+              <td>{{ ch.started_at.strftime("%d.%m.%Y %H:%M") if ch.started_at else "—" }}</td>
+              <td>
+                {% if ch.ended_at %}
+                  {{ ch.ended_at.strftime("%d.%m.%Y %H:%M") }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>{{ ch.note or "" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div style="margin-top:8px; display:flex; justify-content:flex-end; gap:8px;">
+      <button type="button"
+              class="btn-primary btn-xs"
+              onclick="openChannelModal(null)">
+        Добавить канал
+      </button>
+      <button type="button"
+              class="btn-secondary btn-xs"
+              onclick="editSelectedChannel()">
+        Редактировать
+      </button>
+      <button type="button"
+              class="btn-secondary btn-xs danger"
+              onclick="deleteSelectedChannel()">
+        Удалить
+      </button>
+    </div>
+
+    <form id="channelDeleteForm" method="post" style="display:none;"></form>
+
+  {% else %}
+    <p>Для этой скважины пока нет истории каналов.</p>
+
+    <div style="margin-top:8px; display:flex; justify-content:flex-end;">
+      <button type="button"
+              class="btn-primary btn-xs"
+              onclick="openChannelModal(null)">
+        Добавить канал
+      </button>
+    </div>
+  {% endif %}
+</article>
+
+
+<!--{# ==== ОБОРУДОВАНИЕ НА СКВАЖИНЕ (активные плитки + история) ==== #}-->
+<!--<h2>Оборудование</h2>-->
+
+<!--{% if current_equipment %}-->
+<!--  <div style="display:flex; flex-wrap:wrap; gap:12px; margin-bottom:20px;">-->
+<!--    {% for eq in current_equipment %}-->
+<!--      {% set eq_type = equipment_by_code.get(eq.type_code) %}-->
+<!--      <div style="-->
+<!--          background:#fffbeb;-->
+<!--          border-radius:12px;-->
+<!--          padding:12px 16px;-->
+<!--          border:1px solid #fcd34d;-->
+<!--          min-width:260px;-->
+<!--      ">-->
+
+<!--        <div style="-->
+<!--          display:flex;-->
+<!--          align-items:flex-start;-->
+<!--          justify-content:space-between;-->
+<!--          gap:12px;-->
+<!--        ">-->
+
+<!--          <div style="flex:1 1 auto;">-->
+<!--            <div style="-->
+<!--                font-size:12px;-->
+<!--                text-transform:uppercase;-->
+<!--                color:#b45309;-->
+<!--                font-weight:700;-->
+<!--                letter-spacing:0.05em;-->
+<!--            ">-->
+<!--              {{ eq_type.label if eq_type else eq.type_code }}-->
+<!--            </div>-->
+
+<!--            <div style="font-size:18px; font-weight:700; margin-top:4px; color:#92400e;">-->
+<!--              SN: {{ eq.serial_number or "—" }}-->
+<!--            </div>-->
+
+<!--            {% if eq.channel %}-->
+<!--              <div style="font-size:12px; margin-top:4px; color:#78350f;">-->
+<!--                Канал связи: {{ eq.channel }}-->
+<!--              </div>-->
+<!--            {% endif %}-->
+
+<!--            {% if eq.installed_at %}-->
+<!--              <div style="font-size:11px; margin-top:4px; color:#6b7280;">-->
+<!--                Установлен: {{ eq.installed_at.strftime("%d.%m.%Y %H:%M") }}-->
+<!--              </div>-->
+<!--            {% endif %}-->
+
+<!--            {% if eq.note %}-->
+<!--              <div style="font-size:12px; margin-top:4px; color:#4b5563;">-->
+<!--                {{ eq.note }}-->
+<!--              </div>-->
+<!--            {% endif %}-->
+<!--          </div>-->
+
+<!--          {% if eq_type and eq_type.icon %}-->
+<!--            <div style="flex:0 0 auto; margin-left:8px;">-->
+<!--              <img-->
+<!--                src="{{ url_for('static', path='icons/' ~ eq_type.icon) }}"-->
+<!--                alt="{{ eq_type.label }}"-->
+<!--                style="width:60px; height:60px; object-fit:contain;"-->
+<!--              >-->
+<!--            </div>-->
+<!--          {% endif %}-->
+
+<!--        </div>-->
+<!--      </div>-->
+<!--    {% endfor %}-->
+<!--  </div>-->
+<!--{% else %}-->
+<!--  <p>Активное оборудование не установлено.</p>-->
+<!--{% endif %}-->
+
+<article class="card">
+  <h2>История оборудования</h2>
+
+  {% if equipment_history %}
+    <div class="events-table-wrapper">
+      <table class="table-history" style="width:80%; table-layout:auto;">
+        <thead>
+          <tr>
+            <th>Тип</th>
+            <th>SN</th>
+            <th>Установлено</th>
+            <th>Демонтировано</th>
+            <th>Примечание</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for eq in equipment_history %}
+            {% set eq_type = equipment_by_code.get(eq.type_code) %}
+            <tr
+              class="equipment-row"
+              data-equipment-id="{{ eq.id }}"
+              onclick="selectEquipment({{ eq.id }})"
+            >
+              <td>{{ eq_type.label if eq_type else eq.type_code }}</td>
+              <td>{{ eq.serial_number or "—" }}</td>
+              <td>
+                {% if eq.installed_at %}
+                  {{ eq.installed_at.strftime("%d.%m.%Y %H:%M") }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                {% if eq.removed_at %}
+                  {{ eq.removed_at.strftime("%d.%m.%Y %H:%M") }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>{{ eq.note or "" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div style="margin-top:8px; display:flex; justify-content:flex-end; gap:8px;">
+      <button type="button"
+              class="btn-primary btn-xs"
+              onclick="openEquipmentModal(null)">
+        Добавить
+      </button>
+      <button type="button"
+              class="btn-secondary btn-xs"
+              onclick="editSelectedEquipment()">
+        Редактировать
+      </button>
+      <button type="button"
+              class="btn-secondary btn-xs danger"
+              onclick="deleteSelectedEquipment()">
+        Удалить
+      </button>
+    </div>
+
+    <form id="equipmentDeleteForm" method="post" style="display:none;"></form>
+
+  {% else %}
+    <p>История оборудования отсутствует.</p>
+
+    <div style="margin-top:8px; display:flex; justify-content:flex-end;">
+      <button type="button"
+              class="btn-primary btn-xs"
+              onclick="openEquipmentModal(null)">
+        Добавить оборудование
+      </button>
+    </div>
+  {% endif %}
+</article>
+
+
+       {# === БЛОК: История статусов плитками === #}
+    <article class="card">
+      <h2>История статусов</h2>
+
+      {% if well_status and well_status.grid %}
+        <div class="status-grid">
+          {# Одна колонка = один тип статуса (Наблюдение, Адаптация, ...) #}
+          {% for col in well_status.grid %}
+            <div class="status-column">
+              <div class="status-column-header {{ col.css }}">
+                {{ col.label }}
+              </div>
+
+              {# строки внутри колонки = отдельные периоды этого статуса #}
+                            {% for st in col["items"] %}
+                <div class="status-card {{ col.css }}">
+                  <div class="status-card-dates">
+                    {{ st.start.strftime("%d.%m.%Y %H:%M") }} —
+                    {% if st.end %}
+                      {{ st.end.strftime("%d.%m.%Y %H:%M") }}
+                    {% else %}
+                      по настоящее время
+                    {% endif %}
+                  </div>
+                  <div class="status-card-days">
+                    {{ st.days }} сут.
+                  </div>
+
+                  <div class="status-card-actions">
+                    <a href="/well/{{ well.id }}?edit_status={{ st.id }}#status-form"
+                       class="btn-secondary btn-xs">
+                      Редактировать
+                    </a>
+
+                    <form
+                      method="post"
+                      action="/well/{{ well.id }}/status/{{ st.id }}/delete"
+                      onsubmit="return confirm('Удалить этот статус?');"
+                      style="display:inline;"
+                    >
+                      <button type="submit" class="btn-danger btn-xs">
+                        Удалить
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p>Для этой скважины ещё не задана история статусов.</p>
+      {% endif %}
+    </article>
+
+
+    {# Планы оставляем как отдельную карточку ниже #}
+    <article class="card">
+      <h2>Планы</h2>
+      <ul>
+        <li>Графики давления/дебита с датчиков.</li>
+        <li>Список событий от Telegram-бота.</li>
+        <li>Карта с окружением (другие скважины).</li>
+      </ul>
+    </article>
+
+           <article class="card">
+      <h2>События по скважине</h2>
+
+      {% if events and events|length > 0 %}
+        <div class="events-table-wrapper">
+          <table class="events-table">
+  <thead>
+    <tr>
+      <th class="events-table__time">Дата / время</th>
+      <th class="events-table__type">Тип</th>
+      <th class="events-table__reagent">Реагент</th>
+      <th class="events-table__qty">Кол-во</th>
+      <th class="events-table__p">Pтр, атм</th>
+      <th class="events-table__p">Pшл, атм</th>
+      <th class="events-table__details">Описание / детали</th>
+      <th class="events-table__operator">Оператор</th>
+      <th class="events-table__geo">Геостатус</th>
+    </tr>
+  </thead>
+  <tbody>
+    {# namespace для хранения текущей даты #}
+    {% set ns = namespace(current_date=None) %}
+
+    {% for e in events %}
+      {# вычисляем дату события (без времени) #}
+      {% if e.event_time %}
+        {% set this_date = e.event_time.date() %}
+      {% else %}
+        {% set this_date = None %}
+      {% endif %}
+
+      {# если дата изменилась — вставляем серый разделитель #}
+      {% if this_date != ns.current_date %}
+        <tr class="events-date-separator">
+          <td colspan="9">
+            {% if e.event_time %}
+              {{ e.event_time.strftime("%d.%m.%Y") }}
+            {% else %}
+              Без даты
+            {% endif %}
+          </td>
+        </tr>
+        {% set ns.current_date = this_date %}
+      {% endif %}
+
+      {# обычная строка события #}
+      {% set row_type = (e.event_type or 'other')|lower %}
+      <tr class="events-table__row events-table__row--{{ row_type }}">
+        <td class="events-table__time">
+          {% if e.event_time %}
+            {{ e.event_time.strftime("%d.%m.%Y %H:%M") }}
+          {% else %}—{% endif %}
+        </td>
+
+        <td class="events-table__type">
+          {{ e.type_label }}
+        </td>
+
+        <td class="events-table__reagent">
+          {{ e.reagent or "" }}
+        </td>
+
+        <td class="events-table__qty">
+          {% if e.qty is not none %}
+            {{ "%.2f"|format(e.qty) }}
+          {% endif %}
+        </td>
+
+        <td class="events-table__p">
+          {% if e.p_tube is not none %}
+            {{ "%.2f"|format(e.p_tube) }}
+          {% endif %}
+        </td>
+
+        <td class="events-table__p">
+          {% if e.p_line is not none %}
+            {{ "%.2f"|format(e.p_line) }}
+          {% endif %}
+        </td>
+
+        <td class="events-table__details">
+          {% if e.description %}
+            {{ e.description }}
+          {% endif %}
+
+          {% if e.equip_type or e.equip_points or e.equip_other
+                or e.purge_phase or e.geo_status %}
+            {% if e.description %} · {% endif %}
+            {% if e.equip_type %}оборудование: {{ e.equip_type }}{% endif %}
+            {% if e.equip_points %} ({{ e.equip_points }} точек){% endif %}
+            {% if e.equip_other %} {{ e.equip_other }}{% endif %}
+            {% if e.purge_phase %} · продувка: {{ e.purge_phase }}{% endif %}
+          {% endif %}
+        </td>
+
+        <td class="events-table__operator">
+          {{ e.user_full_name or "" }}
+        </td>
+
+        <td class="events-table__geo">
+          {{ e.geo_status_label or "" }}
+        </td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+        </div>
+
+        <div class="events-actions">
+          <a href="/api/well/{{ well.id }}/events.csv" class="btn-secondary" target="_blank">
+            Скачать CSV
+          </a>
+          <a href="/api/well/{{ well.id }}/events.xlsx" class="btn-secondary" target="_blank">
+            Скачать Excel
+          </a>
+        </div>
+      {% else %}
+        <p>Для этой скважины пока нет событий в таблице <code>events</code>.</p>
+      {% endif %}
+    </article>
+
+
+
+
+  {# Правая колонка: форма редактирования #}
+    <section class="well-edit">
+    <article class="card">
+      <h2>Редактирование данных скважины</h2>
+
+      <form method="post" action="/well/{{ well.id }}/update" class="well-form">
+        <div class="form-group">
+          <label for="name">Название скважины</label>
+          <input
+            type="text"
+            id="name"
+            name="name"
+            value="{{ well.name or '' }}"
+            placeholder="Например: Скв 1367"
+          />
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="lat">Широта (lat)</label>
+            <input
+              type="text"
+              id="lat"
+              name="lat"
+              value="{{ well.lat if well.lat is not none else '' }}"
+              placeholder="45.12345"
+            />
+          </div>
+          <div class="form-group">
+            <label for="lon">Долгота (lon)</label>
+            <input
+              type="text"
+              id="lon"
+              name="lon"
+              value="{{ well.lon if well.lon is not none else '' }}"
+              placeholder="63.54321"
+            />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="description">Описание</label>
+          <textarea
+            id="description"
+            name="description"
+            rows="4"
+            placeholder="Краткая характеристика скважины, особенности эксплуатации..."
+          >{{ well.description or "" }}</textarea>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn-primary">
+            Сохранить изменения
+          </button>
+          <a href="/well/{{ well.id }}" class="btn-secondary">
+            Отменить
+          </a>
+        </div>
+      </form>
+
+      <hr class="form-separator" />
+
+      <h3>Статус скважины</h3>
+
+      {% set edit = well_status.edit_status %}
+      {% if edit %}
+        {% set current_status_text = edit.label %}
+      {% else %}
+        {% set current_status_text = None %}
+      {% endif %}
+
+        <form
+          id="status-form"
+          method="post"
+          action="{% if edit %}/well/{{ well.id }}/status/{{ edit.id }}/edit{% else %}/well/{{ well.id }}/status{% endif %}"
+          class="well-form"
+        >
+        <div class="form-group">
+          <label for="status">Статус</label>
+          <select id="status" name="status">
+            {% for s in allowed_statuses %}
+              <option value="{{ s }}"
+                {% if current_status_text == s %}selected{% endif %}>
+                {{ s }}
+              </option>
+            {% endfor %}
+            <option value="custom"
+              {% if current_status_text and current_status_text not in allowed_statuses %}selected{% endif %}>
+              Свой статус…
+            </option>
+          </select>
+        </div>
+
+        <div class="form-group" id="custom-status-group" style="display:none;">
+          <label for="custom_status">Свой статус</label>
+          <input
+            type="text"
+            id="custom_status"
+            name="custom_status"
+            value="{% if current_status_text and current_status_text not in allowed_statuses %}{{ current_status_text }}{% endif %}"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="status_start">Начало действия</label>
+          <input
+            type="datetime-local"
+            id="status_start"
+            name="status_start"
+            value="{% if edit and edit.start %}{{ edit.start.strftime('%Y-%m-%dT%H:%M') }}{% endif %}"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="status_end">Окончание (необязательно)</label>
+          <input
+            type="datetime-local"
+            id="status_end"
+            name="status_end"
+              value="{% if edit and edit.end %}{{ edit.end.strftime('%Y-%m-%dT%H:%M') }}{% endif %}"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="status_note">Комментарий</label>
+          <textarea id="status_note" name="status_note" rows="2">
+{% if edit and edit.note %}{{ edit.note }}{% endif %}
+          </textarea>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn-primary">
+            {% if edit %}Сохранить изменения{% else %}Добавить статус{% endif %}
+          </button>
+          {% if edit %}
+            <a href="/well/{{ well.id }}" class="btn-secondary btn-xs">
+              Отменить редактирование
+            </a>
+          {% endif %}
+        </div>
+      </form>
+    </article>
+  </section>
+</div> {# конец .well-layout #}
+
+{% endblock %}  {# конец block content #}
+
+{# Дополнительные скрипты только для этой страницы #}
+
+{% block extra_scripts %}
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+
+  <script>
+//     (function() {
+//       const lat = {{ well.lat if well.lat is not none else "null" }};
+//       const lon = {{ well.lon if well.lon is not none else "null" }};
+//
+//       if (lat === null || lon === null) {
+//         return;
+//       }
+//
+//       const map = L.map('well-map', {
+//   scrollWheelZoom: false    // <-- главное: колесо мыши НЕ зумит карту
+// }).setView([lat, lon], 14);
+//
+//       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+//         maxZoom: 19,
+//         attribution: '&copy; OpenStreetMap contributors'
+//       }).addTo(map);
+//
+//       const statusCss = "{{ current_css }}";
+//       const color = getStatusColor(statusCss);
+//       const icon = createStatusIcon(color);
+//
+//       const marker = L.marker([lat, lon], { icon }).addTo(map);
+//
+//       marker.bindPopup(
+//         `Скважина: {{ (well.name or ("Скв " ~ well.id))|e }}<br>` +
+//         `lat: ${lat}, lon: ${lon}`
+//       );
+//
+//       marker.bindPopup(
+//         `Скважина: {{ (well.name or ("Скв " ~ well.id))|e }}<br>` +
+//         `lat: ${lat}, lon: ${lon}`
+//       );
+//     })();
+  (function() {
+      const lat = {{ well.lat if well.lat is not none else "null" }};
+      const lon = {{ well.lon if well.lon is not none else "null" }};
+
+      if (lat === null || lon === null) {
+        return;
+      }
+
+      const map = L.map('well-map', {
+        scrollWheelZoom: false
+      }).setView([lat, lon], 14);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+
+      // <<< вот это меняем >>>
+      const marker = L.marker([lat, lon]).addTo(map);
+
+      marker.bindPopup(
+        `Скважина: {{ (well.name or ("Скв " ~ well.id))|e }}<br>` +
+        `lat: ${lat}, lon: ${lon}`
+      );
+  })();
+  </script>
+  <script>
+    // Переключение вида поля "Свой статус"
+    (function () {
+      const select = document.getElementById('status');
+      const customGroup = document.getElementById('custom-status-group');
+      if (!select || !customGroup) return;
+
+      function updateCustom() {
+        if (select.value === 'custom') {
+          customGroup.style.display = '';
+        } else {
+          customGroup.style.display = 'none';
+        }
+      }
+
+      select.addEventListener('change', updateCustom);
+      updateCustom(); // первый запуск
+    })();
+  </script>
+
+
+{# ==== МОДАЛЬНОЕ ОКНО ДЛЯ КАНАЛА СВЯЗИ ==== #}
+
+<dialog id="channelModal">
+  <form id="channelForm" method="post">
+    <h3 id="channelFormTitle">Канал связи</h3>
+
+    <label>
+      Канал связи (1–50)
+      <input type="number" name="channel" id="channelInput" min="1" max="50" required>
+    </label>
+
+    <label>
+      Дата/время начала
+      <input type="datetime-local" name="dt_start" id="channelStartInput">
+    </label>
+
+    <label>
+      Дата/время окончания
+      <input type="datetime-local" name="dt_end" id="channelEndInput">
+    </label>
+
+    <label>
+      Примечание
+      <textarea name="note" id="channelNoteInput" rows="2"></textarea>
+    </label>
+
+    <div class="form-actions">
+      <button type="submit" class="btn-primary">Сохранить</button>
+      <button type="button"
+              class="btn-secondary"
+              onclick="closeChannelModal()">
+        Отмена
+      </button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+  // Подготовленные данные по каналам (для редактирования)
+  window.channelData = {
+    {% for ch in channel_history %}
+      {{ ch.id }}: {
+        channel: {{ ch.channel }},
+        dt_start: "{{ ch.started_at.strftime('%Y-%m-%dT%H:%M') if ch.started_at else '' }}",
+        dt_end: "{{ ch.ended_at.strftime('%Y-%m-%dT%H:%M') if ch.ended_at else '' }}",
+        note: {{ (ch.note or '')|tojson }}
+      }{% if not loop.last %},{% endif %}
+    {% endfor %}
+  };
+
+  function openChannelModal(channelId) {
+    const dlg   = document.getElementById('channelModal');
+    const form  = document.getElementById('channelForm');
+    const title = document.getElementById('channelFormTitle');
+
+    const inpChannel = document.getElementById('channelInput');
+    const inpStart   = document.getElementById('channelStartInput');
+    const inpEnd     = document.getElementById('channelEndInput');
+    const inpNote    = document.getElementById('channelNoteInput');
+
+    if (channelId) {
+      // Режим редактирования
+      title.textContent = 'Редактировать канал связи';
+      form.action = '/well/{{ well.id }}/channel/' + channelId + '/edit';
+
+      const data = window.channelData[channelId];
+      inpChannel.value = data.channel || '';
+      inpStart.value   = data.dt_start || '';
+      inpEnd.value     = data.dt_end || '';
+      inpNote.value    = data.note || '';
+    } else {
+      // Режим добавления
+      title.textContent = 'Добавить канал связи';
+      form.action = '/well/{{ well.id }}/channel/add';
+
+      inpChannel.value = '';
+      inpStart.value   = '';
+      inpEnd.value     = '';
+      inpNote.value    = '';
+    }
+
+    dlg.showModal();
+  }
+
+  function closeChannelModal() {
+    document.getElementById('channelModal').close();
+  }
+</script>
+
+
+{# ==== МОДАЛЬНОЕ ОКНО ДЛЯ ОБОРУДОВАНИЯ ==== #}
+
+<dialog id="equipmentModal">
+  <form id="equipmentForm" method="post">
+    <h3 id="equipmentFormTitle">Оборудование</h3>
+
+<label>
+  Тип оборудования
+  <select name="type_code" id="eqTypeInput" required>
+    {% for eq_type in equipment_types %}
+      <option value="{{ eq_type.code }}">{{ eq_type.label }}</option>
+    {% endfor %}
+  </select>
+</label>
+
+    <label>
+      Серийный номер
+      <input type="text" name="serial_number" id="eqSerialInput">
+    </label>
+
+
+    <label>
+  Дата/время установки
+  <input type="datetime-local" name="installed_at" id="eqInstalledInput">
+</label>
+
+<label>
+  Дата/время демонтажа
+  <input type="datetime-local" name="removed_at" id="eqRemovedInput">
+</label>
+
+<label>
+  Примечание
+  <textarea name="note" id="eqNoteInput" rows="2"></textarea>
+</label>
+
+    <div class="form-actions">
+      <button type="submit" class="btn-primary">Сохранить</button>
+      <button type="button"
+              class="btn-secondary"
+              onclick="closeEquipmentModal()">
+        Отмена
+      </button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+  // Данные по оборудованию для режима "Редактировать"
+  window.equipmentData = {
+    {% for eq in equipment_history %}
+      {{ eq.id }}: {
+        type_code: "{{ eq.type_code }}",
+        serial_number: {{ (eq.serial_number or '')|tojson }},
+        installed_at: "{{ eq.installed_at.strftime('%Y-%m-%dT%H:%M') if eq.installed_at else '' }}",
+        removed_at: "{{ eq.removed_at.strftime('%Y-%m-%dT%H:%M') if eq.removed_at else '' }}",
+        note: {{ (eq.note or '')|tojson }}
+      }{% if not loop.last %},{% endif %}
+    {% endfor %}
+  };
+
+  function openEquipmentModal(eqId) {
+    const dlg   = document.getElementById('equipmentModal');
+    const form  = document.getElementById('equipmentForm');
+    const title = document.getElementById('equipmentFormTitle');
+
+    const typeInput      = document.getElementById('eqTypeInput');
+    const serialInput    = document.getElementById('eqSerialInput');
+    const installedInput = document.getElementById('eqInstalledInput');
+    const removedInput   = document.getElementById('eqRemovedInput');
+    const noteInput      = document.getElementById('eqNoteInput');
+
+    if (eqId) {
+      // --- режим РЕДАКТИРОВАНИЯ ---
+      title.textContent = 'Редактировать оборудование';
+      form.action = '/well/{{ well.id }}/equipment/' + eqId + '/edit';
+
+      const data = window.equipmentData[eqId];
+
+      typeInput.value      = data.type_code || '';
+      serialInput.value    = data.serial_number || '';
+      installedInput.value = data.installed_at || '';
+      removedInput.value   = data.removed_at || '';
+      noteInput.value      = data.note || '';
+    } else {
+      // --- режим ДОБАВЛЕНИЯ ---
+      title.textContent = 'Добавить оборудование';
+      form.action = '/well/{{ well.id }}/equipment/add';
+
+      typeInput.value      = '';
+      serialInput.value    = '';
+      installedInput.value = '';
+      removedInput.value   = '';
+      noteInput.value      = '';
+    }
+
+    dlg.showModal();
+  }
+
+  function closeEquipmentModal() {
+    document.getElementById('equipmentModal').close();
+  }
+</script>
+
+<script>
+  // Если создаём новую заметку и поле времени пустое —
+  // подставляем текущее локальное время
+  (function () {
+    const input = document.getElementById('noteTimeInput');
+    if (!input) return;
+    if (input.value) return;  // значит редактируем существующую запись
+
+    const now = new Date();
+    const offset = now.getTimezoneOffset();
+    now.setMinutes(now.getMinutes() - offset);
+    input.value = now.toISOString().slice(0, 16); // YYYY-MM-DDTHH:MM
+  })();
+</script>
+
+<script>
+  let selectedNoteId = null;
+
+  function selectNote(id) {
+    selectedNoteId = id;
+
+    const rows = document.querySelectorAll('.note-row');
+    rows.forEach((row) => {
+      if (parseInt(row.dataset.noteId, 10) === id) {
+        row.style.background = '#e5f0ff';
+        row.style.borderColor = '#3b82f6';
+      } else {
+        row.style.background = '#ffffff';
+        row.style.borderColor = '#e5e7eb';
+      }
+    });
+  }
+
+  function editSelectedNote() {
+    if (!selectedNoteId) {
+      alert('Сначала выбери заметку.');
+      return;
+    }
+    window.location.href =
+      '/well/{{ well.id }}?edit_note=' + selectedNoteId + '#notes-card';
+  }
+
+  function deleteSelectedNote() {
+    if (!selectedNoteId) {
+      alert('Сначала выбери заметку.');
+      return;
+    }
+    if (!confirm('Удалить выбранную запись?')) {
+      return;
+    }
+    const form = document.getElementById('noteDeleteForm');
+    form.action = '/well/{{ well.id }}/notes/' + selectedNoteId + '/delete';
+    form.submit();
+  }
+</script>
+
+{% endblock %}

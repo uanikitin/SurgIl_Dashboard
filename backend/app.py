@@ -32,7 +32,7 @@ from .config.status_registry import (
 )
 
 from .models.well_notes import WellNote
-
+from fastapi.responses import RedirectResponse
 app = FastAPI(title=settings.APP_TITLE)
 
 def _parse_coord(value: str) -> float | None:
@@ -97,9 +97,10 @@ app.include_router(wells.router)
 
 
 # Простой JSON для проверки
-@app.get("/")
-def home():
-    return {"message": "Surgil Dashboard API работает"}
+@app.get("/", include_in_schema=False)
+async def root():
+    # сразу отправляем пользователя на основную страницу дашборда
+    return RedirectResponse(url="/visual")
 
 
 # === Наша первая страница дашборда ===

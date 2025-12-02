@@ -2,15 +2,20 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    # Конфиг: откуда брать env и как относиться к "лишним" переменным
+    # Конфиг pydantic-settings
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="allow",  # <- ВАЖНО: игнорировать переменные, которых нет в классе
+        extra="allow",
     )
 
     DATABASE_URL: str
     APP_TITLE: str = "СУРГИЛ · Оптимизация работы газовых скважин"
+
+    # ===== добавляем ↓↓↓ =====
+    BASIC_AUTH_USERNAME: str = "admin"
+    BASIC_AUTH_PASSWORD: str = "change_me"
+    # ==========================
 
 
 settings = Settings()

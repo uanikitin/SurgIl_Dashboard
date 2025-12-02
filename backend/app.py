@@ -13,7 +13,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 import io
 import csv
 from openpyxl import Workbook
-
+from fastapi import Depends
+from .deps import get_current_user
 from backend.models.well_channel import WellChannel
 from datetime import datetime
 
@@ -34,6 +35,11 @@ from .config.status_registry import (
 from .models.well_notes import WellNote
 from fastapi.responses import RedirectResponse
 app = FastAPI(title=settings.APP_TITLE)
+
+
+@app.get("/", include_in_schema=False)
+async def root(user: str = Depends(get_current_user)):
+    return RedirectResponse("/visual")
 
 def _parse_coord(value: str) -> float | None:
     """
@@ -93,7 +99,10 @@ templates = Jinja2Templates(directory="backend/templates")
 app.mount("/static", StaticFiles(directory="backend/static"), name="static")
 
 # Подключаем API-роутеры
-app.include_router(wells.router)
+app.include_router(
+    wells.router,
+    dependencies=[Depends(get_current_user)]
+)
 
 
 # Простой JSON для проверки

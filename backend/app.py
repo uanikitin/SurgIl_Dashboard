@@ -1,30 +1,30 @@
+
 from fastapi import FastAPI, Request, Depends, Form, HTTPException, status, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+import json
+from starlette.middleware.sessions import SessionMiddleware
+
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
+from sqlalchemy import func, case, text
+
+from datetime import datetime, timedelta, timezone
+
 from .api import wells
 from .settings import settings
 from .db import get_db
-from sqlalchemy import func, case, text
-from .models.wells import Well
-from collections import defaultdict as _dd
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
-import io
-import csv
-from openpyxl import Workbook
-from fastapi import Depends
-from .deps import get_current_user
-from backend.models.well_channel import WellChannel
-from datetime import datetime
+from .deps import get_current_user, get_current_admin
 
-from .models.well_equipment import WellEquipment
-from backend.services.equipment_loader import EQUIPMENT_LIST, EQUIPMENT_BY_CODE
 from .models.wells import Well
+from .models.well_channel import WellChannel
+from .models.well_equipment import WellEquipment
 from .models.events import Event
 from .models.users import User
-from collections import defaultdict
 from .models.well_status import WellStatus
+from .models.well_notes import WellNote
+
+from backend.services.equipment_loader import EQUIPMENT_LIST, EQUIPMENT_BY_CODE
 from .config.status_registry import (
     css_by_label,
     allowed_labels,
@@ -32,14 +32,267 @@ from .config.status_registry import (
     status_groups_for_sidebar,
 )
 
-from .models.well_notes import WellNote
-from fastapi.responses import RedirectResponse
+from collections import defaultdict, defaultdict as _dd
+import io
+import csv
+from openpyxl import Workbook
+import os
+from fastapi.staticfiles import StaticFiles
+import time
+from backend.auth import get_password_hash, get_current_user_optional, verify_password
+from backend.models import DashboardUser, DashboardLoginLog
+
+from .db import get_db, SessionLocal
+
+
 app = FastAPI(title=settings.APP_TITLE)
 
+app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
+# === Автоматическое создание мастер-админа ===
+@app.on_event("startup")
+def create_master_admin():
+    """
+    При старте приложения проверяем, есть ли пользователь 'admin'.
+    Если нет — создаём его с правами администратора.
+    """
+    db = SessionLocal()
+    try:
+        # тут можно читать из settings, если захочешь:
+        # username = settings.MASTER_ADMIN_USERNAME
+        # password = settings.MASTER_ADMIN_PASSWORD
+        username = "admin"
+        password = "admin123"   # ЗАДАЙ СВОЙ ПАРОЛЬ
+        email = "ua.nikitin@gmail.com"
+
+        admin = (
+            db.query(DashboardUser)
+            .filter(DashboardUser.username == username)
+            .first()
+        )
+
+        if not admin:
+            admin = DashboardUser(
+                username=username,
+                password_hash=get_password_hash(password),
+                email=email,
+                first_name="Admin",
+                last_name="User",
+                is_admin=True,
+                is_active=True,
+            )
+            db.add(admin)
+            db.commit()
+            print(">>> Мастер-админ создан: admin / admin123")
+        else:
+            # на всякий случай включаем ему админские права и активность
+            changed = False
+            if not admin.is_admin:
+                admin.is_admin = True
+                changed = True
+            if not admin.is_active:
+                admin.is_active = True
+                changed = True
+            if changed:
+                db.commit()
+                print(">>> Обновлены права существующего admin (is_admin/is_active)")
+    finally:
+        db.close()
 @app.get("/", include_in_schema=False)
-async def root(user: str = Depends(get_current_user)):
+async def root(current_user: str = Depends(get_current_user)):
     return RedirectResponse("/visual")
+
+
+@app.get("/login")
+def login_page(request: Request):
+    return templates.TemplateResponse(
+        "login.html",
+        {
+            "request": request,
+            "error": None,
+            "current_user": None,
+            "is_admin": False,
+        }
+    )
+@app.get("/register", response_class=HTMLResponse)
+def register_get(
+    request: Request,
+    current_user: User | None = Depends(get_current_user_optional),
+):
+    base_context = {
+        "request": request,
+        "current_user": current_user,
+        "is_admin": bool(getattr(current_user, "is_admin", False)),
+        "form_username": "",
+        "form_full_name": "",
+        "form_email": "",
+        "error": None,
+    }
+
+    return templates.TemplateResponse(
+        "register.html",
+        base_context,
+    )
+@app.post("/register", response_class=HTMLResponse)
+def register_post(
+    request: Request,
+    username: str = Form(...),
+    full_name: str = Form(""),
+    email: str = Form(""),
+    password: str = Form(...),
+    password2: str = Form(...),
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user_optional),
+):
+    # значения для возврата формы при ошибке
+    base_context = {
+        "request": request,
+        "current_user": current_user,
+        "is_admin": bool(getattr(current_user, "is_admin", False)),
+        "form_username": username,
+        "form_full_name": full_name,
+        "form_email": email,
+    }
+
+    # 1) проверки
+    if not username or not password:
+        return templates.TemplateResponse(
+            "register.html",
+            {**base_context, "error": "Логин и пароль обязательны"},
+            status_code=400,
+        )
+
+    if password != password2:
+        return templates.TemplateResponse(
+            "register.html",
+            {**base_context, "error": "Пароли не совпадают"},
+            status_code=400,
+        )
+
+    # логин уже занят в dashboard_users
+    existing = (
+        db.query(DashboardUser)
+        .filter(DashboardUser.username == username)
+        .first()
+    )
+    if existing:
+        return templates.TemplateResponse(
+            "register.html",
+            {**base_context, "error": "Пользователь с таким логином уже существует"},
+            status_code=400,
+        )
+
+    # 2) разбираем ФИО: первое слово — имя, остальное — фамилия
+    first_name = None
+    last_name = None
+    if full_name.strip():
+        parts = full_name.strip().split(maxsplit=1)
+        first_name = parts[0]
+        if len(parts) > 1:
+            last_name = parts[1]
+
+    # 3) создаём пользователя в dashboard_users
+    user = DashboardUser(
+        username=username,
+        password_hash=get_password_hash(password),
+        email=email or None,
+        first_name=first_name,
+        last_name=last_name,
+        is_admin=False,
+        is_active=True,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    # 4) сразу логиним
+    request.session["user_id"] = user.id
+    request.session["username"] = user.username
+    request.session["is_admin"] = user.is_admin
+
+    return RedirectResponse(url="/visual", status_code=status.HTTP_303_SEE_OTHER)
+
+@app.post("/login")
+async def login_submit(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    username = form.get("username", "").strip()
+    password = form.get("password", "")
+
+    user = (
+        db.query(DashboardUser)
+        .filter(DashboardUser.username == username)
+        .first()
+    )
+
+    if not user or not verify_password(password, user.password_hash):
+        # Ошибка — просто снова показываем login.html с сообщением
+        context = {
+            "request": request,
+            "error": "Неверный логин или пароль",
+            "current_user": None,
+            "is_admin": False,
+        }
+        return templates.TemplateResponse(
+            "login.html",  # ВАЖНО: без "auth/"
+            context,
+            status_code=400,
+        )
+
+    # ==== ВАЖНО: записываем ВСЕ ключи, которые ждёт старый код ====
+    # старый get_current_user, скорее всего, смотрит на session["user"]
+    request.session["user"] = user.username       # ← ЭТО главный ключ
+    request.session["user_id"] = user.id          # удобно для БД
+    request.session["username"] = user.username   # если где-то используется
+    request.session["is_admin"] = bool(user.is_admin)
+    # ============================================================
+    # обновляем поле last_login_at у пользователя
+    user.last_login_at = datetime.utcnow()
+    db.add(user)
+    db.commit()
+    # ==== Закрываем предыдущую незавершённую сессию ====
+    old_log_id = request.session.get("session_log_id")
+    if old_log_id:
+        old_log = db.query(DashboardLoginLog).filter_by(id=old_log_id).first()
+        if old_log and old_log.logout_at is None:
+            old_log.logout_at = datetime.utcnow()
+            db.commit()
+    # ===================================================
+
+    # создаём запись в журнале логинов (с IP и User-Agent)
+    log = DashboardLoginLog(
+        user_id=user.id,
+        ip_address=request.client.host,
+        user_agent=request.headers.get("User-Agent"),
+    )
+    db.add(log)
+    db.commit()
+
+    # сохраняем id журнала в сессии
+    request.session["session_log_id"] = log.id
+
+    return RedirectResponse(url="/visual", status_code=status.HTTP_303_SEE_OTHER)
+
+@app.get("/logout")
+def logout(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    # закрываем лог сессии, если есть
+    log_id = request.session.get("session_log_id")
+    if log_id:
+        log = db.query(DashboardLoginLog).filter(DashboardLoginLog.id == log_id).first()
+        if log and log.logout_at is None:
+            log.logout_at = datetime.utcnow()
+            db.add(log)
+            db.commit()
+
+    # чистим сессию
+    # for key in ("user", "user_id", "username", "is_admin", "session_log_id"):
+    #     request.session.pop(key, None)
+    request.session.clear()
+
+    return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
 
 def _parse_coord(value: str) -> float | None:
     """
@@ -94,9 +347,17 @@ def _to_naive(dt: datetime | None) -> datetime | None:
 # === Шаблоны и статика ===
 # Папка с HTML-шаблонами
 templates = Jinja2Templates(directory="backend/templates")
+templates.env.globals['time'] = lambda: int(time.time())  # для обновления CSS
 
+# Чтобы браузер ВСЕГДА брал свежий CSS
+version = str(int(time.time()))
 # Папка со статикой (css, js, картинки)
-app.mount("/static", StaticFiles(directory="backend/static"), name="static")
+# Статика
+app.mount(
+    "/static",
+    StaticFiles(directory="backend/static", html=True),
+    name="static"
+)
 
 # Подключаем API-роутеры
 app.include_router(
@@ -105,19 +366,13 @@ app.include_router(
 )
 
 
-# Простой JSON для проверки
-@app.get("/", include_in_schema=False)
-async def root():
-    # сразу отправляем пользователя на основную страницу дашборда
-    return RedirectResponse(url="/visual")
-
-
 # === Наша первая страница дашборда ===
 @app.get("/visual", response_class=HTMLResponse)
 def visual_page(
     request: Request,
     db: Session = Depends(get_db),
-    selected: list[int] = Query(default=[])
+    selected: list[int] = Query(default=[]),
+    current_user: str = Depends(get_current_user),
 ):
     """
     Главная страница дашборда:
@@ -396,13 +651,15 @@ def visual_page(
         key=lambda w: status_order.get(getattr(w, "current_status_css", None), 99),
     )
     updated_at = datetime.now()
+    is_admin = bool(request.session.get("is_admin", False))
+
     return templates.TemplateResponse(
         "visual.html",
         {
             "request": request,
             "title": "СУРГИЛ · Оптимизация работы газовых скважин",
             "all_wells": all_wells,
-            "wells": tiles_sorted,          # <== отсортированные плитки
+            "wells": tiles_sorted,
             "selected_ids": selected,
             "wells_for_map": wells_for_map,
             "map_center_lat": map_center_lat,
@@ -412,9 +669,290 @@ def visual_page(
             "equipment_types": EQUIPMENT_LIST,
             "equipment_by_code": EQUIPMENT_BY_CODE,
             "updated_at": updated_at,
+            "current_user": current_user,
+            "is_admin": is_admin,
         },
     )
+# === АДМИН-ПАНЕЛЬ ПОЛЬЗОВАТЕЛЕЙ ===
 
+@app.get("/admin/users", response_class=HTMLResponse)
+def admin_users_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_admin: str = Depends(get_current_admin),   # защита: только админ
+):
+    users = (
+        db.query(DashboardUser)
+        .order_by(DashboardUser.id.asc())
+        .all()
+    )
+
+    return templates.TemplateResponse(
+        "admin_panel.html",
+        {
+            "request": request,
+            "title": "Админ-панель · Пользователи",
+            "users": users,
+            "current_user": current_admin,
+            "is_admin": True,
+        },
+    )
+PAGE_SIZE = 200  # или сколько тебе нужно
+@app.get("/admin/logins", response_class=HTMLResponse)
+def admin_logins_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_admin: str = Depends(get_current_admin),
+    user: str | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    only_active: int | None = Query(None),
+):
+    """
+    Админ-панель: сессии пользователей с фильтрами, сводкой и графиками.
+    """
+
+    # --- список пользователей для select в фильтре ---
+    filter_users = (
+        db.query(DashboardUser)
+        .order_by(DashboardUser.username.asc())
+        .all()
+    )
+
+    # --- разбираем фильтры ---
+    current_filter_user = user or ""
+    only_active_flag = bool(only_active)
+
+    dt_from = None
+    dt_to = None
+    if date_from:
+        try:
+            dt_from = datetime.strptime(date_from, "%Y-%m-%d")
+        except ValueError:
+            dt_from = None
+
+    if date_to:
+        try:
+            dt_to = datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1) - timedelta(seconds=1)
+        except ValueError:
+            dt_to = None
+
+    # --- общие условия фильтра (без only_active) ---
+    filters_common = []
+    if current_filter_user:
+        filters_common.append(DashboardUser.username == current_filter_user)
+    if dt_from is not None:
+        filters_common.append(DashboardLoginLog.login_at >= dt_from)
+    if dt_to is not None:
+        filters_common.append(DashboardLoginLog.login_at <= dt_to)
+
+    # фильтр для "всех" сессий (к таблице и графикам)
+    filters_total = list(filters_common)
+    if only_active_flag:
+        filters_total.append(DashboardLoginLog.logout_at.is_(None))
+
+    # фильтр для "активных" сессий (сводка)
+    filters_active = list(filters_common)
+    filters_active.append(DashboardLoginLog.logout_at.is_(None))
+
+    # --- сводка: всего сессий ---
+    total_sessions = (
+        db.query(func.count("*"))
+        .select_from(DashboardLoginLog)
+        .join(DashboardUser, DashboardLoginLog.user_id == DashboardUser.id)
+        .filter(*filters_total)
+        .scalar()
+        or 0
+    )
+
+    # --- сводка: активных сессий ---
+    active_sessions_count = (
+        db.query(func.count("*"))
+        .select_from(DashboardLoginLog)
+        .join(DashboardUser, DashboardLoginLog.user_id == DashboardUser.id)
+        .filter(*filters_active)
+        .scalar()
+        or 0
+    )
+
+    # --- сводка: уникальных пользователей ---
+    unique_users_count = (
+        db.query(func.count(func.distinct(DashboardLoginLog.user_id)))
+        .select_from(DashboardLoginLog)
+        .join(DashboardUser, DashboardLoginLog.user_id == DashboardUser.id)
+        .filter(*filters_total)
+        .scalar()
+        or 0
+    )
+
+    # --- таблица сессий (последние 200) ---
+    logs = (
+        db.query(DashboardLoginLog, DashboardUser)
+        .join(DashboardUser, DashboardLoginLog.user_id == DashboardUser.id)
+        .filter(*filters_total)
+        .order_by(DashboardLoginLog.login_at.desc())
+        .limit(200)
+        .all()
+    )
+
+    sessions_items: list[dict] = []
+    for log, user_obj in logs:
+        is_active = log.logout_at is None
+
+        if log.logout_at:
+            seconds = int((log.logout_at - log.login_at).total_seconds())
+        else:
+            now = datetime.now(timezone.utc)  # <<<<<< FIX
+            seconds = int((now - log.login_at).total_seconds())
+
+        if seconds < 60:
+            duration_human = f"{seconds} сек"
+        elif seconds < 3600:
+            duration_human = f"{seconds // 60} мин"
+        else:
+            h = seconds // 3600
+            m = (seconds % 3600) // 60
+            duration_human = f"{h} ч {m} мин"
+
+        full_name = (
+            f"{user_obj.first_name or ''} {user_obj.last_name or ''}".strip()
+            or None
+        )
+
+        sessions_items.append({
+            "id": log.id,
+            "username": user_obj.username,
+            "full_name": full_name,
+            "login_at": log.login_at.strftime("%Y-%m-%d %H:%M") if log.login_at else "—",
+            "logout_at": log.logout_at.strftime("%Y-%m-%d %H:%M") if log.logout_at else None,
+            "duration_human": duration_human,
+            "is_active": is_active,
+            "ip_address": getattr(log, "ip_address", None),
+            "user_agent": getattr(log, "user_agent", None),
+        })
+
+    # --- график: количество сессий по дням ---
+    sessions_by_date_rows = (
+        db.query(
+            func.date(DashboardLoginLog.login_at).label("date"),
+            func.count("*").label("count"),
+        )
+        .select_from(DashboardLoginLog)
+        .join(DashboardUser, DashboardLoginLog.user_id == DashboardUser.id)
+        .filter(*filters_total)
+        .group_by(func.date(DashboardLoginLog.login_at))
+        .order_by(func.date(DashboardLoginLog.login_at))
+        .all()
+    )
+
+    sessions_by_date = [
+        {"date": str(row.date), "count": row.count}
+        for row in sessions_by_date_rows
+    ]
+
+    # --- график: уникальные пользователи по дням ---
+    users_by_date_rows = (
+        db.query(
+            func.date(DashboardLoginLog.login_at).label("date"),
+            func.count(func.distinct(DashboardLoginLog.user_id)).label("users"),
+        )
+        .select_from(DashboardLoginLog)
+        .join(DashboardUser, DashboardLoginLog.user_id == DashboardUser.id)
+        .filter(*filters_total)
+        .group_by(func.date(DashboardLoginLog.login_at))
+        .order_by(func.date(DashboardLoginLog.login_at))
+        .all()
+    )
+
+    users_by_date = [
+        {"date": str(row.date), "users": row.users}
+        for row in users_by_date_rows
+    ]
+
+    return templates.TemplateResponse(
+        "admin_logins.html",
+        {
+            "request": request,
+            "title": "Админ-панель · Сессии",
+
+            "total_sessions": total_sessions,
+            "active_sessions_count": active_sessions_count,
+            "unique_users_count": unique_users_count,
+
+            "filter_users": filter_users,
+            "current_filter_user": current_filter_user,
+            "date_from": date_from or "",
+            "date_to": date_to or "",
+            "only_active": only_active_flag,
+
+            "sessions": sessions_items,
+            "chart_sessions_by_date": json.dumps(sessions_by_date, ensure_ascii=False),
+            "chart_users_by_date": json.dumps(users_by_date, ensure_ascii=False),
+
+            "current_user": current_admin,
+            "is_admin": True,
+        },
+    )
+@app.post("/admin/users/{user_id}/toggle-admin")
+def admin_toggle_admin(
+    user_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_admin: str = Depends(get_current_admin),
+):
+    user = db.query(DashboardUser).filter(DashboardUser.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    # нельзя снять права сам с себя
+    if user.username == current_admin:
+        raise HTTPException(status_code=400, detail="Нельзя менять свои админские права")
+
+    user.is_admin = not bool(user.is_admin)
+    db.commit()
+
+    return RedirectResponse("/admin/users", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/admin/users/{user_id}/toggle-active")
+def admin_toggle_active(
+    user_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_admin: str = Depends(get_current_admin),
+):
+    user = db.query(DashboardUser).filter(DashboardUser.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    # не даём себе отключить самого себя
+    if user.username == current_admin:
+        raise HTTPException(status_code=400, detail="Нельзя деактивировать самого себя")
+
+    user.is_active = not bool(user.is_active)
+    db.commit()
+
+    return RedirectResponse("/admin/users", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/admin/users/{user_id}/delete")
+def admin_delete_user(
+    user_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_admin: str = Depends(get_current_admin),
+):
+    user = db.query(DashboardUser).filter(DashboardUser.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    if user.username == current_admin:
+        raise HTTPException(status_code=400, detail="Нельзя удалить самого себя")
+
+    db.delete(user)
+    db.commit()
+
+    return RedirectResponse("/admin/users", status_code=status.HTTP_303_SEE_OTHER)
 @app.get("/well/{well_id}", response_class=HTMLResponse)
 def well_page(
     well_id: int,
@@ -427,6 +965,7 @@ def well_page(
     edit_equipment_id: int | None = Query(None, alias="edit_eq"),
     edit_channel_id: int | None = Query(None, alias="edit_ch"),
     edit_note: int | None = Query(None, alias="edit_note"),
+    current_user: str = Depends(get_current_user),
 ):
     """
     Страница отдельной скважины:
@@ -814,7 +1353,7 @@ def well_page(
             "grid": [],
             "edit_status": edit_status_obj,
         }
-
+    is_admin = bool(request.session.get("is_admin", False))
     return templates.TemplateResponse(
         "well.html",
         {
@@ -848,17 +1387,20 @@ def well_page(
             # Конструкция и интервалы перфорации
             "well_construction": well_construction,
             "perforation_intervals": perforation_intervals,
+            "current_user": current_user,
+            "is_admin": is_admin,
         },
     )
 @app.post("/well/{well_id}/status")
 def set_well_status(
     well_id: int,
-    status_value: str = Form(..., alias="status"),  # <-- поле "status" из формы
+    status_value: str = Form(..., alias="status"),
     custom_status: str = Form(""),
     status_start: str = Form(""),
-    status_end: str = Form(""),          # <-- НОВОЕ поле конца периода
+    status_end: str = Form(""),
     status_note: str = Form(""),
     db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_admin),
 ):
     """
     Установка нового статуса для скважины.
@@ -924,6 +1466,7 @@ def edit_well_status(
     status_end: str = Form(""),
     status_note: str = Form(""),
     db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_admin),
 ):
     """
     Редактирование существующей записи статуса.
@@ -972,6 +1515,7 @@ def delete_well_status(
     well_id: int,
     status_id: int,
     db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_admin),
 ):
     """
     Удаляет одну запись истории статуса.
@@ -1003,7 +1547,8 @@ def update_well(
     lat: str = Form(""),
     lon: str = Form(""),
     description: str = Form(""),
-    db=Depends(get_db),
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_admin),
 ):
     """
     Обновление координат и описания скважины.
@@ -1043,6 +1588,7 @@ def save_well_note(
     note_time: str = Form(""),     # datetime-local
     note_text: str = Form(""),     # текст заметки
     db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_admin),
 ):
     """
     Добавление / редактирование заметки по скважине.
@@ -1111,6 +1657,7 @@ def delete_well_note(
     well_id: int,
     note_id: int,
     db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_admin),
 ):
     """
     Удаление одной заметки по скважине.
@@ -1139,6 +1686,7 @@ def add_well_equipment(
     removed_at: str = Form(""),
     note: str = Form(""),
     db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_admin),
 ):
     # Проверяем, что скважина существует
     well = db.query(Well).filter(Well.id == well_id).first()
@@ -1213,6 +1761,7 @@ def edit_well_equipment(
     removed_at: str = Form(""),
     note: str = Form(""),
     db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_admin),
 ):
     eq = (
         db.query(WellEquipment)
@@ -1252,6 +1801,7 @@ def delete_well_equipment(
     well_id: int,
     eq_id: int,
     db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_admin),
 ):
     eq = (
         db.query(WellEquipment)
@@ -1278,6 +1828,7 @@ def add_well_channel(
     dt_end: str = Form(""),
     note: str = Form(""),
     db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_admin),
 ):
     well = db.query(Well).filter(Well.id == well_id).first()
     if not well:
@@ -1325,6 +1876,7 @@ def edit_well_channel(
     dt_end: str = Form(""),
     note: str = Form(""),
     db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_admin),
 ):
     ch = (
         db.query(WellChannel)
@@ -1355,6 +1907,7 @@ def delete_well_channel(
     well_id: int,
     channel_id: int,
     db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_admin),
 ):
     ch = (
         db.query(WellChannel)
@@ -1374,13 +1927,19 @@ def delete_well_channel(
 
 
 @app.get("/api/well/{well_id}/events")
-def well_events_api(well_id: int):
+def well_events_api(
+    well_id: int,
+    current_user: str = Depends(get_current_user),
+):
     events = _fake_events_for_well(well_id)
     return events
 
 
 @app.get("/api/well/{well_id}/events.csv")
-def well_events_csv(well_id: int):
+def well_events_csv(
+        well_id: int,
+        current_user: str = Depends(get_current_user),
+        ):
     events = _fake_events_for_well(well_id)
 
     output = io.StringIO()
@@ -1408,7 +1967,10 @@ def well_events_csv(well_id: int):
 
 
 @app.get("/api/well/{well_id}/events.xlsx")
-def well_events_xlsx(well_id: int):
+def well_events_xlsx(
+        well_id: int,
+        current_user: str = Depends(get_current_user),
+    ):
     events = _fake_events_for_well(well_id)
 
     wb = Workbook()

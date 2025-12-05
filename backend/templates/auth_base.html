@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}СУРГИЛ · Авторизация{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <link rel="stylesheet" href="{{ url_for('static', path='css/auth.css') }}">
+</head>
+<body>
+<div class="auth-page">
+
+    <!-- Фон -->
+    <div class="auth-bg"></div>
+
+    <!-- Полупрозрачный слой, чтобы текст был читаем -->
+    <div class="auth-overlay"></div>
+
+    <!-- Основной контент -->
+    <div class="auth-container">
+
+        <!-- Левая часть: описание проекта -->
+        <div class="auth-left">
+            <div class="brand-block">
+<!--                <div class="brand-logo">-->
+<!--                    &lt;!&ndash; Логотип компании &ndash;&gt;-->
+<!--                    <img src="{{ url_for('static', path='img/logo.svg') }}" alt="Логотип компании">-->
+<!--&lt;!&ndash;                    <img src="{{ url_for('static', path='img/logo.png') }}" alt="Логотип компании">&ndash;&gt;-->
+<!--                </div>-->
+                <div class="brand-logo">
+                        <div class="logo-wrapper">
+                            <img src="{{ url_for('static', path='img/logo.svg') }}" alt="Логотип компании">
+                        </div>
+                    </div>
+                <div class="brand-title">
+                    <h1>Оптимизация работы газовых скважин - СУРГИЛ</h1>
+                    <p>Работы по оптимизации газовых скважин месторождения Сургил
+                        с применением пенных реагентов</p>
+                </div>
+            </div>
+
+            <div class="brand-text">
+                <p>
+                    Внутренняя система учёта и анализа работ по газовым скважинам.<br>
+                    Фиксация вбросов реагентов, давления, простоев и технологических операций.
+                </p>
+            </div>
+        </div>
+
+        <!-- Правая часть: форма -->
+        <div class="auth-right">
+            <div class="auth-card">
+                {% block form_header %}
+                {% endblock %}
+
+                {% if error %}
+                    <div class="auth-error">
+                        {{ error }}
+                    </div>
+                {% endif %}
+
+                {% block form %}
+                {% endblock %}
+            </div>
+        </div>
+
+    </div>
+</div>
+</body>
+</html>

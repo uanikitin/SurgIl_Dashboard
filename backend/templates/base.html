@@ -4,13 +4,41 @@
     <meta charset="UTF-8" />
     <title>{% block title %}СУРГИЛ · Дашборд{% endblock %}</title>
 
-    <link rel="stylesheet" href="/static/css/style.css">
-
+<link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}?v={{ time() }}">
+<link rel="stylesheet" href="{{ url_for('static', path='/css/tables.css') }}?v={{ time() }}">
     {# <-- сюда страницы смогут докидывать свои стили (Leaflet и др.) #}
     {% block extra_head %}{% endblock %}
 </head>
 <body>
-    <header> ... твой хедер ... </header>
+   <header class="main-header">
+    <div class="header-left">
+        <span class="header-project">СУРГИЛ · Дашборд</span>
+    </div>
+
+    <div class="header-right">
+        {% if current_user %}
+            <div class="header-user-block">
+                <span class="user-label">
+                    Вы вошли как <strong>{{ current_user }}</strong>
+                    {% if is_admin %}
+                        <span class="user-role"> · администратор</span>
+                    {% endif %}
+                </span>
+
+                <div class="header-buttons">
+                    {% if is_admin %}
+                        <a href="/visual" class="admin-link">Дашборд</a>
+                        <a href="/admin/users" class="admin-link">Пользователи</a>
+                        <a href="/admin/logins" class="admin-link">Сессии</a>
+                    {% endif %}
+                    <a href="/logout" class="logout-link">Выйти</a>
+                </div>
+            </div>
+        {% else %}
+            <a href="/login" class="login-link">Войти</a>
+        {% endif %}
+    </div>
+</header>
 
     <main class="page-container">
         {% block content %}{% endblock %}

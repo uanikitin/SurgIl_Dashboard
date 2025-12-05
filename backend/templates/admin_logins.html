@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+
+{% block title %}Админ-панель · Сессии{% endblock %}
+
+{% block content %}
+<div class="admin-page">
+
+    <a href="/visual" class="back-link">← Назад к дашборду</a>
+
+    <div class="admin-header-row">
+        <div>
+            <h1>Сессии пользователей</h1>
+            <p class="admin-meta">
+                Всего сессий: {{ total_sessions }} ·
+                Активных сейчас: {{ active_sessions_count }} ·
+                Пользователей за период: {{ unique_users_count }}
+            </p>
+        </div>
+    </div>
+
+    {# Вкладки: Пользователи / Сессии #}
+    <div class="admin-tabs">
+        <a href="/admin/users" class="admin-tab">Пользователи</a>
+        <a href="/admin/logins" class="admin-tab admin-tab--active">Сессии</a>
+    </div>
+
+    {# Фильтры #}
+    <form method="get" class="sessions-filter">
+        <div class="sessions-filter-row">
+            <div class="sessions-filter-field">
+                <label for="user">Пользователь</label>
+                <select name="user" id="user">
+                    <option value="">Все</option>
+                    {% for u in filter_users %}
+                        <option
+                            value="{{ u.username }}"
+                            {% if u.username == current_filter_user %}selected{% endif %}
+                        >
+                            {{ u.username }}{% if u.full_name %} — {{ u.full_name }}{% endif %}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="sessions-filter-field">
+                <label for="date_from">С</label>
+                <input
+                    type="date"
+                    id="date_from"
+                    name="date_from"
+                    value="{{ date_from or '' }}"
+                >
+            </div>
+
+            <div class="sessions-filter-field">
+                <label for="date_to">По</label>
+                <input
+                    type="date"
+                    id="date_to"
+                    name="date_to"
+                    value="{{ date_to or '' }}"
+                >
+            </div>
+
+            <div class="sessions-filter-field sessions-filter-field--checkbox">
+                <label>
+                    <input
+                        type="checkbox"
+                        name="only_active"
+                        value="1"
+                        {% if only_active %}checked{% endif %}
+                    >
+                    Только активные сессии
+                </label>
+            </div>
+
+            <div class="sessions-filter-actions">
+                <button type="submit" class="admin-pill-btn admin-pill-btn--primary">
+                    Применить
+                </button>
+                <a href="/admin/logins" class="sessions-reset-link">Сбросить</a>
+            </div>
+        </div>
+    </form>
+
+    {# Краткая сводка #}
+    <div class="sessions-summary-grid">
+        <div class="sessions-summary-card">
+            <div class="sessions-summary-title">Всего сессий</div>
+            <div class="sessions-summary-value">{{ total_sessions }}</div>
+        </div>
+        <div class="sessions-summary-card sessions-summary-card--green">
+            <div class="sessions-summary-title">Активных сессий</div>
+            <div class="sessions-summary-value">{{ active_sessions_count }}</div>
+        </div>
+        <div class="sessions-summary-card sessions-summary-card--blue">
+            <div class="sessions-summary-title">Уникальных пользователей</div>
+            <div class="sessions-summary-value">{{ unique_users_count }}</div>
+        </div>
+    </div>
+
+    {# Графики #}
+    <div class="sessions-charts-grid">
+        <div class="chart-card">
+            <div class="chart-card-title">Количество сессий по дням</div>
+            <canvas id="sessionsByDateChart"></canvas>
+        </div>
+
+        <div class="chart-card">
+            <div class="chart-card-title">Уникальные пользователи по дням</div>
+            <canvas id="usersByDateChart"></canvas>
+        </div>
+    </div>
+
+    {# Таблица сессий #}
+    <div class="card sessions-table-card">
+        <table class="admin-table sessions-table">
+            <thead>
+            <tr>
+                <th>ID</th>
+                <th>Пользователь</th>
+                <th>Вход</th>
+                <th>Выход</th>
+                <th>Длительность</th>
+                <th>Статус</th>
+                <th>IP</th>
+                <th>Браузер / клиент</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for s in sessions %}
+                <tr class="{% if s.is_active %}session-row--active{% endif %}">
+                    <td>{{ s.id }}</td>
+                    <td>
+                        <strong>{{ s.username }}</strong>
+                        {% if s.full_name %}
+                            <span class="sessions-user-fullname"> · {{ s.full_name }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ s.login_at }}</td>
+                    <td>
+                        {% if s.logout_at %}
+                            {{ s.logout_at }}
+                        {% else %}
+                            <span class="session-status-pill session-status-pill--active">
+                                активна
+                            </span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if s.duration_human %}
+                            {{ s.duration_human }}
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if s.is_active %}
+                            <span class="session-status-pill session-status-pill--active">
+                                Онлайн
+                            </span>
+                        {% else %}
+                            <span class="session-status-pill session-status-pill--ended">
+                                Завершена
+                            </span>
+                        {% endif %}
+                    </td>
+                    <td>{{ s.ip_address or "—" }}</td>
+                    <td class="sessions-user-agent">
+                        {{ s.user_agent or "—" }}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    // Данные для графиков приходят из бэкенда в виде JSON-строк
+    const sessionsByDate = {{ chart_sessions_by_date|safe }};
+    const usersByDate    = {{ chart_users_by_date|safe }};
+
+    function buildLineChart(canvasId, labels, values, label) {
+        const ctx = document.getElementById(canvasId);
+        if (!ctx) return;
+
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: label,
+                    data: values,
+                    tension: 0.3,
+                    fill: true,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: { ticks: { autoSkip: true, maxTicksLimit: 7 } },
+                    y: { beginAtZero: true, precision: 0 }
+                }
+            }
+        });
+    }
+
+    if (Array.isArray(sessionsByDate)) {
+        const labels = sessionsByDate.map(item => item.date);
+        const values = sessionsByDate.map(item => item.count);
+        buildLineChart('sessionsByDateChart', labels, values, 'Сессий за день');
+    }
+
+    if (Array.isArray(usersByDate)) {
+        const labels = usersByDate.map(item => item.date);
+        const values = usersByDate.map(item => item.users);
+        buildLineChart('usersByDateChart', labels, values, 'Уникальных пользователей');
+    }
+</script>
+{% endblock %}

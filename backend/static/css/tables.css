@@ -1,0 +1,249 @@
+/*!* === ЕДИНЫЙ СТИЛЬ ТАБЛИЦ === *!*/
+
+/*.well-table-block {*/
+/*  border-radius: 12px;*/
+/*  border: 1px solid #e5e7eb;*/
+/*  background: #ffffff;*/
+/*  padding: 8px 10px 10px;*/
+/*  overflow-x: auto;*/
+/*  margin-top: 6px;*/
+/*}*/
+
+/*!* Акцентные полосы слева *!*/
+/*.well-table-block--channels {*/
+/*  border-left: 4px solid #3b82f6;*/
+/*}*/
+
+/*.well-table-block--equipment {*/
+/*  border-left: 4px solid #f59e0b;*/
+/*}*/
+
+/*.well-table-block--reagents {*/
+/*  border-left: 4px solid #10b981;*/
+/*}*/
+
+/*.well-table {*/
+/*  width: 100%;*/
+/*  border-collapse: separate;*/
+/*  border-spacing: 0;*/
+/*  font-size: 13px;*/
+/*}*/
+
+/*.well-table thead th {*/
+/*  padding: 8px 10px;*/
+/*  text-align: left;*/
+/*  background: #f9fafb;*/
+/*  color: #6b7280;*/
+/*  font-size: 11px;*/
+/*  text-transform: uppercase;*/
+/*  letter-spacing: 0.06em;*/
+/*  border-bottom: 1px solid #e5e7eb;*/
+/*  white-space: nowrap;*/
+/*}*/
+
+/*.well-table thead th:first-child {*/
+/*  border-top-left-radius: 8px;*/
+/*}*/
+/*.well-table thead th:last-child {*/
+/*  border-top-right-radius: 8px;*/
+/*}*/
+
+/*.well-table tbody td {*/
+/*  padding: 7px 10px;*/
+/*  border-bottom: 1px solid #f1f5f9;*/
+/*  vertical-align: top;*/
+/*}*/
+
+/*.well-table tbody tr:last-child td {*/
+/*  border-bottom: none;*/
+/*}*/
+
+/*.well-table tbody tr:hover {*/
+/*  background: #f9fafb;*/
+/*}*/
+
+/*!* Выравнивание *!*/
+/*.well-table td.is-number {*/
+/*  text-align: right;*/
+/*  font-variant-numeric: tabular-nums;*/
+/*}*/
+
+/*.well-table td.is-date,*/
+/*.well-table th.is-date {*/
+/*  white-space: nowrap;*/
+/*}*/
+
+/*.well-table td.is-muted {*/
+/*  color: #9ca3af;*/
+/*}*/
+
+/*!* Цветовые темы таблиц *!*/
+/*.well-table--channels thead th {*/
+/*  background: #eff6ff;*/
+/*  border-bottom-color: #bfdbfe;*/
+/*}*/
+
+/*.well-table--equipment thead th {*/
+/*  background: #fffbeb;*/
+/*  border-bottom-color: #fcd34d;*/
+/*}*/
+
+/*.well-table--reagents thead th {*/
+/*  background: #ecfdf5;*/
+/*  border-bottom-color: #6ee7b7;*/
+/*}*/
+
+
+
+/* === Общий контейнер вокруг таблицы (карточка) === */
+
+.well-table-block {
+  margin-top: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;         /* светлая рамка */
+  background: #ffffff;                /* белый фон карточки */
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04); /* мягкая тень, как в SaaS */
+  overflow: auto;
+}
+
+/* Варианты фона для разных типов таблиц (если захочешь чуть оттенить) */
+.well-table-block--channels {
+  /* background: #f9fafb; */          /* можешь раскомментировать, если нужен лёгкий серый */
+}
+
+.well-table-block--equipment {
+  /* background: #fffbeb; */          /* лёгкий жёлтый */
+}
+
+.well-table-block--reagents {
+  /* background: #f0fdf4; */          /* лёгкий зелёный */
+}
+
+/* === Базовая таблица === */
+
+.well-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #111827;
+  table-layout: auto;
+}
+
+/* === Заголовок как в админках === */
+
+.well-table thead {
+  background: #f9fafb;
+}
+
+.well-table thead th {
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6b7280;
+  text-align: left;
+  border-bottom: 1px solid #e5e7eb;
+  white-space: nowrap;
+}
+
+/* лёгкое "утопление" заголовка — линия и фон */
+.well-table thead th:first-child {
+  border-top-left-radius: 8px;
+}
+.well-table thead th:last-child {
+  border-top-right-radius: 8px;
+}
+
+/* === Тело таблицы === */
+
+.well-table tbody tr {
+  background: #ffffff;
+  transition: background-color 0.12s ease-out, box-shadow 0.12s ease-out;
+}
+
+.well-table tbody tr + tr td {
+  border-top: 1px solid #f3f4f6;   /* деликатные разделители строк */
+}
+
+.well-table tbody td {
+  padding: 7px 10px;
+  vertical-align: middle;
+}
+
+/* Наведение по строке — классика SaaS-админок */
+.well-table tbody tr:hover {
+  background-color: #f9fafb;
+}
+
+/* Последняя строка — скругление нижних углов */
+.well-table tbody tr:last-child td:first-child {
+  border-bottom-left-radius: 8px;
+}
+.well-table tbody tr:last-child td:last-child {
+  border-bottom-right-radius: 8px;
+}
+
+/* === Выравнивание служебных колонок === */
+
+.well-table th.is-date,
+.well-table td.is-date {
+  text-align: center;
+  white-space: nowrap;
+}
+
+.well-table th.is-number,
+.well-table td.is-number {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* === Лёгкая зебра (по желанию) === */
+/* если не зайдёт — просто закомментируй */
+
+.well-table tbody tr:nth-child(even) {
+  /* background-color: #fcfcfd; */
+}
+
+/* === Состояние "активной" строки при клике (канал/оборудование) === */
+
+.channel-row.active,
+.equipment-row.active {
+  background-color: #eff6ff !important;
+  box-shadow: inset 0 0 0 1px #3b82f6;
+}
+
+.user-row {
+    cursor: pointer;
+}
+
+.user-row:hover {
+    background: #eef2ff;
+}
+
+.user-row.selected {
+    background: #c7d2fe !important;
+}
+
+.actions-bar {
+    margin-top: 16px;
+    padding: 14px;
+    border-radius: 12px;
+    background: #f1f5f9;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    border: 1px solid #d1d5db;
+}
+
+.actions-bar.hidden {
+    display: none;
+}
+
+#selected-user-label {
+    font-weight: 600;
+    margin-right: 20px;
+}

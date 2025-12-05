@@ -12,10 +12,22 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     APP_TITLE: str = "СУРГИЛ · Оптимизация работы газовых скважин"
 
-    # ===== добавляем ↓↓↓ =====
-    BASIC_AUTH_USERNAME: str = "admin"
-    BASIC_AUTH_PASSWORD: str = "change_me"
-    # ==========================
+# 🔐 Секретный ключ для сессий
+    SECRET_KEY: str = "change_me_in_env"
 
+    # 🔐 Логин/пароль администратора (или общего аккаунта)
+    ADMIN_USERNAME: str = "admin"
+    ADMIN_PASSWORD: str = "admin123"
+
+    # ← Новые поля: учётка для обычного пользователя
+    VIEW_USERNAME: str = "user"
+    VIEW_PASSWORD: str = "userpass"
+
+
+    MASTER_ADMIN_USERNAME: str = "admin"
+    MASTER_ADMIN_PASSWORD: str = "admin123"   # ЗАДАЙ ЛЮБОЙ ПАРОЛЬ
+    MASTER_ADMIN_EMAIL: str = "ua.nikitin@gmail.com"
+    MASTER_ADMIN_FULL_NAME: str = "System Administrator"
 
 settings = Settings()
+

@@ -280,18 +280,9 @@
   </div>
 
   {# === РЯД 1, КОЛОНКА 3: ОБОРУДОВАНИЕ (совпадает по колонке с картой) === #}
-  <div style="height:100%;">
+    <div style="height:100%;">
     <div style="margin-bottom:4px;">
-      <h2 style="margin:0; font-size:14px; font-weight:/* Иконки оборудования на странице WELL — жёсткий размер */
-.well-eq-icon {
-    width: 56px !important;
-    height: 56px !important;
-    max-width: 56px !important;
-    max-height: 56px !important;
-    object-fit: contain !important;
-    display: block;
-    flex-shrink: 0;
-}00;">Оборудование</h2>
+      <h2 style="margin:0; font-size:14px; font-weight:700;">Оборудование</h2>
     </div>
 
     {% if current_equipment %}
@@ -629,27 +620,29 @@
           {% if stats.end %}{{ stats.end.strftime("%d.%m.%Y") }}{% else %}—{% endif %}
         </p>
 
-        {% if stats.per_reagent %}
-          <h3>По реагентам</h3>
-          <table class="events-stats-table">
-            <thead>
-              <tr>
-                <th>Реагент</th>
-                <th>Количество вбросов</th>
-                <th>Суммарное количество</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for r in stats.per_reagent %}
-                <tr>
-                  <td>{{ r.reagent }}</td>
-                  <td>{{ r.injections }}</td>
-                  <td>{{ "%.2f"|format(r.total_qty) }}</td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        {% endif %}
+{% if stats.per_reagent %}
+  <h3>По реагентам</h3>
+  <div class="well-table-block well-table-block--reagents">
+    <table class="well-table well-table--reagents">
+      <thead>
+        <tr>
+          <th>Реагент</th>
+          <th class="is-number">Количество вбросов</th>
+          <th class="is-number">Суммарное количество</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in stats.per_reagent %}
+          <tr>
+            <td>{{ r.reagent }}</td>
+            <td class="is-number">{{ r.injections }}</td>
+            <td class="is-number">{{ "%.2f"|format(r.total_qty) }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
       {% else %}
         <p>Нет данных для расчёта статистики.</p>
       {% endif %}
@@ -694,54 +687,55 @@
             {% endif %}
           </div>
 
-          {# определяем, редактируем ли существующую заметку #}
-          {% if note_edit is defined and note_edit %}
-            {% set current_note = note_edit %}
-          {% else %}
-            {% set current_note = None %}
-          {% endif %}
+            {# определяем, редактируем ли существующую заметку #}
+            {% if note_edit is defined and note_edit %}
+              {% set current_note = note_edit %}
+            {% else %}
+              {% set current_note = None %}
+            {% endif %}
 
-          <form method="post"
-                action="/well/{{ well.id }}/notes/save"
-                class="well-form">
+            <form method="post"
+                  action="/well/{{ well.id }}/notes/save"
+                  class="well-form">
 
-            <input type="hidden" name="note_id"
-                   value="{% if current_note %}{{ current_note.id }}{% endif %}">
+              <input type="hidden" name="note_id"
+                     value="{% if current_note %}{{ current_note.id }}{% endif %}">
 
-            <div class="form-group" style="margin-bottom:10px;">
-              <label for="noteTimeInput">Дата / время наблюдения</label>
-              <input
-                type="datetime-local"
-                id="noteTimeInput"
-                name="note_time"
-                style="width:50%; max-width:50%; box-sizing:border-box;"
-                value="{% if current_note and current_note.created_at %}{{ current_note.created_at.strftime('%Y-%m-%dT%H:%M') }}{% endif %}"
-              />
-            </div>
+              <div class="form-group" style="margin-bottom:10px;">
+                <label for="noteTimeInput">Дата / время наблюдения</label>
+                <input
+                  type="datetime-local"
+                  id="noteTimeInput"
+                  name="note_time"
+                  style="width:50%; max-width:50%; box-sizing:border-box;"
+                  value="{% if current_note and current_note.created_at %}{{ current_note.created_at.strftime('%Y-%m-%dT%H:%M') }}{% endif %}"
+                />
+              </div>
 
-            <div class="form-group" style="margin-bottom:10px;">
-              <label for="noteTextInput">Заметка / наблюдение</label>
-              <textarea
-                id="noteTextInput"
-                name="note_text"
-                rows="4"
-                style="width:100%; max-width:100%; box-sizing:border-box; min-height:110px;"
-                placeholder="Например: Наблюдается падение давления, увеличился дебит воды..."
-              >{% if current_note %}{{ current_note.text }}{% endif %}</textarea>
-            </div>
+              <div class="form-group" style="margin-bottom:10px;">
+                <label for="noteTextInput">Заметка / наблюдение</label>
+                <textarea
+                  id="noteTextInput"
+                  name="note_text"
+                  rows="4"
+                  style="width:100%; max-width:100%; box-sizing:border-box; min-height:110px;"
+                  placeholder="Например: Наблюдается падение давления, увеличился дебит воды..."
+                >{% if current_note %}{{ current_note.text }}{% endif %}</textarea>
+              </div>
 
-            <div class="form-actions">
-              <button type="submit" class="btn-primary">
-                {% if current_note %}Сохранить изменения{% else %}Добавить запись{% endif %}
-              </button>
+              <div class="form-actions">
+                <button type="submit" class="btn-primary">
+                  {% if current_note %}Сохранить изменения{% else %}Добавить запись{% endif %}
+                </button>
 
-              {% if current_note %}
-                <a href="/well/{{ well.id }}#notes-card" class="btn-secondary btn-xs">
-                  Отменить редактирование
-                </a>
-              {% endif %}
-            </div>
-          </form>
+                {% if current_note %}
+                  <a href="/well/{{ well.id }}#notes-card" class="btn-secondary btn-xs">
+                    Отменить редактирование
+                  </a>
+                {% endif %}
+              </div>
+            </form>
+
         </div>
 
         {# ===== ПРАВАЯ ЧАСТЬ: список заметок из базы ===== #}
@@ -795,7 +789,8 @@
     {% endfor %}
   </div>
 
-  <div style="margin-top:6px; display:flex; justify-content:flex-end; gap:8px;">
+          {% if is_admin %}
+     <div style="margin-top:6px; display:flex; justify-content:flex-end; gap:8px;">
     <button type="button"
             class="btn-secondary btn-xs"
             onclick="editSelectedNote()">
@@ -809,6 +804,8 @@
   </div>
 
   <form id="noteDeleteForm" method="post" style="display:none;"></form>
+  {% endif %}
+
 
 {% else %}
   <p style="font-size:13px; color:#6b7280;">
@@ -875,17 +872,17 @@
 <!--    </div>-->
 <!--  {% endif %}-->
 
-  <article class="card">
+<article class="card">
   <h2>История каналов</h2>
 
   {% if channel_history %}
-    <div class="events-table-wrapper">
-      <table class="table-history" style="width:80%; table-layout:auto;">
+    <div class="well-table-block well-table-block--channels">
+      <table class="well-table well-table--channels">
         <thead>
           <tr>
             <th>Канал</th>
-            <th>Начало</th>
-            <th>Окончание</th>
+            <th class="is-date">Начало</th>
+            <th class="is-date">Окончание</th>
             <th>Примечание</th>
           </tr>
         </thead>
@@ -897,8 +894,10 @@
               onclick="selectChannel({{ ch.id }})"
             >
               <td>{{ ch.channel }}</td>
-              <td>{{ ch.started_at.strftime("%d.%m.%Y %H:%M") if ch.started_at else "—" }}</td>
-              <td>
+              <td class="is-date">
+                {{ ch.started_at.strftime("%d.%m.%Y %H:%M") if ch.started_at else "—" }}
+              </td>
+              <td class="is-date">
                 {% if ch.ended_at %}
                   {{ ch.ended_at.strftime("%d.%m.%Y %H:%M") }}
                 {% else %}
@@ -911,7 +910,7 @@
         </tbody>
       </table>
     </div>
-
+    {% if is_admin %}
     <div style="margin-top:8px; display:flex; justify-content:flex-end; gap:8px;">
       <button type="button"
               class="btn-primary btn-xs"
@@ -931,10 +930,11 @@
     </div>
 
     <form id="channelDeleteForm" method="post" style="display:none;"></form>
+   {% endif %}
 
   {% else %}
     <p>Для этой скважины пока нет истории каналов.</p>
-
+  {% if is_admin %}
     <div style="margin-top:8px; display:flex; justify-content:flex-end;">
       <button type="button"
               class="btn-primary btn-xs"
@@ -942,6 +942,7 @@
         Добавить канал
       </button>
     </div>
+      {% endif %}
   {% endif %}
 </article>
 
@@ -1024,14 +1025,14 @@
   <h2>История оборудования</h2>
 
   {% if equipment_history %}
-    <div class="events-table-wrapper">
-      <table class="table-history" style="width:80%; table-layout:auto;">
+    <div class="well-table-block well-table-block--equipment">
+      <table class="well-table well-table--equipment">
         <thead>
           <tr>
             <th>Тип</th>
             <th>SN</th>
-            <th>Установлено</th>
-            <th>Демонтировано</th>
+            <th class="is-date">Установлено</th>
+            <th class="is-date">Демонтировано</th>
             <th>Примечание</th>
           </tr>
         </thead>
@@ -1045,14 +1046,14 @@
             >
               <td>{{ eq_type.label if eq_type else eq.type_code }}</td>
               <td>{{ eq.serial_number or "—" }}</td>
-              <td>
+              <td class="is-date">
                 {% if eq.installed_at %}
                   {{ eq.installed_at.strftime("%d.%m.%Y %H:%M") }}
                 {% else %}
                   —
                 {% endif %}
               </td>
-              <td>
+              <td class="is-date">
                 {% if eq.removed_at %}
                   {{ eq.removed_at.strftime("%d.%m.%Y %H:%M") }}
                 {% else %}
@@ -1066,6 +1067,7 @@
       </table>
     </div>
 
+    {% if is_admin %}
     <div style="margin-top:8px; display:flex; justify-content:flex-end; gap:8px;">
       <button type="button"
               class="btn-primary btn-xs"
@@ -1085,10 +1087,10 @@
     </div>
 
     <form id="equipmentDeleteForm" method="post" style="display:none;"></form>
-
+  {% endif %}
   {% else %}
     <p>История оборудования отсутствует.</p>
-
+   {% if is_admin %}
     <div style="margin-top:8px; display:flex; justify-content:flex-end;">
       <button type="button"
               class="btn-primary btn-xs"
@@ -1097,63 +1099,87 @@
       </button>
     </div>
   {% endif %}
+    {% endif %}
 </article>
 
 
        {# === БЛОК: История статусов плитками === #}
     <article class="card">
-      <h2>История статусов</h2>
+  <h2>История статусов</h2>
 
-      {% if well_status and well_status.grid %}
-        <div class="status-grid">
-          {# Одна колонка = один тип статуса (Наблюдение, Адаптация, ...) #}
-          {% for col in well_status.grid %}
-            <div class="status-column">
-              <div class="status-column-header {{ col.css }}">
-                {{ col.label }}
+  {% if well_status and well_status.grid %}
+    <div class="status-grid">
+      {# Одна колонка = один тип статуса (Наблюдение, Адаптация, ...) #}
+      {% for col in well_status.grid %}
+        <div class="status-column">
+          <div class="status-column-header {{ col.css }}">
+            {{ col.label }}
+          </div>
+
+          {# строки внутри колонки = отдельные периоды этого статуса #}
+          {% for st in col["items"] %}
+            <div
+              class="status-card {{ col.css }} status-card--history"
+              data-status-id="{{ st.id }}"
+              onclick="selectStatus({{ st.id }})"
+            >
+              <div class="status-card-dates">
+                {{ st.start.strftime("%d.%m.%Y %H:%M") }} —
+                {% if st.end %}
+                  {{ st.end.strftime("%d.%m.%Y %H:%M") }}
+                {% else %}
+                  по настоящее время
+                {% endif %}
+              </div>
+              <div class="status-card-days">
+                {{ st.days }} сут.
               </div>
 
-              {# строки внутри колонки = отдельные периоды этого статуса #}
-                            {% for st in col["items"] %}
-                <div class="status-card {{ col.css }}">
-                  <div class="status-card-dates">
-                    {{ st.start.strftime("%d.%m.%Y %H:%M") }} —
-                    {% if st.end %}
-                      {{ st.end.strftime("%d.%m.%Y %H:%M") }}
-                    {% else %}
-                      по настоящее время
-                    {% endif %}
-                  </div>
-                  <div class="status-card-days">
-                    {{ st.days }} сут.
-                  </div>
-
-                  <div class="status-card-actions">
-                    <a href="/well/{{ well.id }}?edit_status={{ st.id }}#status-form"
-                       class="btn-secondary btn-xs">
-                      Редактировать
-                    </a>
-
-                    <form
-                      method="post"
-                      action="/well/{{ well.id }}/status/{{ st.id }}/delete"
-                      onsubmit="return confirm('Удалить этот статус?');"
-                      style="display:inline;"
-                    >
-                      <button type="submit" class="btn-danger btn-xs">
-                        Удалить
-                      </button>
-                    </form>
-                  </div>
+              {% if st.note %}
+                <div class="status-card-note">
+                  {{ st.note }}
                 </div>
-              {% endfor %}
+              {% endif %}
             </div>
           {% endfor %}
         </div>
-      {% else %}
-        <p>Для этой скважины ещё не задана история статусов.</p>
-      {% endif %}
-    </article>
+      {% endfor %}
+    </div>
+
+    {% if is_admin %}
+      <div style="margin-top:8px; display:flex; justify-content:flex-end; gap:8px;">
+        <button type="button"
+                class="btn-primary btn-xs"
+                onclick="openStatusModal(null)">
+          Добавить статус
+        </button>
+        <button type="button"
+                class="btn-secondary btn-xs"
+                onclick="editSelectedStatus()">
+          Редактировать
+        </button>
+        <button type="button"
+                class="btn-secondary btn-xs danger"
+                onclick="deleteSelectedStatus()">
+          Удалить
+        </button>
+      </div>
+
+      <form id="statusDeleteForm" method="post" style="display:none;"></form>
+    {% endif %}
+  {% else %}
+    <p>Для этой скважины ещё не задана история статусов.</p>
+    {% if is_admin %}
+      <div style="margin-top:8px; display:flex; justify-content:flex-end;">
+        <button type="button"
+                class="btn-primary btn-xs"
+                onclick="openStatusModal(null)">
+          Добавить статус
+        </button>
+      </div>
+    {% endif %}
+  {% endif %}
+</article>
 
 
     {# Планы оставляем как отдельную карточку ниже #}
@@ -1291,148 +1317,150 @@
 
 
   {# Правая колонка: форма редактирования #}
-    <section class="well-edit">
-    <article class="card">
-      <h2>Редактирование данных скважины</h2>
+    {% if is_admin %}
+      <section class="well-edit">
+      <article class="card">
+        <h2>Редактирование данных скважины</h2>
 
-      <form method="post" action="/well/{{ well.id }}/update" class="well-form">
-        <div class="form-group">
-          <label for="name">Название скважины</label>
-          <input
-            type="text"
-            id="name"
-            name="name"
-            value="{{ well.name or '' }}"
-            placeholder="Например: Скв 1367"
-          />
-        </div>
-
-        <div class="form-row">
+        <form method="post" action="/well/{{ well.id }}/update" class="well-form">
           <div class="form-group">
-            <label for="lat">Широта (lat)</label>
+            <label for="name">Название скважины</label>
             <input
               type="text"
-              id="lat"
-              name="lat"
-              value="{{ well.lat if well.lat is not none else '' }}"
-              placeholder="45.12345"
+              id="name"
+              name="name"
+              value="{{ well.name or '' }}"
+              placeholder="Например: Скв 1367"
             />
           </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="lat">Широта (lat)</label>
+              <input
+                type="text"
+                id="lat"
+                name="lat"
+                value="{{ well.lat if well.lat is not none else '' }}"
+                placeholder="45.12345"
+              />
+            </div>
+            <div class="form-group">
+              <label for="lon">Долгота (lon)</label>
+              <input
+                type="text"
+                id="lon"
+                name="lon"
+                value="{{ well.lon if well.lon is not none else '' }}"
+                placeholder="63.54321"
+              />
+            </div>
+          </div>
+
           <div class="form-group">
-            <label for="lon">Долгота (lon)</label>
-            <input
-              type="text"
-              id="lon"
-              name="lon"
-              value="{{ well.lon if well.lon is not none else '' }}"
-              placeholder="63.54321"
-            />
+            <label for="description">Описание</label>
+            <textarea
+              id="description"
+              name="description"
+              rows="4"
+              placeholder="Краткая характеристика скважины, особенности эксплуатации..."
+            >{{ well.description or "" }}</textarea>
           </div>
-        </div>
 
-        <div class="form-group">
-          <label for="description">Описание</label>
-          <textarea
-            id="description"
-            name="description"
-            rows="4"
-            placeholder="Краткая характеристика скважины, особенности эксплуатации..."
-          >{{ well.description or "" }}</textarea>
-        </div>
-
-        <div class="form-actions">
-          <button type="submit" class="btn-primary">
-            Сохранить изменения
-          </button>
-          <a href="/well/{{ well.id }}" class="btn-secondary">
-            Отменить
-          </a>
-        </div>
-      </form>
-
-      <hr class="form-separator" />
-
-      <h3>Статус скважины</h3>
-
-      {% set edit = well_status.edit_status %}
-      {% if edit %}
-        {% set current_status_text = edit.label %}
-      {% else %}
-        {% set current_status_text = None %}
-      {% endif %}
-
-        <form
-          id="status-form"
-          method="post"
-          action="{% if edit %}/well/{{ well.id }}/status/{{ edit.id }}/edit{% else %}/well/{{ well.id }}/status{% endif %}"
-          class="well-form"
-        >
-        <div class="form-group">
-          <label for="status">Статус</label>
-          <select id="status" name="status">
-            {% for s in allowed_statuses %}
-              <option value="{{ s }}"
-                {% if current_status_text == s %}selected{% endif %}>
-                {{ s }}
-              </option>
-            {% endfor %}
-            <option value="custom"
-              {% if current_status_text and current_status_text not in allowed_statuses %}selected{% endif %}>
-              Свой статус…
-            </option>
-          </select>
-        </div>
-
-        <div class="form-group" id="custom-status-group" style="display:none;">
-          <label for="custom_status">Свой статус</label>
-          <input
-            type="text"
-            id="custom_status"
-            name="custom_status"
-            value="{% if current_status_text and current_status_text not in allowed_statuses %}{{ current_status_text }}{% endif %}"
-          />
-        </div>
-
-        <div class="form-group">
-          <label for="status_start">Начало действия</label>
-          <input
-            type="datetime-local"
-            id="status_start"
-            name="status_start"
-            value="{% if edit and edit.start %}{{ edit.start.strftime('%Y-%m-%dT%H:%M') }}{% endif %}"
-          />
-        </div>
-
-        <div class="form-group">
-          <label for="status_end">Окончание (необязательно)</label>
-          <input
-            type="datetime-local"
-            id="status_end"
-            name="status_end"
-              value="{% if edit and edit.end %}{{ edit.end.strftime('%Y-%m-%dT%H:%M') }}{% endif %}"
-          />
-        </div>
-
-        <div class="form-group">
-          <label for="status_note">Комментарий</label>
-          <textarea id="status_note" name="status_note" rows="2">
-{% if edit and edit.note %}{{ edit.note }}{% endif %}
-          </textarea>
-        </div>
-
-        <div class="form-actions">
-          <button type="submit" class="btn-primary">
-            {% if edit %}Сохранить изменения{% else %}Добавить статус{% endif %}
-          </button>
-          {% if edit %}
-            <a href="/well/{{ well.id }}" class="btn-secondary btn-xs">
-              Отменить редактирование
+          <div class="form-actions">
+            <button type="submit" class="btn-primary">
+              Сохранить изменения
+            </button>
+            <a href="/well/{{ well.id }}" class="btn-secondary">
+              Отменить
             </a>
-          {% endif %}
-        </div>
-      </form>
-    </article>
-  </section>
+          </div>
+        </form>
+
+        <hr class="form-separator" />
+
+        <h3>Статус скважины</h3>
+
+        {% set edit = well_status.edit_status %}
+        {% if edit %}
+          {% set current_status_text = edit.label %}
+        {% else %}
+          {% set current_status_text = None %}
+        {% endif %}
+
+          <form
+            id="status-form"
+            method="post"
+            action="{% if edit %}/well/{{ well.id }}/status/{{ edit.id }}/edit{% else %}/well/{{ well.id }}/status{% endif %}"
+            class="well-form"
+          >
+          <div class="form-group">
+            <label for="status">Статус</label>
+            <select id="status" name="status">
+              {% for s in allowed_statuses %}
+                <option value="{{ s }}"
+                  {% if current_status_text == s %}selected{% endif %}>
+                  {{ s }}
+                </option>
+              {% endfor %}
+              <option value="custom"
+                {% if current_status_text and current_status_text not in allowed_statuses %}selected{% endif %}>
+                Свой статус…
+              </option>
+            </select>
+          </div>
+
+          <div class="form-group" id="custom-status-group" style="display:none;">
+            <label for="custom_status">Свой статус</label>
+            <input
+              type="text"
+              id="custom_status"
+              name="custom_status"
+              value="{% if current_status_text and current_status_text not in allowed_statuses %}{{ current_status_text }}{% endif %}"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="status_start">Начало действия</label>
+            <input
+              type="datetime-local"
+              id="status_start"
+              name="status_start"
+              value="{% if edit and edit.start %}{{ edit.start.strftime('%Y-%m-%dT%H:%M') }}{% endif %}"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="status_end">Окончание (необязательно)</label>
+            <input
+              type="datetime-local"
+              id="status_end"
+              name="status_end"
+                value="{% if edit and edit.end %}{{ edit.end.strftime('%Y-%m-%dT%H:%M') }}{% endif %}"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="status_note">Комментарий</label>
+            <textarea id="status_note" name="status_note" rows="2">
+    {% if edit and edit.note %}{{ edit.note }}{% endif %}
+            </textarea>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn-primary">
+              {% if edit %}Сохранить изменения{% else %}Добавить статус{% endif %}
+            </button>
+            {% if edit %}
+              <a href="/well/{{ well.id }}" class="btn-secondary btn-xs">
+                Отменить редактирование
+              </a>
+            {% endif %}
+          </div>
+        </form>
+      </article>
+      </section>
+    {% endif %}
 </div> {# конец .well-layout #}
 
 {% endblock %}  {# конец block content #}
@@ -1526,9 +1554,139 @@
     })();
   </script>
 
+{% if is_admin %}
+{# ==== МОДАЛЬНОЕ ОКНО ДЛЯ СТАТУСА СКВАЖИНЫ ==== #}
+<dialog id="statusModal">
+  <form id="statusForm" method="post">
+    <h3 id="statusFormTitle">Статус скважины</h3>
 
+    <label>
+      Статус
+      <select name="status" id="statusModalSelect">
+        {% for s in allowed_statuses %}
+          <option value="{{ s }}">{{ s }}</option>
+        {% endfor %}
+        <option value="custom">Свой статус…</option>
+      </select>
+    </label>
+
+    <div id="customStatusModalGroup" style="display:none; margin-top:6px;">
+      <label>
+        Свой статус
+        <input type="text" name="custom_status" id="customStatusModalInput">
+      </label>
+    </div>
+
+    <label>
+      Начало действия
+      <input type="datetime-local" name="status_start" id="statusStartModalInput">
+    </label>
+
+    <label>
+      Окончание (необязательно)
+      <input type="datetime-local" name="status_end" id="statusEndModalInput">
+    </label>
+
+    <label>
+      Комментарий
+      <textarea name="status_note" id="statusNoteModalInput" rows="2"></textarea>
+    </label>
+
+    <div class="form-actions">
+      <button type="submit" class="btn-primary">Сохранить</button>
+      <button type="button"
+              class="btn-secondary"
+              onclick="closeStatusModal()">
+        Отмена
+      </button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+  // Собираем словарь статусов по id
+  window.statusData = {
+    {% if well_status and well_status.grid %}
+      {% for col in well_status.grid %}
+        {% for st in col["items"] %}
+          {{ st.id }}: {
+            label: {{ (st.label or col.label)|tojson }},
+            start: "{{ st.start.strftime('%Y-%m-%dT%H:%M') if st.start else '' }}",
+            end: "{{ st.end.strftime('%Y-%m-%dT%H:%M') if st.end else '' }}",
+            note: {{ (st.note or '')|tojson }}
+          },
+        {% endfor %}
+      {% endfor %}
+    {% endif %}
+  };
+
+  const allowedStatusList = {{ allowed_statuses|tojson }};
+
+  function openStatusModal(statusId) {
+    const dlg = document.getElementById('statusModal');
+    const form = document.getElementById('statusForm');
+    const title = document.getElementById('statusFormTitle');
+
+    const statusSelect = document.getElementById('statusModalSelect');
+    const customGroup  = document.getElementById('customStatusModalGroup');
+    const customInput  = document.getElementById('customStatusModalInput');
+    const startInput   = document.getElementById('statusStartModalInput');
+    const endInput     = document.getElementById('statusEndModalInput');
+    const noteInput    = document.getElementById('statusNoteModalInput');
+
+    function updateCustomVisibility() {
+      if (statusSelect.value === 'custom') {
+        customGroup.style.display = '';
+      } else {
+        customGroup.style.display = 'none';
+      }
+    }
+    statusSelect.onchange = updateCustomVisibility;
+
+    if (statusId && window.statusData[statusId]) {
+      // Режим редактирования
+      title.textContent = 'Редактировать статус';
+      form.action = '/well/{{ well.id }}/status/' + statusId + '/edit';
+
+      const data = window.statusData[statusId];
+      const label = data.label || '';
+
+      if (allowedStatusList.indexOf(label) !== -1) {
+        statusSelect.value = label;
+        customInput.value = '';
+      } else {
+        statusSelect.value = 'custom';
+        customInput.value = label;
+      }
+
+      startInput.value = data.start || '';
+      endInput.value   = data.end || '';
+      noteInput.value  = data.note || '';
+    } else {
+      // Режим добавления нового статуса
+      title.textContent = 'Добавить статус';
+      form.action = '/well/{{ well.id }}/status';
+
+      statusSelect.value = allowedStatusList.length > 0
+        ? allowedStatusList[0]
+        : 'custom';
+      customInput.value  = '';
+      startInput.value   = '';
+      endInput.value     = '';
+      noteInput.value    = '';
+    }
+
+    updateCustomVisibility();
+    dlg.showModal();
+  }
+
+  function closeStatusModal() {
+    document.getElementById('statusModal').close();
+  }
+</script>
+{% endif %}
 {# ==== МОДАЛЬНОЕ ОКНО ДЛЯ КАНАЛА СВЯЗИ ==== #}
-
+{% if is_admin %}
 <dialog id="channelModal">
   <form id="channelForm" method="post">
     <h3 id="channelFormTitle">Канал связи</h3>
@@ -1615,7 +1773,7 @@
     document.getElementById('channelModal').close();
   }
 </script>
-
+{% endif %}
 
 {# ==== МОДАЛЬНОЕ ОКНО ДЛЯ ОБОРУДОВАНИЯ ==== #}
 
@@ -1736,7 +1894,9 @@
   })();
 </script>
 
+{% if is_admin %}
 <script>
+  // ================== ЗАМЕТКИ ==================
   let selectedNoteId = null;
 
   function selectNote(id) {
@@ -1775,6 +1935,119 @@
     form.action = '/well/{{ well.id }}/notes/' + selectedNoteId + '/delete';
     form.submit();
   }
-</script>
 
+  // ================== КАНАЛЫ СВЯЗИ ==================
+  let selectedChannelId = null;
+
+  function selectChannel(id) {
+    selectedChannelId = id;
+
+    const rows = document.querySelectorAll('.channel-row');
+    rows.forEach((row) => {
+      if (parseInt(row.dataset.channelId, 10) === id) {
+        row.style.background = '#e5f0ff';
+      } else {
+        row.style.background = '';
+      }
+    });
+  }
+
+  function editSelectedChannel() {
+    if (!selectedChannelId) {
+      alert('Сначала выбери канал.');
+      return;
+    }
+    openChannelModal(selectedChannelId);
+  }
+
+  function deleteSelectedChannel() {
+    if (!selectedChannelId) {
+      alert('Сначала выбери канал.');
+      return;
+    }
+    if (!confirm('Удалить выбранный канал?')) {
+      return;
+    }
+    const form = document.getElementById('channelDeleteForm');
+    form.action = '/well/{{ well.id }}/channel/' + selectedChannelId + '/delete';
+    form.submit();
+  }
+
+  // ================== ОБОРУДОВАНИЕ ==================
+  let selectedEquipmentId = null;
+
+  function selectEquipment(id) {
+    selectedEquipmentId = id;
+
+    const rows = document.querySelectorAll('.equipment-row');
+    rows.forEach((row) => {
+      if (parseInt(row.dataset.equipmentId, 10) === id) {
+        row.style.background = '#e5f0ff';
+      } else {
+        row.style.background = '';
+      }
+    });
+  }
+
+  function editSelectedEquipment() {
+    if (!selectedEquipmentId) {
+      alert('Сначала выбери оборудование.');
+      return;
+    }
+    openEquipmentModal(selectedEquipmentId);
+  }
+
+  function deleteSelectedEquipment() {
+    if (!selectedEquipmentId) {
+      alert('Сначала выбери оборудование.');
+      return;
+    }
+    if (!confirm('Удалить выбранное оборудование?')) {
+      return;
+    }
+    const form = document.getElementById('equipmentDeleteForm');
+    form.action = '/well/{{ well.id }}/equipment/' + selectedEquipmentId + '/delete';
+    form.submit();
+  }
+
+  // ================== СТАТУСЫ СКВАЖИНЫ ==================
+  let selectedStatusId = null;
+
+  function selectStatus(id) {
+    selectedStatusId = id;
+
+    const cards = document.querySelectorAll('.status-card--history');
+    cards.forEach((card) => {
+      if (parseInt(card.dataset.statusId, 10) === id) {
+        card.style.outline = '2px solid #3b82f6';
+        card.style.backgroundColor = 'rgba(59,130,246,0.08)';
+      } else {
+        card.style.outline = '';
+        card.style.backgroundColor = '';
+      }
+    });
+  }
+
+  function editSelectedStatus() {
+    if (!selectedStatusId) {
+      alert('Сначала выбери статус.');
+      return;
+    }
+    openStatusModal(selectedStatusId);
+  }
+
+  function deleteSelectedStatus() {
+    if (!selectedStatusId) {
+      alert('Сначала выбери статус.');
+      return;
+    }
+    if (!confirm('Удалить выбранный статус?')) {
+      return;
+    }
+    const form = document.getElementById('statusDeleteForm');
+    form.action = '/well/{{ well.id }}/status/' + selectedStatusId + '/delete';
+    form.submit();
+  }
+</script>
+{% endif %}
 {% endblock %}

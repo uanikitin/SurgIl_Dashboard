@@ -1,0 +1,253 @@
+/* Общая раскладка */
+body {
+    margin: 0;
+    padding: 0;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background-color: #050814;
+    color: #f5f5f5;
+}
+
+.auth-page {
+    position: relative;
+    min-height: 100vh;
+    overflow: hidden;
+}
+
+/* Фон — фотография газовой скважины */
+.auth-bg {
+    position: fixed;
+    inset: 0;
+    background-image: url("/static/img/gaswell_bg.jpg");
+    background-size: cover;
+    background-position: center;
+    filter: blur(2px);
+    transform: scale(1.03);
+    z-index: -2;
+}
+
+/* Тёмная вуаль для читаемости текста */
+.auth-overlay {
+    position: fixed;
+    inset: 0;
+    background:
+        radial-gradient(circle at top left, rgba(0, 88, 255, 0.4), transparent 60%),
+        radial-gradient(circle at bottom right, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.95));
+    z-index: -1;
+}
+
+/* Основной контейнер */
+.auth-container {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    min-height: 100vh;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 24px;
+    gap: 32px;
+}
+
+/* Левая колонка: бренд + текст */
+.auth-left {
+    max-width: 520px;
+    color: #e5ecff;
+}
+
+/* ---- Блок с логотипом и заголовком ---- */
+
+.brand-block {
+    display: flex;
+    align-items: center;   /* логотип и текст по центру по вертикали */
+    gap: 20px;
+}
+
+/* контейнер с картинкой логотипа */
+.brand-logo img {
+    width: 120px;
+    height: 120px;
+    object-fit: contain;
+
+    background: #ffffff;
+    border-radius: 20px;
+    padding: 14px 18px;
+
+    box-shadow:
+        0 10px 30px rgba(0, 0, 0, 0.45),
+        0 0 0 1px rgba(120, 150, 255, 0.18);
+}
+
+/* заголовок и подзаголовок */
+.brand-title h1 {
+    margin: 0 0 4px;
+    font-size: 28px;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.brand-title p {
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.5;
+    color: #c2cffc;
+}
+
+/* текст под блоком бренда */
+.brand-text {
+    margin-top: 24px;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #c8d3ff;
+}
+
+/* Правая колонка: карточка формы */
+.auth-right {
+    max-width: 400px;
+    width: 100%;
+}
+
+.auth-card {
+    background: rgba(7, 11, 32, 0.96);
+    border-radius: 18px;
+    padding: 24px 24px 28px;
+    box-shadow:
+        0 18px 45px rgba(0, 0, 0, 0.75),
+        0 0 0 1px rgba(140, 170, 255, 0.12);
+    backdrop-filter: blur(10px);
+}
+
+/* Заголовки формы */
+.auth-title {
+    margin: 0 0 4px;
+    font-size: 20px;
+}
+
+.auth-subtitle {
+    margin: 0 0 16px;
+    font-size: 13px;
+    color: #a9b5da;
+}
+
+/* Ошибки */
+.auth-error {
+    margin-bottom: 16px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(255, 72, 72, 0.12);
+    color: #ffd4d4;
+    font-size: 13px;
+    border: 1px solid rgba(255, 104, 104, 0.6);
+}
+
+/* Форма */
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.form-group label {
+    font-size: 13px;
+    color: #d4ddff;
+}
+
+.form-group input {
+    padding: 9px 11px;
+    border-radius: 10px;
+    border: 1px solid rgba(135, 150, 210, 0.6);
+    background: rgba(5, 7, 22, 0.9);
+    color: #f5f7ff;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.form-group input::placeholder {
+    color: #7e88b3;
+}
+
+.form-group input:focus {
+    border-color: #4b7bff;
+    box-shadow: 0 0 0 1px rgba(75, 123, 255, 0.5);
+    background: rgba(8, 11, 32, 0.98);
+}
+
+/* Кнопка */
+.btn-primary {
+    margin-top: 8px;
+    padding: 10px 14px;
+    width: 100%;
+    border-radius: 999px;
+    border: none;
+    background: linear-gradient(135deg, #3c7bff, #00c0ff);
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    cursor: pointer;
+    box-shadow: 0 10px 30px rgba(0, 117, 255, 0.5);
+    transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease;
+}
+
+.btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 14px 36px rgba(0, 117, 255, 0.6);
+    opacity: 0.97;
+}
+
+.btn-primary:active {
+    transform: translateY(0);
+    box-shadow: 0 8px 24px rgba(0, 117, 255, 0.5);
+}
+
+/* Низ карточки */
+.auth-footer-text {
+    margin-top: 10px;
+    font-size: 13px;
+    text-align: center;
+    color: #a1acd8;
+}
+
+.auth-footer-text a {
+    color: #6fa5ff;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.auth-footer-text a:hover {
+    text-decoration: underline;
+}
+
+/* Адаптив для телефонов */
+@media (max-width: 860px) {
+    .auth-container {
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: center;
+        padding: 20px 16px;
+    }
+
+    .auth-left {
+        max-width: 100%;
+        text-align: center;
+    }
+
+    .brand-block {
+        justify-content: center;
+    }
+
+    .brand-text {
+        margin-top: 16px;
+        font-size: 13px;
+    }
+
+    .auth-right {
+        max-width: 100%;
+    }
+}

@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+
+{% block title %}Админ-панель · Пользователи{% endblock %}
+
+{% block content %}
+<div class="admin-page">
+    <a href="/visual" class="back-link">← Назад к дашборду</a>
+
+    <div class="admin-header-row">
+        <div>
+            <h1>Пользователи</h1>
+            <p class="admin-meta">В базе: {{ total_users }} пользователей.</p>
+        </div>
+    </div>
+
+    <div class="admin-tabs">
+        <a href="/admin/users" class="admin-tab admin-tab--active">Пользователи</a>
+        <a href="/admin/logins" class="admin-tab">Сессии</a>
+    </div>
+
+    <form method="get" class="admin-search">
+        <input
+            id="user-search"
+            type="text"
+            name="q"
+            placeholder="Поиск по логину или имени"
+            value="{{ q or '' }}"
+        >
+    </form>
+
+    <div class="card">
+        <table id="users-table" class="admin-table">
+            <thead>
+            <tr>
+                <th>ID</th>
+                <th>Логин</th>
+                <th>Имя</th>
+                <th>E-mail</th>
+                <th>Роль</th>
+                <th>Статус</th>
+                <th>Создан</th>
+                <th>Последний вход</th>
+            </tr>
+            </thead>
+            <tbody id="user-table-body">
+            {% for u in users %}
+                <tr class="user-row"
+                    data-id="{{ u.id }}"
+                    data-role="{{ 'admin' if u.is_admin else 'operator' }}"
+                    data-active="{{ '1' if u.is_active else '0' }}">
+                    <td>{{ u.id }}</td>
+                    <td class="cell-username">{{ u.username }}</td>
+                    <td>{{ u.full_name or "—" }}</td>
+                    <td>{{ u.email or "—" }}</td>
+                    <td>{{ "Администратор" if u.is_admin else "Оператор" }}</td>
+                    <td>{{ "Активен" if u.is_active else "Заблокирован" }}</td>
+                    <td>{{ u.created_at or "—" }}</td>
+                    <td>{{ u.last_login_at or "—" }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {# Панель действий под таблицей #}
+    <div id="user-actions-bar" class="actions-bar hidden">
+        <span id="selected-user-label">Пользователь: не выбран</span>
+
+        <form method="post" id="action-admin" action="">
+            <button type="submit" class="admin-pill-btn admin-pill-btn--primary">
+                Сделать админом
+            </button>
+        </form>
+
+        <form method="post" id="action-active" action="">
+            <button type="submit" class="admin-pill-btn admin-pill-btn--warning">
+                Заблокировать
+            </button>
+        </form>
+
+        <form method="post" id="action-delete" action="">
+            <button type="submit" class="admin-pill-btn admin-pill-btn--danger"
+                    onclick="return confirm('Удалить пользователя?');">
+                Удалить
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const searchInput = document.getElementById('user-search');
+    const table       = document.getElementById('users-table');
+    const rows        = table ? Array.from(table.querySelectorAll('tbody tr')) : [];
+
+    // --- Поиск по логину / имени ---
+    if (searchInput && rows.length) {
+        searchInput.addEventListener('input', function () {
+            const q = this.value.toLowerCase();
+
+            rows.forEach(row => {
+                const username = row.querySelector('.cell-username')?.textContent.toLowerCase() || '';
+                const name     = row.children[2]?.textContent.toLowerCase() || '';
+
+                if (!q || username.includes(q) || name.includes(q)) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        });
+    }
+
+    // --- Выбор строки и панель действий ---
+    const actionBar   = document.getElementById('user-actions-bar');
+    const label       = document.getElementById('selected-user-label');
+    const adminForm   = document.getElementById('action-admin');
+    const activeForm  = document.getElementById('action-active');
+    const deleteForm  = document.getElementById('action-delete');
+
+    rows.forEach(row => {
+        row.addEventListener('click', () => {
+            // Снимаем выделение со всех
+            rows.forEach(r => r.classList.remove('selected'));
+
+            // Выделяем текущую
+            row.classList.add('selected');
+
+            const id       = row.dataset.id;
+            const username = row.querySelector('.cell-username')?.textContent || '';
+            const roleText = row.children[4].textContent.trim();
+            const status   = row.children[5].textContent.trim();
+
+            // Обновляем подпись и показываем панель
+            label.textContent = 'Пользователь: ' + username;
+            actionBar.classList.remove('hidden');
+
+            // Проставляем URL действий
+            adminForm.action  = `/admin/users/${id}/toggle_admin`;
+            activeForm.action = `/admin/users/${id}/toggle_active`;
+            deleteForm.action = `/admin/users/${id}/delete`;
+
+            // Динамически меняем текст кнопок
+            adminForm.querySelector('button').textContent =
+                (roleText === 'Администратор') ? 'Снять админа' : 'Сделать админом';
+
+            activeForm.querySelector('button').textContent =
+                (status === 'Активен') ? 'Заблокировать' : 'Разблокировать';
+        });
+    });
+</script>
+{% endblock %}

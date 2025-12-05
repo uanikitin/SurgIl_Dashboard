@@ -1556,7 +1556,6 @@ button:hover {
     font-size: 15px;
 }
 
-
 /*!* Иконки оборудования на странице WELL — жёсткий размер *!*/
 .well-eq-icon {
     width: 60px !important;
@@ -1567,3 +1566,625 @@ button:hover {
     display: block;
     flex-shrink: 0;
 }
+
+.main-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 24px;
+    background: #050814;
+    color: #f5f5f5;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.header-project {
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    font-size: 14px;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: 13px;
+}
+
+.user-label {
+    opacity: 0.9;
+}
+
+.user-role {
+    color: #6fb7ff;
+    font-weight: 500;
+}
+
+.main-header a {
+    text-decoration: none;
+    font-size: 13px;
+}
+
+.admin-link {
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(0, 150, 255, 0.15);
+    border: 1px solid rgba(0, 150, 255, 0.55);
+    color: #a8d7ff;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    transition: 0.15s ease;
+}
+
+.admin-link:hover {
+    background: rgba(0, 150, 255, 0.3);
+    color: #ffffff;
+}
+
+.logout-link,
+.login-link {
+    color: #9fa7c5;
+}
+
+.logout-link:hover,
+.login-link:hover {
+    color: #ffffff;
+}
+
+.topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 24px;
+    background: #050814;
+    color: #f5f5f5;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.topbar-left .logo {
+    color: #f5f5f5;
+    text-decoration: none;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+}
+
+.topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: 14px;
+}
+
+.user-label strong {
+    font-weight: 600;
+}
+
+.btn-admin,
+.btn-login,
+.btn-logout {
+    padding: 6px 12px;
+    border-radius: 999px;
+    text-decoration: none;
+    font-size: 13px;
+}
+
+.btn-admin {
+    background: rgba(0, 123, 255, 0.15);
+    border: 1px solid rgba(0, 123, 255, 0.7);
+    color: #bcd4ff;
+}
+
+.btn-login,
+.btn-logout {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #f5f5f5;
+}
+
+/* === Админка: таблица пользователей === */
+
+.admin-page {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 24px 32px 40px;
+}
+
+.admin-page h1 {
+    font-size: 28px;
+    margin-bottom: 8px;
+}
+
+.admin-page .admin-meta {
+    font-size: 14px;
+    color: #64748b;
+    margin-bottom: 16px;
+}
+
+.admin-search {
+    margin-bottom: 16px;
+}
+
+.admin-search input[type="text"] {
+    width: 320px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: 1px solid #cbd5f5;
+    font-size: 14px;
+    outline: none;
+    transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.admin-search input[type="text"]:focus {
+    border-color: #4f46e5;
+    box-shadow: 0 0 0 1px rgba(79, 70, 229, 0.25);
+}
+
+/* Контейнер таблицы */
+
+.admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #ffffff;
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow:
+        0 18px 45px rgba(15, 23, 42, 0.18),
+        0 0 0 1px rgba(148, 163, 233, 0.25);
+}
+
+.admin-table thead th {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 10px 14px;
+    background: linear-gradient(90deg, #eef2ff, #e0ecff);
+    border-bottom: 1px solid #d4ddf5;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.admin-table tbody td {
+    padding: 10px 14px;
+    font-size: 14px;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.admin-table tbody tr:nth-child(odd) {
+    background: #f9fbff;
+}
+
+.admin-table tbody tr:hover {
+    background: #eef2ff;
+}
+
+/* Колонка с действиями */
+
+.admin-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+/* Кнопки-таблетки */
+
+.admin-pill-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.05s ease;
+}
+
+.admin-pill-btn--primary {
+    background: #2563eb;
+    color: #ffffff;
+}
+
+.admin-pill-btn--primary:hover {
+    background: #1d4ed8;
+    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
+    transform: translateY(-1px);
+}
+
+.admin-pill-btn--warning {
+    background: #f97316;
+    color: #ffffff;
+}
+
+.admin-pill-btn--warning:hover {
+    background: #ea580c;
+    box-shadow: 0 6px 16px rgba(249, 115, 22, 0.35);
+    transform: translateY(-1px);
+}
+
+.admin-pill-btn--danger {
+    background: #ef4444;
+    color: #ffffff;
+}
+
+.admin-pill-btn--danger:hover {
+    background: #dc2626;
+    box-shadow: 0 6px 16px rgba(239, 68, 68, 0.35);
+    transform: translateY(-1px);
+}
+
+/* Чтобы формы с кнопками не разъезжались */
+.admin-actions form {
+    margin: 0;
+}
+
+.header-user-block {
+    display: flex;
+    flex-direction: column; /* первая строка – текст, ниже – кнопки */
+    align-items: flex-end;
+    gap: 4px;
+}
+
+.header-buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+/* ===== Общий контейнер страницы ===== */
+.page-container {
+    padding: 16px 24px 32px;
+}
+
+/* ===== Верхний бар ===== */
+
+.main-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 24px;
+    background: #050814;
+    color: #f5f5f5;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.header-left .header-project {
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 13px;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+}
+
+.user-info {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    font-size: 13px;
+}
+
+.user-info-row {
+    opacity: 0.85;
+}
+
+.user-label strong {
+    font-weight: 600;
+}
+
+.user-role {
+    color: #6fb7ff;
+    font-weight: 500;
+}
+
+.user-actions {
+    display: flex;
+    gap: 8px;
+}
+
+/* Кнопки в шапке */
+
+.admin-link {
+    padding: 5px 11px;
+    border-radius: 999px;
+    background: rgba(59, 130, 246, 0.08);
+    border: 1px solid rgba(59, 130, 246, 0.7);
+    color: #bfdbfe;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-size: 11px;
+    text-decoration: none;
+    transition: 0.15s ease;
+}
+
+.admin-link:hover {
+    background: rgba(59, 130, 246, 0.22);
+    color: #ffffff;
+}
+
+.logout-link,
+.login-link {
+    padding: 5px 11px;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.7);
+    color: #e5e7eb;
+    text-decoration: none;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.logout-link:hover,
+.login-link:hover {
+    background: rgba(148, 163, 184, 0.2);
+    color: #ffffff;
+}
+
+/* ===== Ссылка "Назад" ===== */
+
+.back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    color: #4f46e5;
+    text-decoration: none;
+    margin-bottom: 12px;
+}
+
+.back-link:hover {
+    text-decoration: underline;
+}
+
+/* ===== Шапка админ-страницы ===== */
+
+.admin-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-bottom: 8px;
+}
+
+.admin-header-row h1 {
+    margin: 0;
+    font-size: 26px;
+}
+
+/* ===== Вкладки в админке ===== */
+
+.admin-tabs {
+    display: flex;
+    gap: 6px;
+    margin: 12px 0 18px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.admin-tab {
+    padding: 8px 14px;
+    border-radius: 10px 10px 0 0;
+    text-decoration: none;
+    font-size: 13px;
+    color: #64748b;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-bottom: none;
+    transform: translateY(1px);
+}
+
+.admin-tab--active {
+    background: #ffffff;
+    color: #0f172a;
+    border-color: #cbd5f5;
+    box-shadow: 0 -1px 0 #ffffff, 0 -2px 4px rgba(15, 23, 42, 0.06);
+}
+
+.admin-tab:hover {
+    color: #0f172a;
+}
+
+/* ===== Вкладки в админке ===== */
+
+.admin-tabs {
+    margin: 16px 0 20px;
+    display: inline-flex;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 999px;
+    background: #e5e7eb;
+}
+
+.admin-tab {
+    padding: 6px 16px;
+    border-radius: 999px;
+    font-size: 13px;
+    text-decoration: none;
+    color: #4b5563;
+    font-weight: 500;
+    transition: 0.15s ease;
+}
+
+.admin-tab--active {
+    background: #111827;
+    color: #f9fafb;
+}
+
+.admin-tab:hover {
+    background: #d1d5db;
+}
+
+/* ===== Фильтры на странице сессий ===== */
+
+.sessions-filter {
+    margin-bottom: 16px;
+}
+
+.sessions-filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-end;
+}
+
+.sessions-filter-field {
+    display: flex;
+    flex-direction: column;
+    font-size: 13px;
+}
+
+.sessions-filter-field label {
+    margin-bottom: 4px;
+    color: #4b5563;
+}
+
+.sessions-filter-field input[type="date"],
+.sessions-filter-field select {
+    min-width: 160px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid #cbd5f5;
+    font-size: 13px;
+}
+
+.sessions-filter-field--checkbox {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+}
+
+.sessions-filter-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.sessions-reset-link {
+    font-size: 13px;
+    color: #64748b;
+    text-decoration: none;
+}
+
+.sessions-reset-link:hover {
+    text-decoration: underline;
+}
+
+/* ===== Сводка по сессиям ===== */
+
+.sessions-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.sessions-summary-card {
+    border-radius: 12px;
+    padding: 10px 14px;
+    background: #f1f5f9;
+}
+
+.sessions-summary-card--green {
+    background: #e3f9e3;
+}
+
+.sessions-summary-card--blue {
+    background: #e3ebff;
+}
+
+.sessions-summary-title {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #6b7280;
+    margin-bottom: 4px;
+}
+
+.sessions-summary-value {
+    font-size: 20px;
+    font-weight: 600;
+}
+
+/* ===== Графики ===== */
+
+.sessions-charts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.chart-card {
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 12px 16px 16px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+    border: 1px solid #e5e7eb;
+    min-height: 220px;
+}
+
+.chart-card-title {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #374151;
+}
+
+.chart-card canvas {
+    width: 100% !important;
+    height: 180px !important;
+}
+
+/* ===== Таблица сессий ===== */
+
+.sessions-table-card {
+    margin-top: 8px;
+}
+
+.sessions-table .sessions-user-fullname {
+    color: #6b7280;
+    font-size: 12px;
+}
+
+.sessions-table .sessions-user-agent {
+    max-width: 320px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 12px;
+    color: #4b5563;
+}
+
+/* Статусные плашки */
+
+.session-status-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.session-status-pill--active {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.session-status-pill--ended {
+    background: #e5e7eb;
+    color: #374151;
+}
+
+/* Подсветка активной строки */
+
+.session-row--active {
+    background: #ecfdf5 !important;
+}
+
+

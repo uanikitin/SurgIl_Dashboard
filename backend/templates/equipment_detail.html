@@ -1,0 +1,565 @@
+{% extends "base.html" %}
+
+{% block title %}СУРГИЛ · {{ equipment.name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+.equipment-detail { padding: 20px; max-width: 1200px; margin: 0 auto; }
+.breadcrumb { display: flex; gap: 8px; margin-bottom: 20px; font-size: 14px; color: #6c757d; }
+.breadcrumb a { color: #007bff; text-decoration: none; }
+.header { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 30px; }
+.header h1 { margin: 0 0 10px 0; font-size: 28px; }
+.header-actions { display: flex; gap: 10px; margin-top: 20px; }
+.btn { padding: 10px 20px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block; }
+.btn-success { background: #28a745; color: white; }
+.btn-danger { background: #dc3545; color: white; }
+.current-status { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; background: #f8f9fa; padding: 20px; border-radius: 8px; margin-top: 20px; }
+.status-item { display: flex; flex-direction: column; gap: 4px; }
+.status-item__label { font-size: 12px; color: #6c757d; text-transform: uppercase; }
+.status-item__value { font-size: 16px; font-weight: 600; }
+.section { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 30px; }
+.section h2 { font-size: 20px; margin: 0 0 20px 0; padding-bottom: 15px; border-bottom: 2px solid #f1f3f5; }
+.timeline { position: relative; padding-left: 30px; }
+.timeline::before { content: ''; position: absolute; left: 8px; top: 0; bottom: 0; width: 2px; background: #dee2e6; }
+.timeline-item { position: relative; margin-bottom: 25px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #007bff; }
+.timeline-item--active { border-left-color: #28a745; background: #d4edda; }
+.timeline-item::before { content: ''; position: absolute; left: -26px; top: 20px; width: 12px; height: 12px; border-radius: 50%; background: white; border: 3px solid #007bff; }
+.timeline-item--active::before { border-color: #28a745; background: #28a745; }
+.timeline-item h3 { margin: 0 0 8px 0; font-size: 16px; }
+.timeline-item__date { font-size: 13px; color: #6c757d; margin-bottom: 8px; }
+.timeline-item__meta { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(0,0,0,0.1); font-size: 13px; }
+.empty { text-align: center; padding: 40px; color: #6c757d; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 20px; }
+.stat { text-align: center; padding: 20px; background: #f8f9fa; border-radius: 8px; }
+.stat__value { font-size: 32px; font-weight: 700; color: #007bff; }
+.stat__label { font-size: 12px; color: #6c757d; text-transform: uppercase; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="equipment-detail">
+    
+    <div class="breadcrumb">
+        <a href="/visual">📊 Дашборд</a> › 
+        <a href="/equipment">🔧 Обладнання</a> › 
+        <span>{{ equipment.name }}</span>
+    </div>
+
+    <div class="header">
+        <h1>{{ equipment.name }}</h1>
+        <div>Серійний №: <strong>{{ equipment.serial_number or '—' }}</strong></div>
+        
+        <div class="current-status">
+            <div class="status-item">
+                <div class="status-item__label">Статус</div>
+                <div class="status-item__value">
+                    {% if equipment.status == 'installed' %}🟢 Встановлено
+                    {% elif equipment.status == 'available' %}📦 На складі
+                    {% else %}{{ equipment.status }}{% endif %}
+                </div>
+            </div>
+            <div class="status-item">
+                <div class="status-item__label">Стан</div>
+                <div class="status-item__value">
+                    {% if equipment.condition == 'working' %}✅ Робоче
+                    {% elif equipment.condition == 'broken' %}❌ Не робоче
+                    {% else %}{{ equipment.condition }}{% endif %}
+                </div>
+            </div>
+            <div class="status-item">
+                <div class="status-item__label">Локація</div>
+                <div class="status-item__value">{{ equipment.current_location or '—' }}</div>
+            </div>
+            {% if current_installation %}
+            <div class="status-item">
+                <div class="status-item__label">Встановлено</div>
+                <div class="status-item__value">
+                    {{ current_installation.installed_at.strftime('%d.%m.%Y') }}
+                    <br><small>({{ current_installation.duration_days }} днів)</small>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="header-actions">
+            {% if equipment.status == 'available' %}
+            <a href="/documents/equipment/new?equipment_id={{ equipment.id }}&kind=install" class="btn btn-success">
+                ↗️ Встановити (з актом)
+            </a>
+            {% elif equipment.status == 'installed' and current_installation %}
+            <a href="/documents/equipment/new?equipment_id={{ equipment.id }}&well_id={{ current_installation.well_id }}&kind=removal" class="btn btn-danger">
+                ↙️ Демонтувати (з актом)
+            </a>
+            {% endif %}
+            <button class="btn btn-warning" onclick="showMaintenanceModal()">
+                🔧 Обслуговування
+            </button>
+            <button class="btn" style="background: #17a2b8; color: white;" onclick="showStatusModal()">
+                ⚙️ Змінити статус
+            </button>
+            <button class="btn" style="background: #6c757d; color: white;" onclick="showMoveModal()">
+                📦 Перемістити без акту
+            </button>
+            <button class="btn" style="background: #dc3545; color: white;" onclick="if(confirm('Видалити обладнання?')) deleteEquipment()">
+                🗑️ Видалити
+            </button>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>📊 Історія встановлень</h2>
+        {% if installation_history %}
+        <div class="timeline">
+            {% for inst in installation_history %}
+            <div class="timeline-item {% if inst.is_active %}timeline-item--active{% endif %}">
+                <h3>
+                    {% if inst.is_active %}🟢{% else %}⚪{% endif %}
+                    Свердловина {{ inst.well_number }}
+                    {% if inst.is_active %}<span style="color: #28a745;">(зараз)</span>{% endif %}
+                </h3>
+                <div class="timeline-item__date">
+                    {{ inst.installed_at.strftime('%d.%m.%Y %H:%M') }}
+                    {% if inst.removed_at %}→ {{ inst.removed_at.strftime('%d.%m.%Y %H:%M') }}{% else %}→ зараз{% endif %}
+                    | ⏱ {{ inst.duration_days }} днів
+                </div>
+                <div class="timeline-item__meta">
+                    <div>Встановив: <strong>{{ inst.installed_by or '—' }}</strong></div>
+                    {% if inst.installation_location %}<div>Місце: <strong>{{ inst.installation_location }}</strong></div>{% endif %}
+                    {% if inst.removed_by %}<div>Зняв: <strong>{{ inst.removed_by }}</strong></div>{% endif %}
+                </div>
+                {% if inst.has_document %}
+                <div style="margin-top: 10px;">
+                    📄 <a href="/documents/{{ inst.document_id }}" target="_blank">Переглянути акт</a>
+                </div>
+                {% elif not inst.no_document_confirmed %}
+                <div style="margin-top: 10px; padding: 10px; background: #fff3cd; border-radius: 4px; font-size: 13px;">
+                    ⚠️ <strong>БЕЗ АКТУ</strong> — переміщення без документа.
+                    {% if inst.is_active %}
+                    <a href="/documents/equipment/new?equipment_id={{ equipment.id }}&well_id={{ inst.well_id }}&kind=install">Створити акт встановлення</a>
+                    {% else %}
+                    <a href="/documents/equipment/new?equipment_id={{ equipment.id }}&well_id={{ inst.well_id }}&kind=removal">Створити акт демонтажу</a>
+                    {% endif %}
+                </div>
+                {% endif %}
+                {% if inst.notes %}
+                <div style="margin-top: 10px; font-size: 13px; color: #6c757d;">
+                    Примітка: {{ inst.notes }}
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty">📋 Історія встановлень відсутня</div>
+        {% endif %}
+    </div>
+
+    <div class="section">
+        <h2>🔧 Історія обслуговування</h2>
+        {% if maintenance_history %}
+        <div style="display: grid; gap: 15px;">
+            {% for maint in maintenance_history %}
+            <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #17a2b8;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                    <strong>{{ maint.maintenance_type }}</strong>
+                    <span style="font-size: 13px; color: #6c757d;">{{ maint.maintenance_date.strftime('%d.%m.%Y') }}</span>
+                </div>
+                <div style="margin-bottom: 8px;">{{ maint.description }}</div>
+                <div style="display: flex; justify-content: space-between; font-size: 13px; color: #6c757d;">
+                    <div>Виконав: {{ maint.performed_by }}</div>
+                    {% if maint.cost %}<div style="font-weight: 600; color: #28a745;">{{ "{:,.2f}".format(maint.cost) }} грн</div>{% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty">🔧 Записів про обслуговування немає</div>
+        {% endif %}
+    </div>
+
+    <div class="section">
+        <h2>📈 Статистика</h2>
+        <div class="stats">
+            <div class="stat">
+                <div class="stat__value">{{ stats.total_installations }}</div>
+                <div class="stat__label">Встановлень</div>
+            </div>
+            <div class="stat">
+                <div class="stat__value">{{ stats.total_days }}</div>
+                <div class="stat__label">Днів на свердловинах</div>
+            </div>
+            <div class="stat">
+                <div class="stat__value">{{ "{:,.0f}".format(stats.total_maintenance_cost) }}</div>
+                <div class="stat__label">Вартість ТО (грн)</div>
+            </div>
+            <div class="stat">
+                <div class="stat__value">{{ stats.avg_days_per_installation }}</div>
+                <div class="stat__label">Середня тривалість</div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- МОДАЛЬНІ ВІКНА -->
+
+<!-- Зміна статусу/стану -->
+<div id="status-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+    <div style="background: white; padding: 30px; border-radius: 12px; max-width: 500px; width: 90%;">
+        <h2 style="margin: 0 0 20px 0;">⚙️ Змінити статус обладнання</h2>
+        <form id="status-form" onsubmit="submitStatus(event)">
+
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 6px; font-weight: 600;">Новий статус *</label>
+                <select name="new_status" required style="width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 6px;">
+                    <option value="">Виберіть статус...</option>
+                    <option value="available">📦 На складі</option>
+                    <option value="installed">🟢 Встановлено</option>
+                    <option value="maintenance">🔧 Обслуговування/Ремонт</option>
+                    <option value="broken">❌ Зламано</option>
+                    <option value="lost">🔍 Втрачено</option>
+                </select>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 6px; font-weight: 600;">Стан обладнання</label>
+                <select name="new_condition" style="width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 6px;">
+                    <option value="">Не змінювати</option>
+                    <option value="working">✅ Робоче</option>
+                    <option value="broken">❌ Не робоче</option>
+                    <option value="needs_repair">⚠️ Потребує ремонту</option>
+                </select>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 6px; font-weight: 600;">Куди переміщується</label>
+                <select name="new_location" style="width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 6px;" onchange="if(this.value==='custom') this.nextElementSibling.style.display='block'; else this.nextElementSibling.style.display='none';">
+                    <option value="">Автоматично (за статусом)</option>
+                    <option value="Склад">📦 Склад</option>
+                    <option value="Майстерня">🔧 Майстерня (ремонт)</option>
+                    <option value="Консервація">❄️ Консервація</option>
+                    <option value="Списано">🗑️ Списано</option>
+                    <option value="custom">✏️ Інше (вказати)</option>
+                </select>
+                <input type="text" id="custom-location" placeholder="Вкажіть локацію..." style="display: none; width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 6px; margin-top: 10px;">
+            </div>
+
+            <div style="padding: 15px; background: #e7f3ff; border-left: 4px solid #007bff; border-radius: 6px; margin: 20px 0; font-size: 14px;">
+                <strong>ℹ️ Підказка:</strong><br>
+                • <strong>На складі</strong> → автоматично "Склад"<br>
+                • <strong>Обслуговування/Ремонт</strong> → автоматично "Майстерня"<br>
+                • <strong>Встановлено</strong> → залишається поточна локація<br>
+                • Якщо активна установка на свердловині - вона буде закрита
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 6px; font-weight: 600;">Примітка</label>
+                <textarea name="notes" rows="2" placeholder="Причина зміни статусу..." style="width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 6px;"></textarea>
+            </div>
+
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button type="button" onclick="closeStatusModal()" style="padding: 10px 20px; border: none; border-radius: 8px; background: #6c757d; color: white; font-weight: 600; cursor: pointer;">
+                    Скасувати
+                </button>
+                <button type="submit" style="padding: 10px 20px; border: none; border-radius: 8px; background: #007bff; color: white; font-weight: 600; cursor: pointer;">
+                    Змінити статус
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function showStatusModal() {
+    document.getElementById('status-modal').style.display = 'flex';
+}
+
+function closeStatusModal() {
+    document.getElementById('status-modal').style.display = 'none';
+}
+
+async function submitStatus(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+
+    // Якщо вибрано "custom" - використати текст з input
+    const locationSelect = form.querySelector('[name="new_location"]');
+    if (locationSelect.value === 'custom') {
+        const customLocation = document.getElementById('custom-location').value;
+        formData.set('new_location', customLocation);
+    }
+
+    try {
+        const response = await fetch('/api/equipment/{{ equipment.id }}/update_status', {
+            method: 'POST',
+            body: formData
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            alert(result.message);
+            window.location.reload();
+        } else {
+            alert('Помилка: ' + (result.detail || 'Невідома помилка'));
+        }
+    } catch (error) {
+        alert('Помилка: ' + error.message);
+    }
+}
+
+document.getElementById('status-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeStatusModal();
+});
+</script>
+
+<!-- Переміщення без акту -->
+<div id="move-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+    <div style="background: white; padding: 30px; border-radius: 12px; max-width: 500px; width: 90%;">
+        <h2 style="margin: 0 0 20px 0;">📦 Переміщення без акту</h2>
+        <form id="move-form" onsubmit="submitMove(event)">
+            <input type="hidden" name="action" id="move-action">
+
+            <div id="install-fields" style="display:none; margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 6px; font-weight: 600;">Свердловина *</label>
+                <select name="well_id" id="well-id-select" required style="width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 6px;">
+                    <option value="">Виберіть свердловину...</option>
+                    {% for well in wells_list %}
+                    <option value="{{ well.id }}">{{ well.number }}</option>
+                    {% endfor %}
+                </select>
+
+                <label style="display: block; margin: 15px 0 6px 0; font-weight: 600;">Місце встановлення *</label>
+                <select name="installation_location" required style="width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 6px;">
+                    <option value="">Виберіть місце...</option>
+                    <option value="Устье">🔧 Устье (устьевое обладнання)</option>
+                    <option value="НКТ">📏 НКТ (насосно-компресорні труби)</option>
+                    <option value="Шлейф">🛤️ Шлейф (трубопровід)</option>
+                    <option value="Затруб">🔩 Затруб (затрубний простір)</option>
+                    <option value="Інше">📦 Інше</option>
+                </select>
+            </div>
+
+            <div id="remove-fields" style="display:none; margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 6px; font-weight: 600;">Куди переміщується</label>
+                <input type="text" name="location" value="Склад" style="width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 6px;">
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 6px; font-weight: 600;">Стан обладнання</label>
+                <select name="condition" style="width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 6px;">
+                    <option value="working">Робоче</option>
+                    <option value="broken">Не робоче</option>
+                    <option value="needs_repair">Потребує ремонту</option>
+                </select>
+            </div>
+
+            <div style="padding: 15px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 6px; margin: 20px 0;">
+                <strong style="color: #856404;">⚠️ УВАГА</strong><br>
+                <span style="font-size: 14px; color: #856404;">Переміщення без акту має бути підтверджено адміністратором.</span>
+            </div>
+
+            <div style="display: flex; align-items: start; gap: 10px; padding: 12px; background: #f8f9fa; border-radius: 6px; margin: 15px 0;">
+                <input type="checkbox" name="no_document_confirmed" id="no-doc-checkbox" required style="width: 18px; height: 18px; margin-top: 2px;">
+                <label for="no-doc-checkbox" style="margin: 0; font-size: 14px;">
+                    Підтверджую переміщення без оформлення акту (тільки для адміністраторів)
+                </label>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 6px; font-weight: 600;">Примітка</label>
+                <textarea name="notes" rows="3" style="width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 6px;"></textarea>
+            </div>
+
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button type="button" onclick="closeMoveModal()" style="padding: 10px 20px; border: none; border-radius: 8px; background: #6c757d; color: white; font-weight: 600; cursor: pointer;">
+                    Скасувати
+                </button>
+                <button type="submit" style="padding: 10px 20px; border: none; border-radius: 8px; background: #007bff; color: white; font-weight: 600; cursor: pointer;">
+                    Підтвердити
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Обслуговування/Ремонт -->
+<div id="maintenance-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+    <div style="background: white; padding: 30px; border-radius: 12px; max-width: 500px; width: 90%;">
+        <h2 style="margin: 0 0 20px 0;">🔧 Обслуговування/Ремонт</h2>
+        <form id="maintenance-form" onsubmit="submitMaintenance(event)">
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 6px; font-weight: 600;">Тип *</label>
+                <select name="maintenance_type" required style="width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 6px;">
+                    <option value="">Виберіть тип...</option>
+                    <option value="Ремонт">Ремонт</option>
+                    <option value="ТО">Технічне обслуговування (ТО)</option>
+                    <option value="Калібрування">Калібрування</option>
+                    <option value="Консервація">Консервація</option>
+                    <option value="Розконсервація">Розконсервація</option>
+                    <option value="Заміна деталей">Заміна деталей</option>
+                    <option value="Діагностика">Діагностика</option>
+                </select>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 6px; font-weight: 600;">Опис *</label>
+                <textarea name="description" required rows="4" style="width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 6px;" placeholder="Детальний опис виконаних робіт..."></textarea>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 6px; font-weight: 600;">Дата</label>
+                <input type="datetime-local" name="maintenance_date" style="width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 6px;">
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 6px; font-weight: 600;">Виконавець</label>
+                <input type="text" name="performed_by" placeholder="Ім'я виконавця" style="width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 6px;">
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 6px; font-weight: 600;">Вартість (грн)</label>
+                <input type="number" name="cost" step="0.01" placeholder="0.00" style="width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 6px;">
+            </div>
+
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button type="button" onclick="closeMaintenanceModal()" style="padding: 10px 20px; border: none; border-radius: 8px; background: #6c757d; color: white; font-weight: 600; cursor: pointer;">
+                    Скасувати
+                </button>
+                <button type="submit" style="padding: 10px 20px; border: none; border-radius: 8px; background: #28a745; color: white; font-weight: 600; cursor: pointer;">
+                    Зберегти
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+// Переміщення
+function showMoveModal() {
+    const status = '{{ equipment.status }}';
+    const modal = document.getElementById('move-modal');
+    const actionInput = document.getElementById('move-action');
+    const installFields = document.getElementById('install-fields');
+    const removeFields = document.getElementById('remove-fields');
+
+    if (status === 'available') {
+        actionInput.value = 'install';
+        installFields.style.display = 'block';
+        removeFields.style.display = 'none';
+    } else {
+        actionInput.value = 'remove';
+        installFields.style.display = 'none';
+        removeFields.style.display = 'block';
+    }
+
+    modal.style.display = 'flex';
+}
+
+function closeMoveModal() {
+    document.getElementById('move-modal').style.display = 'none';
+}
+
+async function submitMove(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+
+    // ВАЛІДАЦІЯ: якщо дія = install, well_id обов'язковий
+    const action = formData.get('action');
+    const wellId = formData.get('well_id');
+    const installLocation = formData.get('installation_location');
+
+    if (action === 'install') {
+        if (!wellId || wellId === '') {
+            alert('Виберіть свердловину!');
+            return;
+        }
+        if (!installLocation || installLocation === '') {
+            alert('Виберіть місце встановлення!');
+            return;
+        }
+    }
+
+    try {
+        const response = await fetch('/api/equipment/{{ equipment.id }}/move', {
+            method: 'POST',
+            body: formData
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            alert(result.message);
+            window.location.reload();
+        } else {
+            alert('Помилка: ' + (result.detail || JSON.stringify(result)));
+        }
+    } catch (error) {
+        alert('Помилка: ' + error.message);
+    }
+}
+
+// Обслуговування
+function showMaintenanceModal() {
+    document.getElementById('maintenance-modal').style.display = 'flex';
+}
+
+function closeMaintenanceModal() {
+    document.getElementById('maintenance-modal').style.display = 'none';
+}
+
+async function submitMaintenance(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+
+    try {
+        const response = await fetch('/api/equipment/{{ equipment.id }}/add_maintenance', {
+            method: 'POST',
+            body: formData
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            alert(result.message);
+            window.location.reload();
+        } else {
+            alert('Помилка: ' + (result.detail || 'Невідома помилка'));
+        }
+    } catch (error) {
+        alert('Помилка: ' + error.message);
+    }
+}
+
+// Видалення
+async function deleteEquipment() {
+    try {
+        const response = await fetch('/api/equipment/{{ equipment.id }}', {
+            method: 'DELETE'
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            alert(result.message);
+            window.location.href = '/equipment';
+        } else {
+            alert('Помилка: ' + (result.detail || 'Невідома помилка'));
+        }
+    } catch (error) {
+        alert('Помилка: ' + error.message);
+    }
+}
+
+// Закриття модальних вікон по кліку поза ними
+document.getElementById('move-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeMoveModal();
+});
+document.getElementById('maintenance-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeMaintenanceModal();
+});
+</script>
+{% endblock %}

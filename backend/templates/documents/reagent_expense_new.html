@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Акт расхода реагентов · Мастер{% endblock %}
+
+{% block content %}
+<h1 style="margin: 0 0 16px 0;">Мастер: Акт расхода реагентов</h1>
+
+<form method="post" action="/documents/reagent-expense/create" class="card" style="padding:16px; display:grid; gap:12px;">
+
+  <div style="display:grid; grid-template-columns: 180px 160px 220px 1fr; gap:12px; align-items:end;">
+    <div>
+      <label style="display:block; font-weight:600; margin-bottom:6px;">Год</label>
+      <input type="number" name="year" value="{{ default_year }}" min="2000" max="2100" required>
+    </div>
+
+    <div>
+      <label style="display:block; font-weight:600; margin-bottom:6px;">Месяц</label>
+      <input type="number" name="month" value="{{ default_month }}" min="1" max="12" required>
+    </div>
+
+    <div>
+      <label style="display:block; font-weight:600; margin-bottom:6px;">Дата акта</label>
+      <input type="date" name="act_date">
+      <div style="font-size:12px; opacity:.75; margin-top:4px;">Если пусто — возьмём последний день месяца</div>
+    </div>
+
+    <div>
+      <label style="display:block; font-weight:600; margin-bottom:6px;">Нумерация</label>
+
+      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+        <label style="display:inline-flex; gap:6px; align-items:center;">
+          <input type="radio" name="numbering_mode" value="auto" checked>
+          авто
+        </label>
+
+        <label style="display:inline-flex; gap:6px; align-items:center;">
+          <input type="radio" name="numbering_mode" value="manual">
+          вручную (только 1 скв)
+        </label>
+
+        <input id="manualNumber"
+               type="text"
+               name="manual_number"
+               placeholder="АРР-2026-001"
+               style="max-width:220px; display:none;">
+      </div>
+
+      <div id="manualHint" style="font-size:12px; opacity:.75; margin-top:4px; display:none;">
+        Режим “вручную” используется только для одной выбранной скважины.
+      </div>
+    </div>
+  </div>
+
+  <!-- Статусы из БД -->
+  <div class="card" style="padding:12px; border:1px solid #eee;">
+    <div style="display:flex; align-items:center; gap:12px; justify-content:space-between; flex-wrap:wrap;">
+      <div style="font-weight:600;">Статусы (периоды) из базы</div>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <button type="button" class="btn" onclick="toggleAllStatuses(true)">Выбрать все</button>
+        <button type="button" class="btn" onclick="toggleAllStatuses(false)">Снять все</button>
+      </div>
+    </div>
+
+    <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
+      {% for s in status_names %}
+        <label style="display:inline-flex; gap:6px; align-items:center; border:1px solid #ddd; padding:6px 10px; border-radius:8px;">
+          <input type="checkbox" name="status_names" value="{{ s }}" checked>
+          <span>{{ s }}</span>
+        </label>
+      {% endfor %}
+      {% if not status_names %}
+        <div style="opacity:.75;">В таблице well_status пока нет статусов.</div>
+      {% endif %}
+    </div>
+
+    <div style="font-size:12px; opacity:.75; margin-top:8px;">
+      Эти статусы используются для выбора периодов из <code>well_status</code> при автозаполнении строк акта.
+    </div>
+  </div>
+
+  <!-- Скважины -->
+  <div style="display:flex; gap:12px; align-items:center; margin-top:4px;">
+    <button type="button" class="btn" onclick="toggleAllWells(true)">Выбрать все</button>
+    <button type="button" class="btn" onclick="toggleAllWells(false)">Снять все</button>
+    <div style="opacity:.8;">Выбери скважины, для которых создаём акты</div>
+  </div>
+
+  <div style="border:1px solid #eee; border-radius:10px; padding:12px; max-height:420px; overflow:auto;">
+    <div style="display:grid; grid-template-columns: repeat(6, 1fr); gap:8px;">
+      {% for w in wells %}
+        <label style="border:1px solid #eee; border-radius:10px; padding:8px; display:flex; gap:8px; align-items:center;">
+          <input type="checkbox" name="well_ids" value="{{ w.id }}">
+          <strong>{{ w.number }}</strong>
+        </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div style="display:flex; gap:12px; align-items:center;">
+    <button class="btn btn-primary" type="submit">Создать акты</button>
+    <a class="btn" href="/documents">Отмена</a>
+  </div>
+</form>
+
+<script>
+function toggleAllWells(v){
+  document.querySelectorAll('input[type="checkbox"][name="well_ids"]').forEach(cb => cb.checked = v);
+}
+function toggleAllStatuses(v){
+  document.querySelectorAll('input[type="checkbox"][name="status_names"]').forEach(cb => cb.checked = v);
+}
+
+function refreshManualUI(){
+  const mode = document.querySelector('input[name="numbering_mode"]:checked')?.value || "auto";
+  const manualInput = document.getElementById("manualNumber");
+  const hint = document.getElementById("manualHint");
+  if(mode === "manual"){
+    manualInput.style.display = "";
+    hint.style.display = "";
+  } else {
+    manualInput.style.display = "none";
+    hint.style.display = "none";
+    manualInput.value = "";
+  }
+}
+
+document.querySelectorAll('input[name="numbering_mode"]').forEach(r => {
+  r.addEventListener("change", refreshManualUI);
+});
+refreshManualUI();
+</script>
+{% endblock %}

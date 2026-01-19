@@ -1,0 +1,71 @@
+\documentclass[12pt]{article}
+\usepackage{fontspec}
+\setmainfont{Times New Roman}
+\usepackage[russian]{babel}
+\usepackage{geometry}
+\geometry{a4paper, margin=2.5cm}
+\usepackage{array, booktabs, longtable}
+\usepackage{ragged2e}
+\usepackage{tabularx}
+\usepackage{array}
+
+\begin{document}
+
+\begin{center}
+\textbf{АКТ № \VAR{act_number}}\\
+\textbf{Приема/передачи скважины \VAR{well_number} месторождения Сургил}\\[0.4em]
+\noindent\textbf{Дата документа:} \VAR{act_date}
+\end{center}
+
+\vspace{0.8em}
+
+Мы, нижеподписавшиеся, представитель Подрядчика, компании ООО «UNITOOL»\\
+\underline{\hspace{15cm}}\\
+представитель Заказчика, СП ООО «Uz-Kor Gas Chemical»\\
+\underline{\hspace{15cm}}\\
+
+составили настоящий акт о том, что \VAR{handover_date} г. в \VAR{handover_time} часов
+скважина №\VAR{well_number} месторождения Сургил была передана/принята
+для проведения работ в рамках выполнения условий Контракта №\VAR{contract_number}
+на оказание услуг по оптимизации эксплуатации газовых скважин с применением
+твердых пенообразующих реагентов.
+
+\vspace{0.8em}
+
+\textbf{Текущее состояние скважины:}\\
+\textbf{Показания давления:}
+
+\vspace{0.4em}
+
+\noindent
+\begin{tabularx}{\textwidth}{|X|X|}
+\hline
+\textbf{Трубное давление, кгс/см$^{2}$} & \textbf{Шлейфное давление, кгс/см$^{2}$} \\
+\hline
+\VAR{tube_pressure} & \VAR{line_pressure} \\
+\hline
+\end{tabularx}
+
+\vspace{0.8em}
+
+\VAR{territory_state}
+
+\vspace{0.6em}
+
+\textbf{Примечание:}\\
+\VAR{note}
+
+\vspace{1.2em}
+
+\textbf{\VAR{role_executor_action}:}\\
+Представитель Исполнителя ООО «UNITOOL»\\[1.2em]
+\underline{\hspace{12cm}}\\
+
+\vspace{1.0em}
+
+\textbf{\VAR{role_client_action}:}\\
+Представитель Заказчика СП ООО «Uz-Kor Gas Chemical»\\
+Участковый геолог\\[1.2em]
+\underline{\hspace{12cm}}\\
+
+\end{document}

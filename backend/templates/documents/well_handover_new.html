@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Новый акт приема/передачи · СУРГИЛ{% endblock %}
+
+{% block content %}
+<h1>Новый акт приема/передачи скважины</h1>
+
+<div class="card" style="padding:16px; max-width:820px;">
+  <form method="post" action="/documents/well-handover/create" style="display:grid; gap:12px;">
+
+    <label><b>Тип акта</b></label>
+    <select name="doc_type_id" required>
+      <option value="{{ dt_accept.id }}">Акт приема скважины</option>
+      <option value="{{ dt_transfer.id }}">Акт передачи скважины</option>
+    </select>
+
+    <label><b>Скважина</b></label>
+    <select name="well_id" required>
+      {% for w in wells %}
+        <option value="{{ w.id }}"{% if selected_well_id == w.id %} selected{% endif %}>{{ w.number }}</option>
+      {% endfor %}
+    </select>
+
+    <div style="background:#f8f9fa; padding:12px; border-radius:6px; border-left:3px solid #0d6efd;">
+      <div style="font-weight:600; margin-bottom:8px;">📅 Даты документа</div>
+      <div style="font-size:13px; opacity:0.8; margin-bottom:12px;">
+        По умолчанию обе даты заполняются текущим моментом. Вы можете изменить их после создания.
+      </div>
+
+      <label><b>Дата документа (вверху акта)</b></label>
+      <input type="date" name="act_date" style="margin-bottom:12px;">
+      <div style="font-size:12px; opacity:0.7; margin-top:-8px; margin-bottom:12px;">
+        Если не указано — используется дата передачи
+      </div>
+
+      <label><b>Дата и время фактической передачи</b></label>
+      <input type="datetime-local" name="handover_dt" required>
+      <div style="font-size:12px; opacity:0.7; margin-top:-8px;">
+        Когда фактически передали скважину
+      </div>
+    </div>
+
+    <label><b>Номер договора</b></label>
+    <input name="contract_number" value="{{ default_contract }}" />
+
+    <label><b>Территория вокруг скважины</b></label>
+    <input name="territory_state" value="{{ default_territory }}" />
+
+    <label><b>Примечание</b></label>
+    <textarea name="note" rows="3"></textarea>
+
+    <div style="display:flex; gap:10px;">
+      <button type="submit">Создать</button>
+      <a href="/documents" class="admin-link">← назад</a>
+    </div>
+  </form>
+</div>
+
+<script>
+// Автозаполнение текущим временем
+document.addEventListener('DOMContentLoaded', function() {
+  const handoverInput = document.querySelector('input[name="handover_dt"]');
+  if (handoverInput && !handoverInput.value) {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    handoverInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+  }
+});
+</script>
+{% endblock %}

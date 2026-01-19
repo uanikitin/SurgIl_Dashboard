@@ -1,0 +1,111 @@
+\documentclass[12pt]{article}
+\usepackage{fontspec}
+\setmainfont{Times New Roman}
+\usepackage[russian]{babel}
+\usepackage{geometry}
+\geometry{a4paper, margin=2.5cm}
+
+% таблицы/верстка
+\usepackage{longtable, array, booktabs}
+\usepackage{ragged2e}
+\usepackage{graphicx}
+\usepackage{needspace}
+\usepackage{fancyhdr}
+
+% 11pt в ячейках + выравнивание: горизонтально влево (P) / по центру (C), по вертикали по центру (m{})
+\newcolumntype{P}[1]{>{\RaggedRight\arraybackslash\fontsize{11pt}{11pt}\selectfont}m{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash\fontsize{11pt}{11pt}\selectfont}m{#1}}
+
+% Переменные для колонтитулов
+\newcommand{\theactnum}{\VAR{theactnum}}
+\newcommand{\theactmonth}{\VAR{theactmonth}}
+\newcommand{\theactwell}{\VAR{theactwell}}
+\newcommand{\theactdate}{\VAR{theactdate}}
+
+\pagestyle{fancy}
+\fancyhf{}
+% Левая часть: Акт №N–Месяц. дозирования реагентов на скважине №WELL
+\fancyhead[L]{Акт №\theactnum--\theactmonth. дозирования реагентов на скважине №\theactwell}
+% Правая часть: Дата · Номер страницы
+\fancyhead[R]{\theactdate\quad\textbullet\ \thepage}
+
+\begin{document}
+% Первая страница без колонтитула
+\thispagestyle{empty}
+
+\begin{center}
+\textbf{Акт №\VAR{theactnum}-\VAR{theactmonth} \\ дозирования реагентов на скважине №\VAR{theactwell}}\\
+месторождения \VAR{field_name} \\
+в период с \VAR{period_start_str} по \VAR{period_end_str}
+\end{center}
+
+\vspace{1em}
+
+\noindent\textbf{Дата:} \VAR{theactdate} \hfill \textbf{Скважина №\VAR{theactwell} месторождение \VAR{field_name}}\\
+
+\vspace{1em}
+
+Мы, нижеподписавшиеся, представитель Исполнителя компании \VAR{company_executor}\\
+\rule{16cm}{0.4pt}\\
+представитель Заказчика \VAR{company_client}
+\rule{5cm}{0.4pt}\\
+\rule{16cm}{0.4pt}\\
+составили настоящий акт о том, что в период с \VAR{period_start_str} года по \VAR{period_end_str} года
+на скважине №\VAR{theactwell} месторождения \VAR{field_name} были выполнены следующие операции дозирования:
+
+\vspace{1em}
+{\fontsize{11pt}{11pt}\selectfont
+\begin{longtable}{|C{0.03\linewidth}|P{0.25\linewidth}|P{0.20\linewidth}|C{0.07\linewidth}|P{0.15\linewidth}|P{0.20\linewidth}|}
+
+\hline
+\textbf{№} & \textbf{Вид работ} & \textbf{Дата и время вброса} & \textbf{К-во} & \textbf{Тип реагента} & \textbf{Этап} \\
+\hline
+1 & 2 & 3 & 4 & 5 & 6 \\
+\hline
+\endfirsthead
+\hline
+1 & 2 & 3 & 4 & 5 & 6 \\
+\hline
+\endhead
+
+%% for item in items
+%%% ITEMS_START
+%% for item in items
+\VAR{item.line_number} & \VAR{item.work_type} & \VAR{item.event_time_str} & \VAR{item.quantity} & \VAR{item.reagent_name} & \VAR{item.stage} \\
+\hline
+%% endfor
+%%% ITEMS_END
+%% endfor
+
+\multicolumn{6}{|l|}{Всего вбросов — \VAR{total_injections}} \\
+\hline
+\end{longtable}
+} % конец блока 11pt
+
+
+\Needspace{14\baselineskip}
+\begin{samepage}
+{\fontsize{11pt}{13pt}\selectfont
+\noindent\textbf{Итоги по видам работ:}\\[0.3em]
+\begin{longtable}{|P{0.78\linewidth}|C{0.20\linewidth}|}
+\hline
+\textbf{Вид работ} & \textbf{Сумма (К-во)} \\
+\hline
+Всего дозирование пенных реагентов & \VAR{summary_foam} \\
+\hline
+Всего дозирование ингибирующих реагентов & \VAR{summary_inhibitor} \\
+\hline
+\end{longtable}
+} % конец блока 11pt
+
+\vspace{1.2em}
+\noindent\textbf{Представитель Исполнителя \VAR{company_executor}} \\
+[1em]
+\rule{16cm}{0.4pt} \\[2em]
+
+\noindent\textbf{Представитель Заказчика \VAR{company_client}} \\
+[1em]
+Участковый геолог \rule{12cm}{0.4pt}
+
+\end{samepage}
+\end{document}

@@ -45,9 +45,11 @@
             <tbody id="user-table-body">
             {% for u in users %}
                 <tr class="user-row"
-                    data-id="{{ u.id }}"
-                    data-role="{{ 'admin' if u.is_admin else 'operator' }}"
-                    data-active="{{ '1' if u.is_active else '0' }}">
+                 <tr class="user-row"
+                        data-id="{{ u.id }}"
+                        data-role="{{ 'admin' if u.is_admin else 'operator' }}"
+                        data-active="{{ '1' if u.is_active else '0' }}"
+                        data-can-reagents="{{ '1' if u.can_view_reagents else '0' }}">
                     <td>{{ u.id }}</td>
                     <td class="cell-username">{{ u.username }}</td>
                     <td>{{ u.full_name or "—" }}</td>
@@ -84,6 +86,12 @@
                 Удалить
             </button>
         </form>
+
+        <form method="post" id="action-reagents" action="">
+            <button type="submit" class="admin-pill-btn">
+                Дать доступ к реагентам
+            </button>
+        </form>
     </div>
 </div>
 {% endblock %}
@@ -113,11 +121,13 @@
     }
 
     // --- Выбор строки и панель действий ---
-    const actionBar   = document.getElementById('user-actions-bar');
-    const label       = document.getElementById('selected-user-label');
-    const adminForm   = document.getElementById('action-admin');
-    const activeForm  = document.getElementById('action-active');
-    const deleteForm  = document.getElementById('action-delete');
+        const actionBar     = document.getElementById('user-actions-bar');
+    const label         = document.getElementById('selected-user-label');
+    const adminForm     = document.getElementById('action-admin');
+    const activeForm    = document.getElementById('action-active');
+    const deleteForm    = document.getElementById('action-delete');
+    const reagentsForm  = document.getElementById('action-reagents');
+    const reagentsBtn   = reagentsForm ? reagentsForm.querySelector('button') : null;
 
     rows.forEach(row => {
         row.addEventListener('click', () => {
@@ -131,6 +141,7 @@
             const username = row.querySelector('.cell-username')?.textContent || '';
             const roleText = row.children[4].textContent.trim();
             const status   = row.children[5].textContent.trim();
+            const canReagents = row.dataset.canReagents === '1';
 
             // Обновляем подпись и показываем панель
             label.textContent = 'Пользователь: ' + username;
@@ -140,6 +151,15 @@
             adminForm.action  = `/admin/users/${id}/toggle_admin`;
             activeForm.action = `/admin/users/${id}/toggle_active`;
             deleteForm.action = `/admin/users/${id}/delete`;
+
+            if (reagentsForm) {
+                reagentsForm.action = `/admin/users/${id}/toggle-reagents`;
+                if (reagentsBtn) {
+                    reagentsBtn.textContent = canReagents
+                        ? 'Забрать доступ к реагентам'
+                        : 'Дать доступ к реагентам';
+                }
+            }
 
             // Динамически меняем текст кнопок
             adminForm.querySelector('button').textContent =

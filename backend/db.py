@@ -1,7 +1,6 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 from .settings import settings
-
 # Engine с "подстраховкой" соединения (pool_pre_ping), async нам пока не нужен
 engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True, future=True)
 

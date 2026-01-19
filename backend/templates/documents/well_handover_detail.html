@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}{{ doc.doc_number }} · Акт приема/передачи{% endblock %}
+
+{% block content %}
+<h1 style="margin:0 0 16px 0;">
+  {{ doc.doc_type.name_ru }} — {{ doc.doc_number }}
+</h1>
+
+<div class="card" style="padding:16px; margin-bottom:16px;">
+  <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:center;">
+    <div><b>Статус:</b> {{ doc.status }}</div>
+    <div><b>Скважина:</b> {{ doc.well.number if doc.well else "—" }}</div>
+    <div style="margin-left:auto;"><a href="/documents" class="admin-link">← назад</a></div>
+  </div>
+</div>
+
+<div class="cards-grid" style="display:grid; gap:16px; max-width:980px;">
+
+<section class="card" style="padding:16px;">
+  <h2 style="margin:0 0 12px 0;">Поля акта</h2>
+
+  {% set m = doc.meta or {} %}
+
+  <form method="post" action="/documents/well-handover/{{ doc.id }}/update" style="display:grid; gap:10px;">
+
+    <div style="background:#f8f9fa; padding:12px; border-radius:6px; border-left:3px solid #0d6efd;">
+      <div style="font-weight:600; margin-bottom:8px;">📅 Даты</div>
+
+      <label><b>Дата документа (вверху акта)</b></label>
+      <input type="date" name="act_date"
+             value="{{ m.get('act_date','') }}"
+             {% if doc.status != 'draft' %}disabled{% endif %}>
+      <div style="font-size:12px; opacity:0.7; margin-top:4px; margin-bottom:12px;">
+        Дата в шапке документа — строка «Дата документа: ДД.ММ.ГГГГ»
+      </div>
+
+      <label><b>Дата и время фактической передачи</b></label>
+      <input type="datetime-local" name="handover_dt"
+             value="{{ (m.get('handover_dt','')[:16]) if m.get('handover_dt') else '' }}"
+             {% if doc.status != 'draft' %}disabled{% endif %}>
+      <div style="font-size:12px; opacity:0.7; margin-top:4px; margin-bottom:12px;">
+        Используется в тексте — «...ДД.ММ.ГГГГ г. в ЧЧ:ММ:СС часов скважина была передана...»
+      </div>
+
+      <label><b>Техническая дата для базы данных</b></label>
+      <input type="datetime-local" name="event_dt"
+             value="{{ (m.get('event_dt','')[:16]) if m.get('event_dt') else '' }}"
+             {% if doc.status != 'draft' %}disabled{% endif %}>
+      <div style="font-size:12px; opacity:0.7; margin-top:4px;">
+        Используется только для выборки давлений из базы событий (обычно = дате передачи)
+      </div>
+    </div>
+
+    <label><b>Номер договора</b></label>
+    <input name="contract_number" value="{{ m.get('contract_number','') }}"
+           {% if doc.status != 'draft' %}disabled{% endif %}>
+
+    <label><b>Трубное давление, кгс/см²</b></label>
+    <input name="tube_pressure"
+           value="{{ m.get('tube_pressure','') }}"
+           placeholder="например 17.12"
+           {% if doc.status != 'draft' %}disabled{% endif %}>
+
+    <label><b>Шлейфное давление, кгс/см²</b></label>
+    <input name="line_pressure"
+           value="{{ m.get('line_pressure','') }}"
+           placeholder="например 16.60"
+           {% if doc.status != 'draft' %}disabled{% endif %}>
+
+    <label><b>Территория вокруг скважины</b></label>
+    <input name="territory_state" value="{{ m.get('territory_state','') }}"
+           {% if doc.status != 'draft' %}disabled{% endif %}>
+
+    <label><b>Примечание</b></label>
+    <textarea name="note" rows="3"
+              {% if doc.status != 'draft' %}disabled{% endif %}>{{ m.get('note','') }}</textarea>
+
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      {% if doc.status == 'draft' %}
+        <button type="submit">Сохранить изменения</button>
+      {% else %}
+        <span style="opacity:.7;">Редактирование доступно только в статусе draft</span>
+      {% endif %}
+    </div>
+  </form>
+
+  <form method="post" action="/documents/well-handover/{{ doc.id }}/generate-pdf" style="margin-top:12px;">
+    <button type="submit">Сгенерировать PDF</button>
+  </form>
+
+  {% if doc.status == 'draft' %}
+    <form method="post" action="/documents/well-handover/{{ doc.id }}/rebuild-from-events" style="margin-top:8px;">
+      <button type="submit">Пересобрать давления из базы</button>
+    </form>
+  {% endif %}
+
+  <form method="post" action="/documents/{{ doc.id }}/soft-delete" style="margin-top:10px;">
+    <button type="submit" onclick="return confirm('Удалить документ?');">Удалить</button>
+  </form>
+</section>
+
+  <section class="card" style="padding:16px;">
+    <h2 style="margin:0 0 12px 0;">Текущие значения</h2>
+    <div style="display:grid; gap:8px; font-size:14px;">
+      <div style="display:grid; grid-template-columns:200px 1fr; gap:8px;">
+        <div style="opacity:0.7;">Дата документа:</div>
+        <div><b>{{ m.get('act_date','—') }}</b></div>
+      </div>
+      <div style="display:grid; grid-template-columns:200px 1fr; gap:8px;">
+        <div style="opacity:0.7;">Дата/время передачи:</div>
+        <div><b>{{ m.get('handover_dt','—') }}</b></div>
+      </div>
+      <div style="display:grid; grid-template-columns:200px 1fr; gap:8px;">
+        <div style="opacity:0.7;">Техническая дата:</div>
+        <div><b>{{ m.get('event_dt','—') }}</b></div>
+      </div>
+      <div style="border-top:1px solid #e5e5e5; margin:8px 0;"></div>
+      <div style="display:grid; grid-template-columns:200px 1fr; gap:8px;">
+        <div style="opacity:0.7;">Трубное давление:</div>
+        <div><b>{{ m.get('tube_pressure','—') }}</b> кгс/см²</div>
+      </div>
+      <div style="display:grid; grid-template-columns:200px 1fr; gap:8px;">
+        <div style="opacity:0.7;">Шлейфное давление:</div>
+        <div><b>{{ m.get('line_pressure','—') }}</b> кгс/см²</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" style="padding:16px;">
+    <h2 style="margin:0 0 12px 0;">Движение по канбану</h2>
+
+    {% if doc.status == "generated" %}
+      <form method="post" action="/documents/{{ doc.id }}/sign" style="display:grid; gap:8px; max-width:520px;">
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+          <input name="signer_name" placeholder="ФИО подписанта (опц.)" />
+          <input name="signer_position" placeholder="Должность (опц.)" />
+        </div>
+        <button type="submit">Подписать (SIGNED)</button>
+      </form>
+    {% elif doc.status == "signed" %}
+      <form method="post" action="/documents/{{ doc.id }}/mark-sent" style="display:grid; gap:8px; max-width:520px;">
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+          <input name="sent_to" placeholder="Кому отправлено (опц.)" />
+          <input name="sent_via" placeholder="Канал (опц.)" />
+        </div>
+        <button type="submit">Отметить отправленным (SENT)</button>
+      </form>
+
+      <form method="post" action="/documents/{{ doc.id }}/archive" style="margin-top:8px;">
+        <button type="submit">В архив (ARCHIVED)</button>
+      </form>
+    {% elif doc.status == "sent" %}
+      <form method="post" action="/documents/{{ doc.id }}/archive">
+        <button type="submit">В архив (ARCHIVED)</button>
+      </form>
+    {% else %}
+      <div style="opacity:.75;">Доступные действия появятся после генерации PDF.</div>
+    {% endif %}
+  </section>
+
+</div>
+{% endblock %}

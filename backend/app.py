@@ -1,15 +1,14 @@
-
 from fastapi import FastAPI, Request, Depends, Form, HTTPException, status, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 import json
 from starlette.middleware.sessions import SessionMiddleware
-
+from fastapi import Form
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case, text
-
-from datetime import datetime, timedelta, timezone
+from sqlalchemy import desc
+from datetime import datetime, timedelta, date, time
 
 from .api import wells
 from .settings import settings
@@ -31,23 +30,247 @@ from .config.status_registry import (
     STATUS_LIST,
     status_groups_for_sidebar,
 )
-
+from datetime import datetime, timedelta, date, time
 from collections import defaultdict, defaultdict as _dd
 import io
 import csv
 from openpyxl import Workbook
 import os
 from fastapi.staticfiles import StaticFiles
-import time
-from backend.auth import get_password_hash, get_current_user_optional, verify_password
+import time as time_module
+from backend.auth import get_password_hash, get_current_user_optional, verify_password, get_reagents_user
 from backend.models import DashboardUser, DashboardLoginLog
 
 from .db import get_db, SessionLocal
+from collections import defaultdict
 
+# Добавить в начало файла app.py
+from backend.models.reagent_catalog import ReagentCatalog
+from backend.services.reagent_balance_service import ReagentBalanceService
+from backend.models.users import DashboardUser
+from backend.models.events import Event
+from backend.models.reagents import ReagentSupply
+from .api import wells
+from .api import reagents as reagents_api
+from backend.repositories.reagents_service import (
+    create_reagent_supply,
+    list_reagent_supplies,
+)
+
+# --- helpers for reagent catalog (ONE SOURCE OF TRUTH) ---
+from decimal import Decimal
+
+from datetime import datetime
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+from fastapi import HTTPException
+from starlette.datastructures import FormData
+
+from fastapi.templating import Jinja2Templates
+
+from backend.routers import equipment_documents
+
+
+
+
+templates = Jinja2Templates(directory="backend/templates")
 
 app = FastAPI(title=settings.APP_TITLE)
+app.include_router(equipment_documents.router)
+# --- sessions (обязательно, иначе request.session не работает) ---
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=getattr(settings, "SESSION_SECRET_KEY", "CHANGE_ME_SECRET_KEY"),
+    session_cookie="surgil_session",
+    same_site="lax",
+    https_only=False,  # поставишь True, когда будет HTTPS
+)
 
-app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
+from backend.routers.documents_pages import router as documents_pages_router
+
+app.include_router(documents_pages_router)
+
+from backend.routers import documents_well_handover
+
+app.include_router(documents_well_handover.router)
+
+
+from backend.routers.equipment_management import router as equipment_router
+app.include_router(equipment_router, prefix="")
+
+# from backend.routers.equipment_admin import router as equipment_admin_router
+# app.include_router(equipment_admin_router, prefix="")
+
+
+from backend.routers.equipment_admin import router as equipment_admin_router
+app.include_router(equipment_admin_router)
+# ------------------------------------------------------------
+# 1) SAFE helpers: FormData -> string
+# ------------------------------------------------------------
+def _form_get_str(form: dict | FormData, key: str, default: str = "") -> str:
+    """
+    Безопасно достаёт строку из формы.
+    Поддерживает:
+      - обычный dict
+      - Starlette FormData (MultiDict)
+    Если значение list/tuple — берём первый элемент.
+    """
+    if form is None:
+        return default
+
+    val = form.get(key, default)
+
+    # FormData / MultiDict иногда возвращает списки
+    if isinstance(val, (list, tuple)):
+        val = val[0] if val else default
+
+    if val is None:
+        return default
+
+    return str(val).strip()
+
+
+def _parse_datetime_local_to_db_naive(dt_str: str | None) -> datetime | None:
+    """
+    <input type="datetime-local"> ('YYYY-MM-DDTHH:MM') -> naive datetime.
+    Без timezone-конвертаций.
+    """
+    if not dt_str:
+        return None
+    s = str(dt_str).strip()
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s)  # naive
+    except ValueError:
+        return None
+
+
+def _get_or_create_catalog_item(db: Session, name: str, unit: str | None = None) -> "ReagentCatalog":
+    name_clean = (name or "").strip()
+    if not name_clean:
+        raise ValueError("reagent name is empty")
+
+    item = (
+        db.query(ReagentCatalog)
+        .filter(func.lower(ReagentCatalog.name) == name_clean.lower())
+        .first()
+    )
+
+    if item:
+        # если unit в каталоге пустой — можно заполнить из формы
+        if (not (item.default_unit or "").strip()) and unit:
+            item.default_unit = unit.strip() or "шт"
+            db.commit()
+            db.refresh(item)
+        return item
+
+    item = ReagentCatalog(
+        name=name_clean,
+        default_unit=(unit or "шт").strip() or "шт",
+        is_active=True,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+# ------------------------------------------------------------
+# 2) REPLACE ENTIRE FUNCTION: единый разбор реагента из формы
+# ------------------------------------------------------------
+def _resolve_reagent_from_form(
+        db: Session,
+        form: dict | FormData,
+        *,
+        select_field: str = "reagent",
+        new_field: str = "reagent_new",
+        unit_field: str = "unit",
+) -> tuple[str, int | None, str]:
+    """
+    ЕДИНЫЙ алгоритм для Supply и Inventory:
+      - <select name="reagent">: либо имя реагента, либо "__new__"
+      - <input name="reagent_new">: имя нового реагента (если выбран "__new__")
+      - <input/select name="unit">: единица измерения
+
+    Возвращает: (reagent_name, reagent_id, unit)
+    """
+
+    raw_select = _form_get_str(form, select_field)
+    raw_new = _form_get_str(form, new_field)
+    raw_unit = _form_get_str(form, unit_field)
+
+    if raw_select == "__new__":
+        name = raw_new
+        if not name:
+            raise ValueError("Не указано название нового реагента")
+    else:
+        name = raw_select
+        if not name:
+            raise ValueError("Не указан реагент")
+
+    # сначала создаём/находим в каталоге
+    item = _get_or_create_catalog_item(db, name=name, unit=(raw_unit or None))
+
+    # unit: приоритет формы -> иначе из каталога -> иначе "шт"
+    unit = (raw_unit or item.default_unit or "шт").strip() or "шт"
+
+    return item.name, item.id, unit
+
+
+# ------------------------------------------------------------
+# 3) REPLACE ENTIRE ENDPOINT: /admin/reagents/add
+# ------------------------------------------------------------
+@app.post("/admin/reagents/add")
+async def admin_reagents_add_supply(
+        request: Request,
+        db: Session = Depends(get_db),
+        current_user=Depends(get_reagents_user),
+):
+    form = await request.form()
+
+    # reagent + unit
+    try:
+        reagent_name, reagent_id, unit = _resolve_reagent_from_form(
+            db,
+            form,
+            select_field="reagent",
+            new_field="reagent_new",
+            unit_field="unit",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # qty
+    qty_raw = _form_get_str(form, "qty")
+    try:
+        qty = float(qty_raw.replace(",", "."))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Некорректное количество (qty)")
+
+    # received_at
+    received_at_str = _form_get_str(form, "received_at")
+    dt = _parse_datetime_local_to_db_naive(received_at_str) or _now_db()
+
+    source = _form_get_str(form, "source") or None
+    location = _form_get_str(form, "location") or None
+    comment = _form_get_str(form, "comment") or None
+
+    supply = ReagentSupply(
+        reagent=reagent_name,
+        reagent_id=reagent_id,
+        qty=qty,
+        unit=unit,
+        received_at=dt,
+        source=source,
+        location=location,
+        comment=comment,
+    )
+    db.add(supply)
+    db.commit()
+
+    return RedirectResponse("/admin/reagents", status_code=303)
+
 
 # === Автоматическое создание мастер-админа ===
 @app.on_event("startup")
@@ -62,7 +285,7 @@ def create_master_admin():
         # username = settings.MASTER_ADMIN_USERNAME
         # password = settings.MASTER_ADMIN_PASSWORD
         username = "admin"
-        password = "admin123"   # ЗАДАЙ СВОЙ ПАРОЛЬ
+        password = "admin123"  # ЗАДАЙ СВОЙ ПАРОЛЬ
         email = "ua.nikitin@gmail.com"
 
         admin = (
@@ -98,6 +321,8 @@ def create_master_admin():
                 print(">>> Обновлены права существующего admin (is_admin/is_active)")
     finally:
         db.close()
+
+
 @app.get("/", include_in_schema=False)
 async def root(current_user: str = Depends(get_current_user)):
     return RedirectResponse("/visual")
@@ -114,10 +339,12 @@ def login_page(request: Request):
             "is_admin": False,
         }
     )
+
+
 @app.get("/register", response_class=HTMLResponse)
 def register_get(
-    request: Request,
-    current_user: User | None = Depends(get_current_user_optional),
+        request: Request,
+        current_user: User | None = Depends(get_current_user_optional),
 ):
     base_context = {
         "request": request,
@@ -133,16 +360,18 @@ def register_get(
         "register.html",
         base_context,
     )
+
+
 @app.post("/register", response_class=HTMLResponse)
 def register_post(
-    request: Request,
-    username: str = Form(...),
-    full_name: str = Form(""),
-    email: str = Form(""),
-    password: str = Form(...),
-    password2: str = Form(...),
-    db: Session = Depends(get_db),
-    current_user: User | None = Depends(get_current_user_optional),
+        request: Request,
+        username: str = Form(...),
+        full_name: str = Form(""),
+        email: str = Form(""),
+        password: str = Form(...),
+        password2: str = Form(...),
+        db: Session = Depends(get_db),
+        current_user: User | None = Depends(get_current_user_optional),
 ):
     # значения для возврата формы при ошибке
     base_context = {
@@ -212,6 +441,7 @@ def register_post(
 
     return RedirectResponse(url="/visual", status_code=status.HTTP_303_SEE_OTHER)
 
+
 @app.post("/login")
 async def login_submit(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
@@ -240,13 +470,13 @@ async def login_submit(request: Request, db: Session = Depends(get_db)):
 
     # ==== ВАЖНО: записываем ВСЕ ключи, которые ждёт старый код ====
     # старый get_current_user, скорее всего, смотрит на session["user"]
-    request.session["user"] = user.username       # ← ЭТО главный ключ
-    request.session["user_id"] = user.id          # удобно для БД
-    request.session["username"] = user.username   # если где-то используется
+    request.session["user"] = user.username  # ← ЭТО главный ключ
+    request.session["user_id"] = user.id  # удобно для БД
+    request.session["username"] = user.username  # если где-то используется
     request.session["is_admin"] = bool(user.is_admin)
     # ============================================================
     # обновляем поле last_login_at у пользователя
-    user.last_login_at = datetime.utcnow()
+    user.last_login_at = _now_db()
     db.add(user)
     db.commit()
     # ==== Закрываем предыдущую незавершённую сессию ====
@@ -254,7 +484,7 @@ async def login_submit(request: Request, db: Session = Depends(get_db)):
     if old_log_id:
         old_log = db.query(DashboardLoginLog).filter_by(id=old_log_id).first()
         if old_log and old_log.logout_at is None:
-            old_log.logout_at = datetime.utcnow()
+            old_log.logout_at = _now_db()
             db.commit()
     # ===================================================
 
@@ -272,17 +502,18 @@ async def login_submit(request: Request, db: Session = Depends(get_db)):
 
     return RedirectResponse(url="/visual", status_code=status.HTTP_303_SEE_OTHER)
 
+
 @app.get("/logout")
 def logout(
-    request: Request,
-    db: Session = Depends(get_db),
+        request: Request,
+        db: Session = Depends(get_db),
 ):
     # закрываем лог сессии, если есть
     log_id = request.session.get("session_log_id")
     if log_id:
         log = db.query(DashboardLoginLog).filter(DashboardLoginLog.id == log_id).first()
         if log and log.logout_at is None:
-            log.logout_at = datetime.utcnow()
+            log.logout_at = _now_db()
             db.add(log)
             db.commit()
 
@@ -320,6 +551,7 @@ def _parse_coord(value: str) -> float | None:
             detail=f"Некорректное значение координаты: {value!r}. Ожидаю число, например 43.621",
         )
 
+
 def _parse_dt_local(value: str | None):
     """
     Парсим строку из <input type="datetime-local">.
@@ -334,6 +566,8 @@ def _parse_dt_local(value: str | None):
         return datetime.strptime(value, "%Y-%m-%dT%H:%M")
     except ValueError:
         return None
+
+
 def _to_naive(dt: datetime | None) -> datetime | None:
     """
     Приводим datetime к "naive" (без tzinfo), чтобы можно было
@@ -344,20 +578,22 @@ def _to_naive(dt: datetime | None) -> datetime | None:
     if dt.tzinfo is None:
         return dt
     return dt.replace(tzinfo=None)
+
+
 # === Шаблоны и статика ===
 # Папка с HTML-шаблонами
 templates = Jinja2Templates(directory="backend/templates")
-templates.env.globals['time'] = lambda: int(time.time())  # для обновления CSS
+templates.env.globals['time'] = lambda: int(time_module.time())  # для обновления CSS
 
 # Чтобы браузер ВСЕГДА брал свежий CSS
-version = str(int(time.time()))
+version = str(int(time_module.time()))
 # Папка со статикой (css, js, картинки)
 # Статика
-app.mount(
-    "/static",
-    StaticFiles(directory="backend/static", html=True),
-    name="static"
-)
+from pathlib import Path
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"  # backend/static
+
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
 
 # Подключаем API-роутеры
 app.include_router(
@@ -365,14 +601,36 @@ app.include_router(
     dependencies=[Depends(get_current_user)]
 )
 
+app.include_router(
+    reagents_api.router,
+    dependencies=[Depends(get_current_user)]  # или get_reagents_user, если хочешь ужесточить
+)
+
+
+def _now_db() -> datetime:
+    """
+    Единый источник времени для записи в БД.
+    Возвращает NAIVE datetime, без tzinfo.
+    """
+    return datetime.now()
+
 
 # === Наша первая страница дашборда ===
 @app.get("/visual", response_class=HTMLResponse)
 def visual_page(
-    request: Request,
-    db: Session = Depends(get_db),
-    selected: list[int] = Query(default=[]),
-    current_user: str = Depends(get_current_user),
+        request: Request,
+        db: Session = Depends(get_db),
+        selected: list[int] = Query(default=[]),
+        current_user: str = Depends(get_current_user),
+        # ЄДИНИЙ НАБІР ФІЛЬТРІВ для плиток І графіка
+        tl_wells: list[str] = Query(default=[]),  # Мультивибір свердловин
+        tl_statuses: list[str] = Query(default=[]),  # Мультивибір статусів
+        tl_event_types: list[str] = Query(default=[]),  # Мультивибір типів подій
+        tl_reagents: list[str] = Query(default=[]),  # Мультивибір реагентів
+        tl_period: str = Query("3d"),  # Швидкий вибір періоду: 1d, 3d, 1w, 1m, custom
+        tl_date_from: str = Query(None),  # Для ручного періоду
+        tl_date_to: str = Query(None),
+        tl_sort: str = Query("desc"),
 ):
     """
     Главная страница дашборда:
@@ -636,14 +894,14 @@ def visual_page(
 
     # ==== Сортировка ПЛИТОК по статусу ====
     status_order = {
-        "status-opt": 3,      # Оптимизация
-        "status-adapt": 2,    # Адаптация
-        "status-watch": 1,    # Наблюдение
-        "status-dev": 4,      # Освоение
-        "status-idle": 6,     # Простой
-        "status-off": 5,      # Не обслуживается
-        "status-other": 7,    # Другое
-        None: 8,              # Статус не задан
+        "status-opt": 3,  # Оптимизация
+        "status-adapt": 2,  # Адаптация
+        "status-watch": 1,  # Наблюдение
+        "status-dev": 4,  # Освоение
+        "status-idle": 6,  # Простой
+        "status-off": 5,  # Не обслуживается
+        "status-other": 7,  # Другое
+        None: 8,  # Статус не задан
     }
 
     tiles_sorted = sorted(
@@ -652,6 +910,216 @@ def visual_page(
     )
     updated_at = datetime.now()
     is_admin = bool(request.session.get("is_admin", False))
+
+    # ========== ТАЙМЛАЙН: ЗАВАНТАЖЕННЯ ДАНИХ ==========
+
+    # Завантажуємо дані за останні 3 місяці (90 днів)
+    # Фільтрація по періоду буде на клієнті
+    date_from_dt = datetime.now() - timedelta(days=90)
+    date_from_dt = date_from_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    date_to_dt = datetime.now()
+    date_to_dt = date_to_dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+    date_from_str = date_from_dt.strftime('%Y-%m-%d')
+    date_to_str = date_to_dt.strftime('%Y-%m-%d')
+
+    # Зберігаємо поточний період для UI
+    current_period = tl_period if tl_period else '3d'
+    current_date_from = tl_date_from if tl_date_from else (datetime.now() - timedelta(days=3)).strftime('%Y-%m-%d')
+    current_date_to = tl_date_to if tl_date_to else datetime.now().strftime('%Y-%m-%d')
+
+    timeline_filters = {
+        'period': current_period,
+        'date_from': current_date_from,
+        'date_to': current_date_to,
+    }
+
+    # Отримуємо ВСІ свердловини для легенди
+    all_wells_dict = {str(w.number): w for w in all_wells if w.number}
+
+    # Визначаємо які свердловини показувати
+    wells_to_show = []
+
+    if tl_wells:
+        # Якщо вибрано конкретні свердловини - показуємо їх
+        wells_to_show = tl_wells
+    elif tl_statuses:
+        # Якщо вибрано статуси - знаходимо свердловини з цими статусами
+        status_wells = (
+            db.query(Well)
+            .join(WellStatus, Well.id == WellStatus.well_id)
+            .filter(
+                WellStatus.dt_end.is_(None),
+                WellStatus.status.in_(tl_statuses)
+            )
+            .all()
+        )
+        wells_to_show = [str(w.number) for w in status_wells if w.number]
+    else:
+        # Якщо нічого не вибрано - показуємо ВСІ свердловини
+        wells_to_show = [str(w.number) for w in all_wells if w.number]
+
+    # Запит подій
+    events_query = db.query(Event).filter(
+        Event.event_time >= date_from_dt,
+        Event.event_time <= date_to_dt
+    )
+
+    # Фільтр по свердловинах
+    if wells_to_show:
+        events_query = events_query.filter(Event.well.in_(wells_to_show))
+
+    # Фільтр по типах подій (якщо вибрано)
+    if tl_event_types:
+        events_query = events_query.filter(Event.event_type.in_(tl_event_types))
+
+    # Сортування
+    if tl_sort == 'asc':
+        timeline_events_raw = events_query.order_by(Event.event_time.asc()).all()
+    else:
+        timeline_events_raw = events_query.order_by(Event.event_time.desc()).all()
+
+    # Підготовка подій для JS
+    timeline_events = []
+    timeline_injections = []
+
+    # ОПТИМІЗАЦІЯ: Завантажуємо всіх users одним запитом
+    all_user_ids = set(evt.user_id for evt in timeline_events_raw if evt.user_id)
+    users_dict = {}
+    if all_user_ids:
+        users_from_db = db.query(User).filter(User.id.in_(all_user_ids)).all()
+        for user in users_from_db:
+            users_dict[user.id] = user.username or user.full_name or f"User {user.id}"
+
+    for evt in timeline_events_raw:
+        if not evt.event_time:
+            continue
+
+        # Отримуємо username з кешу
+        username = users_dict.get(evt.user_id) if evt.user_id else None
+
+        # Базова подія
+        event_data = {
+            't': evt.event_time.isoformat(),
+            'well': str(evt.well) if evt.well else '',
+            'type': evt.event_type or 'other',
+            'description': evt.description or '',
+            'p_tube': float(evt.p_tube) if evt.p_tube is not None else None,
+            'p_line': float(evt.p_line) if evt.p_line is not None else None,
+            'user_id': evt.user_id,
+            'username': username,
+            'geo_status': evt.geo_status or 'Не указан',
+        }
+
+        # Якщо подія - вброс реагента
+        if evt.event_type == 'reagent' and evt.reagent:
+            # Фільтр по реагентах (якщо вибрано)
+            if tl_reagents and evt.reagent not in tl_reagents:
+                continue
+
+            timeline_injections.append({
+                't': evt.event_time.isoformat(),
+                'well': str(evt.well) if evt.well else '',
+                'reagent': evt.reagent,
+                'qty': float(evt.qty) if evt.qty else 1.0,
+                'description': evt.description or '',
+                'user_id': evt.user_id,
+                'username': username,
+                'geo_status': evt.geo_status or 'Не указан',
+            })
+        else:
+            timeline_events.append(event_data)
+
+    # Збираємо унікальні значення для фільтрів
+    all_reagents = set(inj['reagent'] for inj in timeline_injections)
+    all_event_types_in_data = set(
+        evt.event_type for evt in timeline_events_raw if evt.event_type and evt.event_type != 'reagent')
+
+    # Кольори для реагентів
+    reagent_colors_base = {
+        'Пенний реагент': '#ff6b6b',
+        'Інгібітор': '#4ecdc4',
+        'Surfactant': '#95e1d3',
+        'Foamer': '#f38181',
+        'ПАР': '#aa96da',
+        'Деемульгатор': '#fcbad3',
+    }
+
+    color_palette = [
+        '#ff6b6b', '#4ecdc4', '#95e1d3', '#f38181',
+        '#aa96da', '#fcbad3', '#ffffd2', '#a8e6cf',
+        '#ffd3b6', '#ffaaa5', '#ff8b94', '#c7ceea'
+    ]
+
+    timeline_reagent_colors = {}
+    for idx, reagent in enumerate(sorted(all_reagents)):
+        if reagent in reagent_colors_base:
+            timeline_reagent_colors[reagent] = reagent_colors_base[reagent]
+        else:
+            timeline_reagent_colors[reagent] = color_palette[idx % len(color_palette)]
+
+    # Кольори для подій
+    timeline_event_colors = {
+        'equip': '#f39c12',
+        'pressure': '#3498db',
+        'reagent': '#9b59b6',
+        'purge': '#e74c3c',
+        'production': '#27ae60',
+        'maintenance': '#e67e22',
+        'other': '#34495e',
+    }
+
+    # Переклад типів подій на російську
+    event_type_translations = {
+        'purge': 'Продувка',
+        'reagent': 'Вброс реагента',
+        'pressure': 'Замер давления',
+        'equip': 'Оборудование',
+        'production': 'Добыча',
+        'maintenance': 'Обслуживание',
+        'other': 'Другое',
+    }
+
+    # Списки для фільтрів
+    timeline_all_event_types = [
+        {'code': et, 'label': event_type_translations.get(et, et)}
+        for et in sorted(all_event_types_in_data)
+    ]
+
+    timeline_all_reagents = sorted(all_reagents)
+
+    # Список всіх статусів
+    timeline_all_statuses = [
+        {'code': 'Наблюдение', 'label': 'Наблюдение'},
+        {'code': 'Адаптация', 'label': 'Адаптация'},
+        {'code': 'Оптимизация', 'label': 'Оптимизация'},
+        {'code': 'Освоение', 'label': 'Освоение'},
+        {'code': 'Не обслуживается', 'label': 'Не обслуживается'},
+        {'code': 'Простой', 'label': 'Простой'},
+        {'code': 'Другое', 'label': 'Другое'},
+    ]
+
+    # Словник статусів свердловин для JS
+    timeline_well_statuses = {}
+    for w in all_wells:
+        if w.number:
+            well_key = str(w.number)
+            st = by_well_id.get(w.id)
+            if st:
+                timeline_well_statuses[well_key] = st.status
+            else:
+                timeline_well_statuses[well_key] = None
+
+    # Кольори статусів (як на картках)
+    timeline_status_colors = {
+        'Наблюдение': '#28a745',  # зелений
+        'Адаптация': '#ffc107',  # жовтий
+        'Оптимизация': '#17a2b8',  # бірюзовий
+        'Освоение': '#007bff',  # синій
+        'Не обслуживается': '#6c757d',  # сірий
+        'Простой': '#dc3545',  # червоний
+        'Другое': '#6c757d',  # сірий
+    }
 
     return templates.TemplateResponse(
         "visual.html",
@@ -671,15 +1139,30 @@ def visual_page(
             "updated_at": updated_at,
             "current_user": current_user,
             "is_admin": is_admin,
+
+            # ТАЙМЛАЙН - оновлені змінні
+            "timeline_filters": timeline_filters,
+            "timeline_injections": timeline_injections,
+            "timeline_events": timeline_events,
+            "timeline_reagent_colors": timeline_reagent_colors,
+            "timeline_event_colors": timeline_event_colors,
+            "timeline_all_event_types": timeline_all_event_types,
+            "timeline_all_reagents": timeline_all_reagents,
+            "timeline_all_statuses": timeline_all_statuses,
+            "timeline_event_translations": event_type_translations,
+            "timeline_well_statuses": timeline_well_statuses,
+            "timeline_status_colors": timeline_status_colors,
         },
     )
+
+
 # === АДМИН-ПАНЕЛЬ ПОЛЬЗОВАТЕЛЕЙ ===
 
 @app.get("/admin/users", response_class=HTMLResponse)
 def admin_users_page(
-    request: Request,
-    db: Session = Depends(get_db),
-    current_admin: str = Depends(get_current_admin),   # защита: только админ
+        request: Request,
+        db: Session = Depends(get_db),
+        current_admin: str = Depends(get_current_admin),  # защита: только админ
 ):
     users = (
         db.query(DashboardUser)
@@ -697,16 +1180,20 @@ def admin_users_page(
             "is_admin": True,
         },
     )
+
+
 PAGE_SIZE = 200  # или сколько тебе нужно
+
+
 @app.get("/admin/logins", response_class=HTMLResponse)
 def admin_logins_page(
-    request: Request,
-    db: Session = Depends(get_db),
-    current_admin: str = Depends(get_current_admin),
-    user: str | None = Query(None),
-    date_from: str | None = Query(None),
-    date_to: str | None = Query(None),
-    only_active: int | None = Query(None),
+        request: Request,
+        db: Session = Depends(get_db),
+        current_admin: str = Depends(get_current_admin),
+        user: str | None = Query(None),
+        date_from: str | None = Query(None),
+        date_to: str | None = Query(None),
+        only_active: int | None = Query(None),
 ):
     """
     Админ-панель: сессии пользователей с фильтрами, сводкой и графиками.
@@ -757,32 +1244,32 @@ def admin_logins_page(
 
     # --- сводка: всего сессий ---
     total_sessions = (
-        db.query(func.count("*"))
-        .select_from(DashboardLoginLog)
-        .join(DashboardUser, DashboardLoginLog.user_id == DashboardUser.id)
-        .filter(*filters_total)
-        .scalar()
-        or 0
+            db.query(func.count("*"))
+            .select_from(DashboardLoginLog)
+            .join(DashboardUser, DashboardLoginLog.user_id == DashboardUser.id)
+            .filter(*filters_total)
+            .scalar()
+            or 0
     )
 
     # --- сводка: активных сессий ---
     active_sessions_count = (
-        db.query(func.count("*"))
-        .select_from(DashboardLoginLog)
-        .join(DashboardUser, DashboardLoginLog.user_id == DashboardUser.id)
-        .filter(*filters_active)
-        .scalar()
-        or 0
+            db.query(func.count("*"))
+            .select_from(DashboardLoginLog)
+            .join(DashboardUser, DashboardLoginLog.user_id == DashboardUser.id)
+            .filter(*filters_active)
+            .scalar()
+            or 0
     )
 
     # --- сводка: уникальных пользователей ---
     unique_users_count = (
-        db.query(func.count(func.distinct(DashboardLoginLog.user_id)))
-        .select_from(DashboardLoginLog)
-        .join(DashboardUser, DashboardLoginLog.user_id == DashboardUser.id)
-        .filter(*filters_total)
-        .scalar()
-        or 0
+            db.query(func.count(func.distinct(DashboardLoginLog.user_id)))
+            .select_from(DashboardLoginLog)
+            .join(DashboardUser, DashboardLoginLog.user_id == DashboardUser.id)
+            .filter(*filters_total)
+            .scalar()
+            or 0
     )
 
     # --- таблица сессий (последние 200) ---
@@ -799,11 +1286,17 @@ def admin_logins_page(
     for log, user_obj in logs:
         is_active = log.logout_at is None
 
-        if log.logout_at:
-            seconds = int((log.logout_at - log.login_at).total_seconds())
-        else:
-            now = datetime.now(timezone.utc)  # <<<<<< FIX
-            seconds = int((now - log.login_at).total_seconds())
+        # Берём "конец" сессии: либо logout_at, либо "сейчас"
+        end_dt = log.logout_at or _now_db()
+        start_dt = log.login_at
+
+        # Приводим оба к naive-формату, чтобы не было конфликта aware/naive
+        if start_dt is not None and start_dt.tzinfo is not None:
+            start_dt = start_dt.replace(tzinfo=None)
+        if end_dt is not None and end_dt.tzinfo is not None:
+            end_dt = end_dt.replace(tzinfo=None)
+
+        seconds = int((end_dt - start_dt).total_seconds())
 
         if seconds < 60:
             duration_human = f"{seconds} сек"
@@ -815,8 +1308,8 @@ def admin_logins_page(
             duration_human = f"{h} ч {m} мин"
 
         full_name = (
-            f"{user_obj.first_name or ''} {user_obj.last_name or ''}".strip()
-            or None
+                f"{user_obj.first_name or ''} {user_obj.last_name or ''}".strip()
+                or None
         )
 
         sessions_items.append({
@@ -893,12 +1386,431 @@ def admin_logins_page(
             "is_admin": True,
         },
     )
+
+
+@app.get("/admin/reagents", response_class=HTMLResponse)
+def admin_reagents_page(
+        request: Request,
+        db: Session = Depends(get_db),
+        current_user: DashboardUser = Depends(get_reagents_user),
+):
+    """
+    Сторінка обліку реагентів з актуальними залишками
+    """
+    params = request.query_params
+
+    # Зріз залишків на дату
+    as_of_str = params.get("as_of")
+    if as_of_str:
+        try:
+            as_of_date = datetime.strptime(as_of_str, "%Y-%m-%d").date()
+        except ValueError:
+            as_of_date = date.today()
+    else:
+        as_of_date = date.today()
+
+    as_of_dt = datetime.combine(as_of_date, time(23, 59, 59))
+
+    # Отримуємо всі реагенти з каталогу
+    all_reagents_catalog = (
+        db.query(ReagentCatalog)
+        .filter(ReagentCatalog.is_active == True)
+        .order_by(ReagentCatalog.name)
+        .all()
+    )
+
+    # Розраховуємо актуальні залишки
+    reagents_data = []
+    ZERO = Decimal("0")
+    total_stock = ZERO
+    total_used_today = ZERO
+
+    for reagent in all_reagents_catalog:
+        balance_info = ReagentBalanceService.get_current_balance(
+            db, reagent.name, as_of_dt
+        )
+
+        avg_daily = ReagentBalanceService.get_average_daily_consumption(
+            db, reagent.name, 30
+        )
+
+        today_start = datetime.combine(date.today(), time(0, 0, 0))
+        raw_today = (
+            db.query(func.sum(Event.qty))
+            .filter(
+                Event.reagent == reagent.name,
+                Event.event_time >= today_start,
+                Event.event_type == "reagent",
+            )
+            .scalar()
+        )
+
+        consumption_today = ZERO if raw_today is None else (
+            raw_today if isinstance(raw_today, Decimal) else Decimal(str(raw_today))
+        )
+
+        total_used_today += consumption_today
+
+        reagents_data.append({
+            "name": reagent.name,
+            "unit": reagent.default_unit,
+            "stock": float(balance_info["current_balance"]),
+            "avg_daily": avg_daily,
+            "consumption_today": float(consumption_today),
+            "last_inventory_date": balance_info.get("last_inventory_date"),
+            "calculation_method": balance_info["calculation_method"]
+        })
+
+        total_stock += balance_info["current_balance"]
+
+    # Історія поставок
+    supplies_all = (
+        db.query(ReagentSupply)
+        .order_by(ReagentSupply.received_at.desc())
+        .all()
+    )
+
+    reagent_names = [r["name"] for r in reagents_data]
+
+    wells = db.query(Event.well).filter(
+        Event.event_type == 'reagent'
+    ).distinct().all()
+    wells = [str(w[0]) for w in wells if w[0]]
+
+    # ТОП-30 по залишку
+    top = sorted(reagents_data, key=lambda x: float(x.get("stock") or 0), reverse=True)[:30]
+    # У функції admin_reagents_page, після створення top:
+    stock_units = [r["unit"] for r in top]
+
+    stock_labels = [r["name"] for r in top]
+    stock_values = [float(r["stock"] or 0) for r in top]
+
+    # =========================
+    # TIMELINE: події з БД
+    # =========================
+
+    def _parse_date_ymd(x: str | None) -> date | None:
+        if not x:
+            return None
+        try:
+            return datetime.strptime(x, "%Y-%m-%d").date()
+        except ValueError:
+            return None
+
+    # 🔧 ВИПРАВЛЕНО: використовуємо правильні назви параметрів
+    tf_from = _parse_date_ymd(params.get("date_from"))
+    tf_to = _parse_date_ymd(params.get("date_to"))
+    tf_well = (params.get("well") or "").strip() or None
+    tf_event_type = (params.get("event_type") or "").strip().lower() or None
+    tf_reagent = (params.get("reagent") or "").strip() or None
+
+    # За замовчуванням: поточний місяць
+    if tf_to is None:
+        tf_to = date.today()
+    if tf_from is None:
+        # Перший день поточного місяця
+        tf_from = tf_to.replace(day=1)
+
+    dt_from = datetime.combine(tf_from, time(0, 0, 0))
+    dt_to = datetime.combine(tf_to, time(23, 59, 59))
+
+    q_ev = (
+        db.query(Event)
+        .filter(Event.event_time >= dt_from, Event.event_time <= dt_to)
+    )
+
+    if tf_well:
+        q_ev = q_ev.filter(Event.well == tf_well)
+    if tf_event_type:
+        q_ev = q_ev.filter(func.lower(Event.event_type) == tf_event_type)
+    if tf_reagent:
+        q_ev = q_ev.filter(Event.reagent == tf_reagent)
+
+    events_rows = q_ev.order_by(Event.event_time.asc()).all()
+
+    # --- Кольори (детерміновані) ---
+    def _stable_color(key: str) -> str:
+        s = (key or "x").encode("utf-8")
+        h = 0
+        for b in s:
+            h = (h * 33 + b) % 360
+        return f"hsl({h}, 70%, 45%)"
+
+    reagent_colors = {}
+    event_colors = {}
+
+    # --- Ділимо на вбросы та інші події ---
+    timeline_injections = []
+    timeline_events = []
+
+    for ev in events_rows:
+        et = (ev.event_type or "other").lower().strip()
+
+        # Колір по реагенту
+        if ev.reagent:
+            reagent_colors.setdefault(ev.reagent, _stable_color("reag:" + ev.reagent))
+
+        # Колір по типу події
+        event_colors.setdefault(et, _stable_color("type:" + et))
+
+        if et == "reagent":
+            timeline_injections.append({
+                "t": ev.event_time.isoformat() if ev.event_time else None,
+                "reagent": ev.reagent,
+                "qty": float(ev.qty or 0.0),
+                "well": ev.well,
+                "description": ev.description,
+            })
+        else:
+            timeline_events.append({
+                "t": ev.event_time.isoformat() if ev.event_time else None,
+                "type": et,
+                "well": ev.well,
+                "reagent": ev.reagent,
+                "qty": float(ev.qty or 0.0) if ev.qty is not None else None,
+                "description": ev.description,
+                "p_tube": ev.p_tube,
+                "p_line": ev.p_line,
+            })
+
+    # 🔧 ДОДАНО: отримуємо список типів подій
+    event_types = list(set(ev.event_type.lower() for ev in events_rows if ev.event_type))
+
+    return templates.TemplateResponse(
+        "admin_reagents.html",
+        {
+            "request": request,
+            "current_user": current_user,
+
+            # Основні дані
+            "reagents": reagents_data,
+            "total_reagents": len(reagents_data),
+            "total_stock": float(total_stock),
+            "total_used_today": float(total_used_today),
+
+            # Для форм
+            "supplies": supplies_all,
+            "reagent_catalog": all_reagents_catalog,
+
+            # Для фільтрів
+            "reagent_names": reagent_names,
+            "wells": wells,
+            "event_types": event_types,  # 🔧 ДОДАНО
+
+            # Дати
+            "as_of_date": as_of_date.strftime("%Y-%m-%d"),
+            "as_of_date_human": as_of_date.strftime("%d.%m.%Y"),
+
+            # Пусті дані для старих графіків (можна видалити пізніше)
+            "by_reagent_labels": [],
+            "by_reagent_values": [],
+            "by_reagent_table": [],
+            "by_well_labels": [],
+            "by_well_values": [],
+            "by_well_table": [],
+            "daily_labels": [],
+            "daily_usage": [],
+            "mode": "by_reagent",
+            "selected_reagent": None,
+            "selected_well": None,
+
+            "stock_labels": stock_labels,
+            "stock_values": stock_values,
+            # У return templates.TemplateResponse додайте:
+            "stock_units": stock_units,
+
+            # 🔧 ВИПРАВЛЕНО: передаємо кольори та події
+            "reagent_colors": reagent_colors,
+            "event_colors": event_colors,
+            "timeline_injections": timeline_injections,
+            "timeline_events": timeline_events,
+
+            # 🔧 ДОДАНО: фільтри для відображення у формі
+            "timeline_filters": {
+                "date_from": tf_from.isoformat(),
+                "date_to": tf_to.isoformat(),
+                "well": tf_well,
+                "event_type": tf_event_type,
+                "reagent": tf_reagent,
+            },
+        },
+    )
+
+
+# Добавить в app.py или создать отдельный сервис
+
+def get_or_create_reagent(db: Session, reagent_name: str, unit: str = "шт"):
+    """
+    Получает реагент из каталога или создает новый.
+    Возвращает кортеж: (ReagentCatalog объект, created: bool)
+    """
+    reagent_name = reagent_name.strip()
+    if not reagent_name:
+        return None, False
+
+    # Ищем в каталоге
+    reagent = db.query(ReagentCatalog).filter(
+        ReagentCatalog.name == reagent_name
+    ).first()
+
+    if reagent:
+        return reagent, False  # Уже существует
+
+    # Создаем новый
+    reagent = ReagentCatalog(
+        name=reagent_name,
+        default_unit=unit,
+        is_active=True
+    )
+    db.add(reagent)
+    db.flush()  # Получаем ID
+
+    return reagent, True  # Был создан
+
+
+# ===== Инвентаризация реагентов =====
+
+
+from fastapi import Request, Depends
+from sqlalchemy.orm import Session
+from datetime import datetime
+
+
+@app.get("/admin/reagents/inventory")
+def admin_reagents_inventory_page(
+        request: Request,
+        db: Session = Depends(get_db),
+        current_user: DashboardUser = Depends(get_reagents_user),
+        as_of: str | None = Query(None),
+):
+    # история (последние записи)
+    snapshots = (
+        db.query(ReagentInventorySnapshot)
+        .order_by(ReagentInventorySnapshot.snapshot_at.desc())
+        .limit(100)
+        .all()
+    )
+
+    # каталог (единый список)
+    reagent_catalog = (
+        db.query(ReagentCatalog)
+        .filter(ReagentCatalog.is_active == True)  # noqa: E712
+        .order_by(ReagentCatalog.name)
+        .all()
+    )
+    # --- "срез" остатков на дату (как на странице /admin/reagents) ---
+    if as_of:
+        try:
+            as_of_date = datetime.strptime(as_of, "%Y-%m-%d").date()
+        except ValueError:
+            as_of_date = date.today()
+    else:
+        as_of_date = date.today()
+
+    as_of_dt = datetime.combine(as_of_date, time(23, 59, 59))
+    # ===== ФАКТИЧЕСКИЕ ОСТАТКИ "НА СЕЙЧАС" (по последнему снимку каждого реагента) =====
+    # берём последнюю инвентаризацию (snapshot) на каждый реагент
+    # ===== Последний snapshot по каждому реагенту (для справки) =====
+    subq = (
+        db.query(
+            ReagentInventorySnapshot.reagent.label("reagent"),
+            func.max(ReagentInventorySnapshot.snapshot_at).label("max_dt"),
+        )
+        .group_by(ReagentInventorySnapshot.reagent)
+        .subquery()
+    )
+
+    latest_rows = (
+        db.query(ReagentInventorySnapshot)
+        .join(
+            subq,
+            (ReagentInventorySnapshot.reagent == subq.c.reagent)
+            & (ReagentInventorySnapshot.snapshot_at == subq.c.max_dt),
+        )
+        .all()
+    )
+
+    latest_by_reagent: dict[str, ReagentInventorySnapshot] = {}
+    for r in latest_rows:
+        key = (r.reagent or "").strip()
+        if key:
+            latest_by_reagent[key] = r
+
+    unit_by_name = {r.name: (r.default_unit or "шт") for r in reagent_catalog}
+
+    # ===== ЕДИНЫЙ ИСТОЧНИК ОСТАТКОВ: расчёт через ReagentBalanceService =====
+    balances = []
+    for cat in reagent_catalog:
+        name = (cat.name or "").strip()
+        if not name:
+            continue
+
+        balance_info = ReagentBalanceService.get_current_balance(db, name, as_of_dt)
+        calc_qty = balance_info.get("current_balance")
+
+        # Decimal/None -> float
+        try:
+            calc_qty_f = float(calc_qty or 0)
+        except Exception:
+            calc_qty_f = 0.0
+
+        snap = latest_by_reagent.get(name)
+        snap_qty = float(snap.qty or 0) if snap else 0.0
+        snap_at = snap.snapshot_at.isoformat() if (snap and snap.snapshot_at) else None
+
+        lid = balance_info.get("last_inventory_date")
+        if isinstance(lid, (datetime, date)):
+            lid = lid.isoformat()  # '2026-01-05' или '2026-01-05T12:34:56'
+        elif lid is not None:
+            lid = str(lid)
+
+        balances.append(
+            {
+                "reagent": name,
+                "qty": calc_qty_f,
+                "unit": (cat.default_unit or "шт"),
+                "snapshot_qty": snap_qty,
+                "snapshot_at": snap_at,
+                "diff": calc_qty_f - snap_qty,
+                "calculation_method": balance_info.get("calculation_method"),
+                "last_inventory_date": lid,  # <-- стало строкой/None
+            }
+        )
+
+    balances.sort(key=lambda x: float(x.get("qty") or 0.0), reverse=True)
+
+    # данные для графика
+    chart_labels = [b["reagent"] for b in balances]
+    chart_values = [b["qty"] for b in balances]
+    chart_units = [b["unit"] for b in balances]
+
+    return templates.TemplateResponse(
+        "admin_reagents_inventory.html",
+        {
+            "request": request,
+            "current_user": current_user,
+            "snapshots": snapshots,
+            "reagent_catalog": reagent_catalog,
+
+            # фактическое состояние "на сейчас"
+            "balances": balances,
+
+            # для графика (если используешь window.inventoryChartData)
+            "chart_labels": chart_labels,
+            "chart_values": chart_values,
+            "chart_units": chart_units,
+            "as_of_date": as_of_date.strftime("%Y-%m-%d"),
+            "as_of_date_human": as_of_date.strftime("%d.%m.%Y"),
+        },
+    )
+
+
 @app.post("/admin/users/{user_id}/toggle-admin")
 def admin_toggle_admin(
-    user_id: int,
-    request: Request,
-    db: Session = Depends(get_db),
-    current_admin: str = Depends(get_current_admin),
+        user_id: int,
+        request: Request,
+        db: Session = Depends(get_db),
+        current_admin: str = Depends(get_current_admin),
 ):
     user = db.query(DashboardUser).filter(DashboardUser.id == user_id).first()
     if not user:
@@ -916,10 +1828,10 @@ def admin_toggle_admin(
 
 @app.post("/admin/users/{user_id}/toggle-active")
 def admin_toggle_active(
-    user_id: int,
-    request: Request,
-    db: Session = Depends(get_db),
-    current_admin: str = Depends(get_current_admin),
+        user_id: int,
+        request: Request,
+        db: Session = Depends(get_db),
+        current_admin: str = Depends(get_current_admin),
 ):
     user = db.query(DashboardUser).filter(DashboardUser.id == user_id).first()
     if not user:
@@ -937,10 +1849,10 @@ def admin_toggle_active(
 
 @app.post("/admin/users/{user_id}/delete")
 def admin_delete_user(
-    user_id: int,
-    request: Request,
-    db: Session = Depends(get_db),
-    current_admin: str = Depends(get_current_admin),
+        user_id: int,
+        request: Request,
+        db: Session = Depends(get_db),
+        current_admin: str = Depends(get_current_admin),
 ):
     user = db.query(DashboardUser).filter(DashboardUser.id == user_id).first()
     if not user:
@@ -953,19 +1865,43 @@ def admin_delete_user(
     db.commit()
 
     return RedirectResponse("/admin/users", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/admin/users/{user_id}/toggle-reagents")
+def admin_toggle_reagents_access(
+        user_id: int,
+        request: Request,
+        db: Session = Depends(get_db),
+        current_admin: str = Depends(get_current_admin),
+):
+    """
+    Включает/выключает флаг can_view_reagents для пользователя.
+    Доступно только админам.
+    """
+    user = db.query(DashboardUser).filter(DashboardUser.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    # Можно и себе дать/забрать доступ — это не критично, в отличие от is_admin.
+    user.can_view_reagents = not bool(user.can_view_reagents)
+    db.commit()
+
+    return RedirectResponse("/admin/users", status_code=status.HTTP_303_SEE_OTHER)
+
+
 @app.get("/well/{well_id}", response_class=HTMLResponse)
 def well_page(
-    well_id: int,
-    request: Request,
-    db: Session = Depends(get_db),
-    preset: str = Query("all"),
-    start: str | None = Query(None),
-    end: str | None = Query(None),
-    edit_status: int | None = Query(None, alias="edit_status"),
-    edit_equipment_id: int | None = Query(None, alias="edit_eq"),
-    edit_channel_id: int | None = Query(None, alias="edit_ch"),
-    edit_note: int | None = Query(None, alias="edit_note"),
-    current_user: str = Depends(get_current_user),
+        well_id: int,
+        request: Request,
+        db: Session = Depends(get_db),
+        preset: str = Query("all"),
+        start: str | None = Query(None),
+        end: str | None = Query(None),
+        edit_status: int | None = Query(None, alias="edit_status"),
+        edit_equipment_id: int | None = Query(None, alias="edit_eq"),
+        edit_channel_id: int | None = Query(None, alias="edit_ch"),
+        edit_note: int | None = Query(None, alias="edit_note"),
+        current_user: str = Depends(get_current_user),
 ):
     """
     Страница отдельной скважины:
@@ -974,6 +1910,9 @@ def well_page(
     - фильтр по периоду + статистика
     - история статусов по скважине (грид + редактирование)
     """
+
+    # По умолчанию - текущая неделя с понедельника
+    preset = preset or "week"
 
     # 1) Скважина
     well = db.query(Well).filter(Well.id == well_id).first()
@@ -1105,19 +2044,35 @@ def well_page(
     else:
         well_key = str(well.id)
 
+    # ==============================================================================
+    # ИЗМЕНЕНИЯ В app.py - ФУНКЦИЯ well_page
+    # Заменить секцию определения периода (строки ~1772-1796)
+    # ==============================================================================
+
     # 3) Определяем период по preset / start / end
     now = datetime.now()
     dt_from = None
     dt_to = None
 
     if preset == "day":
+        # Последние сутки
         dt_from = now - timedelta(days=1)
         dt_to = now
     elif preset == "month":
-        dt_from = now - timedelta(days=30)
+        # Текущий календарный месяц (с 1-го числа)
+        today = now.date()
+        first_day_of_month = today.replace(day=1)
+        dt_from = datetime.combine(first_day_of_month, datetime.min.time())
+        dt_to = now
+    elif preset == "week":
+        # Текущая календарная неделя (с понедельника)
+        today = now.date()
+        # Находим понедельник текущей недели (weekday: 0=понедельник, 6=воскресенье)
+        monday = today - timedelta(days=today.weekday())
+        dt_from = datetime.combine(monday, datetime.min.time())
         dt_to = now
     elif preset == "custom":
-        # start / end приходят как 'YYYY-MM-DD'
+        # Произвольный период
         if start:
             try:
                 dt_from = datetime.strptime(start, "%Y-%m-%d")
@@ -1132,8 +2087,15 @@ def well_page(
     # preset == "all" -> dt_from/dt_to не задаём (всё время)
 
     # Эти значения обратно в форму
-    start_date_value = start if start else (dt_from.date().isoformat() if dt_from and preset == "custom" else "")
-    end_date_value = end if end else (dt_to.date().isoformat() if dt_to and preset == "custom" else "")
+    if preset == "custom":
+        start_date_value = start if start else ""
+        end_date_value = end if end else ""
+    elif preset == "week" or (preset == "all" and dt_from):
+        start_date_value = dt_from.date().isoformat() if dt_from else ""
+        end_date_value = dt_to.date().isoformat() if dt_to else ""
+    else:
+        start_date_value = ""
+        end_date_value = ""
 
     # 4) Запрос событий + full_name
     q = (
@@ -1282,6 +2244,51 @@ def well_page(
         stats = None
         events_for_template = []
 
+    # --- ГРАФИК СОБЫТИЙ ДЛЯ СКВАЖИНЫ ---
+    def _stable_color(key: str) -> str:
+        s = (key or "x").encode("utf-8")
+        h = 0
+        for b in s:
+            h = (h * 33 + b) % 360
+        return f"hsl({h}, 70%, 45%)"
+
+    reagent_colors = {}
+    event_colors = {}
+    timeline_injections = []
+    timeline_events = []
+
+    for ev, full_name in raw_events:
+        et = (ev.event_type or "other").lower().strip()
+
+        if ev.reagent:
+            reagent_colors.setdefault(ev.reagent, _stable_color("reag:" + ev.reagent))
+
+        event_colors.setdefault(et, _stable_color("type:" + et))
+
+        if et == "reagent":
+            timeline_injections.append({
+                "t": ev.event_time.isoformat() if ev.event_time else None,
+                "reagent": ev.reagent,
+                "qty": float(ev.qty or 0.0),
+                "well": ev.well,
+                "description": ev.description,
+                "operator": full_name,
+                "geo_status": ev.geo_status,
+            })
+        else:
+            timeline_events.append({
+                "t": ev.event_time.isoformat() if ev.event_time else None,
+                "type": et,
+                "well": ev.well,
+                "reagent": ev.reagent,
+                "qty": float(ev.qty or 0.0) if ev.qty is not None else None,
+                "description": ev.description,
+                "p_tube": ev.p_tube,
+                "p_line": ev.p_line,
+                "operator": full_name,
+                "geo_status": ev.geo_status,
+            })
+
     # --- История статусов для этой скважины ---
     raw_statuses = (
         db.query(WellStatus)
@@ -1376,8 +2383,8 @@ def well_page(
             "equipment_history": equipment_history,
             "equipment_by_type": dict(equipment_by_type),
             "equipment_list": equipment_list,
-            "equipment_types": EQUIPMENT_LIST,        # ← ИСПОЛЬЗУЕМ JSON из equipment.json
-            "equipment_by_code": EQUIPMENT_BY_CODE,   # ← dict code -> объект
+            "equipment_types": EQUIPMENT_LIST,  # ← ИСПОЛЬЗУЕМ JSON из equipment.json
+            "equipment_by_code": EQUIPMENT_BY_CODE,  # ← dict code -> объект
 
             # Каналы связи
             "channel_current": channel_current,
@@ -1389,18 +2396,38 @@ def well_page(
             "perforation_intervals": perforation_intervals,
             "current_user": current_user,
             "is_admin": is_admin,
+
+            "reagent_colors": reagent_colors,
+            "event_colors": event_colors,
+            "timeline_injections": timeline_injections,
+            "timeline_events": timeline_events,
+            "well_number": str(well.number) if well.number else str(well.id),
+
+            "period_info": {
+                "from": dt_from.strftime("%d.%m.%Y %H:%M") if dt_from else "Начало",
+                "to": dt_to.strftime("%d.%m.%Y %H:%M") if dt_to else "Сейчас",
+                "preset_label": {
+                    "day": "День",
+                    "week": "Неделя",
+                    "month": "Месяц",
+                    "custom": "Период",
+                    "all": "Всё время"
+                }.get(preset, "Период")
+            },
         },
     )
+
+
 @app.post("/well/{well_id}/status")
 def set_well_status(
-    well_id: int,
-    status_value: str = Form(..., alias="status"),
-    custom_status: str = Form(""),
-    status_start: str = Form(""),
-    status_end: str = Form(""),
-    status_note: str = Form(""),
-    db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_admin),
+        well_id: int,
+        status_value: str = Form(..., alias="status"),
+        custom_status: str = Form(""),
+        status_start: str = Form(""),
+        status_end: str = Form(""),
+        status_note: str = Form(""),
+        db: Session = Depends(get_db),
+        current_user: str = Depends(get_current_admin),
 ):
     """
     Установка нового статуса для скважины.
@@ -1456,17 +2483,18 @@ def set_well_status(
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
+
 @app.post("/well/{well_id}/status/{status_id}/edit")
 def edit_well_status(
-    well_id: int,
-    status_id: int,
-    status_value: str = Form(..., alias="status"),
-    custom_status: str = Form(""),
-    status_start: str = Form(""),
-    status_end: str = Form(""),
-    status_note: str = Form(""),
-    db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_admin),
+        well_id: int,
+        status_id: int,
+        status_value: str = Form(..., alias="status"),
+        custom_status: str = Form(""),
+        status_start: str = Form(""),
+        status_end: str = Form(""),
+        status_note: str = Form(""),
+        db: Session = Depends(get_db),
+        current_user: str = Depends(get_current_admin),
 ):
     """
     Редактирование существующей записи статуса.
@@ -1510,12 +2538,13 @@ def edit_well_status(
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
+
 @app.post("/well/{well_id}/status/{status_id}/delete")
 def delete_well_status(
-    well_id: int,
-    status_id: int,
-    db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_admin),
+        well_id: int,
+        status_id: int,
+        db: Session = Depends(get_db),
+        current_user: str = Depends(get_current_admin),
 ):
     """
     Удаляет одну запись истории статуса.
@@ -1540,15 +2569,14 @@ def delete_well_status(
     )
 
 
-
 @app.post("/well/{well_id}/update")
 def update_well(
-    well_id: int,
-    lat: str = Form(""),
-    lon: str = Form(""),
-    description: str = Form(""),
-    db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_admin),
+        well_id: int,
+        lat: str = Form(""),
+        lon: str = Form(""),
+        description: str = Form(""),
+        db: Session = Depends(get_db),
+        current_user: str = Depends(get_current_admin),
 ):
     """
     Обновление координат и описания скважины.
@@ -1581,14 +2609,16 @@ def update_well(
         url=f"/well/{well_id}",
         status_code=status.HTTP_303_SEE_OTHER,  # 303 = "после POST иди по GET"
     )
+
+
 @app.post("/well/{well_id}/notes/save")
 def save_well_note(
-    well_id: int,
-    note_id_raw: str = Form(""),   # hidden поле note_id (может быть пустым)
-    note_time: str = Form(""),     # datetime-local
-    note_text: str = Form(""),     # текст заметки
-    db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_admin),
+        well_id: int,
+        note_id_raw: str = Form(""),  # hidden поле note_id (может быть пустым)
+        note_time: str = Form(""),  # datetime-local
+        note_text: str = Form(""),  # текст заметки
+        db: Session = Depends(get_db),
+        current_user: str = Depends(get_current_admin),
 ):
     """
     Добавление / редактирование заметки по скважине.
@@ -1652,12 +2682,13 @@ def save_well_note(
         status_code=status.HTTP_303_SEE_OTHER,
     )
 
+
 @app.post("/well/{well_id}/notes/{note_id}/delete")
 def delete_well_note(
-    well_id: int,
-    note_id: int,
-    db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_admin),
+        well_id: int,
+        note_id: int,
+        db: Session = Depends(get_db),
+        current_user: str = Depends(get_current_admin),
 ):
     """
     Удаление одной заметки по скважине.
@@ -1677,16 +2708,18 @@ def delete_well_note(
         url=f"/well/{well_id}#notes-card",
         status_code=status.HTTP_303_SEE_OTHER,
     )
+
+
 @app.post("/well/{well_id}/equipment/add")
 def add_well_equipment(
-    well_id: int,
-    type_code: str = Form(...),
-    serial_number: str = Form(""),
-    installed_at: str = Form(""),
-    removed_at: str = Form(""),
-    note: str = Form(""),
-    db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_admin),
+        well_id: int,
+        type_code: str = Form(...),
+        serial_number: str = Form(""),
+        installed_at: str = Form(""),
+        removed_at: str = Form(""),
+        note: str = Form(""),
+        db: Session = Depends(get_db),
+        current_user: str = Depends(get_current_admin),
 ):
     # Проверяем, что скважина существует
     well = db.query(Well).filter(Well.id == well_id).first()
@@ -1706,7 +2739,7 @@ def add_well_equipment(
         well_id=well_id,
         type_code=type_code,
         serial_number=(serial_number or None),
-        channel=None,          # канал связи не используем
+        channel=None,  # канал связи не используем
         installed_at=inst_dt,
         removed_at=rem_dt,
         note=(note or None),
@@ -1753,15 +2786,15 @@ def _fake_events_for_well(well_id: int) -> list[dict]:
 
 @app.post("/well/{well_id}/equipment/{eq_id}/edit")
 def edit_well_equipment(
-    well_id: int,
-    eq_id: int,
-    type_code: str = Form(...),
-    serial_number: str = Form(""),
-    installed_at: str = Form(""),
-    removed_at: str = Form(""),
-    note: str = Form(""),
-    db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_admin),
+        well_id: int,
+        eq_id: int,
+        type_code: str = Form(...),
+        serial_number: str = Form(""),
+        installed_at: str = Form(""),
+        removed_at: str = Form(""),
+        note: str = Form(""),
+        db: Session = Depends(get_db),
+        current_user: str = Depends(get_current_admin),
 ):
     eq = (
         db.query(WellEquipment)
@@ -1798,10 +2831,10 @@ def edit_well_equipment(
 
 @app.post("/well/{well_id}/equipment/{eq_id}/delete")
 def delete_well_equipment(
-    well_id: int,
-    eq_id: int,
-    db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_admin),
+        well_id: int,
+        eq_id: int,
+        db: Session = Depends(get_db),
+        current_user: str = Depends(get_current_admin),
 ):
     eq = (
         db.query(WellEquipment)
@@ -1822,13 +2855,13 @@ def delete_well_equipment(
 
 @app.post("/well/{well_id}/channel/add")
 def add_well_channel(
-    well_id: int,
-    channel: int = Form(...),
-    dt_start: str = Form(""),
-    dt_end: str = Form(""),
-    note: str = Form(""),
-    db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_admin),
+        well_id: int,
+        channel: int = Form(...),
+        dt_start: str = Form(""),
+        dt_end: str = Form(""),
+        note: str = Form(""),
+        db: Session = Depends(get_db),
+        current_user: str = Depends(get_current_admin),
 ):
     well = db.query(Well).filter(Well.id == well_id).first()
     if not well:
@@ -1869,14 +2902,14 @@ def add_well_channel(
 
 @app.post("/well/{well_id}/channel/{channel_id}/edit")
 def edit_well_channel(
-    well_id: int,
-    channel_id: int,
-    channel: int = Form(...),
-    dt_start: str = Form(""),
-    dt_end: str = Form(""),
-    note: str = Form(""),
-    db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_admin),
+        well_id: int,
+        channel_id: int,
+        channel: int = Form(...),
+        dt_start: str = Form(""),
+        dt_end: str = Form(""),
+        note: str = Form(""),
+        db: Session = Depends(get_db),
+        current_user: str = Depends(get_current_admin),
 ):
     ch = (
         db.query(WellChannel)
@@ -1904,10 +2937,10 @@ def edit_well_channel(
 
 @app.post("/well/{well_id}/channel/{channel_id}/delete")
 def delete_well_channel(
-    well_id: int,
-    channel_id: int,
-    db: Session = Depends(get_db),
-    current_user: str = Depends(get_current_admin),
+        well_id: int,
+        channel_id: int,
+        db: Session = Depends(get_db),
+        current_user: str = Depends(get_current_admin),
 ):
     ch = (
         db.query(WellChannel)
@@ -1928,8 +2961,8 @@ def delete_well_channel(
 
 @app.get("/api/well/{well_id}/events")
 def well_events_api(
-    well_id: int,
-    current_user: str = Depends(get_current_user),
+        well_id: int,
+        current_user: str = Depends(get_current_user),
 ):
     events = _fake_events_for_well(well_id)
     return events
@@ -1939,7 +2972,7 @@ def well_events_api(
 def well_events_csv(
         well_id: int,
         current_user: str = Depends(get_current_user),
-        ):
+):
     events = _fake_events_for_well(well_id)
 
     output = io.StringIO()
@@ -1970,7 +3003,7 @@ def well_events_csv(
 def well_events_xlsx(
         well_id: int,
         current_user: str = Depends(get_current_user),
-    ):
+):
     events = _fake_events_for_well(well_id)
 
     wb = Workbook()
@@ -2000,3 +3033,136 @@ def well_events_xlsx(
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
+
+from fastapi import UploadFile, File, Form
+import pandas as pd
+from backend.models.reagents import ReagentSupply
+from backend.models.reagent_inventory import ReagentInventorySnapshot
+
+
+@app.get("/admin/reagents/import")
+def admin_reagents_import_page(request: Request):
+    return templates.TemplateResponse(
+        "admin_reagents_import.html",
+        {"request": request}
+    )
+
+
+@app.post("/admin/reagents/import")
+def admin_reagents_import(
+        request: Request,
+        file: UploadFile = File(...)
+        , db: Session = Depends(get_db)
+):
+    # Читаем Excel в DataFrame
+    df = pd.read_excel(file.file)
+
+    required_cols = {"record_type", "date", "reagent", "qty"}
+    missing = required_cols - set(df.columns)
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"В файле отсутствуют обязательные колонки: {', '.join(missing)}"
+        )
+
+    # Приводим названия к нормальному виду
+    df["record_type"] = df["record_type"].str.lower().str.strip()
+
+    for _, row in df.iterrows():
+        rec_type = row["record_type"]
+        dt = pd.to_datetime(row["date"])
+        reagent = str(row["reagent"]).strip()
+        qty = float(row["qty"])
+
+        unit = str(row.get("unit") or "шт").strip()
+        location = str(row.get("location") or "").strip() or None
+        source = str(row.get("source") or "").strip() or None
+        comment = str(row.get("comment") or "").strip() or None
+
+        if rec_type == "supply":
+            obj = ReagentSupply(
+                reagent=reagent,
+                qty=qty,
+                unit=unit,
+                received_at=dt.to_pydatetime(),
+                source=source,
+                location=location,
+                comment=comment
+            )
+            db.add(obj)
+
+        elif rec_type == "inventory":
+            obj = ReagentInventorySnapshot(
+                reagent=reagent,
+                qty=qty,
+                unit=unit,
+                snapshot_at=dt.to_pydatetime(),
+                location=location,
+                comment=comment
+            )
+            db.add(obj)
+        else:
+            # Можно логировать/пропускать, можно падать ошибкой
+            continue
+
+    db.commit()
+
+    return RedirectResponse("/admin/reagents", status_code=303)
+
+
+# ==========================
+# POST: Добавить инвентаризацию
+# ==========================
+@app.post("/admin/reagents/inventory/add")
+async def admin_reagents_inventory_add(
+        request: Request,
+        db: Session = Depends(get_db),
+        current_user: DashboardUser = Depends(get_reagents_user),
+):
+    form = await request.form()
+
+    # snapshot_at обязателен
+    snapshot_at_str = (form.get("snapshot_at") or "").strip()
+    dt = _parse_datetime_local_to_db_naive(snapshot_at_str)
+    if dt is None:
+        raise HTTPException(status_code=400, detail="Некорректная дата/время snapshot_at")
+
+    # единый разбор реагента
+    try:
+        reagent_name, reagent_id, unit = _resolve_reagent_from_form(
+            db,
+            dict(form),
+            select_field="reagent",
+            new_field="reagent_new",
+            unit_field="unit",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # qty
+    try:
+        qty = float(form.get("qty"))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Некорректное количество (qty)")
+
+    location = (form.get("location") or "").strip() or None
+    comment = (form.get("comment") or "").strip() or None
+
+    snap = ReagentInventorySnapshot(
+        reagent=reagent_name,
+        reagent_id=reagent_id,
+        qty=qty,
+        unit=unit,
+        snapshot_at=dt,
+        location=location,
+        comment=comment,
+        created_by=(
+                getattr(current_user, "username", None)
+                or getattr(current_user, "login", None)
+                or str(getattr(current_user, "id", "")) or None
+        ),
+    )
+    db.add(snap)
+    db.commit()
+
+    return RedirectResponse(url="/admin/reagents/inventory", status_code=303)

@@ -40,6 +40,8 @@ class DashboardUser(Base):
     is_admin = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
 
+    can_view_reagents = Column(Boolean, nullable=False, server_default="0")
+
     created_at = Column(DateTime, default=datetime.utcnow)
     last_login_at = Column(DateTime, nullable=True)
 

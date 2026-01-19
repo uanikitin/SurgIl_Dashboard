@@ -1,0 +1,74 @@
+\documentclass[12pt]{article}
+\usepackage{fontspec}
+\setmainfont{Times New Roman}
+\usepackage[russian]{babel}
+\usepackage{geometry}
+\geometry{a4paper, margin=2.5cm}
+\usepackage{array, booktabs, longtable}
+
+\begin{document}
+
+\begin{center}
+\textbf{АКТ № \VAR{act_number}}\\
+\textbf{монтажа оборудования}\\[0.4em]
+\end{center}
+
+\noindent\VAR{act_date} \hfill скважина № \VAR{well_number} месторождение Сургил
+
+\vspace{0.8em}
+
+Мы, нижеподписавшиеся, представитель Подрядчика, компании ООО «UNITOOL»\\
+\underline{\hspace{12cm}} и,\\
+представитель Заказчика СП ООО «Uz-Kor Gas Chemical»\\
+\underline{\hspace{12cm}},\\
+
+составили настоящий акт о том, что \VAR{event_date} г в \VAR{event_time} часов
+на скважине №\VAR{well_number} месторождения Сургил, было \textbf{установлено}
+оборудование ООО «UNITOOL» для проведения работ в рамках выполнения условий
+Контракта №\VAR{contract_number} на оказание услуг по оптимизации эксплуатации
+газовых скважин с применением твердых пенообразующих реагентов:
+
+\vspace{0.6em}
+
+\begin{longtable}{|p{1cm}|p{7cm}|p{3.5cm}|p{1.5cm}|}
+\hline
+\textbf{№} & \textbf{Тип оборудования} & \textbf{Серийный номер} & \textbf{к-во} \\
+\hline
+%%% EQUIPMENT_START
+%%% EQUIPMENT_END
+\end{longtable}
+
+\vspace{0.8em}
+
+\textbf{Текущее состояние скважины:}\\
+\VAR{territory_state}
+
+\vspace{0.4em}
+
+\textbf{Показания давления:}
+
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Трубное давление, кгс/см$^{2}$} & \textbf{Шлейфное давление, кгс/см$^{2}$} \\
+\hline
+\VAR{tube_pressure} & \VAR{line_pressure} \\
+\hline
+\end{tabular}
+
+\vspace{0.6em}
+
+\textbf{Примечание:}\\
+\VAR{note}
+
+\vspace{1.2em}
+
+\textbf{Представитель Исполнителя ООО «UNITOOL»}\\[1.2em]
+\underline{\hspace{12cm}}\\
+
+\vspace{1.0em}
+
+\textbf{Представитель Заказчика СП ООО «Uz-Kor Gas Chemical»}\\
+Участковый геолог\\[1.2em]
+\underline{\hspace{12cm}}\\
+
+\end{document}

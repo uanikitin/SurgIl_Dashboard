@@ -3,7 +3,10 @@
 from typing import Optional, Dict
 from fastapi import Request
 import hashlib
-
+from fastapi import Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from .db import get_db
+from .models import DashboardUser
 
 def get_password_hash(password: str) -> str:
     """
@@ -53,3 +56,26 @@ def verify_password(plain_password: str, password_hash: str) -> bool:
     Проверяет введённый пароль против хэша из базы.
     """
     return hash_password(plain_password) == password_hash
+
+def get_reagents_user(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> DashboardUser:
+    """
+    Пользователь, который имеет доступ к странице реагентов:
+    - admin
+    - или can_view_reagents = True
+    """
+    user_id = request.session.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+
+    user = db.query(DashboardUser).filter(DashboardUser.id == user_id).first()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+
+    if not (user.is_admin or getattr(user, "can_view_reagents", False)):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Нет доступа к разделу реагентов")
+
+    return user
+

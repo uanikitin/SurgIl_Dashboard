@@ -1,0 +1,139 @@
+\documentclass[12pt]{article}
+\usepackage{fontspec}
+\setmainfont{Times New Roman}
+\usepackage[russian]{babel}
+\usepackage{geometry}
+\geometry{a4paper, margin=2.5cm}
+
+% таблицы/верстка
+\usepackage{longtable, array, booktabs}
+\usepackage{ragged2e}
+\usepackage{graphicx}
+\usepackage{needspace}
+\usepackage{fancyhdr}
+
+% 11pt в ячейках + выравнивание
+\newcolumntype{P}[1]{>{\RaggedRight\arraybackslash\fontsize{11pt}{11pt}\selectfont}m{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash\fontsize{11pt}{11pt}\selectfont}m{#1}}
+
+% --- Переменные (рендерятся из Python через \VAR{...}) ---
+\newcommand{\theactnum}{\VAR{theactnum}}
+\newcommand{\theactmonth}{\VAR{theactmonth}}
+\newcommand{\theactwell}{\VAR{theactwell}}
+\newcommand{\theactdate}{\VAR{theactdate}}
+\newcommand{\fieldname}{\VAR{field_name}}
+\newcommand{\companyexecutor}{\VAR{company_executor}}
+\newcommand{\companyclient}{\VAR{company_client}}
+\newcommand{\periodstart}{\VAR{period_start_str}}
+\newcommand{\periodend}{\VAR{period_end_str}}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{Акт №\theactnum\ -- \theactmonth. Дозирование реагентов на скважине №\theactwell}
+\fancyhead[R]{\theactdate\quad\textbullet\ \thepage}
+
+\begin{document}
+\thispagestyle{empty}
+
+\begin{center}
+\textbf{Акт №\theactnum\ -- \theactmonth \\ дозирования реагентов на скважине №\theactwell}\\
+месторождения \fieldname \\
+в период с \periodstart\ по \periodend
+\end{center}
+
+\vspace{1em}
+
+\noindent\textbf{Дата:} \theactdate \hfill \textbf{Скважина №\theactwell\ месторождение \fieldname}\\
+
+\vspace{1em}
+
+Мы, нижеподписавшиеся, представитель Исполнителя компании \companyexecutor\\
+\rule{16cm}{0.4pt}\\
+представитель Заказчика \companyclient\\
+\rule{16cm}{0.4pt}\\
+составили настоящий акт о том, что в период с \periodstart\ по \periodend\ на скважине №\theactwell\ месторождения \fieldname\ были выполнены следующие операции дозирования:
+
+\vspace{1em}
+
+% ==========================================================
+% Таблица 1: Пенные
+% ==========================================================
+\noindent\textbf{Дозирование пенных реагентов}
+
+{\fontsize{11pt}{11pt}\selectfont
+\begin{longtable}{|C{0.05\linewidth}|P{0.26\linewidth}|C{0.10\linewidth}|P{0.27\linewidth}|P{0.30\linewidth}|}
+\hline
+\textbf{№} & \textbf{Дата и время вброса} & \textbf{К-во} & \textbf{Тип реагента} & \textbf{Этап} \\
+\hline
+1 & 2 & 3 & 4 & 5 \\
+\hline
+\endfirsthead
+\hline
+1 & 2 & 3 & 4 & 5 \\
+\hline
+\endhead
+
+%%% FOAM_START
+%%% FOAM_END
+
+\end{longtable}
+}
+
+\vspace{0.8em}
+
+% ==========================================================
+% Таблица 2: Ингибирующие
+% ==========================================================
+\noindent\textbf{Дозирование ингибирующих реагентов}
+
+{\fontsize{11pt}{11pt}\selectfont
+\begin{longtable}{|C{0.05\linewidth}|P{0.26\linewidth}|C{0.10\linewidth}|P{0.27\linewidth}|P{0.30\linewidth}|}
+\hline
+\textbf{№} & \textbf{Дата и время вброса} & \textbf{К-во} & \textbf{Тип реагента} & \textbf{Этап} \\
+\hline
+1 & 2 & 3 & 4 & 5 \\
+\hline
+\endfirsthead
+\hline
+1 & 2 & 3 & 4 & 5 \\
+\hline
+\endhead
+
+%%% INH_START
+%%% INH_END
+
+\end{longtable}
+}
+
+% ==========================================================
+% Итоги
+% ==========================================================
+\Needspace{10\baselineskip}
+\begin{samepage}
+{\fontsize{11pt}{13pt}\selectfont
+\noindent\textbf{Итоги по видам дозирования:}\\[0.3em]
+\begin{longtable}{|P{0.78\linewidth}|C{0.20\linewidth}|}
+\hline
+\textbf{Показатель} & \textbf{Сумма (К-во)} \\
+\hline
+Всего дозирование пенных реагентов & \VAR{summary_foam} \\
+\hline
+Всего дозирование ингибирующих реагентов & \VAR{summary_inhibitor} \\
+\hline
+Всего вбросов (строк) & \VAR{total_injections} \\
+\hline
+\end{longtable}
+}
+
+\vspace{1.2em}
+\noindent\textbf{Представитель Исполнителя \companyexecutor} \\
+[1em]
+\rule{16cm}{0.4pt} \\[2em]
+
+\noindent\textbf{Представитель Заказчика \companyclient} \\
+[1em]
+Участковый геолог \rule{12cm}{0.4pt}
+
+\end{samepage}
+
+\end{document}

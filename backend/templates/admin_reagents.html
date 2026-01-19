@@ -1,0 +1,853 @@
+{# backend/templates/admin_reagents.html #}
+{% extends "base.html" %}
+
+{% block title %}Админ-панель · Учёт реагентов{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <a href="/visual" class="back-link">← Назад к дашборду</a>
+</div>
+
+<h1 class="page-title">Учёт реагентов</h1>
+
+{# ======== ВЕРХНЯ СВОДКА (ПЛИТКИ) ========= #}
+<div class="card">
+  <div class="card-header">
+    <h2>📊 Сводка остатків</h2>
+    <div style="display: flex; gap: 10px; align-items: center;">
+      <form method="get" action="/admin/reagents" style="display: flex; gap: 8px; align-items: center;">
+        <label style="font-size: 13px; color: #6c757d;">Срез на дату:</label>
+        <input
+          type="date"
+          name="as_of"
+          class="input"
+          value="{{ as_of_date }}"
+          style="width: 150px; padding: 6px 10px;"
+        />
+        <button type="submit" class="btn btn-secondary btn-xs">Показать</button>
+      </form>
+      <a href="/admin/reagents/inventory" class="btn btn-warning btn-xs">📋 Інвентаризація</a>
+    </div>
+  </div>
+
+  <div class="card-body">
+    <div style="
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-bottom: 20px;
+    ">
+      <!-- Плитка: Дата зрізу -->
+      <div style="
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 20px;
+        border-radius: 10px;
+        color: white;
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+      ">
+        <div style="font-size: 12px; opacity: 0.9; margin-bottom: 5px;">📅 Дата зрізу</div>
+        <div style="font-size: 24px; font-weight: 700;">{{ as_of_date_human }}</div>
+      </div>
+
+      <!-- Плитка: Видів реагентів -->
+      <div style="
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        padding: 20px;
+        border-radius: 10px;
+        color: white;
+        box-shadow: 0 4px 12px rgba(240, 147, 251, 0.3);
+      ">
+        <div style="font-size: 12px; opacity: 0.9; margin-bottom: 5px;">🧪 Видів реагентів</div>
+        <div style="font-size: 24px; font-weight: 700;">{{ total_reagents }}</div>
+      </div>
+
+      <!-- Плитка: Сумарний залишок -->
+      <div style="
+        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        padding: 20px;
+        border-radius: 10px;
+        color: white;
+        box-shadow: 0 4px 12px rgba(79, 172, 254, 0.3);
+      ">
+        <div style="font-size: 12px; opacity: 0.9; margin-bottom: 5px;">📦 Сумарний залишок</div>
+        <div style="font-size: 24px; font-weight: 700;">{{ total_stock|round(0)|int }}</div>
+      </div>
+
+      <!-- Плитка: Витрата сьогодні -->
+      <div style="
+        background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+        padding: 20px;
+        border-radius: 10px;
+        color: white;
+        box-shadow: 0 4px 12px rgba(250, 112, 154, 0.3);
+      ">
+        <div style="font-size: 12px; opacity: 0.9; margin-bottom: 5px;">📉 Витрата сьогодні</div>
+        <div style="font-size: 24px; font-weight: 700;">{{ total_used_today|round(0)|int }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h2>📋 Остатки по реагентах</h2>
+    <small style="color: #6c757d;">Середній витрата за 30 днів</small>
+  </div>
+
+  <div class="card-body">
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+      <!-- Таблиця -->
+      <div style="overflow-x: auto;">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Реагент</th>
+              <th class="t-center">Од.</th>
+              <th class="t-right">Залишок</th>
+              <th class="t-right">Сер. витрата/добу</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in reagents %}
+              <tr>
+                <td class="t-strong">
+                  <span style="
+                    display: inline-block;
+                    width: 10px;
+                    height: 10px;
+                    border-radius: 50%;
+                    margin-right: 8px;
+                    background: {{ reagent_colors.get(r.name, '#6c757d') }};
+                  "></span>
+                  {{ r.name }}
+                </td>
+                <td class="t-center">{{ r.unit }}</td>
+                <td class="t-right" style="font-weight: 600;">{{ r.stock|round(0)|int }}</td>
+                <td class="t-right">{{ r.avg_daily|round(1) }}</td>
+              </tr>
+            {% else %}
+              <tr>
+                <td colspan="4" style="text-align: center; color: #6c757d; padding: 30px;">
+                  Немає даних по залишках
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Графік залишків -->
+      <div style="
+        background: white;
+        border-radius: 6px;
+        padding: 15px;
+        border: 1px solid #e9ecef;
+        height: 600px;
+        overflow-y: auto;
+      ">
+        <div style="font-weight: 600; margin-bottom: 10px; color: #495057;">
+          Залишок (ТОП-30)
+        </div>
+        <canvas id="chart_stock"></canvas>
+        <div style="
+          font-size: 11px;
+          color: #6c757d;
+          text-align: center;
+          margin-top: 10px;
+        ">
+          💡 Наведіть курсор для деталей
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ======== ФОРМА ДОДАВАННЯ РЕАГЕНТА ========= #}
+<div class="card" style="max-width: 600px;">
+  <div class="card-header">
+    <h2>➕ Додати поступлення реагента</h2>
+  </div>
+  <div class="card-body">
+    <form method="post" action="/admin/reagents/add" id="addSupplyForm">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+
+        <div class="form-group" style="grid-column: 1 / -1;">
+          <label for="reagent">Реагент *</label>
+          <select id="reagent" name="reagent" class="input" required onchange="updateUnitFromCatalog()">
+            <option value="">-- Оберіть реагент --</option>
+            <option value="__new__">➕ Додати новий реагент</option>
+            {% for reagent in reagent_catalog %}
+            <option value="{{ reagent.name }}" data-unit="{{ reagent.default_unit }}">
+              {{ reagent.name }} ({{ reagent.default_unit }})
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <!-- Поле для нового реагента -->
+        <div id="newReagentField" style="display: none; grid-column: 1 / -1;">
+          <div style="
+            background: #e7f3ff;
+            border: 1px solid #b3d9ff;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 15px;
+          ">
+            <div class="form-group">
+              <label for="new_reagent_name">Назва нового реагента *</label>
+              <input type="text" id="new_reagent_name" name="new_reagent_name"
+                     class="input" placeholder="Введіть назву">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="new_reagent_unit">Одиниця виміру</label>
+              <input type="text" id="new_reagent_unit" name="new_reagent_unit"
+                     class="input" value="шт">
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="qty">Кількість *</label>
+          <input type="number" step="0.001" id="qty" name="qty" class="input" required>
+        </div>
+
+        <div class="form-group">
+          <label for="unit">Одиниця</label>
+          <input type="text" id="unit" name="unit" class="input" value="шт">
+        </div>
+
+        <div class="form-group" style="grid-column: 1 / -1;">
+          <label for="received_at">Дата/час надходження</label>
+          <input type="datetime-local" id="received_at" name="received_at" class="input">
+        </div>
+
+        <div class="form-group">
+          <label for="source">Джерело</label>
+          <input type="text" id="source" name="source" class="input"
+                 placeholder="Склад №1">
+        </div>
+
+        <div class="form-group">
+          <label for="location">Місце зберігання</label>
+          <input type="text" id="location" name="location" class="input"
+                 placeholder="Куст, свердловина">
+        </div>
+
+        <div class="form-group" style="grid-column: 1 / -1;">
+          <label for="comment">Коментар</label>
+          <textarea id="comment" name="comment" class="input" rows="2"
+                    placeholder="Додаткова інформація"></textarea>
+        </div>
+
+        <div style="grid-column: 1 / -1;">
+          <button type="submit" class="btn btn-primary" style="width: 100%;">
+            💾 Зберегти поступлення
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function updateUnitFromCatalog() {
+  const select = document.getElementById('reagent');
+  const unitField = document.getElementById('unit');
+  const newReagentField = document.getElementById('newReagentField');
+
+  if (select.value === '__new__') {
+    newReagentField.style.display = 'block';
+    unitField.value = document.getElementById('new_reagent_unit').value || 'шт';
+  } else {
+    newReagentField.style.display = 'none';
+    const selectedOption = select.options[select.selectedIndex];
+    if (selectedOption.dataset.unit) {
+      unitField.value = selectedOption.dataset.unit;
+    }
+  }
+}
+
+document.getElementById('addSupplyForm').addEventListener('submit', function (e) {
+  const select = document.getElementById('reagent');
+  const newNameField = document.getElementById('new_reagent_name');
+
+  if (select.value === '__new__') {
+    if (!newNameField.value.trim()) {
+      e.preventDefault();
+      alert('Будь ласка, введіть назву нового реагента');
+      return;
+    }
+    select.value = newNameField.value.trim();
+  }
+});
+</script>
+<script>
+    // Обновляет поле unit при выборе реагента из каталога
+    function updateUnitFromCatalog() {
+        const select = document.getElementById('reagent');
+        const unitField = document.getElementById('unit');
+        const newReagentField = document.getElementById('newReagentField');
+
+        if (select.value === '__new__') {
+            newReagentField.style.display = 'block';
+            unitField.value = document.getElementById('new_reagent_unit').value || 'шт';
+        } else {
+            newReagentField.style.display = 'none';
+            const selectedOption = select.options[select.selectedIndex];
+            if (selectedOption.dataset.unit) {
+                unitField.value = selectedOption.dataset.unit;
+            }
+        }
+    }
+
+    // Динамическое создание реагента перед отправкой формы
+    document.getElementById('addSupplyForm').addEventListener('submit', function (e) {
+        const select = document.getElementById('reagent');
+        const newNameField = document.getElementById('new_reagent_name');
+
+        if (select.value === '__new__') {
+            if (!newNameField.value.trim()) {
+                e.preventDefault();
+                alert('Пожалуйста, введите название нового реагента');
+                return;
+            }
+            // Заменяем значение select на новое название
+            select.value = newNameField.value.trim();
+        }
+    });
+
+
+</script>
+<div class="card flex-grow"> ... таблица ...</div>
+
+{# ======== АНАЛИТИКА РАСХОДА ========= #}
+<div class="card">
+    <div class="card-header">
+        <h2>Аналитика расхода реагентов</h2>
+    </div>
+    <div class="card-body">
+        <form method="get" action="/admin/reagents" class="filters-row">
+            <div class="filters-left">
+                <div class="form-group-inline">
+                    <label>Режим:</label>
+                    <label class="radio-inline">
+                        <input
+                                type="radio"
+                                name="mode"
+                                value="by_reagent"
+                                {% if mode== "by_reagent" %}checked{% endif %}
+                        />
+                        По реагенту
+                    </label>
+                    <label class="radio-inline">
+                        <input
+                                type="radio"
+                                name="mode"
+                                value="by_well"
+                                {% if mode== "by_well" %}checked{% endif %}
+                        />
+                        По скважине
+                    </label>
+                </div>
+
+                <div class="form-group-inline">
+                    <label for="reagent-select">Реагент:</label>
+                    <select
+                            id="reagent-select"
+                            name="reagent"
+                            class="input"
+                    >
+                        {% for name in reagent_names %}
+                        <option value="{{ name }}" {% if name== selected_reagent %}selected{% endif %}>
+                            {{ name }}
+                        </option>
+            {% endfor %}
+          </select>
+
+          <label for="well-select">Скважина:</label>
+          <select
+            id="well-select"
+            name="well"
+            class="input"
+          >
+            {% for w in wells %}
+              <option value="{{ w }}" {% if w == selected_well %}selected{% endif %}>
+                {{ w }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="filters-right">
+        <div class="form-group-inline">
+          <label for="from-date">От:</label>
+          <input
+            type="date"
+            id="from-date"
+            name="from"
+            class="input"
+            value="{{ request.query_params.get('from','') }}"
+          />
+          <label for="to-date">До:</label>
+          <input
+            type="date"
+            id="to-date"
+            name="to"
+            class="input"
+            value="{{ request.query_params.get('to','') }}"
+          />
+          <button type="submit" class="btn btn-secondary">
+            Применить
+          </button>
+        </div>
+      </div>
+    </form>
+
+    <div class="charts-row">
+      <div class="chart-card">
+        <h3>
+          {% if mode == "by_reagent" %}
+            Расход по скважинам ({{ selected_reagent or "—" }})
+          {% else %}
+            Расход реагентов по скважине {{ selected_well or "—" }}
+          {% endif %}
+        </h3>
+        <canvas id="chart_main" height="140"></canvas>
+
+        <div class="table-wrapper small-top">
+          <table class="table compact">
+            <thead>
+            <tr>
+              {% if mode == "by_reagent" %}
+                <th>Скважина</th>
+                <th>Расход</th>
+              {% else %}
+                <th>Реагент</th>
+                <th>Расход</th>
+              {% endif %}
+            </tr>
+            </thead>
+            <tbody>
+            {% if mode == "by_reagent" %}
+              {% for row in by_reagent_table %}
+                <tr>
+                  <td>{{ row.well }}</td>
+                  <td>{{ "%.3f"|format(row.total) }}</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="2" class="text-muted">Нет данных.</td></tr>
+              {% endfor %}
+            {% else %}
+              {% for row in by_well_table %}
+                <tr>
+                  <td>{{ row.reagent }}</td>
+                  <td>{{ "%.3f"|format(row.total) }}</td>
+                </tr>
+              {% else %}
+                <tr><td colspan="2" class="text-muted">Нет данных.</td></tr>
+              {% endfor %}
+            {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <h3>Суммарный расход по дням</h3>
+        <canvas id="chart_daily" height="140"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+{# Таймлайн #}
+<div class="card" style="margin-top: 20px;">
+  <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+    <div>
+      <h2>📊 Таймлайн: події та вброси</h2>
+      <small style="color: #666;">Виділіть область мишкою для zoom, Shift+drag для панорами</small>
+    </div>
+    <button class="btn btn-secondary" onclick="openColorSettings()">
+      🎨 Налаштувати кольори
+    </button>
+  </div>
+
+{# Модальне вікно налаштувань кольорів - ОНОВЛЕНЕ #}
+<div id="colorModal" style="
+  display: none;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: white;
+  padding: 30px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  z-index: 1000;
+  border-radius: 12px;
+  max-width: 600px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+">
+  <h3 style="margin-top: 0; color: #333; border-bottom: 2px solid #0d6efd; padding-bottom: 10px;">
+    🎨 Налаштування кольорів
+  </h3>
+  <p style="font-size: 13px; color: #6c757d; margin-bottom: 20px;">
+    Кольори будуть застосовані на всій сторінці: графік залишків, таймлайн та легенди
+  </p>
+  <div id="colorInputs" style="margin: 20px 0;"></div>
+  <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding-top: 15px; border-top: 1px solid #dee2e6;">
+    <button class="btn btn-primary" onclick="saveColors()">💾 Зберегти та застосувати</button>
+    <button class="btn btn-secondary" onclick="closeColorSettings()">✖ Закрити</button>
+  </div>
+</div>
+
+  <div class="card-body">
+    {# Фільтри #}
+    <form method="get" action="/admin/reagents" style="
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 15px;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    ">
+      <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+        <label style="font-weight: 500;">🎯 Свердловина:</label>
+        <select id="tl-well" name="well" class="input">
+          <option value="">Усі</option>
+          {% for w in wells %}
+            <option value="{{ w }}" {% if w == timeline_filters.well %}selected{% endif %}>{{ w }}</option>
+          {% endfor %}
+        </select>
+
+        <label style="font-weight: 500;">📋 Тип події:</label>
+        <select id="tl-event" name="event_type" class="input">
+          <option value="">Усі</option>
+          {% for et in event_types %}
+            <option value="{{ et }}" {% if et == timeline_filters.event_type %}selected{% endif %}>{{ et }}</option>
+          {% endfor %}
+        </select>
+
+        <label style="font-weight: 500;">💉 Реагент:</label>
+        <select id="tl-reagent" name="reagent" class="input">
+          <option value="">Усі</option>
+          {% for name in reagent_names %}
+            <option value="{{ name }}" {% if name == timeline_filters.reagent %}selected{% endif %}>{{ name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <label style="font-weight: 500;">📅 Від:</label>
+        <input type="date" name="date_from" class="input" value="{{ timeline_filters.date_from }}">
+        <label style="font-weight: 500;">📅 До:</label>
+        <input type="date" name="date_to" class="input" value="{{ timeline_filters.date_to }}">
+        <button class="btn btn-secondary" type="submit">🔍 Показати</button>
+      </div>
+    </form>
+
+{# Легенди - строгий стиль з колонками #}
+<div style="
+  display: grid;
+  grid-template-columns: 1fr 1fr 0.8fr;
+  gap: 15px;
+  margin-bottom: 20px;
+">
+  <div style="
+    background: white;
+    padding: 15px;
+    border-radius: 6px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    border: 1px solid #dee2e6;
+  ">
+    <div style="
+      font-weight: 600;
+      margin-bottom: 10px;
+      font-size: 14px;
+      color: #212529;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #e9ecef;
+    ">
+      <span style="font-size: 18px;">💉</span>
+      <span>Реагенти</span>
+    </div>
+    <div id="legend_reagents" style="padding: 8px 0;"></div>
+  </div>
+
+  <div style="
+    background: white;
+    padding: 15px;
+    border-radius: 6px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    border: 1px solid #dee2e6;
+  ">
+    <div style="
+      font-weight: 600;
+      margin-bottom: 10px;
+      font-size: 14px;
+      color: #212529;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #e9ecef;
+    ">
+      <span style="font-size: 18px;">🎯</span>
+      <span>Свердловини</span>
+    </div>
+    <div id="legend_wells" style="padding: 8px 0;"></div>
+  </div>
+
+  <div style="
+    background: white;
+    padding: 15px;
+    border-radius: 6px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    border: 1px solid #dee2e6;
+  ">
+    <div style="
+      font-weight: 600;
+      margin-bottom: 10px;
+      font-size: 14px;
+      color: #212529;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #e9ecef;
+    ">
+      <span style="font-size: 18px;">📌</span>
+      <span>Події</span>
+    </div>
+    <div id="legend_events" style="padding: 8px 0;"></div>
+  </div>
+</div>
+
+{# Графік на всю ширину - строгий стиль #}
+<div class="chart-box" style="
+  width: 100%;
+  position: relative;
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  border: 1px solid #dee2e6;
+">
+  <!-- Панель управління буде вставлена тут JS -->
+  <div style="
+    height: 550px;
+    background: white;
+    border-radius: 6px;
+    padding: 15px;
+    border: 1px solid #e9ecef;
+  ">
+    <canvas id="chart_timeline"></canvas>
+  </div>
+
+  <div style="
+    margin-top: 15px;
+    padding: 10px 15px;
+    background: #e7f3ff;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #495057;
+    border-left: 3px solid #0d6efd;
+  ">
+    <strong>💡 Підказки:</strong>
+    Виділіть область мишкою для збільшення •
+    Shift + перетягування для переміщення •
+    Наведіть курсор на точку для деталей
+  </div>
+</div>
+
+{# JS-дані для Chart.js #}
+<script>
+  window.reagentsData = {
+    stockLabels: {{ stock_labels | tojson | safe }},
+    stockValues: {{ stock_values | tojson | safe }},
+  stockUnits: {{ stock_units | tojson | safe }},
+
+    timelineInjections: {{ timeline_injections | tojson | safe }},
+    timelineEvents: {{ timeline_events | tojson | safe }},
+    reagentColors: {{ reagent_colors | tojson | safe }},
+    eventColors: {{ event_colors | tojson | safe }},
+  };
+</script>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2"></script>
+
+<script src="/static/js/reagents.js"></script>
+
+{% endblock %}
+<style>
+/* === ЗАГАЛЬНІ СТИЛІ === */
+.card {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  border: 1px solid #dee2e6;
+  margin-bottom: 20px;
+}
+
+.card-header {
+  padding: 15px 20px;
+  border-bottom: 2px solid #e9ecef;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.card-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #212529;
+}
+
+.card-body {
+  padding: 20px;
+}
+
+/* === КНОПКИ === */
+.btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-primary {
+  background: #0d6efd;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #0b5ed7;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(13, 110, 253, 0.25);
+}
+
+.btn-secondary {
+  background: #6c757d;
+  color: white;
+}
+
+.btn-secondary:hover {
+  background: #5c636a;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(108, 117, 125, 0.25);
+}
+
+.btn-warning {
+  background: #ffc107;
+  color: #000;
+}
+
+.btn-warning:hover {
+  background: #ffb300;
+}
+
+.btn-xs {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+/* === ТАБЛИЦІ === */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table thead {
+  background: #f8f9fa;
+  border-bottom: 2px solid #dee2e6;
+}
+
+.table th {
+  padding: 12px 10px;
+  text-align: left;
+  font-weight: 600;
+  color: #495057;
+}
+
+.table td {
+  padding: 10px;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.table tbody tr:hover {
+  background: #f8f9fa;
+}
+
+.t-center { text-align: center !important; }
+.t-right { text-align: right !important; }
+.t-strong { font-weight: 600; }
+
+/* === ФОРМИ === */
+.input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.input:focus {
+  outline: none;
+  border-color: #0d6efd;
+  box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.1);
+}
+
+.form-group {
+  margin-bottom: 15px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 500;
+  color: #495057;
+  font-size: 14px;
+}
+
+/* === СКРОЛБАРИ === */
+#reagent-items::-webkit-scrollbar,
+#well-items::-webkit-scrollbar {
+  width: 6px;
+}
+
+#reagent-items::-webkit-scrollbar-track,
+#well-items::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+#reagent-items::-webkit-scrollbar-thumb,
+#well-items::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 3px;
+}
+
+#reagent-items::-webkit-scrollbar-thumb:hover,
+#well-items::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+</style>

@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+
+{% block title %}ADMIN · Діагностика обладнання{% endblock %}
+
+{% block extra_head %}
+<style>
+.admin-panel { padding: 20px; max-width: 1400px; margin: 0 auto; font-family: monospace; }
+.section { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+.section h2 { margin: 0 0 15px 0; font-size: 20px; border-bottom: 2px solid #007bff; padding-bottom: 10px; }
+.checks { display: grid; gap: 10px; }
+.check { padding: 10px; border-radius: 4px; display: flex; align-items: center; gap: 10px; }
+.check.ok { background: #d4edda; color: #155724; }
+.check.fail { background: #f8d7da; color: #721c24; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; }
+.stat { padding: 15px; background: #f8f9fa; border-radius: 8px; text-align: center; }
+.stat-value { font-size: 32px; font-weight: bold; color: #007bff; }
+.stat-label { font-size: 12px; color: #6c757d; margin-top: 5px; }
+.equipment-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+.equipment-table th { background: #f8f9fa; padding: 10px; text-align: left; border: 1px solid #dee2e6; }
+.equipment-table td { padding: 8px; border: 1px solid #dee2e6; }
+.equipment-table tr:hover { background: #f8f9fa; }
+.btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; }
+.btn-primary { background: #007bff; color: white; }
+.btn-success { background: #28a745; color: white; }
+.btn-warning { background: #ffc107; color: #212529; }
+.btn-danger { background: #dc3545; color: white; }
+.test-form { background: #f8f9fa; padding: 15px; border-radius: 8px; margin-top: 15px; }
+.form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 10px; }
+.form-row label { display: block; font-size: 11px; font-weight: bold; margin-bottom: 4px; }
+.form-row input, .form-row select { width: 100%; padding: 6px; border: 1px solid #ced4da; border-radius: 4px; }
+pre { background: #2d2d2d; color: #f8f8f2; padding: 15px; border-radius: 4px; overflow-x: auto; font-size: 12px; }
+.json-view { max-height: 400px; overflow-y: auto; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="admin-panel">
+    <h1>🔧 ADMIN PANEL · Діагностика обладнання</h1>
+
+    <!-- ПЕРЕВІРКА БД -->
+    <div class="section">
+        <h2>✅ Перевірка структури БД</h2>
+        <div class="checks">
+            <div class="check {% if has_condition %}ok{% else %}fail{% endif %}">
+                {% if has_condition %}✅{% else %}❌{% endif %}
+                <strong>equipment.condition</strong> -
+                {% if has_condition %}EXISTS{% else %}MISSING - run: ALTER TABLE equipment ADD COLUMN condition VARCHAR(20){% endif %}
+            </div>
+            <div class="check {% if has_installation_location %}ok{% else %}fail{% endif %}">
+                {% if has_installation_location %}✅{% else %}❌{% endif %}
+                <strong>equipment_installation.installation_location</strong> -
+                {% if has_installation_location %}EXISTS{% else %}MISSING - run: ALTER TABLE equipment_installation ADD COLUMN installation_location VARCHAR(50){% endif %}
+            </div>
+            <div class="check {% if has_no_document_confirmed %}ok{% else %}fail{% endif %}">
+                {% if has_no_document_confirmed %}✅{% else %}❌{% endif %}
+                <strong>equipment_installation.no_document_confirmed</strong> -
+                {% if has_no_document_confirmed %}EXISTS{% else %}MISSING - run: ALTER TABLE equipment_installation ADD COLUMN no_document_confirmed BOOLEAN{% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- СТАТИСТИКА -->
+    <div class="section">
+        <h2>📊 Статистика по статусах</h2>
+        <div class="stats">
+            {% for status, count in status_stats.items() %}
+            <div class="stat">
+                <div class="stat-value">{{ count }}</div>
+                <div class="stat-label">{{ status }}</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- СПИСОК ОБЛАДНАННЯ -->
+    <div class="section">
+        <h2>📋 Все обладнання</h2>
+        <table class="equipment-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Назва</th>
+                    <th>Серійний №</th>
+                    <th>Статус</th>
+                    <th>Стан</th>
+                    <th>Локація</th>
+                    <th>Дії</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for eq in equipment_list %}
+                <tr>
+                    <td><strong>{{ eq.id }}</strong></td>
+                    <td>{{ eq.name[:50] }}</td>
+                    <td>{{ eq.serial_number }}</td>
+                    <td><span style="padding: 4px 8px; background: #007bff; color: white; border-radius: 4px; font-size: 11px;">{{ eq.status }}</span></td>
+                    <td>{{ eq.condition if eq.condition else '—' }}</td>
+                    <td>{{ eq.current_location }}</td>
+                    <td>
+                        <button class="btn btn-primary" onclick="loadRawData({{ eq.id }})">RAW</button>
+                        <button class="btn btn-success" onclick="showTestForm({{ eq.id }}, '{{ eq.name[:30] }}')">TEST</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- RAW DATA -->
+    <div class="section" id="raw-data-section" style="display: none;">
+        <h2>🔍 RAW Data</h2>
+        <pre id="raw-data-content" class="json-view"></pre>
+    </div>
+
+    <!-- TEST FORM -->
+    <div class="section" id="test-form-section" style="display: none;">
+        <h2>🧪 Тестування API</h2>
+        <p><strong id="test-equipment-name"></strong> (ID: <span id="test-equipment-id"></span>)</p>
+
+        <!-- Test Move -->
+        <div class="test-form">
+            <h3>Тест переміщення (move)</h3>
+            <form id="test-move-form" onsubmit="testMove(event)">
+                <input type="hidden" name="equipment_id" id="move-equipment-id">
+                <div class="form-row">
+                    <div>
+                        <label>Дія *</label>
+                        <select name="action" required>
+                            <option value="install">Встановити</option>
+                            <option value="remove">Зняти</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Well ID (для install)</label>
+                        <input type="number" name="well_id" placeholder="48">
+                    </div>
+                    <div>
+                        <label>Місце встановлення</label>
+                        <select name="installation_location">
+                            <option value="">—</option>
+                            <option value="Устье">Устье</option>
+                            <option value="НКТ">НКТ</option>
+                            <option value="Шлейф">Шлейф</option>
+                            <option value="Затруб">Затруб</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; align-items: end;">
+                        <button type="submit" class="btn btn-success">▶️ TEST MOVE</button>
+                    </div>
+                </div>
+            </form>
+            <pre id="move-result" style="margin-top: 10px; display: none;"></pre>
+        </div>
+
+        <!-- Test Status -->
+        <div class="test-form">
+            <h3>Тест зміни статусу</h3>
+            <form id="test-status-form" onsubmit="testStatus(event)">
+                <input type="hidden" name="equipment_id" id="status-equipment-id">
+                <div class="form-row">
+                    <div>
+                        <label>Статус *</label>
+                        <select name="new_status" required>
+                            <option value="available">available (Склад)</option>
+                            <option value="installed">installed (Встановлено)</option>
+                            <option value="maintenance">maintenance (Ремонт)</option>
+                            <option value="broken">broken (Зламано)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Стан</label>
+                        <select name="new_condition">
+                            <option value="">—</option>
+                            <option value="working">working (Робоче)</option>
+                            <option value="broken">broken (Не робоче)</option>
+                            <option value="needs_repair">needs_repair (Потребує ремонту)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Локація</label>
+                        <input type="text" name="new_location" placeholder="Майстерня">
+                    </div>
+                    <div style="display: flex; align-items: end;">
+                        <button type="submit" class="btn btn-warning">▶️ TEST STATUS</button>
+                    </div>
+                </div>
+            </form>
+            <pre id="status-result" style="margin-top: 10px; display: none;"></pre>
+        </div>
+    </div>
+
+</div>
+
+<script>
+async function loadRawData(equipmentId) {
+    const section = document.getElementById('raw-data-section');
+    const content = document.getElementById('raw-data-content');
+
+    section.style.display = 'block';
+    content.textContent = 'Завантаження...';
+
+    try {
+        const response = await fetch(`/admin/equipment/${equipmentId}/raw`);
+        const data = await response.json();
+        content.textContent = JSON.stringify(data, null, 2);
+    } catch (error) {
+        content.textContent = `ERROR: ${error.message}`;
+    }
+}
+
+function showTestForm(equipmentId, equipmentName) {
+    document.getElementById('test-form-section').style.display = 'block';
+    document.getElementById('test-equipment-id').textContent = equipmentId;
+    document.getElementById('test-equipment-name').textContent = equipmentName;
+    document.getElementById('move-equipment-id').value = equipmentId;
+    document.getElementById('status-equipment-id').value = equipmentId;
+
+    // Scroll
+    document.getElementById('test-form-section').scrollIntoView({ behavior: 'smooth' });
+}
+
+async function testMove(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+    const result = document.getElementById('move-result');
+
+    result.style.display = 'block';
+    result.textContent = 'Тестування...';
+
+    try {
+        const response = await fetch('/admin/equipment/test-move', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
+        result.textContent = JSON.stringify(data, null, 2);
+        result.style.background = data.success ? '#d4edda' : '#f8d7da';
+
+        // Reload page after 2 sec
+        if (data.success) {
+            setTimeout(() => location.reload(), 2000);
+        }
+    } catch (error) {
+        result.textContent = `ERROR: ${error.message}`;
+        result.style.background = '#f8d7da';
+    }
+}
+
+async function testStatus(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+    const result = document.getElementById('status-result');
+
+    result.style.display = 'block';
+    result.textContent = 'Тестування...';
+
+    try {
+        const response = await fetch('/admin/equipment/test-status', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
+        result.textContent = JSON.stringify(data, null, 2);
+        result.style.background = data.success ? '#d4edda' : '#f8d7da';
+
+        // Reload page after 2 sec
+        if (data.success) {
+            setTimeout(() => location.reload(), 2000);
+        }
+    } catch (error) {
+        result.textContent = `ERROR: ${error.message}`;
+        result.style.background = '#f8d7da';
+    }
+}
+</script>
+{% endblock %}

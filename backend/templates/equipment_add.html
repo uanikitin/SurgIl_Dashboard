@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}СУРГИЛ · Додати обладнання{% endblock %}
+
+{% block extra_head %}
+<style>
+.add-equipment { padding: 20px; max-width: 800px; margin: 0 auto; }
+.breadcrumb { display: flex; gap: 8px; margin-bottom: 20px; font-size: 14px; color: #6c757d; }
+.breadcrumb a { color: #007bff; text-decoration: none; }
+.form-card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+.form-card h1 { margin: 0 0 30px 0; font-size: 28px; }
+.form-group { margin-bottom: 20px; }
+.form-group label { display: block; margin-bottom: 6px; font-weight: 600; color: #495057; }
+.form-group label .required { color: #dc3545; }
+.form-group input, .form-group select, .form-group textarea { width: 100%; padding: 12px; border: 1px solid #ced4da; border-radius: 6px; font-size: 14px; }
+.form-group textarea { resize: vertical; min-height: 80px; }
+.form-group small { display: block; margin-top: 4px; font-size: 12px; color: #6c757d; }
+.form-actions { display: flex; gap: 10px; margin-top: 30px; }
+.btn { padding: 12px 24px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block; }
+.btn-primary { background: #28a745; color: white; }
+.btn-secondary { background: #6c757d; color: white; }
+.info-box { padding: 15px; background: #e7f3ff; border-left: 4px solid #007bff; border-radius: 6px; margin-bottom: 20px; font-size: 14px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="add-equipment">
+
+    <div class="breadcrumb">
+        <a href="/visual">📊 Дашборд</a> ›
+        <a href="/equipment">🔧 Обладнання</a> ›
+        <span>Додати</span>
+    </div>
+
+    <div class="form-card">
+        <h1>➕ Додати нове обладнання</h1>
+
+        <div class="info-box">
+            <strong>ℹ️ Як додавати обладнання:</strong><br>
+            1. Заповніть основні поля (назва, тип, серійний номер)<br>
+            2. Опис та характеристики - опціонально<br>
+            3. Обладнання буде створено зі статусом "На складі"<br>
+            4. Після створення можна встановити на свердловину через акт
+        </div>
+
+        <form method="post" action="/api/equipment/create">
+
+            <div class="form-group">
+                <label>Назва обладнання <span class="required">*</span></label>
+                <input type="text" name="name" required placeholder="Шлюз устьевой ВУ-SB-35-S50 TV Y 29.5">
+                <small>Повна назва обладнання з модифікацією</small>
+            </div>
+
+            <div class="form-group">
+                <label>Тип/Клас обладнання <span class="required">*</span></label>
+                <select name="equipment_type" required>
+                    <option value="">Виберіть тип...</option>
+                    <option value="Шлюз">Шлюз устьевой</option>
+                    <option value="Манометр">Манометр</option>
+                    <option value="Датчик">Датчик тиску</option>
+                    <option value="Задвижка">Задвижка</option>
+                    <option value="Компресор">Компресор</option>
+                    <option value="Насос">Насос</option>
+                    <option value="Фільтр">Фільтр</option>
+                    <option value="Клапан">Клапан</option>
+                    <option value="Трубопровід">Трубопровід</option>
+                    <option value="Інше">Інше обладнання</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Серійний номер <span class="required">*</span></label>
+                <input type="text" name="serial_number" required placeholder="ВУ-2024-001">
+                <small>Унікальний ідентифікатор обладнання</small>
+            </div>
+
+            <div class="form-group">
+                <label>Виробник</label>
+                <input type="text" name="manufacturer" placeholder="UNITOOL">
+            </div>
+
+            <div class="form-group">
+                <label>Дата виробництва</label>
+                <input type="date" name="manufacture_date">
+            </div>
+
+            <div class="form-group">
+                <label>Опис</label>
+                <textarea name="description" placeholder="Детальний опис обладнання, модель, специфікація..."></textarea>
+            </div>
+
+            <div class="form-group">
+                <label>Технічні характеристики</label>
+                <textarea name="specifications" placeholder="Робочий тиск: 29.5 МПа
+Температура: -40°C до +80°C
+Діаметр: 35 мм
+..."></textarea>
+                <small>Кожна характеристика з нового рядка</small>
+            </div>
+
+            <div class="form-group">
+                <label>Початкова локація</label>
+                <input type="text" name="current_location" value="Склад">
+                <small>За замовчуванням: Склад</small>
+            </div>
+
+            <div class="form-group">
+                <label>Стан обладнання</label>
+                <select name="condition">
+                    <option value="working" selected>✅ Робоче</option>
+                    <option value="needs_repair">⚠️ Потребує ремонту</option>
+                    <option value="broken">❌ Не робоче</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Примітки</label>
+                <textarea name="notes" rows="3" placeholder="Додаткові примітки..."></textarea>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">✅ Створити обладнання</button>
+                <a href="/equipment" class="btn btn-secondary">Скасувати</a>
+            </div>
+        </form>
+    </div>
+
+</div>
+{% endblock %}

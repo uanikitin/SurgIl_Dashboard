@@ -1,5 +1,3 @@
-
-
 {% extends "base.html" %}
 
 {% block title %}СУРГИЛ · Визуализация скважин{% endblock %}
@@ -17,6 +15,8 @@
 
 <div class="page-header">
     <h1>Скважины</h1>
+
+
 </div>
 
 <div class="visual-layout">
@@ -581,4 +581,397 @@
     initStatusFilter();
   });
 </script>
+
+
+{#
+  ГРАФІК ТАЙМЛАЙНУ ДЛЯ VISUAL.HTML - ФІНАЛЬНА ВЕРСІЯ
+  Вставити цей код ПЕРЕД {% endblock %} в visual.html
+#}
+
+{# ==================== ТАЙМЛАЙН: ПОДІЇ ТА ВБРОСИ ==================== #}
+
+<div class="card" style="margin-top: 40px;">
+    <div class="card-header">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+                <h2>📊 График событий по скважинам</h2>
+                <small style="color: #666;">Интерактивный таймлайн всех событий</small>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;">
+                    <input type="checkbox" id="showGridLines" onchange="toggleGridLines()" style="cursor: pointer;">
+                    <span style="font-size: 13px; font-weight: 500;">📐 Горизонтальные линии</span>
+                </label>
+                <button class="btn btn-secondary" onclick="openColorSettings()">
+                    🎨 Настроить цвета
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {# Модальне вікно налаштувань кольорів #}
+    <div id="colorModal" style="
+        display: none;
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        padding: 30px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        z-index: 1000;
+        border-radius: 12px;
+        max-width: 600px;
+        width: 90%;
+        max-height: 80vh;
+        overflow-y: auto;
+    ">
+        <h3 style="margin-top: 0; color: #333; border-bottom: 2px solid #0d6efd; padding-bottom: 10px;">
+            🎨 Настройка цветов
+        </h3>
+        <div id="colorInputs" style="margin: 20px 0;"></div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding-top: 15px; border-top: 1px solid #dee2e6;">
+            <button class="btn btn-primary" onclick="saveColors()">💾 Сохранить</button>
+            <button class="btn btn-secondary" onclick="closeColorSettings()">✖ Закрыть</button>
+        </div>
+    </div>
+
+    <div class="card-body">
+        {# ФІЛЬТР ПЕРІОДУ - ФОРМА #}
+        <form method="get" action="/visual" id="periodForm">
+            {# Зберігаємо вибрані скважини з основного фільтра #}
+            {% for well_id in selected_ids %}
+            <input type="hidden" name="selected" value="{{ well_id }}">
+            {% endfor %}
+
+            <input type="hidden" name="tl_period" id="tl_period_input" value="{{ timeline_filters.period }}">
+
+            <div style="
+                padding: 15px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                border-radius: 8px;
+                margin-bottom: 20px;
+                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+            ">
+                <div style="color: white; font-weight: 600; margin-bottom: 10px; font-size: 15px;">
+                    📅 Период отображения
+                </div>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                    <button type="button" class="btn-period {% if timeline_filters.period == '1d' %}active{% endif %}" data-period="1d" onclick="setPeriod('1d')">
+                        📆 Сутки
+                    </button>
+                    <button type="button" class="btn-period {% if timeline_filters.period == '3d' or not timeline_filters.period %}active{% endif %}" data-period="3d" onclick="setPeriod('3d')">
+                        📆 3 суток
+                    </button>
+                    <button type="button" class="btn-period {% if timeline_filters.period == '1w' %}active{% endif %}" data-period="1w" onclick="setPeriod('1w')">
+                        📆 Неделя
+                    </button>
+                    <button type="button" class="btn-period {% if timeline_filters.period == '1m' %}active{% endif %}" data-period="1m" onclick="setPeriod('1m')">
+                        📆 Месяц
+                    </button>
+                    <button type="button" class="btn-period {% if timeline_filters.period == 'custom' %}active{% endif %}" data-period="custom" onclick="setPeriod('custom')">
+                        📆 Выбрать период
+                    </button>
+
+                    <div id="customDatesRow" style="{% if timeline_filters.period != 'custom' %}display: none;{% endif %} margin-left: 10px; background: rgba(255,255,255,0.2); padding: 8px 12px; border-radius: 6px; display: flex; align-items: center; gap: 8px;">
+                        <label style="color: white; font-weight: 500;">От:</label>
+                        <input type="date" name="tl_date_from" id="date_from" class="input-date" value="{{ timeline_filters.date_from }}">
+                        <label style="color: white; font-weight: 500;">До:</label>
+                        <input type="date" name="tl_date_to" id="date_to" class="input-date" value="{{ timeline_filters.date_to }}">
+                        <button type="button" class="btn-apply-dates" onclick="submitCustomDates()">✓ Применить</button>
+                    </div>
+                </div>
+            </div>
+        </form>
+
+        {# Легенди з чекбоксами (3 колонки) #}
+        <div style="
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        ">
+            {# Реагенти #}
+            <div class="legend-card">
+                <div class="legend-header">
+                    💉 Реагенты
+                </div>
+                <div style="display: flex; gap: 6px; margin-bottom: 10px;">
+                    <button class="btn-legend btn-legend-all" onclick="selectAllReagents(true)">✓ Все</button>
+                    <button class="btn-legend btn-legend-none" onclick="selectAllReagents(false)">✗ Ничего</button>
+                </div>
+                <div id="legend_reagents" class="legend-items"></div>
+            </div>
+
+            {# Події #}
+            <div class="legend-card">
+                <div class="legend-header">
+                    📌 События
+                </div>
+                <div style="display: flex; gap: 6px; margin-bottom: 10px;">
+                    <button class="btn-legend btn-legend-all" onclick="selectAllEvents(true)">✓ Все</button>
+                    <button class="btn-legend btn-legend-none" onclick="selectAllEvents(false)">✗ Ничего</button>
+                </div>
+                <div id="legend_events" class="legend-items"></div>
+            </div>
+
+            {# Статуси #}
+            <div class="legend-card">
+                <div class="legend-header">
+                    📊 Статусы
+                </div>
+                <div style="display: flex; gap: 6px; margin-bottom: 10px;">
+                    <button class="btn-legend btn-legend-all" onclick="selectAllStatuses(true)">✓ Все</button>
+                    <button class="btn-legend btn-legend-none" onclick="selectAllStatuses(false)">✗ Ничего</button>
+                </div>
+                <div id="legend_statuses" class="legend-items"></div>
+            </div>
+        </div>
+
+        {# Свердловини - окремий рядок #}
+        <div class="legend-card" style="margin-bottom: 20px;">
+            <div class="legend-header">
+                🎯 Скважины
+            </div>
+            <div style="display: flex; gap: 6px; margin-bottom: 10px;">
+                <button class="btn-legend btn-legend-all" onclick="selectAllWellsTimeline(true)">✓ Все</button>
+                <button class="btn-legend btn-legend-none" onclick="selectAllWellsTimeline(false)">✗ Ничего</button>
+            </div>
+            <div id="legend_wells" class="legend-items" style="
+                display: grid;
+                grid-template-columns: repeat(8, 1fr);
+                gap: 6px;
+            "></div>
+        </div>
+
+        {# Графік #}
+        <div class="chart-box" style="
+            width: 100%;
+            position: relative;
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border: 1px solid #dee2e6;
+        ">
+            {# Кнопки керування графіком #}
+            <div style="display: flex; gap: 10px; margin-bottom: 15px; justify-content: flex-end;">
+                <button onclick="resetZoom()" class="btn btn-secondary" style="padding: 8px 16px; font-size: 13px;">
+                    🏠 Сброс масштаба
+                </button>
+            </div>
+
+            <div style="
+                height: 600px;
+                background: white;
+                border-radius: 6px;
+            ">
+                <canvas id="chart_timeline"></canvas>
+            </div>
+
+            <div style="
+                margin-top: 15px;
+                padding: 10px 15px;
+                background: #e7f3ff;
+                border-radius: 4px;
+                font-size: 12px;
+                color: #495057;
+                border-left: 3px solid #0d6efd;
+            ">
+                <strong>💡 Подсказки:</strong>
+                Выделите область мышью для ZOOM •
+                Двойной клик для сброса масштаба •
+                Кнопка "🏠 Сброс масштаба" также сбросит масштаб •
+                Shift + перетягивание для перемещения •
+                Наведите курсор на точку для деталей
+            </div>
+        </div>
+    </div>
+</div>
+
+{# JS-дані для Chart.js #}
+<script>
+window.reagentsData = {
+    timelineInjections: {{ timeline_injections | tojson | safe }},
+    timelineEvents: {{ timeline_events | tojson | safe }},
+    reagentColors: {{ timeline_reagent_colors | tojson | safe }},
+    eventColors: {{ timeline_event_colors | tojson | safe }},
+    wellStatuses: {{ timeline_well_statuses | tojson | safe }},
+    statusColors: {{ timeline_status_colors | tojson | safe }},
+};
+</script>
+
+{# Chart.js бібліотеки #}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2"></script>
+
+<script src="/static/js/visual_timeline.js"></script>
+
+<style>
+/* Стилі для карток */
+.card {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    border: 1px solid #dee2e6;
+    margin-bottom: 20px;
+}
+
+.card-header {
+    padding: 15px 20px;
+    border-bottom: 2px solid #e9ecef;
+}
+
+.card-header h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #212529;
+}
+
+.card-body {
+    padding: 20px;
+}
+
+/* Кнопки періоду */
+.btn-period {
+    padding: 8px 16px;
+    border: 2px solid rgba(255,255,255,0.3);
+    background: rgba(255,255,255,0.15);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: all 0.2s;
+    color: white;
+    backdrop-filter: blur(10px);
+}
+
+.btn-period:hover {
+    background: rgba(255,255,255,0.3);
+    border-color: rgba(255,255,255,0.5);
+    transform: translateY(-2px);
+}
+
+.btn-period.active {
+    background: white;
+    color: #667eea;
+    border-color: white;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+/* Інпути дат */
+.input-date {
+    padding: 6px 10px;
+    border: 1px solid rgba(255,255,255,0.4);
+    border-radius: 4px;
+    font-size: 13px;
+    background: rgba(255,255,255,0.9);
+    color: #333;
+}
+
+.btn-apply-dates {
+    padding: 6px 12px;
+    background: #28a745;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-left: 8px;
+    transition: all 0.2s;
+}
+
+.btn-apply-dates:hover {
+    background: #218838;
+    transform: translateY(-1px);
+}
+
+/* Легенди */
+.legend-card {
+    background: white;
+    padding: 15px;
+    border-radius: 6px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    border: 1px solid #dee2e6;
+}
+
+.legend-header {
+    font-weight: 600;
+    margin-bottom: 10px;
+    font-size: 14px;
+    color: #212529;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #e9ecef;
+}
+
+.legend-items {
+    max-height: 250px;
+    overflow-y: auto;
+}
+
+/* Кнопки легенд */
+.btn-legend {
+    padding: 4px 10px;
+    font-size: 11px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+
+.btn-legend-all {
+    background: #28a745;
+    color: white;
+}
+
+.btn-legend-all:hover {
+    background: #218838;
+    transform: translateY(-1px);
+}
+
+.btn-legend-none {
+    background: #dc3545;
+    color: white;
+}
+
+.btn-legend-none:hover {
+    background: #c82333;
+    transform: translateY(-1px);
+}
+
+/* Кнопки */
+.btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-primary {
+    background: #0d6efd;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #0b5ed7;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(13, 110, 253, 0.25);
+}
+
+.btn-secondary {
+    background: #6c757d;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #5c636a;
+}
+</style>
 {% endblock %}

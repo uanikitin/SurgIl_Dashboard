@@ -1,0 +1,523 @@
+{# templates/admin_reagents_inventory.html #}
+{% extends "base.html" %}
+
+{% block title %}Инвентаризация реагентов{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <a class="back-link" href="/admin/reagents">← Назад к учёту реагентов</a>
+    <div class="page-title-wrap">
+      <h1 class="page-title">Инвентаризация реагентов</h1>
+      <div class="page-subtitle">Фиксация фактических остатков и быстрый контроль расхождений.</div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- ===== Левая колонка: форма ===== -->
+    <section class="card card-form">
+      <div class="card-header">
+        <h2 class="card-title">Новая инвентаризация</h2>
+        <div class="card-hint">Заполните поля и сохраните снимок остатков.</div>
+      </div>
+
+      <div class="card-body">
+        <form method="post" action="/admin/reagents/inventory/add" class="form" id="invForm">
+          <div class="form-row">
+            <label for="snapshot_at">Дата/время*</label>
+            <input type="datetime-local" id="snapshot_at" name="snapshot_at" class="input" required />
+          </div>
+
+          <div class="form-row">
+            <label for="reagent_select">Реагент*</label>
+
+            <select id="reagent_select" name="reagent" class="input" required>
+              <option value="" selected disabled>-- Выберите из списка --</option>
+              {% for r in reagent_catalog %}
+                <option value="{{ r.name }}" data-unit="{{ r.default_unit }}">
+                  {{ r.name }} ({{ r.default_unit }})
+                </option>
+              {% endfor %}
+              <option value="__new__">➕ Новый реагент</option>
+            </select>
+
+            <input
+              type="text"
+              id="reagent_new"
+              name="reagent_new"
+              class="input mt-8"
+              style="display:none;"
+              placeholder="Введите название нового реагента"
+            />
+
+            <div class="hint">
+              Если реагента нет в списке — выберите “Новый реагент”.
+            </div>
+          </div>
+
+          <div class="form-row">
+            <label for="qty">Фактический остаток*</label>
+            <input type="number" step="0.001" id="qty" name="qty" class="input" required placeholder="например: 12.5" />
+          </div>
+
+          <div class="form-row">
+            <label for="unit">Единица</label>
+            <select id="unit" name="unit" class="input">
+              <option value="шт">шт</option>
+              <option value="kg">kg</option>
+              <option value="l">l</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <label for="location">Локация</label>
+            <input type="text" id="location" name="location" class="input" placeholder="Склад / куст / скважина" />
+          </div>
+
+          <div class="form-row">
+            <label for="comment">Комментарий</label>
+            <textarea id="comment" name="comment" class="input textarea" rows="3" placeholder="Опционально"></textarea>
+          </div>
+
+          <div class="actions">
+            <button type="submit" class="btn btn-primary">Сохранить</button>
+            <a class="btn btn-ghost" href="/admin/reagents">Отмена</a>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- ===== Правая колонка: фактические остатки + история ===== -->
+    <section class="card card-table">
+      <div class="card-header table-head">
+        <div>
+          <h2 class="card-title">Фактическое состояние (на момент запроса)</h2>
+          <div class="card-hint">Сводка и таблица строятся по текущим остаткам. Отметьте галочками, что показывать.</div>
+        </div>
+
+        <div class="table-tools">
+          <input
+            id="reagentFilter"
+            class="input search"
+            type="search"
+            placeholder="Фильтр чекбоксов: название реагента…"
+            autocomplete="off"
+          />
+        </div>
+      </div>
+
+      <div class="card-body">
+        <!-- ===== Сводка (фильтр + график) ===== -->
+        <div class="mini-card">
+          <div class="mini-title-row">
+            <div class="mini-title">Сводка по фактическим остаткам</div>
+            <div class="mini-actions">
+              <button type="button" class="btn btn-ghost btn-xs" onclick="selectAllReagents(true)">Выбрать все</button>
+              <button type="button" class="btn btn-ghost btn-xs" onclick="selectAllReagents(false)">Снять все</button>
+            </div>
+          </div>
+
+          <div class="checkbox-grid" id="reagentCheckboxes">
+            {% for b in balances %}
+              <label class="checkbox-item" data-name="{{ b['reagent']|lower }}">
+                <input type="checkbox" class="reagent-check" value="{{ b['reagent'] }}" checked>
+                <span class="checkbox-text">
+                  {{ b['reagent'] }}
+                  {% if b['unit'] %}<span class="muted">({{ b['unit'] }})</span>{% endif %}
+                </span>
+              </label>
+            {% else %}
+              <div class="text-muted" style="grid-column: 1 / -1;">
+                Нет данных по остаткам для сводки.
+              </div>
+            {% endfor %}
+          </div>
+
+          <canvas id="inventoryChart" height="160"></canvas>
+          <div class="mini-hint" id="chartHint">График: текущий остаток по выбранным реагентам.</div>
+        </div>
+
+        <!-- ===== Таблица фактического состояния ===== -->
+        <div class="mini-card" style="margin-top:14px;">
+          <div class="mini-title-row">
+            <div class="mini-title">Таблица фактического состояния</div>
+            <div class="mini-hint" id="balancesInfo"></div>
+          </div>
+
+          <div class="table-wrapper">
+            <table class="table compact" id="balancesTable">
+              <thead>
+                <tr>
+                  <th>Реагент</th>
+                  <th style="width:130px;" class="num">Остаток</th>
+                  <th style="width:80px;">Ед.</th>
+                  <th style="width:220px;">Метод</th>
+                  <th style="width:200px;">Последняя инвентаризация</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for b in balances %}
+                  <tr data-reagent="{{ b['reagent'] }}">
+                    <td class="nowrap">{{ b['reagent'] }}</td>
+                    <td class="num">{{ "%.3f"|format(b['qty']) }}</td>
+                    <td class="nowrap">{{ b['unit'] or "" }}</td>
+                    <td>{{ b['calculation_method'] or b['method'] or "" }}</td>
+                    <td class="nowrap">{{ b['last_inventory_date'] or "—" }}</td>
+                  </tr>
+                {% else %}
+                  <tr>
+                    <td colspan="5" class="text-muted">Нет данных по фактическим остаткам.</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ===== История инвентаризаций ===== -->
+        <div class="mini-card" style="margin-top:14px;">
+          <div class="mini-title-row">
+            <div>
+              <div class="mini-title">Последние инвентаризации (история)</div>
+              <div class="mini-hint">Показаны последние записи (limit=100).</div>
+            </div>
+
+            <div class="table-tools" style="min-width: 320px;">
+              <input
+                id="tableSearch"
+                class="input search"
+                type="search"
+                placeholder="Поиск в истории: реагент, локация, комментарий, пользователь…"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+
+          <div class="table-wrapper" style="margin-top:10px;">
+            <table class="table compact" id="inventoryTable">
+              <thead>
+                <tr>
+                  <th style="width: 170px;">Дата</th>
+                  <th>Реагент</th>
+                  <th style="width: 110px;" class="num">Кол-во</th>
+                  <th style="width: 90px;">Ед.</th>
+                  <th>Локация</th>
+                  <th>Комментарий</th>
+                  <th style="width: 150px;">Провёл</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for s in snapshots %}
+                  <tr>
+                    <td>
+                      {% if s.snapshot_at %}
+                        {{ s.snapshot_at.strftime("%d.%m.%Y %H:%M") }}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                    <td class="nowrap">{{ s.reagent }}</td>
+                    <td class="num">{{ s.qty }}</td>
+                    <td class="nowrap">{{ s.unit }}</td>
+                    <td>{{ s.location or "" }}</td>
+                    <td>{{ s.comment or "" }}</td>
+                    <td class="nowrap">{{ s.created_by or "" }}</td>
+                  </tr>
+                {% else %}
+                  <tr>
+                    <td colspan="7" class="text-muted">Инвентаризации ещё не проводились.</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="mini-hint" id="searchInfo"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+  window.inventoryData = {
+    balances: {{ (balances | default([])) | tojson | safe }}
+  };
+</script>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const select = document.getElementById("reagent_select");
+  const inputNew = document.getElementById("reagent_new");
+  const unitField = document.getElementById("unit");
+
+  function syncReagentUI() {
+    const val = select.value;
+
+    if (val === "__new__") {
+      inputNew.style.display = "block";
+      inputNew.required = true;
+      inputNew.focus();
+      if (unitField) unitField.value = "шт";
+      return;
+    }
+
+    inputNew.style.display = "none";
+    inputNew.required = false;
+    inputNew.value = "";
+
+    const opt = select.options[select.selectedIndex];
+    const unit = opt ? opt.getAttribute("data-unit") : "";
+    if (unitField && unit) unitField.value = unit;
+  }
+
+  select.addEventListener("change", syncReagentUI);
+  syncReagentUI();
+});
+</script>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const q = document.getElementById("reagentFilter");
+  const box = document.getElementById("reagentCheckboxes");
+  if (!q || !box) return;
+
+  const items = Array.from(box.querySelectorAll(".checkbox-item"));
+
+  function apply() {
+    const term = (q.value || "").trim().toLowerCase();
+    items.forEach(el => {
+      const name = el.getAttribute("data-name") || "";
+      el.style.display = (!term || name.includes(term)) ? "" : "none";
+    });
+  }
+
+  q.addEventListener("input", apply);
+});
+</script>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const q = document.getElementById("tableSearch");
+  const table = document.getElementById("inventoryTable");
+  const info = document.getElementById("searchInfo");
+
+  if (!q || !table) return;
+
+  const rows = Array.from(table.querySelectorAll("tbody tr"));
+  const totalRows = rows.length;
+
+  function applyFilter() {
+    const term = (q.value || "").trim().toLowerCase();
+    let visible = 0;
+
+    rows.forEach(tr => {
+      const text = tr.innerText.toLowerCase();
+      const ok = term === "" ? true : text.includes(term);
+      tr.style.display = ok ? "" : "none";
+      if (ok) visible += 1;
+    });
+
+    if (info) info.textContent = term ? `Найдено: ${visible} из ${totalRows}` : "";
+  }
+
+  q.addEventListener("input", applyFilter);
+});
+</script>
+
+<script>
+function selectAllReagents(flag) {
+  document.querySelectorAll(".reagent-check").forEach(ch => (ch.checked = !!flag));
+  renderInventoryChart();
+  syncBalancesTable();
+}
+
+function getSelectedReagents() {
+  return Array.from(document.querySelectorAll(".reagent-check:checked")).map(x => x.value);
+}
+
+function syncBalancesTable() {
+  const selected = new Set(getSelectedReagents());
+  const table = document.getElementById("balancesTable");
+  const info = document.getElementById("balancesInfo");
+  if (!table) return;
+
+  const rows = Array.from(table.querySelectorAll("tbody tr[data-reagent]"));
+  let visible = 0;
+
+  rows.forEach(tr => {
+    const r = tr.getAttribute("data-reagent");
+    const ok = selected.size === 0 ? false : selected.has(r);
+    tr.style.display = ok ? "" : "none";
+    if (ok) visible += 1;
+  });
+
+  if (info) info.textContent = selected.size ? `Показано: ${visible}` : "Не выбрано ни одного реагента";
+}
+
+function renderInventoryChart() {
+  const canvas = document.getElementById("inventoryChart");
+  const hint = document.getElementById("chartHint");
+  if (!canvas) return;
+
+  const ctx = canvas.getContext("2d");
+  const payload = (window.inventoryData && window.inventoryData.balances) ? window.inventoryData.balances : [];
+  const selected = new Set(getSelectedReagents());
+
+  const data = payload
+    .filter(x => x && x.reagent && selected.has(x.reagent))
+    .map(x => ({
+      label: String(x.reagent),
+      value: Number(x.qty) || 0,
+      unit: x.unit ? String(x.unit) : ""
+    }));
+
+  const parentW = canvas.parentElement ? canvas.parentElement.clientWidth : 800;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.max(320, parentW) * dpr;
+  canvas.height = 160 * dpr;
+  canvas.style.width = "100%";
+  canvas.style.height = "160px";
+
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  if (!data.length) {
+    ctx.fillStyle = "#666";
+    ctx.font = `${12 * dpr}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+    ctx.fillText("Выберите реагенты для отображения", 10 * dpr, 24 * dpr);
+    if (hint) hint.textContent = "График: выберите реагенты галочками выше.";
+    return;
+  }
+
+  if (hint) hint.textContent = `График: текущий остаток по выбранным реагентам (${data.length}).`;
+
+  const padL = 10 * dpr, padR = 10 * dpr, padT = 10 * dpr, padB = 30 * dpr;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+
+  const maxV = Math.max(...data.map(x => x.value), 0.0001);
+  const n = data.length;
+
+  const barGap = Math.max(6 * dpr, plotW / (n * 12));
+  const barW = (plotW - barGap * (n - 1)) / n;
+
+  ctx.strokeStyle = "#eee";
+  ctx.lineWidth = 1 * dpr;
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + (plotH * i) / 4;
+    ctx.beginPath();
+    ctx.moveTo(padL, y);
+    ctx.lineTo(W - padR, y);
+    ctx.stroke();
+  }
+
+  for (let i = 0; i < n; i++) {
+    const v = data[i].value;
+    const h = (v / maxV) * plotH;
+    const x = padL + i * (barW + barGap);
+    const y = padT + (plotH - h);
+
+    ctx.fillStyle = "#2f6feb";
+    ctx.fillRect(x, y, barW, h);
+
+    ctx.fillStyle = "#111";
+    ctx.font = `${11 * dpr}px system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+    const valText = `${v.toFixed(2)}${data[i].unit ? " " + data[i].unit : ""}`;
+    ctx.fillText(valText, x, Math.max(padT + 12 * dpr, y - 6 * dpr));
+
+    ctx.fillStyle = "#555";
+    const raw = data[i].label;
+    const short = raw.length > 12 ? raw.slice(0, 12) + "…" : raw;
+    ctx.fillText(short, x, padT + plotH + 18 * dpr);
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  document.querySelectorAll(".reagent-check").forEach(ch => {
+    ch.addEventListener("change", () => {
+      renderInventoryChart();
+      syncBalancesTable();
+    });
+  });
+
+  renderInventoryChart();
+  syncBalancesTable();
+});
+</script>
+
+<style>
+.page { max-width: 1200px; margin: 0 auto; padding: 16px; }
+.page-header { display:flex; gap:14px; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; margin-bottom:14px; }
+.back-link { text-decoration:none; color:#2f6feb; font-weight:600; }
+.page-title-wrap { flex:1; min-width:280px; }
+.page-title { margin:0; font-size:28px; letter-spacing:-0.02em; }
+.page-subtitle { margin-top:4px; color:#6b7280; }
+
+.grid { display:grid; grid-template-columns: 420px 1fr; gap:16px; align-items:start; }
+@media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+
+.card { border:1px solid #e5e7eb; border-radius:16px; background:#fff; box-shadow: 0 10px 30px rgba(0,0,0,.05); overflow:hidden; }
+.card-header { padding:14px 16px; border-bottom:1px solid #eef2f7; }
+.card-title { margin:0; font-size:16px; }
+.card-hint { color:#6b7280; font-size:13px; margin-top:4px; }
+.card-body { padding:16px; }
+
+.form { display:flex; flex-direction:column; gap:12px; }
+.form-row label { display:block; font-size:13px; color:#374151; margin-bottom:6px; }
+.input { width:100%; padding:10px 12px; border:1px solid #d1d5db; border-radius:12px; outline:none; background:#fff; }
+.input:focus { border-color:#2f6feb; box-shadow: 0 0 0 4px rgba(47,111,235,.15); }
+.textarea { min-height: 84px; resize: vertical; }
+.mt-8 { margin-top:8px; }
+.hint { margin-top:6px; color:#6b7280; font-size:12px; }
+
+.actions { display:flex; gap:10px; align-items:center; margin-top:6px; }
+.btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:10px 12px; border-radius:12px; border:1px solid transparent; text-decoration:none; cursor:pointer; font-weight:600; }
+.btn-primary { background:#2f6feb; color:#fff; border-color:#2f6feb; }
+.btn-primary:hover { filter: brightness(.97); }
+.btn-ghost { background:transparent; color:#111827; border-color:#e5e7eb; }
+.btn-ghost:hover { background:#f9fafb; }
+.btn-xs { padding:6px 10px; border-radius:10px; font-size:12px; }
+
+.table-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.table-tools { min-width: 260px; }
+.search { padding-left: 12px; }
+
+.mini-card { border:1px solid #eef2f7; border-radius:14px; padding:12px; background:#fafafa; }
+.mini-title-row { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+.mini-title { font-weight:800; }
+.mini-actions { display:flex; gap:8px; align-items:center; }
+.mini-hint { color:#6b7280; font-size:12px; margin-top:8px; }
+
+.checkbox-grid{
+  display:grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap:10px 14px;
+  margin: 8px 0 12px;
+}
+@media (max-width: 900px){ .checkbox-grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px){ .checkbox-grid{ grid-template-columns: 1fr; } }
+
+.checkbox-item{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:8px 10px;
+  border:1px solid rgba(0,0,0,0.08);
+  border-radius:12px;
+  background:#fff;
+}
+.checkbox-text{ display:flex; gap:6px; align-items:baseline; }
+.muted{ color:#6b7280; font-weight:600; }
+
+.table-wrapper { overflow:auto; border-radius:14px; border:1px solid #e5e7eb; background:#fff; }
+.table { width:100%; border-collapse:collapse; }
+.table thead th { position:sticky; top:0; background:#f9fafb; z-index:1; text-align:left; font-size:12px; color:#374151; border-bottom:1px solid #e5e7eb; }
+.table th, .table td { padding:10px 12px; border-bottom:1px solid #f3f4f6; vertical-align:top; font-size:13px; }
+.table.compact th, .table.compact td { padding:8px 10px; }
+.table tbody tr:hover { background:#fcfcff; }
+.nowrap { white-space:nowrap; }
+.num { text-align:right; font-variant-numeric: tabular-nums; }
+.text-muted { color:#6b7280; text-align:center; padding:18px 10px; }
+</style>
+{% endblock %}

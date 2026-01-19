@@ -1,0 +1,402 @@
+{% extends "base.html" %}
+{% block title %}Акт {{ "монтажа" if kind == "install" else "демонтажа" }} · СУРГИЛ{% endblock %}
+
+{% block content %}
+
+<!-- Навигация -->
+<div style="margin-bottom:16px; display:flex; gap:12px; align-items:center;">
+  <a href="/" class="btn" style="background:#333; color:white;">🏠 Дашборд</a>
+  <a href="/documents" class="btn-secondary">📋 Все акты</a>
+  <span style="opacity:0.5;">→</span>
+  <span style="font-weight:600;">Новый акт</span>
+</div>
+
+<h1>Акт {{ "монтажа" if kind == "install" else "демонтажа" }} оборудования</h1>
+
+<div class="card" style="padding:24px; max-width:1200px;">
+
+  <!-- Переключатель монтаж/демонтаж -->
+  <div style="display:flex; gap:12px; margin-bottom:24px; padding:12px; background:#f5f5f5; border-radius:8px;">
+    <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:8px 16px; border-radius:6px; background:{% if kind == 'install' %}#0066cc; color:white{% else %}white{% endif %};">
+      <input type="radio" name="kind_radio" value="install" {% if kind == 'install' %}checked{% endif %} onchange="window.location.href='/documents/equipment/new?well_id={{ well_id }}&kind=install'">
+      <span style="font-weight:600;">📦 Монтаж</span>
+    </label>
+    <label style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:8px 16px; border-radius:6px; background:{% if kind == 'removal' %}#dc3545; color:white{% else %}white{% endif %};">
+      <input type="radio" name="kind_radio" value="removal" {% if kind == 'removal' %}checked{% endif %} onchange="window.location.href='/documents/equipment/new?well_id={{ well_id }}&kind=removal'">
+      <span style="font-weight:600;">🔧 Демонтаж</span>
+    </label>
+  </div>
+
+  <form method="post" action="/documents/equipment/create">
+    <input type="hidden" name="kind" value="{{ kind }}">
+    <input type="hidden" name="doc_type_id" value="{{ dt_install.id if kind == 'install' else dt_removal.id }}">
+
+    <!-- Для монтажа всегда "working" -->
+    {% if kind == 'install' %}
+    <input type="hidden" name="equipment_condition" value="working">
+    {% endif %}
+
+    <!-- Скважина -->
+    <div style="margin-bottom:20px;">
+      <label><b>Скважина</b></label>
+      <select name="well_id" required onchange="window.location.href='/documents/equipment/new?well_id=' + this.value + '&kind={{ kind }}'">
+        <option value="">Выберите скважину</option>
+        {% for w in wells %}
+        <option value="{{ w.id }}" {% if well_id == w.id %}selected{% endif %}>Скв {{ w.number }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    {% if well_id %}
+
+    <!-- Дата -->
+    <div style="margin-bottom:20px;">
+      <label><b>Дата и время</b></label>
+      <input type="datetime-local" name="event_dt" id="event-dt" required onchange="fetchPressure()">
+    </div>
+
+    <!-- ВЫБОР ОБОРУДОВАНИЯ -->
+    <div style="margin-bottom:20px; border:2px solid #ddd; border-radius:8px; padding:20px; background:#fafafa;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <h3 style="margin:0;">Выбор оборудования</h3>
+        <button type="button" onclick="showNewEquipmentModal()" class="btn-secondary">+ Добавить класс</button>
+      </div>
+
+      <!-- Список классов оборудования -->
+      <div id="equipment-classes" style="display:grid; gap:16px;">
+        {% for eq_class in equipment_classes %}
+        <div class="equipment-class-card" style="border:1px solid #ddd; border-radius:8px; padding:16px; background:white;">
+
+          <!-- Заголовок класса -->
+          <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px; padding-bottom:12px; border-bottom:2px solid #eee;">
+            <input type="checkbox" id="class-{{ loop.index }}" onchange="toggleClass({{ loop.index }})">
+            <label for="class-{{ loop.index }}" style="margin:0; font-weight:700; font-size:16px; cursor:pointer; flex:1;">
+              {{ eq_class.name }}
+            </label>
+            <span style="opacity:0.6; font-size:13px;">{{ eq_class.available }} доступно / {{ eq_class.total }} всего</span>
+          </div>
+
+          <!-- Серийные номера -->
+          <div id="serials-{{ loop.index }}" style="display:none; margin-left:32px;">
+            {% if eq_class['items']|length > 0 %}
+              {% for eq in eq_class['items'] %}
+              <div style="display:flex; align-items:center; gap:12px; padding:8px; margin-bottom:6px; border-radius:6px; {% if eq.status == 'available' %}background:#e7f5e7{% else %}background:#fff3cd{% endif %};">
+                <input type="checkbox" name="equipment_ids" value="{{ eq.id }}"
+                       {% if eq.status != 'available' and kind == 'install' %}disabled title="Занято"{% endif %}>
+                <span style="font-family:monospace; font-weight:600;">{{ eq.serial_number }}</span>
+                <span style="flex:1; opacity:0.7; font-size:13px;">{{ eq.manufacturer or '—' }}</span>
+
+                {% if eq.status == 'installed' %}
+                  <span style="padding:4px 8px; background:#ffc107; color:#000; border-radius:4px; font-size:12px; font-weight:600;">
+                    📍 {{ eq.current_location }}
+                  </span>
+                  {% if kind == 'install' %}
+                    <span style="color:#dc3545; font-size:12px;">⚠️ Сначала демонтируй</span>
+                  {% endif %}
+                {% else %}
+                  <span style="padding:4px 8px; background:#28a745; color:white; border-radius:4px; font-size:12px; font-weight:600;">
+                    ✓ Доступно
+                  </span>
+                {% endif %}
+              </div>
+              {% endfor %}
+
+              <!-- Кнопка добавить серийник -->
+              <button type="button" onclick="showNewSerialModal('{{ eq_class.name }}')"
+                      style="margin-top:8px; padding:6px 12px; background:#f0f0f0; border:1px dashed #999; border-radius:4px; cursor:pointer; font-size:13px;">
+                + Добавить серийный номер
+              </button>
+            {% else %}
+              <p style="opacity:0.5; font-size:13px;">Нет оборудования этого класса</p>
+            {% endif %}
+          </div>
+
+        </div>
+        {% endfor %}
+
+        {% if equipment_classes|length == 0 %}
+        <div style="text-align:center; padding:40px; opacity:0.5;">
+          {% if kind == 'removal' %}
+            На этой скважине нет установленного оборудования для демонтажа.
+          {% else %}
+            Нет оборудования. Добавьте новый класс.
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+
+      <div style="margin-top:12px; font-size:14px; font-weight:600;">
+        Выбрано: <span id="count">0</span> единиц
+      </div>
+    </div>
+
+    <!-- ДАВЛЕНИЯ -->
+    <div style="margin-bottom:20px; border:2px solid #ddd; border-radius:8px; padding:20px; background:#f0f8ff;">
+      <h3 style="margin:0 0 16px 0;">📊 Показания давления</h3>
+
+      <!-- Статус автозаполнения -->
+      <div id="pressure-status" style="margin-bottom:16px; padding:12px; border-radius:6px;
+           {% if pressure_source_desc %}background:#d4edda; color:#155724;{% else %}background:#fff3cd; color:#856404;{% endif %}">
+        {% if pressure_source_desc %}
+          ✓ Найдено: <b>{{ pressure_source_desc }}</b>
+        {% else %}
+          ⚠️ Давления не найдены — введите вручную
+        {% endif %}
+      </div>
+
+      <!-- Поля давлений -->
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+        <div>
+          <label><b>Трубное давление (кгс/см²)</b></label>
+          <input type="number" step="0.01" name="tube_pressure" id="tube-pressure"
+                 placeholder="Например: 45.5" style="width:100%;"
+                 value="{{ auto_tube_pressure or '' }}">
+        </div>
+        <div>
+          <label><b>Шлейфное давление (кгс/см²)</b></label>
+          <input type="number" step="0.01" name="line_pressure" id="line-pressure"
+                 placeholder="Например: 32.0" style="width:100%;"
+                 value="{{ auto_line_pressure or '' }}">
+        </div>
+      </div>
+
+      <div style="margin-top:12px; display:flex; gap:12px; align-items:center;">
+        <button type="button" onclick="fetchPressure()" class="btn-secondary" style="font-size:13px;">
+          🔄 Обновить давления
+        </button>
+        <span style="font-size:12px; color:#666;">
+          Давления можно скорректировать вручную
+        </span>
+      </div>
+    </div>
+
+    <!-- СОСТОЯНИЕ ОБОРУДОВАНИЯ (только для демонтажа) -->
+    {% if kind == 'removal' %}
+    <div style="margin-bottom:20px; border:2px solid #ffc107; border-radius:8px; padding:20px; background:#fff9e6;">
+      <h3 style="margin:0 0 16px 0;">⚙️ Состояние оборудования при демонтаже</h3>
+      <div>
+        <label><b>На момент демонтажа оборудование находится в:</b></label>
+        <select name="equipment_condition" required style="width:100%; padding:10px; font-size:15px;">
+          <option value="working">✅ Рабочем состоянии</option>
+          <option value="not_working">❌ Нерабочем состоянии</option>
+        </select>
+      </div>
+      <div style="margin-top:12px; font-size:13px; opacity:0.7; padding:10px; background:#fff; border-radius:4px;">
+        💡 Эта информация будет указана в акте демонтажа
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Договор -->
+    <div style="margin-bottom:20px;">
+      <label><b>Договор</b></label>
+      <input name="contract_number" value="2/24-09 от 24.09.2024" required>
+    </div>
+
+    <!-- Состояние территории (необязательное) -->
+    <div style="margin-bottom:20px;">
+      <label><b>Состояние территории</b> <span style="opacity:0.6; font-weight:400;">(необязательно)</span></label>
+      <input name="territory_state" value="" placeholder="Например: Территория чистая">
+    </div>
+
+    <!-- Примечание -->
+    <div style="margin-bottom:20px;">
+      <label><b>Примечание</b></label>
+      <textarea name="note" rows="3"></textarea>
+    </div>
+
+    <!-- Кнопки -->
+    <div style="display:flex; gap:12px; align-items:center;">
+      <button type="submit" id="submit-btn" disabled class="btn btn-primary">Создать акт</button>
+      <a href="/documents" class="btn-secondary">Отмена</a>
+      <a href="/" class="btn-secondary" style="margin-left:auto;">🏠 На дашборд</a>
+    </div>
+
+    {% endif %}
+  </form>
+</div>
+
+<!-- Модалка: Новый класс оборудования -->
+<div id="modal-new-class" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
+  <div style="background:white; padding:24px; border-radius:12px; max-width:500px; width:90%;">
+    <h3>Добавить новый класс оборудования</h3>
+    <form onsubmit="return addNewClass(event)">
+      <div style="margin-bottom:12px;">
+        <label><b>Название класса</b></label>
+        <input name="class_name" required placeholder="Например: Термометр">
+      </div>
+      <div style="margin-bottom:12px;">
+        <label><b>Первый серийный номер</b></label>
+        <input name="serial_number" required placeholder="TH-2025-001">
+      </div>
+      <div style="margin-bottom:12px;">
+        <label>Производитель</label>
+        <input name="manufacturer" placeholder="Например: UNITOOL">
+      </div>
+      <div style="display:flex; gap:10px;">
+        <button type="submit">Добавить</button>
+        <button type="button" onclick="hideModals()">Отмена</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Модалка: Новый серийный номер -->
+<div id="modal-new-serial" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center;">
+  <div style="background:white; padding:24px; border-radius:12px; max-width:500px; width:90%;">
+    <h3>Добавить серийный номер</h3>
+    <p id="modal-class-name" style="opacity:0.7;"></p>
+    <form onsubmit="return addNewSerial(event)">
+      <input type="hidden" name="class_name" id="hidden-class-name">
+      <div style="margin-bottom:12px;">
+        <label><b>Серийный номер</b></label>
+        <input name="serial_number" required placeholder="SMOD-2025-005">
+      </div>
+      <div style="margin-bottom:12px;">
+        <label>Производитель</label>
+        <input name="manufacturer" placeholder="UNITOOL">
+      </div>
+      <div style="display:flex; gap:10px;">
+        <button type="submit">Добавить</button>
+        <button type="button" onclick="hideModals()">Отмена</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+// Установка текущей даты
+const eventDtInput = document.getElementById('event-dt');
+if (eventDtInput) {
+  eventDtInput.value = new Date().toISOString().slice(0,16);
+}
+
+// Переключение класса
+function toggleClass(index) {
+  const checkbox = document.getElementById('class-' + index);
+  const serialsDiv = document.getElementById('serials-' + index);
+  serialsDiv.style.display = checkbox.checked ? 'block' : 'none';
+  if (!checkbox.checked) {
+    serialsDiv.querySelectorAll('input[name="equipment_ids"]').forEach(cb => cb.checked = false);
+  }
+  updateCount();
+}
+
+// Подсчёт
+function updateCount() {
+  const count = document.querySelectorAll('input[name="equipment_ids"]:checked').length;
+  document.getElementById('count').textContent = count;
+  document.getElementById('submit-btn').disabled = count === 0;
+}
+
+document.querySelectorAll('input[name="equipment_ids"]').forEach(cb => {
+  cb.addEventListener('change', updateCount);
+});
+
+// Модалки
+function showNewEquipmentModal() {
+  document.getElementById('modal-new-class').style.display = 'flex';
+}
+
+function showNewSerialModal(className) {
+  document.getElementById('modal-class-name').textContent = 'Класс: ' + className;
+  document.getElementById('hidden-class-name').value = className;
+  document.getElementById('modal-new-serial').style.display = 'flex';
+}
+
+function hideModals() {
+  document.getElementById('modal-new-class').style.display = 'none';
+  document.getElementById('modal-new-serial').style.display = 'none';
+}
+
+// Запрос давлений с сервера
+async function fetchPressure() {
+  const wellId = {{ well_id or 'null' }};
+  const eventDt = document.getElementById('event-dt')?.value;
+  const statusDiv = document.getElementById('pressure-status');
+
+  if (!wellId || !eventDt) {
+    return;
+  }
+
+  try {
+    statusDiv.innerHTML = '⏳ Поиск давлений...';
+    statusDiv.style.background = '#e2e3e5';
+    statusDiv.style.color = '#383d41';
+
+    const response = await fetch(`/api/equipment/pressure?well_id=${wellId}&event_dt=${encodeURIComponent(eventDt)}`);
+    const data = await response.json();
+
+    if (data.tube_pressure !== null || data.line_pressure !== null) {
+      document.getElementById('tube-pressure').value = data.tube_pressure || '';
+      document.getElementById('line-pressure').value = data.line_pressure || '';
+      statusDiv.innerHTML = `✓ Найдено: <b>${data.source_desc || 'событие'}</b>`;
+      statusDiv.style.background = '#d4edda';
+      statusDiv.style.color = '#155724';
+    } else {
+      statusDiv.innerHTML = '⚠️ Давления не найдены — введите вручную';
+      statusDiv.style.background = '#fff3cd';
+      statusDiv.style.color = '#856404';
+    }
+  } catch (e) {
+    console.error('Pressure fetch error:', e);
+    statusDiv.innerHTML = '⚠️ Ошибка загрузки — введите вручную';
+    statusDiv.style.background = '#f8d7da';
+    statusDiv.style.color = '#721c24';
+  }
+}
+
+// Добавить класс
+async function addNewClass(e) {
+  e.preventDefault();
+  const form = e.target;
+  const data = new FormData(form);
+
+  const response = await fetch('/api/equipment/add', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      name: data.get('class_name'),
+      serial_number: data.get('serial_number'),
+      manufacturer: data.get('manufacturer'),
+      status: 'available'
+    })
+  });
+
+  if (response.ok) {
+    location.reload();
+  } else {
+    const err = await response.json();
+    alert('Ошибка: ' + (err.detail || 'Неизвестная ошибка'));
+  }
+  return false;
+}
+
+// Добавить серийник
+async function addNewSerial(e) {
+  e.preventDefault();
+  const form = e.target;
+  const data = new FormData(form);
+
+  const response = await fetch('/api/equipment/add', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      name: data.get('class_name'),
+      serial_number: data.get('serial_number'),
+      manufacturer: data.get('manufacturer'),
+      status: 'available'
+    })
+  });
+
+  if (response.ok) {
+    location.reload();
+  } else {
+    const err = await response.json();
+    alert('Ошибка: ' + (err.detail || 'Неизвестная ошибка'));
+  }
+  return false;
+}
+</script>
+
+{% endblock %}

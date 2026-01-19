@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+
+{% block title %}Акт {{ doc.id }} · СУРГИЛ{% endblock %}
+
+{% block content %}
+<h1 style="margin: 0 0 16px 0;">
+  Акт #{{ doc.id }} — {{ doc.doc_type.name_ru if doc.doc_type else "" }}
+</h1>
+
+<div class="card" style="padding:16px; margin-bottom:16px;">
+  <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:center;">
+    <div><b>Статус:</b> {{ doc.status }}</div>
+    <div>
+      <b>Скважина:</b>
+      {% if doc.well %}{{ doc.well.number }}{% else %}<span style="opacity:.7;">—</span>{% endif %}
+    </div>
+    <div>
+      <b>Период:</b>
+      {% if doc.period_month and doc.period_year %}
+        {{ doc.period_month }}.{{ doc.period_year }}
+      {% else %}
+        <span style="opacity:.7;">—</span>
+      {% endif %}
+    </div>
+    <div style="margin-left:auto;">
+      <a href="/documents" class="admin-link">← назад</a>
+    </div>
+  </div>
+</div>
+
+<div class="cards-grid" style="display:grid; gap:16px;">
+
+  <!-- EDIT NOTES + METADATA -->
+  <section class="card" style="padding:16px;">
+    <h2 style="margin:0 0 12px 0;">Поля акта</h2>
+  <!-- KANBAN ACTIONS -->
+  <div style="margin: 0 0 12px 0; padding:12px; border:1px solid #eee; border-radius:10px;">
+    <div style="font-weight:600; margin-bottom:8px;">Движение по канбану</div>
+
+    {% if doc.status == "generated" %}
+      <form method="post" action="/documents/{{ doc.id }}/sign" style="display:grid; gap:8px; max-width:520px;">
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+          <input name="signer_name" placeholder="ФИО подписанта (например Иванов И.И.)" />
+          <input name="signer_position" placeholder="Должность (например Участковый геолог)" />
+        </div>
+        <div>
+          <button type="submit" onclick="return confirm('Перевести в статус SIGNED?');">Подписать (SIGNED)</button>
+        </div>
+      </form>
+    {% elif doc.status == "signed" %}
+      <form method="post" action="/documents/{{ doc.id }}/mark-sent" style="display:grid; gap:8px; max-width:520px;">
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+          <input name="sent_to" placeholder="Кому отправлено (опц.)" />
+          <input name="sent_via" placeholder="Канал (email/telegram/бумага) (опц.)" />
+        </div>
+        <div>
+          <button type="submit" onclick="return confirm('Перевести в статус SENT?');">Отметить отправленным (SENT)</button>
+        </div>
+      </form>
+
+      <form method="post" action="/documents/{{ doc.id }}/archive" style="margin-top:8px;">
+        <button type="submit" onclick="return confirm('Перевести в ARCHIVED?');">В архив (ARCHIVED)</button>
+      </form>
+
+    {% elif doc.status == "sent" %}
+      <form method="post" action="/documents/{{ doc.id }}/archive">
+        <button type="submit" onclick="return confirm('Перевести в ARCHIVED?');">В архив (ARCHIVED)</button>
+      </form>
+    {% else %}
+      <div style="opacity:.75;">Доступные действия появятся после генерации PDF и подписания.</div>
+    {% endif %}
+  </div>
+    <form method="post" action="/documents/{{ doc.id }}/update">
+      <div style="display:grid; gap:10px;">
+
+        <label><b>Notes</b></label>
+        <textarea name="notes" rows="4" style="width:100%;">{{ doc.notes or "" }}</textarea>
+
+        <label><b>Metadata (JSON)</b></label>
+        <textarea name="metadata_json" rows="10" style="width:100%;">{{ (doc.meta or {}) | tojson(indent=2) }}</textarea>
+
+        <div style="display:flex; gap:10px;">
+          <button type="submit">Сохранить</button>
+        </div>
+      </div>
+    </form>
+
+    <form method="post" action="/documents/{{ doc.id }}/generate-pdf" style="display:inline-block; margin-left:10px;">
+
+      <label style="display:flex; gap:8px; align-items:center; margin-top:8px;">
+  <input type="checkbox" name="split_tables" value="1">
+  2 таблицы (пенные / ингибирующие)
+</label>
+
+  <button class="btn btn-primary" type="submit">Сгенерировать PDF</button>
+</form>
+
+    <form method="post" action="/documents/{{ doc.id }}/reagent-expense/refill" style="display:inline-block; margin-left:10px;">
+  <button type="submit"
+          onclick="return confirm('Пересобрать строки из events? Все ручные правки строк акта будут потеряны.');">
+    Пересобрать из events
+  </button>
+</form>
+
+    <form method="post" action="/documents/{{ doc.id }}/soft-delete" style="display:inline;">
+  <button type="submit" onclick="return confirm('Удалить документ?');">
+    Удалить
+  </button>
+</form>
+
+  </section>
+
+  <!-- ITEMS -->
+  <section class="card" style="padding:16px;">
+    <h2 style="margin:0 0 12px 0;">Строки (document_items)</h2>
+
+    <div style="margin-bottom:12px; padding:12px; border:1px solid #eee; border-radius:10px;">
+      <form method="post" action="/documents/{{ doc.id }}/items/add" style="display:grid; gap:8px;">
+        <div style="display:grid; grid-template-columns: 2fr 1fr 120px 1fr; gap:8px;">
+          <input name="work_type" placeholder="Вид работ" />
+          <input name="reagent_name" placeholder="Реагент" />
+          <input name="quantity" type="number" value="1" />
+          <input name="stage" placeholder="Этап (например Оптимизация)" />
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr 2fr; gap:8px;">
+          <input name="event_time_str" placeholder="Время (строкой, напр. 01.04.2025 12:19)" />
+          <input name="notes" placeholder="Примечание" />
+        </div>
+        <div>
+          <button type="submit">Добавить строку</button>
+        </div>
+      </form>
+    </div>
+
+    <table class="table" style="width:100%; border-collapse:collapse;">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Работы</th>
+          <th>Реагент</th>
+          <th>Кол-во</th>
+          <th>Этап</th>
+          <th>Время</th>
+          <th>Edit</th>
+<th>Edit</th>
+<th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+        <tr>
+          <td><b>{{ it.line_number }}</b></td>
+          <td>{{ it.work_type or "" }}</td>
+          <td>{{ it.reagent_name or "" }}</td>
+          <td>{{ it.quantity or "" }}</td>
+          <td>{{ it.stage or "" }}</td>
+          <td>{{ it.event_time_str or "" }}</td>
+<td>{{ it.event_time_str or "" }}</td>
+
+<!-- EDIT -->
+<td style="text-align:left;">
+  <details>
+    <summary style="cursor:pointer;">✏️</summary>
+
+    <form method="post" action="/documents/items/{{ it.id }}/update" style="margin-top:8px;">
+      <div style="display:grid; gap:8px;">
+
+        <div style="display:grid; grid-template-columns: 2fr 1fr 120px; gap:8px;">
+          <input name="work_type" value="{{ it.work_type or '' }}" placeholder="Вид работ" />
+          <input name="reagent_name" value="{{ it.reagent_name or '' }}" placeholder="Реагент" />
+          <input name="quantity" type="number" value="{{ it.quantity or 1 }}" />
+        </div>
+
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+          <input name="stage" value="{{ it.stage or '' }}" placeholder="Этап" />
+          <input name="event_time_str" value="{{ it.event_time_str or '' }}" placeholder="Время (строкой)" />
+        </div>
+
+        <input name="notes" value="{{ it.notes or '' }}" placeholder="Примечание" />
+
+        <div style="display:flex; gap:8px;">
+          <button type="submit">Сохранить</button>
+        </div>
+      </div>
+    </form>
+  </details>
+</td>
+
+<!-- DELETE -->
+<td style="text-align:right;">
+  <form method="post" action="/documents/items/{{ it.id }}/delete"
+        onsubmit="return confirm('Удалить строку?');" style="margin:0;">
+    <button type="submit">Удалить</button>
+  </form>
+</td>
+        </tr>
+        {% endfor %}
+        {% if items|length == 0 %}
+        <tr><td colspan="8" style="opacity:.7;">Строк пока нет</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </section>
+
+</div>
+{% endblock %}

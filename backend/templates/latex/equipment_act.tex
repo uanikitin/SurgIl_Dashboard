@@ -1,0 +1,86 @@
+\documentclass[12pt]{article}
+\usepackage{fontspec}
+\setmainfont{Times New Roman}
+\usepackage[russian]{babel}
+\usepackage{geometry}
+\geometry{a4paper, margin=2.5cm}
+\usepackage{array, booktabs, longtable}
+\usepackage{tabularx}
+\usepackage{ltablex}
+\keepXColumns
+\setlength\LTleft{0pt}
+\setlength\LTright{0pt}
+
+\newlength{\equipwidth}
+\setlength{\equipwidth}{\dimexpr\textwidth-8\tabcolsep-5\arrayrulewidth\relax}
+
+\begin{document}
+
+\begin{center}
+\textbf{АКТ № \VAR{act_number}}\\
+\textbf{\VAR{act_title}}\\[0.4em]
+\end{center}
+
+\noindent\VAR{act_date} \hfill скважина № \VAR{well_number} месторождение Сургил
+
+\vspace{0.8em}
+
+Мы, нижеподписавшиеся, представитель Подрядчика, компании ООО «UNITOOL»\\
+\underline{\hspace{12cm}} и,\\
+представитель Заказчика СП ООО «Uz-Kor Gas Chemical»\\
+\underline{\hspace{12cm}},\\
+
+составили настоящий акт о том, что \VAR{event_date} г в \VAR{event_time} часов
+на скважине №\VAR{well_number} месторождения Сургил, было \textbf{\VAR{action_verb}}
+оборудование ООО «UNITOOL» \VAR{action_context}
+Контракта №\VAR{contract_number} на оказание услуг по оптимизации эксплуатации
+газовых скважин с применением твердых пенообразующих реагентов:
+
+\vspace{0.6em}
+
+\begin{longtable}{|p{0.05\equipwidth}|p{0.55\equipwidth}|p{0.30\equipwidth}|p{0.10\equipwidth}|}
+\hline
+\textbf{№} & \textbf{Тип оборудования} & \textbf{Серийный номер} & \textbf{к-во} \\
+\hline
+%%% EQUIPMENT_START
+%%% EQUIPMENT_END
+\hline
+\end{longtable}
+
+
+\vspace{0.6em}
+
+%%% CONDITION_TEXT_START
+%%% CONDITION_TEXT_END
+
+\vspace{0.6em}
+
+\textbf{Показания давления:}
+
+\begin{tabularx}{\textwidth}{|X|X|}
+\hline
+\textbf{Трубное давление, кгс/см\textsuperscript{2}} & \textbf{Шлейфное давление, кгс/см\textsuperscript{2}} \\
+\hline
+\VAR{tube_pressure} & \VAR{line_pressure} \\
+\hline
+\end{tabularx}
+
+\vspace{0.6em}
+
+\textbf{Примечание:}\\
+
+\VAR{note}
+\underline{\hspace{12cm}}\\
+
+\vspace{1.2em}
+
+\textbf{Представитель Исполнителя ООО «UNITOOL»}\\[1.2em]
+\underline{\hspace{12cm}}\\
+
+\vspace{1.0em}
+
+\textbf{Представитель Заказчика СП ООО «Uz-Kor Gas Chemical»}\\
+Участковый геолог\\[1.2em]
+\underline{\hspace{12cm}}\\
+
+\end{document}

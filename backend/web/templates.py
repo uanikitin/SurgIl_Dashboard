@@ -1,0 +1,5 @@
+from fastapi.templating import Jinja2Templates
+
+templates = Jinja2Templates(directory="backend/templates")
+import time
+templates.env.globals["time"] = lambda: int(time.time())

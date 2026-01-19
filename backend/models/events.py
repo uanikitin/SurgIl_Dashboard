@@ -5,7 +5,7 @@ from sqlalchemy import (
     String,
     Float,
     DateTime,
-    Text,
+    Text,Integer, DECIMAL, ForeignKey
 )
 from ..db import Base
 
@@ -27,8 +27,8 @@ class Event(Base):
     well = Column(String, index=True)  # здесь лежит номер скважины как строка, например "1367"
 
     event_type = Column(String, nullable=True)
-    reagent    = Column(String, nullable=True)
-    qty        = Column(Float, nullable=True)
+    # reagent    = Column(String, nullable=True)
+    # qty        = Column(Float, nullable=True)
 
     p_tube     = Column(Float, nullable=True)
     p_line     = Column(Float, nullable=True)
@@ -49,3 +49,8 @@ class Event(Base):
     purge_phase = Column(String, nullable=True)
     other_kind  = Column(String, nullable=True)
     geo_status  = Column(String, nullable=True)
+
+    # Для расхода реагентов
+    reagent = Column(String, nullable=True)
+    # ✅ ПРАВИЛЬНО: Используем DECIMAL
+    qty = Column(DECIMAL(10, 3), nullable=True)

@@ -1,0 +1,443 @@
+{% extends "base.html" %}
+
+{% block title %}СУРГИЛ · Обладнання{% endblock %}
+
+{% block extra_head %}
+<style>
+/* === Загальні стилі === */
+.equipment-page {
+    padding: 20px;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+}
+
+.page-header h1 {
+    margin: 0;
+    font-size: 32px;
+    color: #2c3e50;
+}
+
+.btn-add {
+    padding: 12px 24px;
+    background: #28a745;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: background 0.2s;
+}
+
+.btn-add:hover {
+    background: #218838;
+}
+
+/* === Статистика === */
+.stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.stat-card {
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    text-align: center;
+}
+
+.stat-card__value {
+    font-size: 36px;
+    font-weight: 700;
+    color: #2c3e50;
+    margin-bottom: 8px;
+}
+
+.stat-card__label {
+    font-size: 14px;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stat-card--installed .stat-card__value { color: #28a745; }
+.stat-card--available .stat-card__value { color: #007bff; }
+.stat-card--maintenance .stat-card__value { color: #ffc107; }
+
+/* === Фільтри === */
+.filters-row {
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    margin-bottom: 30px;
+}
+
+.filters-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    align-items: end;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.filter-group label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #495057;
+}
+
+.filter-group select,
+.filter-group input {
+    padding: 10px 12px;
+    border: 1px solid #ced4da;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.btn-filter {
+    padding: 10px 20px;
+    background: #007bff;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.btn-filter:hover {
+    background: #0056b3;
+}
+
+.btn-reset {
+    padding: 10px 20px;
+    background: #6c757d;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.btn-reset:hover {
+    background: #5a6268;
+}
+
+/* === Таблиця обладнання === */
+.equipment-table-wrap {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    overflow: hidden;
+}
+
+.equipment-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.equipment-table thead {
+    background: #f8f9fa;
+}
+
+.equipment-table th {
+    padding: 16px;
+    text-align: left;
+    font-size: 13px;
+    font-weight: 700;
+    color: #495057;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid #dee2e6;
+}
+
+.equipment-table td {
+    padding: 16px;
+    border-bottom: 1px solid #f1f3f5;
+    font-size: 14px;
+    color: #212529;
+}
+
+.equipment-table tbody tr {
+    transition: background 0.2s;
+    cursor: pointer;
+}
+
+.equipment-table tbody tr:hover {
+    background: #f8f9fa;
+}
+
+/* === Статуси та стани === */
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.status-badge--installed {
+    background: #d4edda;
+    color: #155724;
+}
+
+.status-badge--available {
+    background: #d1ecf1;
+    color: #0c5460;
+}
+
+.status-badge--maintenance {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.status-badge--broken {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.condition-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.condition-badge--working { color: #28a745; }
+.condition-badge--broken { color: #dc3545; }
+.condition-badge--needs_repair { color: #ffc107; }
+
+/* === Іконки === */
+.icon {
+    font-size: 14px;
+}
+
+/* === Порожній стан === */
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: #6c757d;
+}
+
+.empty-state__icon {
+    font-size: 64px;
+    margin-bottom: 20px;
+    opacity: 0.3;
+}
+
+.empty-state__text {
+    font-size: 18px;
+    margin-bottom: 10px;
+}
+
+.empty-state__hint {
+    font-size: 14px;
+    color: #adb5bd;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="equipment-page">
+
+    {# === HEADER === #}
+    <div class="page-header">
+        <h1>🔧 Обладнання</h1>
+        <a href="/equipment/add" class="btn-add">
+            <span>+</span>
+            <span>Додати обладнання</span>
+        </a>
+    </div>
+
+    {# === СТАТИСТИКА === #}
+    <div class="stats-row">
+        <div class="stat-card">
+            <div class="stat-card__value">{{ stats.total }}</div>
+            <div class="stat-card__label">Всього</div>
+        </div>
+        <div class="stat-card stat-card--installed">
+            <div class="stat-card__value">{{ stats.installed }}</div>
+            <div class="stat-card__label">Встановлено</div>
+        </div>
+        <div class="stat-card stat-card--available">
+            <div class="stat-card__value">{{ stats.available }}</div>
+            <div class="stat-card__label">На складі</div>
+        </div>
+        <div class="stat-card stat-card--maintenance">
+            <div class="stat-card__value">{{ stats.maintenance }}</div>
+            <div class="stat-card__label">Обслуговування</div>
+        </div>
+    </div>
+
+    {# === ФІЛЬТРИ === #}
+    <div class="filters-row">
+        <form method="get" action="/equipment">
+            <div class="filters-grid">
+                <div class="filter-group">
+                    <label>Тип обладнання</label>
+                    <select name="equipment_type">
+                        <option value="">Всі типи</option>
+                        {% for type in equipment_types %}
+                        <option value="{{ type }}" {% if selected_type == type %}selected{% endif %}>
+                            {{ type }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label>Статус</label>
+                    <select name="status">
+                        <option value="">Всі статуси</option>
+                        <option value="available" {% if selected_status == 'available' %}selected{% endif %}>На складі</option>
+                        <option value="installed" {% if selected_status == 'installed' %}selected{% endif %}>Встановлено</option>
+                        <option value="maintenance" {% if selected_status == 'maintenance' %}selected{% endif %}>Обслуговування</option>
+                        <option value="broken" {% if selected_status == 'broken' %}selected{% endif %}>Зламано</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label>Стан</label>
+                    <select name="condition">
+                        <option value="">Всі стани</option>
+                        <option value="working" {% if selected_condition == 'working' %}selected{% endif %}>Робоче</option>
+                        <option value="broken" {% if selected_condition == 'broken' %}selected{% endif %}>Не робоче</option>
+                        <option value="needs_repair" {% if selected_condition == 'needs_repair' %}selected{% endif %}>Потребує ремонту</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label>Пошук</label>
+                    <input
+                        type="text"
+                        name="search"
+                        placeholder="Назва або серійний №..."
+                        value="{{ search_query }}"
+                    >
+                </div>
+
+                <div class="filter-group">
+                    <button type="submit" class="btn-filter">🔍 Фільтрувати</button>
+                </div>
+
+                <div class="filter-group">
+                    <a href="/equipment" class="btn-reset">Скинути</a>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    {# === ТАБЛИЦЯ === #}
+    <div class="equipment-table-wrap">
+        {% if equipment_list %}
+        <table class="equipment-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Назва</th>
+                    <th>Тип</th>
+                    <th>Серійний №</th>
+                    <th>Статус</th>
+                    <th>Стан</th>
+                    <th>Локація</th>
+                    <th>Дії</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for eq in equipment_list %}
+                <tr onclick="window.location.href='/equipment/{{ eq.id }}'">
+                    <td>{{ eq.id }}</td>
+                    <td>{{ eq.name }}</td>
+                    <td>{{ eq.equipment_type or '—' }}</td>
+                    <td><strong>{{ eq.serial_number or '—' }}</strong></td>
+                    <td>
+                        {% if eq.status == 'installed' %}
+                        <span class="status-badge status-badge--installed">
+                            <span class="icon">🟢</span>
+                            Встановлено
+                        </span>
+                        {% elif eq.status == 'available' %}
+                        <span class="status-badge status-badge--available">
+                            <span class="icon">📦</span>
+                            На складі
+                        </span>
+                        {% elif eq.status == 'maintenance' %}
+                        <span class="status-badge status-badge--maintenance">
+                            <span class="icon">🔧</span>
+                            Обслуговування
+                        </span>
+                        {% elif eq.status == 'broken' %}
+                        <span class="status-badge status-badge--broken">
+                            <span class="icon">❌</span>
+                            Зламано
+                        </span>
+                        {% else %}
+                        <span class="status-badge">{{ eq.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if eq.condition == 'working' %}
+                        <span class="condition-badge condition-badge--working">
+                            <span>✅</span>
+                            Робоче
+                        </span>
+                        {% elif eq.condition == 'broken' %}
+                        <span class="condition-badge condition-badge--broken">
+                            <span>❌</span>
+                            Не робоче
+                        </span>
+                        {% elif eq.condition == 'needs_repair' %}
+                        <span class="condition-badge condition-badge--needs_repair">
+                            <span>⚠️</span>
+                            Потребує ремонту
+                        </span>
+                        {% else %}
+                        <span>—</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ eq.current_location or '—' }}</td>
+                    <td onclick="event.stopPropagation()">
+                        <a href="/equipment/{{ eq.id }}" style="text-decoration: none; color: #007bff;">
+                            Деталі →
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-state__icon">📦</div>
+            <div class="empty-state__text">Обладнання не знайдено</div>
+            <div class="empty-state__hint">Спробуйте змінити фільтри або додайте нове обладнання</div>
+        </div>
+        {% endif %}
+    </div>
+
+</div>
+{% endblock %}

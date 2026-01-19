@@ -556,9 +556,10 @@
         <div class="events-filter__row">
           <label for="preset">Период:</label>
           <select id="preset" name="preset">
-            <option value="all"   {% if preset == 'all' %}selected{% endif %}>С начала базы</option>
+            <option value="week"  {% if preset == 'week' %}selected{% endif %}>Текущая неделя</option>
             <option value="day"   {% if preset == 'day' %}selected{% endif %}>Последние сутки</option>
-            <option value="month" {% if preset == 'month' %}selected{% endif %}>Последний месяц</option>
+            <option value="month" {% if preset == 'month' %}selected{% endif %}>Текущий месяц</option>
+            <option value="all"   {% if preset == 'all' %}selected{% endif %}>С начала базы</option>
             <option value="custom" {% if preset == 'custom' %}selected{% endif %}>Произвольный период</option>
           </select>
 
@@ -650,7 +651,140 @@
 
     </article>
 
+{# ========== ГРАФИК СОБЫТИЙ ========== #}
+{% if timeline_injections or timeline_events %}
+<div class="card" style="margin-top: 20px;">
+  <div class="card-header">
+    <h2>📊 График событий по скважине</h2>
+    <small style="color: #6c757d;">Интерактивный таймлайн всех событий</small>
+  </div>
 
+  <div class="card-body">
+    {# Легенды #}
+    <div style="
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 15px;
+      margin-bottom: 20px;
+    ">
+      {# Легенда реагентов #}
+      <div style="
+        background: white;
+        padding: 15px;
+        border-radius: 6px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        border: 1px solid #dee2e6;
+      ">
+        <div style="
+          font-weight: 600;
+          margin-bottom: 10px;
+          font-size: 14px;
+          color: #212529;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding-bottom: 10px;
+          border-bottom: 2px solid #e9ecef;
+        ">
+          <span style="font-size: 18px;">💉</span>
+          <span>Реагенты</span>
+        </div>
+        <div id="legend_reagents_well" style="padding: 8px 0;"></div>
+      </div>
+
+      {# Легенда событий #}
+      <div style="
+        background: white;
+        padding: 15px;
+        border-radius: 6px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        border: 1px solid #dee2e6;
+      ">
+        <div style="
+          font-weight: 600;
+          margin-bottom: 10px;
+          font-size: 14px;
+          color: #212529;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding-bottom: 10px;
+          border-bottom: 2px solid #e9ecef;
+        ">
+          <span style="font-size: 18px;">📌</span>
+          <span>События</span>
+        </div>
+        <div id="legend_events_well" style="padding: 8px 0;"></div>
+      </div>
+
+      {# Информация о скважине #}
+      <div style="
+        background: white;
+        padding: 15px;
+        border-radius: 6px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+        border: 1px solid #dee2e6;
+      ">
+        <div style="
+          font-weight: 600;
+          margin-bottom: 10px;
+          font-size: 14px;
+          color: #212529;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding-bottom: 10px;
+          border-bottom: 2px solid #e9ecef;
+        ">
+          <span style="font-size: 18px;">🎯</span>
+          <span>Скважина {{ well.number or well.id }}</span>
+        </div>
+        <div style="padding: 8px 0; font-size: 13px; color: #6c757d;">
+          <div><strong>Вбросов реагентов:</strong> {{ timeline_injections|length }}</div>
+          <div><strong>Других событий:</strong> {{ timeline_events|length }}</div>
+          <div><strong>Всего событий:</strong> {{ (timeline_injections|length) + (timeline_events|length) }}</div>
+        </div>
+      </div>
+    </div>
+
+    {# График #}
+    <div class="chart-box" style="
+      width: 100%;
+      position: relative;
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      border: 1px solid #dee2e6;
+    ">
+      <div style="
+        height: 450px;
+        background: white;
+        border-radius: 6px;
+        padding: 15px;
+        border: 1px solid #e9ecef;
+      ">
+        <canvas id="chart_timeline_well"></canvas>
+      </div>
+
+      <div style="
+        margin-top: 15px;
+        padding: 10px 15px;
+        background: #e7f3ff;
+        border-radius: 4px;
+        font-size: 12px;
+        color: #495057;
+        border-left: 3px solid #0d6efd;
+      ">
+        <strong>💡 Подсказки:</strong>
+        Выделите область мышкой для увеличения •
+        Shift + перетаскивание для перемещения •
+        Наведите курсор на точку для деталей
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 
 
@@ -2050,4 +2184,144 @@
   }
 </script>
 {% endif %}
+
+{# JS-данные для графика событий #}
+<script>
+  window.wellEventsData = {
+    timelineInjections: {{ timeline_injections | tojson | safe }},
+    timelineEvents: {{ timeline_events | tojson | safe }},
+    reagentColors: {{ reagent_colors | tojson | safe }},
+    eventColors: {{ event_colors | tojson | safe }},
+    wellNumber: "{{ well_number }}",
+  };
+</script>
+
+<!-- Chart.js библиотеки -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2"></script>
+
+<!-- Скрипт для графика скважины -->
+<script src="/static/js/well_events_chart.js"></script>
+{# ==============================================================================
+   ДОБАВИТЬ В well.html ПЕРЕД ЗАКРЫВАЮЩИМ {% endblock %}
+   (после существующих модальных окон)
+   ============================================================================== #}
+
+{# ========== МОДАЛЬНОЕ ОКНО НАСТРОЙКИ ЦВЕТОВ ========== #}
+<dialog id="colorModalWell" style="
+  border: none;
+  border-radius: 12px;
+  padding: 0;
+  max-width: 600px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+">
+  <div style="
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 20px;
+    border-radius: 12px 12px 0 0;
+    color: white;
+  ">
+    <h3 style="margin: 0; font-size: 20px; font-weight: 700;">
+      🎨 Настройка цветов графика
+    </h3>
+  </div>
+
+  <div style="padding: 20px; max-height: 500px; overflow-y: auto;">
+    <div id="colorInputsWell"></div>
+  </div>
+
+  <div style="
+    display: flex;
+    gap: 10px;
+    padding: 15px 20px;
+    background: #f8f9fa;
+    border-radius: 0 0 12px 12px;
+    border-top: 1px solid #dee2e6;
+  ">
+    <button
+      onclick="saveColorsWell()"
+      style="
+        flex: 1;
+        padding: 10px 20px;
+        background: #28a745;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+      "
+      onmouseover="this.style.background='#218838'"
+      onmouseout="this.style.background='#28a745'"
+    >
+      ✓ Сохранить
+    </button>
+    <button
+      onclick="closeColorSettingsWell()"
+      style="
+        flex: 1;
+        padding: 10px 20px;
+        background: #6c757d;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+      "
+      onmouseover="this.style.background='#5a6268'"
+      onmouseout="this.style.background='#6c757d'"
+    >
+      ✗ Отмена
+    </button>
+  </div>
+</dialog>
+
+<style>
+/* Стили для модального окна */
+#colorModalWell::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+#colorModalWell[open] {
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-50px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Стили для скроллбара в модальном окне */
+#colorInputsWell::-webkit-scrollbar {
+  width: 8px;
+}
+
+#colorInputsWell::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+#colorInputsWell::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+#colorInputsWell::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+</style>
+
 {% endblock %}

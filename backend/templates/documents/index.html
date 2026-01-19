@@ -1,0 +1,515 @@
+{% extends "base.html" %}
+
+{% block title %}Акты · СУРГИЛ{% endblock %}
+
+{% block content %}
+
+<!-- БОЛЬШАЯ ПЛИТКА ДАШБОРДА -->
+<a href="/" style="display:block; margin-bottom:20px; text-decoration:none;">
+  <div style="background:linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color:white; padding:24px 32px; border-radius:12px; display:flex; align-items:center; gap:20px; transition:transform 0.2s, box-shadow 0.2s;"
+       onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 24px rgba(0,0,0,0.2)';"
+       onmouseout="this.style.transform=''; this.style.boxShadow='';">
+    <div style="font-size:48px;">🏠</div>
+    <div>
+      <div style="font-size:24px; font-weight:700;">Дашборд</div>
+      <div style="opacity:0.8; font-size:14px;">Главная страница системы СУРГИЛ</div>
+    </div>
+    <div style="margin-left:auto; font-size:32px; opacity:0.5;">→</div>
+  </div>
+</a>
+
+<h1 style="margin: 0 0 16px 0;">Акты</h1>
+
+<div class="cards-grid" style="display:grid; gap:16px;">
+
+  <!-- KANBAN -->
+  <section class="card" style="padding:16px;">
+    <h2 style="margin:0 0 12px 0;">Канбан</h2>
+
+    <div style="display:grid; grid-template-columns: repeat(6, 1fr); gap:12px; overflow:auto;">
+      {% for s in ["draft","generated","signed","sent","archived","cancelled"] %}
+      <div style="min-width:220px; border:1px solid #ddd; border-radius:8px; padding:10px;">
+        <div style="font-weight:600; margin-bottom:8px;">
+          {% if s == 'draft' %}📝 Черновик
+          {% elif s == 'generated' %}📄 Создан
+          {% elif s == 'signed' %}✅ Подписан
+          {% elif s == 'sent' %}📧 Отправлен
+          {% elif s == 'archived' %}📦 Архив
+          {% elif s == 'cancelled' %}❌ Отменён
+          {% else %}{{ s }}{% endif %}
+        </div>
+
+        {% for d in board.get(s, []) %}
+          {% set is_handover = d.doc_type and d.doc_type.code in ["well_acceptance", "well_transfer"] %}
+          {% set is_equipment = d.doc_type and d.doc_type.code in ["equipment_install", "equipment_remove"] %}
+          {% if is_handover %}
+            {% set detail_url = "/documents/well-handover/" ~ d.id %}
+          {% elif is_equipment %}
+            {% set detail_url = "/documents/equipment/" ~ d.id %}
+          {% else %}
+            {% set detail_url = "/documents/" ~ d.id %}
+          {% endif %}
+
+          <div style="border:1px solid #eee; border-radius:8px; padding:8px; margin-bottom:8px;">
+            <div><strong>{{ d.doc_number or "—" }}</strong></div>
+
+            <div style="font-size:12px; opacity:0.8;">
+              {{ d.doc_type.name_ru if d.doc_type else "" }}
+              {% if d.well %} · Скв {{ d.well.number }}{% endif %}
+            </div>
+
+            <div style="font-size:12px; opacity:0.8;">
+              {% if d.period_month and d.period_year %}
+                {{ "%02d"|format(d.period_month) }}.{{ d.period_year }}
+              {% endif %}
+            </div>
+
+            <div style="margin-top:6px; display:flex; gap:10px; align-items:center;">
+              <a href="{{ detail_url }}" class="admin-link">Открыть</a>
+
+              {% if d.status == "draft" %}
+                {% if is_equipment %}
+                  <form method="post" action="/documents/equipment/{{ d.id }}/delete"
+                        onsubmit="return confirm('Удалить черновик?');"
+                        style="margin:0;">
+                    <button type="submit" style="font-size:11px; padding:2px 6px;">×</button>
+                  </form>
+                {% else %}
+                  <form method="post" action="/documents/{{ d.id }}/delete"
+                        onsubmit="return confirm('Удалить черновик?');"
+                        style="margin:0;">
+                    <button type="submit" style="font-size:11px; padding:2px 6px;">×</button>
+                  </form>
+                {% endif %}
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+
+        {% if board.get(s, [])|length == 0 %}
+          <div style="opacity:0.4; font-size:12px; text-align:center; padding:8px;">пусто</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <!-- MASS ACTIONS -->
+  <section class="card" style="padding:16px; margin: 0 0 16px 0;">
+    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+      <div>
+        <div style="font-weight:700;">Массовые акты</div>
+        <div style="opacity:.7; font-size:13px;">
+          Создание актов с выбором скважин и фильтрами
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:12px;">
+      <a class="btn btn-primary" href="/documents/reagent-expense/new" style="display:inline-flex; align-items:center; gap:8px;">
+        + Акт расхода реагентов (массово)
+      </a>
+    </div>
+  </section>
+
+  <!-- WELLS SECTION WITH MULTI-SELECT STATUS FILTER -->
+  <section class="card" style="padding:16px;">
+    <div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:16px; gap:20px;">
+      <h2 style="margin:0;">Скважины</h2>
+
+      <!-- Фильтр по статусам (мультивыбор) -->
+      <div style="flex:1; max-width:600px;">
+        <div style="font-weight:600; margin-bottom:8px; font-size:14px;">Фильтр по статусам:</div>
+
+        <div class="status-filter-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:8px; margin-bottom:12px;">
+          {% for css, name in available_statuses %}
+          <label class="status-filter-checkbox {{ css }}" style="display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:6px; cursor:pointer; transition:all 0.2s; border:2px solid transparent;">
+            <input
+              type="checkbox"
+              class="status-checkbox"
+              data-status="{{ css }}"
+              {% if css in selected_statuses %}checked{% endif %}
+              style="cursor:pointer;"
+            >
+            <span style="font-weight:600; font-size:13px;">{{ name }}</span>
+          </label>
+          {% endfor %}
+
+          {% if wells_without_status > 0 %}
+          <label class="status-filter-checkbox" style="display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:6px; cursor:pointer; transition:all 0.2s; border:2px solid #ddd; background:#f8f9fa;">
+            <input
+              type="checkbox"
+              class="status-checkbox"
+              data-status="no-status"
+              {% if 'no-status' in selected_statuses %}checked{% endif %}
+              style="cursor:pointer;"
+            >
+            <span style="font-weight:600; font-size:13px; color:#666;">Без статуса</span>
+          </label>
+          {% endif %}
+        </div>
+
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <button
+            onclick="selectAllStatuses()"
+            class="btn-secondary"
+            style="padding:6px 12px; font-size:13px;"
+          >
+            Выбрать все
+          </button>
+          <button
+            onclick="clearAllStatuses()"
+            class="btn-secondary"
+            style="padding:6px 12px; font-size:13px;"
+          >
+            Снять все
+          </button>
+          <span style="color:#666; font-size:13px; margin-left:auto;">
+            Показано: <strong id="visible-count">{{ wells|length }}</strong> из <strong>{{ total_wells }}</strong>
+          </span>
+        </div>
+      </div>
+
+      <!-- Сортировка -->
+      <div>
+        <div style="font-weight:600; margin-bottom:8px; font-size:14px;">Сортировка:</div>
+        <select
+          id="sort-select"
+          onchange="sortWells()"
+          style="padding:8px 12px; border:1px solid #ddd; border-radius:6px; font-size:14px;"
+        >
+          <option value="number-asc">Номер ↑</option>
+          <option value="number-desc">Номер ↓</option>
+          <option value="status-asc">Статус А-Я</option>
+          <option value="status-desc">Статус Я-А</option>
+          <option value="docs-desc">Актов (больше)</option>
+          <option value="docs-asc">Актов (меньше)</option>
+          <option value="days-desc">Дней в статусе (больше)</option>
+          <option value="days-asc">Дней в статусе (меньше)</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="wells-container">
+      {% for w in wells %}
+        <details
+          class="well-details"
+          data-well-number="{{ w.number }}"
+          data-status-css="{{ w.current_status_css or 'no-status' }}"
+          data-status-name="{{ w.current_status or '' }}"
+          data-docs-total="{{ well_total_stats.get(w.id, {'total': 0}).total }}"
+          data-status-days="{{ w.current_status_days or 0 }}"
+          style="border:1px solid #e5e5e5; border-radius:10px; margin-bottom:10px; overflow:hidden; {% if w.current_status_css not in selected_statuses and (w.current_status_css or 'no-status') != 'no-status' %}display:none;{% endif %} {% if not w.current_status and 'no-status' not in selected_statuses %}display:none;{% endif %}"
+        >
+          <summary style="list-style:none; cursor:pointer;">
+            <div class="well-header" style="display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:16px; padding:12px 16px; background:#fafafa;">
+
+              <!-- Название скважины -->
+              <div style="display:flex; align-items:center; gap:8px; font-weight:700; font-size:15px;">
+                <span class="well-arrow" style="font-size:12px; transition:transform 0.2s;">►</span>
+                Скв {{ w.number }}
+              </div>
+
+              <!-- Статус -->
+              <div style="display:flex; align-items:center; gap:16px;">
+                {% if w.current_status %}
+                  <div class="status-badge {{ w.current_status_css }}" style="padding:6px 16px; border-radius:6px; font-weight:600; font-size:13px; white-space:nowrap;">
+                    {{ w.current_status }}
+                  </div>
+                  <div style="font-size:12px; color:#666;">
+                    {% if w.current_status_start %}
+                      с {{ w.current_status_start.strftime("%d.%m.%Y") }}
+                    {% endif %}
+                    {% if w.current_status_days is not none %}
+                      · <strong>{{ "%.1f"|format(w.current_status_days) }}</strong> сут.
+                    {% endif %}
+                  </div>
+                {% else %}
+                  <div style="padding:6px 16px; border-radius:6px; font-weight:600; font-size:13px; background:#f0f0f0; color:#666;">
+                    Статус не задан
+                  </div>
+                {% endif %}
+              </div>
+
+              <!-- Статистика актов -->
+              {% set stats = well_total_stats.get(w.id, {"total": 0, "by_group": {}}) %}
+              <div style="display:flex; gap:20px; font-size:13px;">
+                <div style="display:flex; flex-direction:column; align-items:center; gap:2px;">
+                  <div style="font-weight:700; font-size:16px; color:#0066cc;">{{ stats.total }}</div>
+                  <div style="color:#666; font-size:11px; text-transform:uppercase;">Всего</div>
+                </div>
+              </div>
+
+            </div>
+          </summary>
+
+          <div style="padding:16px; display:grid; gap:8px;">
+
+            <div style="font-weight:600; margin-top:6px;">Обязательные разовые</div>
+
+            {% for dt in doc_types_one_time %}
+              {# Пропускаем equipment_remove - показываем только единую строку #}
+              {% if dt.code != "equipment_remove" %}
+
+              {% set st = well_stats.get((w.id, dt.id)) %}
+              <div style="display:flex; gap:12px; align-items:center; padding:8px; border:1px solid #f0f0f0; border-radius:8px;">
+                <div style="min-width:320px;">
+                  {# Для equipment_install показываем объединённое название #}
+                  {% if dt.code == "equipment_install" %}
+                    📦 Акт монтажа/демонтажа оборудования
+                  {% else %}
+                    {{ dt.name_ru }}
+                  {% endif %}
+                </div>
+
+                {# Статистика #}
+                {% if dt.code == "equipment_install" %}
+                  {% set st_install = well_stats.get((w.id, dt.id)) %}
+                  {% set dt_remove_list = doc_types_one_time|selectattr("code", "equalto", "equipment_remove")|list %}
+                  {% set dt_remove = dt_remove_list[0] if dt_remove_list else none %}
+                  {% set st_remove = well_stats.get((w.id, dt_remove.id)) if dt_remove else none %}
+
+                  {% if (st_install and st_install.docs) or (st_remove and st_remove.docs) %}
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; font-size:13px;">
+                      {% if st_install and st_install.docs %}
+                        {% for x in st_install.docs %}
+                          <a href="/documents/equipment/{{ x.id }}" style="padding:2px 8px; background:#e7f5e7; border-radius:4px; text-decoration:none;">
+                            📦 {{ x.doc_number or ("#" ~ x.id) }}
+                          </a>
+                        {% endfor %}
+                      {% endif %}
+                      {% if st_remove and st_remove.docs %}
+                        {% for x in st_remove.docs %}
+                          <a href="/documents/equipment/{{ x.id }}" style="padding:2px 8px; background:#fff3cd; border-radius:4px; text-decoration:none;">
+                            🔧 {{ x.doc_number or ("#" ~ x.id) }}
+                          </a>
+                        {% endfor %}
+                      {% endif %}
+                    </div>
+                  {% else %}
+                    <span style="opacity:.7;">нет</span>
+                  {% endif %}
+                {% else %}
+                  {% if st and st.docs and (st.docs|length) > 0 %}
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; font-size:13px;">
+                      {% for x in st.docs %}
+                        {% set is_handover = dt.code in ["well_acceptance", "well_transfer"] %}
+                        <a href="{{ ("/documents/well-handover/" ~ x.id) if is_handover else ("/documents/" ~ x.id) }}"
+                           style="padding:2px 8px; background:#e0e0e0; border-radius:4px; text-decoration:none;">
+                          {{ x.doc_number or ("#" ~ x.id) }}
+                        </a>
+                      {% endfor %}
+                    </div>
+                  {% else %}
+                    <span style="opacity:.7;">нет</span>
+                  {% endif %}
+                {% endif %}
+
+                {# Кнопка создания #}
+                {% if dt.code == "equipment_install" %}
+                  <a class="btn btn-primary" style="margin-left:auto; font-size:13px; padding:6px 12px;" href="/documents/equipment/new?well_id={{ w.id }}&kind=install">
+                    + Создать
+                  </a>
+                {% elif dt.code in ["well_acceptance", "well_transfer"] %}
+                  <a class="btn btn-primary" style="margin-left:auto; font-size:13px; padding:6px 12px;" href="/documents/well-handover/new?well_id={{ w.id }}&kind={{ dt.code }}">
+                    + Создать
+                  </a>
+                {% else %}
+                  <form method="post" action="/documents/create" style="margin-left:auto;">
+                    <input type="hidden" name="doc_type_id" value="{{ dt.id }}">
+                    <input type="hidden" name="well_id" value="{{ w.id }}">
+                    <button type="submit" style="font-size:13px; padding:6px 12px;">+ Создать</button>
+                  </form>
+                {% endif %}
+              </div>
+              {% endif %}
+            {% endfor %}
+
+            <div style="font-weight:600; margin-top:10px;">Периодические</div>
+            <div style="opacity:.75; font-size:13px;">
+              Добавим следующим шагом: выбор месяца/года + автосбор данных.
+            </div>
+
+            <div style="margin-top:6px;">
+              <a href="/documents?well_id={{ w.id }}">Все акты по скважине</a>
+            </div>
+
+          </div>
+        </details>
+      {% endfor %}
+    </div>
+
+    {% if wells|length == 0 %}
+      <div style="padding:40px; text-align:center; opacity:0.6;">
+        Нет скважин с выбранными статусами
+      </div>
+    {% endif %}
+  </section>
+
+  <!-- FINANCE -->
+  <section class="card" style="padding:16px;">
+    <h2 style="margin:0 0 12px 0;">Финансовые акты</h2>
+    <div style="opacity:0.8;">Счета-фактуры, акты выполненных работ — добавим следующим этапом.</div>
+  </section>
+
+</div>
+
+<style>
+/* Стили для статусов */
+:root {
+  --status-watch-color: #0c5460;
+  --status-watch-bg: #d1ecf1;
+  --status-adapt-color: #856404;
+  --status-adapt-bg: #fff3cd;
+  --status-opt-color: #155724;
+  --status-opt-bg: #d4edda;
+  --status-dev-color: #004085;
+  --status-dev-bg: #cce5ff;
+  --status-off-color: #721c24;
+  --status-off-bg: #f8d7da;
+  --status-idle-color: #383d41;
+  --status-idle-bg: #e2e3e5;
+  --status-other-color: #333;
+  --status-other-bg: #e7e7e7;
+}
+
+.status-badge.status-watch { background: var(--status-watch-bg); color: var(--status-watch-color); }
+.status-badge.status-adapt { background: var(--status-adapt-bg); color: var(--status-adapt-color); }
+.status-badge.status-opt { background: var(--status-opt-bg); color: var(--status-opt-color); }
+.status-badge.status-dev { background: var(--status-dev-bg); color: var(--status-dev-color); }
+.status-badge.status-off { background: var(--status-off-bg); color: var(--status-off-color); }
+.status-badge.status-idle { background: var(--status-idle-bg); color: var(--status-idle-color); }
+.status-badge.status-other { background: var(--status-other-bg); color: var(--status-other-color); }
+
+/* Стили для чекбоксов фильтров */
+.status-filter-checkbox.status-watch { background: var(--status-watch-bg); color: var(--status-watch-color); border-color: var(--status-watch-bg); }
+.status-filter-checkbox.status-adapt { background: var(--status-adapt-bg); color: var(--status-adapt-color); border-color: var(--status-adapt-bg); }
+.status-filter-checkbox.status-opt { background: var(--status-opt-bg); color: var(--status-opt-color); border-color: var(--status-opt-bg); }
+.status-filter-checkbox.status-dev { background: var(--status-dev-bg); color: var(--status-dev-color); border-color: var(--status-dev-bg); }
+.status-filter-checkbox.status-off { background: var(--status-off-bg); color: var(--status-off-color); border-color: var(--status-off-bg); }
+.status-filter-checkbox.status-idle { background: var(--status-idle-bg); color: var(--status-idle-color); border-color: var(--status-idle-bg); }
+.status-filter-checkbox.status-other { background: var(--status-other-bg); color: var(--status-other-color); border-color: var(--status-other-bg); }
+
+.status-filter-checkbox input:checked ~ span {
+  font-weight: 700;
+}
+
+.status-filter-checkbox:has(input:checked) {
+  border-color: currentColor;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.status-filter-checkbox:hover {
+  opacity: 0.8;
+  transform: translateY(-1px);
+}
+
+/* Анимация раскрытия */
+.well-details[open] .well-arrow {
+  transform: rotate(90deg);
+}
+
+.well-header:hover {
+  background: #f0f0f0;
+}
+</style>
+
+<script>
+const STORAGE_KEY_STATUSES = 'documents_selected_statuses';
+const STORAGE_KEY_SORT = 'documents_sort_order';
+
+// ========== Фильтрация по статусам ==========
+function filterWells() {
+  const checkboxes = document.querySelectorAll('.status-checkbox:checked');
+  const selectedStatuses = Array.from(checkboxes).map(cb => cb.dataset.status);
+
+  localStorage.setItem(STORAGE_KEY_STATUSES, JSON.stringify(selectedStatuses));
+
+  const wells = document.querySelectorAll('.well-details');
+  let visibleCount = 0;
+
+  wells.forEach(well => {
+    const wellStatus = well.dataset.statusCss || 'no-status';
+    const shouldShow = selectedStatuses.length === 0 || selectedStatuses.includes(wellStatus);
+
+    well.style.display = shouldShow ? '' : 'none';
+    if (shouldShow) visibleCount++;
+  });
+
+  const counter = document.getElementById('visible-count');
+  if (counter) counter.textContent = visibleCount;
+}
+
+function selectAllStatuses() {
+  document.querySelectorAll('.status-checkbox').forEach(cb => cb.checked = true);
+  filterWells();
+}
+
+function clearAllStatuses() {
+  document.querySelectorAll('.status-checkbox').forEach(cb => cb.checked = false);
+  filterWells();
+}
+
+// ========== Сортировка ==========
+function sortWells() {
+  const sortValue = document.getElementById('sort-select').value;
+  const container = document.getElementById('wells-container');
+  const wells = Array.from(document.querySelectorAll('.well-details'));
+
+  localStorage.setItem(STORAGE_KEY_SORT, sortValue);
+
+  wells.sort((a, b) => {
+    const aNum = parseInt(a.dataset.wellNumber) || 0;
+    const bNum = parseInt(b.dataset.wellNumber) || 0;
+    const aStatus = a.dataset.statusName || '';
+    const bStatus = b.dataset.statusName || '';
+    const aDocs = parseInt(a.dataset.docsTotal) || 0;
+    const bDocs = parseInt(b.dataset.docsTotal) || 0;
+    const aDays = parseFloat(a.dataset.statusDays) || 0;
+    const bDays = parseFloat(b.dataset.statusDays) || 0;
+
+    switch(sortValue) {
+      case 'number-asc': return aNum - bNum;
+      case 'number-desc': return bNum - aNum;
+      case 'status-asc': return aStatus.localeCompare(bStatus, 'ru');
+      case 'status-desc': return bStatus.localeCompare(aStatus, 'ru');
+      case 'docs-desc': return bDocs - aDocs;
+      case 'docs-asc': return aDocs - bDocs;
+      case 'days-desc': return bDays - aDays;
+      case 'days-asc': return aDays - bDays;
+      default: return aNum - bNum;
+    }
+  });
+
+  wells.forEach(well => container.appendChild(well));
+}
+
+// ========== Инициализация ==========
+document.addEventListener('DOMContentLoaded', function() {
+  const savedStatuses = localStorage.getItem(STORAGE_KEY_STATUSES);
+  if (savedStatuses) {
+    try {
+      const statuses = JSON.parse(savedStatuses);
+      document.querySelectorAll('.status-checkbox').forEach(cb => {
+        cb.checked = statuses.includes(cb.dataset.status);
+      });
+      filterWells();
+    } catch (e) {}
+  }
+
+  const savedSort = localStorage.getItem(STORAGE_KEY_SORT);
+  if (savedSort) {
+    const sortSelect = document.getElementById('sort-select');
+    if (sortSelect) {
+      sortSelect.value = savedSort;
+      sortWells();
+    }
+  }
+
+  document.querySelectorAll('.status-checkbox').forEach(cb => {
+    cb.addEventListener('change', filterWells);
+  });
+});
+</script>
+
+{% endblock %}

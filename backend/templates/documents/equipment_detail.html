@@ -1,0 +1,318 @@
+{% extends "base.html" %}
+{% block title %}{{ doc.doc_number }} · СУРГИЛ{% endblock %}
+
+{% block content %}
+
+<!-- Навигация -->
+<div style="margin-bottom:16px; display:flex; gap:12px; align-items:center;">
+  <a href="/" class="btn" style="background:#333; color:white;">🏠 Дашборд</a>
+  <a href="/documents" class="btn-secondary">📋 Все акты</a>
+  <span style="opacity:0.5;">→</span>
+  <span style="font-weight:600;">{{ doc.doc_number }}</span>
+</div>
+
+<h1>{{ doc.doc_type.name_ru if doc.doc_type else "Акт оборудования" }}</h1>
+
+<div class="card" style="padding:16px; max-width:900px;">
+
+  <!-- Заголовок документа -->
+  <div style="display:grid; grid-template-columns:1fr auto; gap:16px; margin-bottom:20px; padding-bottom:16px; border-bottom:2px solid #e0e0e0;">
+    <div>
+      <div style="font-size:24px; font-weight:700; margin-bottom:8px;">
+        {{ doc.doc_number or "—" }}
+      </div>
+      <div style="font-size:14px; opacity:0.7;">
+        {% if doc.well %}Скважина {{ doc.well.number }}{% endif %}
+        {% if doc.meta and doc.meta.act_date %}
+          · {{ doc.meta.act_date }}
+        {% endif %}
+      </div>
+    </div>
+
+    <div style="text-align:right;">
+      {% if doc.status == 'draft' %}
+        <span class="badge" style="background:#ffc107; color:#000;">Черновик</span>
+      {% elif doc.status == 'generated' %}
+        <span class="badge" style="background:#17a2b8; color:#fff;">Сгенерирован</span>
+      {% elif doc.status == 'signed' %}
+        <span class="badge" style="background:#28a745; color:#fff;">Подписан</span>
+      {% elif doc.status == 'sent' %}
+        <span class="badge" style="background:#6f42c1; color:#fff;">Отправлен</span>
+      {% elif doc.status == 'archived' %}
+        <span class="badge" style="background:#6c757d; color:#fff;">Архив</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Основная информация -->
+  <div style="display:grid; gap:16px; margin-bottom:24px;">
+
+    <!-- Тип операции -->
+    <div>
+      <label style="font-weight:600; display:block; margin-bottom:4px;">Тип операции</label>
+      <div style="font-size:18px;">
+        {% if doc.meta and doc.meta.kind == 'install' %}
+          📦 <b style="color:#28a745;">Монтаж</b>
+        {% else %}
+          🔧 <b style="color:#dc3545;">Демонтаж</b>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Дата и время события -->
+    <div>
+      <label style="font-weight:600; display:block; margin-bottom:4px;">Дата и время события</label>
+      <div>
+        {% if doc.meta and doc.meta.event_dt %}
+          {{ doc.meta.event_dt[:10] }} {{ doc.meta.event_dt[11:16] }}
+        {% else %}
+          —
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Список оборудования -->
+    <div>
+      <label style="font-weight:600; display:block; margin-bottom:8px;">Оборудование</label>
+
+      {% if equipment_items and equipment_items|length > 0 %}
+        <table style="width:100%; border-collapse:collapse;">
+          <thead>
+            <tr style="background:#f5f5f5; border-bottom:2px solid #ddd;">
+              <th style="padding:10px; text-align:left; width:50px;">№</th>
+              <th style="padding:10px; text-align:left;">Название</th>
+              <th style="padding:10px; text-align:left; width:150px;">Серийный номер</th>
+              <th style="padding:10px; text-align:center; width:80px;">Кол-во</th>
+              <th style="padding:10px; text-align:left; width:120px;">Статус</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in equipment_items %}
+            <tr style="border-bottom:1px solid #e0e0e0;">
+              <td style="padding:10px;">{{ loop.index }}</td>
+              <td style="padding:10px;">
+                <div style="font-weight:600;">{{ item.name }}</div>
+                {% if item.equipment %}
+                  <div style="font-size:12px; opacity:0.6;">
+                    {{ item.equipment.manufacturer or "" }}
+                  </div>
+                {% endif %}
+              </td>
+              <td style="padding:10px; font-family:monospace;">
+                {{ item.serial_number or "—" }}
+              </td>
+              <td style="padding:10px; text-align:center;">
+                {{ item.quantity }}
+              </td>
+              <td style="padding:10px;">
+                {% if item.equipment %}
+                  {% if item.equipment.status == 'available' %}
+                    <span style="color:#28a745;">●</span> Доступно
+                  {% elif item.equipment.status == 'installed' %}
+                    <span style="color:#007bff;">●</span> Установлено
+                  {% elif item.equipment.status == 'maintenance' %}
+                    <span style="color:#ffc107;">●</span> На ТО
+                  {% elif item.equipment.status == 'broken' %}
+                    <span style="color:#dc3545;">●</span> Неисправно
+                  {% else %}
+                    <span style="color:#6c757d;">●</span> {{ item.equipment.status }}
+                  {% endif %}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div style="padding:20px; text-align:center; opacity:0.5;">
+          Оборудование не указано
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- Давления -->
+    <div>
+      <label style="font-weight:600; display:block; margin-bottom:8px;">Показания давления</label>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+        <div style="padding:12px; border:1px solid #e0e0e0; border-radius:6px;">
+          <div style="font-size:12px; opacity:0.6; margin-bottom:4px;">Трубное давление</div>
+          <div style="font-size:20px; font-weight:700;">
+            {% if doc.meta and doc.meta.tube_pressure %}
+              {{ doc.meta.tube_pressure }} <span style="font-size:14px; font-weight:400;">кгс/см²</span>
+            {% else %}
+              <span style="opacity:0.5;">—</span>
+            {% endif %}
+          </div>
+        </div>
+        <div style="padding:12px; border:1px solid #e0e0e0; border-radius:6px;">
+          <div style="font-size:12px; opacity:0.6; margin-bottom:4px;">Шлейфное давление</div>
+          <div style="font-size:20px; font-weight:700;">
+            {% if doc.meta and doc.meta.line_pressure %}
+              {{ doc.meta.line_pressure }} <span style="font-size:14px; font-weight:400;">кгс/см²</span>
+            {% else %}
+              <span style="opacity:0.5;">—</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Договор -->
+    {% if doc.meta and doc.meta.contract_number %}
+    <div>
+      <label style="font-weight:600; display:block; margin-bottom:4px;">Номер договора</label>
+      <div>{{ doc.meta.contract_number }}</div>
+    </div>
+    {% endif %}
+
+    <!-- Территория -->
+    {% if doc.meta and doc.meta.territory_state %}
+    <div>
+      <label style="font-weight:600; display:block; margin-bottom:4px;">Состояние территории</label>
+      <div>{{ doc.meta.territory_state }}</div>
+    </div>
+    {% endif %}
+
+    <!-- Примечание -->
+    {% if doc.meta and doc.meta.note %}
+    <div>
+      <label style="font-weight:600; display:block; margin-bottom:4px;">Примечание</label>
+      <div style="white-space:pre-wrap;">{{ doc.meta.note }}</div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- PDF -->
+  {% if doc.pdf_filename %}
+  <div style="margin-top:20px; padding:16px; background:#f0f8ff; border-radius:8px;">
+    <div style="font-weight:600; margin-bottom:8px;">📄 PDF документ</div>
+    <a href="/static/{{ doc.pdf_filename }}" target="_blank" class="btn btn-primary">
+      Открыть PDF
+    </a>
+    <a href="/static/{{ doc.pdf_filename }}" download class="btn-secondary" style="margin-left:8px;">
+      Скачать
+    </a>
+  </div>
+  {% endif %}
+
+  <!-- Действия -->
+  <div style="margin-top:24px; padding-top:16px; border-top:2px solid #e0e0e0;">
+    <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+
+      <!-- Редактирование -->
+      {% if doc.status == 'draft' %}
+        <a href="/documents/equipment/{{ doc.id }}/edit" class="btn-secondary">
+          ✏️ Редактировать
+        </a>
+      {% endif %}
+
+      <!-- Генерация PDF -->
+      {% if doc.status == 'draft' %}
+        <form method="post" action="/documents/equipment/{{ doc.id }}/generate-pdf" style="display:inline-block;">
+          <button type="submit" class="btn btn-primary">
+            📄 Сгенерировать PDF
+          </button>
+        </form>
+      {% endif %}
+
+      <!-- Подписание -->
+      {% if doc.status == 'generated' %}
+        <form method="post" action="/documents/equipment/{{ doc.id }}/sign" style="display:inline-block;">
+          <button type="submit" class="btn" style="background:#28a745; color:#fff;">
+            ✅ Подписать
+          </button>
+        </form>
+      {% endif %}
+
+      <!-- Изменение статуса -->
+      {% if doc.status == 'signed' %}
+        <div style="display:inline-flex; gap:8px;">
+          <form method="post" action="/documents/equipment/{{ doc.id }}/change-status" style="display:inline-block;">
+            <input type="hidden" name="new_status" value="sent">
+            <button type="submit" class="btn" style="background:#6f42c1; color:#fff;">
+              📤 Отправить
+            </button>
+          </form>
+          <form method="post" action="/documents/equipment/{{ doc.id }}/change-status" style="display:inline-block;">
+            <input type="hidden" name="new_status" value="archived">
+            <button type="submit" class="btn" style="background:#6c757d; color:#fff;">
+              📦 В архив
+            </button>
+          </form>
+        </div>
+      {% endif %}
+
+      {% if doc.status == 'sent' %}
+        <form method="post" action="/documents/equipment/{{ doc.id }}/change-status" style="display:inline-block;">
+          <input type="hidden" name="new_status" value="archived">
+          <button type="submit" class="btn" style="background:#6c757d; color:#fff;">
+            📦 В архив
+          </button>
+        </form>
+      {% endif %}
+
+      {% if doc.status == 'archived' %}
+        <form method="post" action="/documents/equipment/{{ doc.id }}/change-status" style="display:inline-block;">
+          <input type="hidden" name="new_status" value="signed">
+          <button type="submit" class="btn" style="background:#28a745; color:#fff;">
+            ↩️ Вернуть в подписанные
+          </button>
+        </form>
+      {% endif %}
+
+      <!-- Удаление (для любого статуса кроме draft) -->
+      {% if doc.status in ['generated', 'signed', 'sent', 'archived'] %}
+        <form method="post" action="/documents/equipment/{{ doc.id }}/delete"
+              onsubmit="return confirm('⚠️ Удалить документ?\n\nЭто действие необратимо!');"
+              style="display:inline-block;">
+          <button type="submit" class="btn" style="background:#dc3545; color:#fff;">
+            🗑️ Удалить
+          </button>
+        </form>
+      {% endif %}
+
+      <!-- Удаление черновика -->
+      {% if doc.status == 'draft' %}
+        <form method="post" action="/documents/equipment/{{ doc.id }}/delete"
+              onsubmit="return confirm('Удалить черновик? Оборудование вернётся в статус «Доступно».');"
+              style="display:inline-block;">
+          <button type="submit" class="btn" style="background:#dc3545; color:#fff;">
+            🗑️ Удалить
+          </button>
+        </form>
+      {% endif %}
+
+      <!-- Навигация -->
+      <div style="margin-left:auto; display:flex; gap:8px;">
+        <a href="/documents" class="btn-secondary">← К списку актов</a>
+        <a href="/" class="btn-secondary">🏠 Дашборд</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Метаинформация -->
+  <div style="margin-top:24px; padding-top:16px; border-top:1px solid #e0e0e0; font-size:12px; opacity:0.6;">
+    <div>Создан: {{ doc.created_at.strftime("%d.%m.%Y %H:%M") if doc.created_at else "—" }}</div>
+    {% if doc.updated_at and doc.updated_at != doc.created_at %}
+      <div>Изменён: {{ doc.updated_at.strftime("%d.%m.%Y %H:%M") }}</div>
+    {% endif %}
+    {% if doc.signed_at %}
+      <div>Подписан: {{ doc.signed_at.strftime("%d.%m.%Y %H:%M") }} ({{ doc.signed_by_name or "—" }})</div>
+    {% endif %}
+  </div>
+
+</div>
+
+<style>
+.badge {
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+</style>
+
+{% endblock %}

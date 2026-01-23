@@ -238,7 +238,6 @@
 </div>
 {# ==== БЛОК ОБОРУДОВАНИЯ НА ПЛИТКЕ ==== #}
 <div class="well-equipment-box">
-
     <div class="equipment-title">
         Установленное оборудование
     </div>
@@ -246,19 +245,31 @@
     {% if w.equipment_active %}
         <div class="equipment-badges">
             {% for eq in w.equipment_active %}
-                {% set conf = equipment_by_code.get(eq.type_code) %}
-                {% if conf %}
-                    <div class="equipment-badge">
-                        <img
-                            src="{{ url_for('static', path='icons/' ~ conf.icon) }}"
-                            class="equipment-icon"
-                            alt="{{ conf.label }}"
-                        >
-                        <div class="equipment-label">
-                            {{ conf.short or conf.label }}
+                {% set config = eq.config %}
+                <div class="equipment-badge"
+                     style="border-color: {{ config.border_color }}; background: {{ config.background_gradient }};"
+                     title="{{ config.label }}
+{% if eq.model %}Модель: {{ eq.model }}{% endif %}
+{% if eq.serial %}Серийный: {{ eq.serial }}{% endif %}
+{% if eq.installation_location %}Место: {{ eq.installation_location }}{% endif %}
+{% if eq.installation_date %}Установлен: {{ eq.installation_date.strftime('%d.%m.%Y') }}{% endif %}">
+                    <img
+                        src="{{ config.icon }}"
+                        class="equipment-icon"
+                        alt="{{ config.label }}"
+                        onerror="this.src='/static/icons/default.png'"
+                    >
+                    <div class="equipment-info">
+                        <div class="equipment-label" style="color: {{ config.color }};">
+                            {{ config.short or config.label }}
                         </div>
+                        {% if eq.installation_location %}
+                            <div class="equipment-location">
+                                <small>{{ eq.installation_location|truncate(15) }}</small>
+                            </div>
+                        {% endif %}
                     </div>
-                {% endif %}
+                </div>
             {% endfor %}
         </div>
     {% else %}
@@ -266,7 +277,6 @@
             Оборудование не установлено
         </div>
     {% endif %}
-
 </div>
 
                     <div class="well-tile__description">

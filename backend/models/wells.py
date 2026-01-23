@@ -22,6 +22,13 @@ class Well(Base):
         lazy="selectin",
     )
 
+    # НОВОЕ: Оборудование, установленное на скважине (через поле well_id)
+    installed_equipment = relationship(
+        "Equipment",
+        back_populates="well",
+        lazy="dynamic",  # или "select" если нужно всегда загружать
+    )
+
     channels = relationship("WellChannel", back_populates="well")
 
     # <<< НОВОЕ: список заметок для скважины >>>

@@ -1,0 +1,424 @@
+{% extends "base.html" %}
+
+{% block title %}СУРГИЛ · Імпорт обладнання{% endblock %}
+
+{% block extra_head %}
+
+<style>
+.import-page { padding: 20px; max-width: 1200px; margin: 0 auto; }
+.breadcrumb { display: flex; gap: 8px; margin-bottom: 20px; font-size: 14px; color: #6c757d; }
+.breadcrumb a { color: #007bff; text-decoration: none; }
+.card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 30px; }
+.card h2 { margin: 0 0 20px 0; font-size: 24px; }
+
+/* Upload area */
+.upload-area {
+    border: 3px dashed #007bff;
+    border-radius: 12px;
+    padding: 60px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s;
+    background: #f8f9fa;
+}
+.upload-area:hover { background: #e7f3ff; border-color: #0056b3; }
+.upload-area.dragging { background: #cfe2ff; border-color: #0056b3; transform: scale(1.02); }
+.upload-icon { font-size: 64px; margin-bottom: 20px; }
+.upload-text { font-size: 18px; font-weight: 600; margin-bottom: 10px; }
+.upload-hint { font-size: 14px; color: #6c757d; }
+
+/* Preview table */
+.preview-table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 13px; }
+.preview-table th {
+    background: #f8f9fa;
+    padding: 12px 8px;
+    text-align: left;
+    font-weight: 600;
+    border-bottom: 2px solid #dee2e6;
+    position: sticky;
+    top: 0;
+}
+.preview-table td { padding: 10px 8px; border-bottom: 1px solid #dee2e6; }
+.preview-table tr.valid { background: #d4edda; }
+.preview-table tr.invalid { background: #f8d7da; }
+.preview-table tr:hover { background: #f8f9fa; }
+.error-badge { background: #dc3545; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-right: 4px; }
+.warning-badge { background: #ffc107; color: #212529; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-right: 4px; }
+.success-badge { background: #28a745; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+
+/* Stats */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 20px; margin: 20px 0; }
+.stat-card {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+    text-align: center;
+    border-left: 4px solid #007bff;
+}
+.stat-card.valid { border-color: #28a745; }
+.stat-card.invalid { border-color: #dc3545; }
+.stat-card.duplicate { border-color: #ffc107; }
+.stat-value { font-size: 36px; font-weight: bold; margin-bottom: 8px; }
+.stat-label { font-size: 14px; color: #6c757d; text-transform: uppercase; }
+
+/* Buttons */
+.btn { padding: 12px 24px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px; transition: all 0.3s; }
+.btn-primary { background: #007bff; color: white; }
+.btn-primary:hover { background: #0056b3; }
+.btn-success { background: #28a745; color: white; }
+.btn-success:hover { background: #218838; }
+.btn-secondary { background: #6c757d; color: white; }
+.btn-secondary:hover { background: #5a6268; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.hidden { display: none; }
+.table-wrapper { max-height: 500px; overflow-y: auto; }
+
+.file-input-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="import-page">
+
+    <div class="breadcrumb">
+        <a href="/visual">📊 Дашборд</a> ›
+        <a href="/equipment">🔧 Обладнання</a> ›
+        <span>Імпорт з Excel</span>
+    </div>
+
+    <div class="card">
+        <h2>📊 Імпорт обладнання з Excel</h2>
+
+        <!-- Крок 1: Завантаження файлу -->
+        <div id="step-upload">
+            <p style="margin-bottom: 20px;">
+                <strong>📥 Крок 1:</strong> Завантажте заповнений Excel файл з обладнанням
+            </p>
+
+            <div style="margin-bottom: 20px;">
+                <a href="/api/equipment/template" download class="btn btn-primary">
+                    📄 Завантажити шаблон Excel
+                </a>
+                <span style="margin-left: 10px; color: #6c757d;">
+                    (Спочатку завантажте та заповніть шаблон)
+                </span>
+            </div>
+
+            <div class="upload-area" id="upload-area">
+                <div class="upload-icon">📁</div>
+                <div class="upload-text">Перетягніть Excel файл сюди</div>
+                <div class="upload-hint">або натисніть для вибору файлу</div>
+                <div class="upload-hint" style="margin-top: 10px;">Підтримуються: .xlsx, .xls</div>
+                <input type="file" id="file-input" accept=".xlsx,.xls" class="file-input-hidden">
+            </div>
+
+            <div id="file-info" class="hidden" style="margin-top: 20px; padding: 15px; background: #e7f3ff; border-radius: 8px;">
+                <strong>📄 Файл:</strong> <span id="file-name"></span> (<span id="file-size"></span>)
+                <button onclick="clearFile()" style="margin-left: 20px; padding: 4px 12px; border: none; background: #dc3545; color: white; border-radius: 4px; cursor: pointer;">
+                    Очистити
+                </button>
+            </div>
+
+            <div style="margin-top: 20px;">
+                <button id="preview-btn" class="btn btn-primary" onclick="previewData()" disabled>
+                    👁️ Переглянути дані
+                </button>
+            </div>
+        </div>
+
+        <!-- Крок 2: Перегляд -->
+        <div id="step-preview" class="hidden">
+            <p style="margin-bottom: 20px;">
+                <strong>👁️ Крок 2:</strong> Перегляньте дані та виправте помилки
+            </p>
+
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-total">0</div>
+                    <div class="stat-label">Всього рядків</div>
+                </div>
+                <div class="stat-card valid">
+                    <div class="stat-value" id="stat-valid">0</div>
+                    <div class="stat-label">Коректних</div>
+                </div>
+                <div class="stat-card invalid">
+                    <div class="stat-value" id="stat-invalid">0</div>
+                    <div class="stat-label">З помилками</div>
+                </div>
+                <div class="stat-card duplicate">
+                    <div class="stat-value" id="stat-duplicates">0</div>
+                    <div class="stat-label">Дублікати</div>
+                </div>
+            </div>
+
+            <div class="table-wrapper">
+                <table class="preview-table" id="preview-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Назва</th>
+                            <th>Тип</th>
+                            <th>Серійний №</th>
+                            <th>Виробник</th>
+                            <th>Дата</th>
+                            <th>Стан</th>
+                            <th>Статус</th>
+                        </tr>
+                    </thead>
+                    <tbody id="preview-body"></tbody>
+                </table>
+            </div>
+
+            <div style="margin-top: 30px; display: flex; gap: 10px;">
+                <button class="btn btn-secondary" onclick="backToUpload()">
+                    ← Назад
+                </button>
+                <button id="import-btn" class="btn btn-success" onclick="executeImport()">
+                    ✅ Імпортувати (<span id="import-count">0</span> шт)
+                </button>
+            </div>
+        </div>
+
+        <!-- Крок 3: Результати -->
+        <div id="step-results" class="hidden">
+            <p style="margin-bottom: 20px;">
+                <strong>✅ Крок 3:</strong> Результати імпорту
+            </p>
+
+            <div class="stats">
+                <div class="stat-card valid">
+                    <div class="stat-value" id="result-success">0</div>
+                    <div class="stat-label">Успішно</div>
+                </div>
+                <div class="stat-card invalid">
+                    <div class="stat-value" id="result-failed">0</div>
+                    <div class="stat-label">Помилок</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="result-skipped">0</div>
+                    <div class="stat-label">Пропущено</div>
+                </div>
+            </div>
+
+            <div id="result-errors" class="hidden" style="margin-top: 20px; padding: 20px; background: #f8d7da; border-radius: 8px;">
+                <h3 style="margin: 0 0 15px 0; color: #721c24;">❌ Помилки:</h3>
+                <ul id="error-list" style="margin: 0; padding-left: 20px;"></ul>
+            </div>
+
+            <div style="margin-top: 30px;">
+                <a href="/equipment" class="btn btn-primary">
+                    📋 Перейти до списку обладнання
+                </a>
+                <button class="btn btn-secondary" onclick="location.reload()" style="margin-left: 10px;">
+                    🔄 Імпортувати ще
+                </button>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+let selectedFile = null;
+let previewPayload = null;
+
+// Upload area drag & drop
+// Upload area drag & drop
+document.addEventListener('DOMContentLoaded', () => {
+    const uploadArea = document.getElementById('upload-area');
+    const fileInput = document.getElementById('file-input');
+
+    if (!uploadArea || !fileInput) return;
+
+    uploadArea.addEventListener('click', () => fileInput.click());
+
+    uploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadArea.classList.add('dragging');
+    });
+
+    uploadArea.addEventListener('dragleave', () => {
+        uploadArea.classList.remove('dragging');
+    });
+
+    uploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadArea.classList.remove('dragging');
+        const files = e.dataTransfer.files;
+        if (files.length) handleFile(files[0]);
+    });
+
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length) handleFile(e.target.files[0]);
+    });
+
+    window._equipmentFileInput = fileInput;
+});
+
+function handleFile(file) {
+    if (!file.name.match(/\.(xlsx|xls)$/i)) {
+        alert('❌ Будь ласка, виберіть Excel файл (.xlsx або .xls)');
+        return;
+    }
+
+    selectedFile = file;
+    document.getElementById('file-name').textContent = file.name;
+    document.getElementById('file-size').textContent = formatFileSize(file.size);
+    document.getElementById('file-info').classList.remove('hidden');
+    document.getElementById('preview-btn').disabled = false;
+}
+
+function clearFile() {
+    selectedFile = null;
+    if (window._equipmentFileInput) window._equipmentFileInput.value = '';
+    document.getElementById('file-info').classList.add('hidden');
+    document.getElementById('preview-btn').disabled = true;
+}
+
+function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+async function previewData() {
+    if (!selectedFile) return;
+
+    document.getElementById('preview-btn').disabled = true;
+    document.getElementById('preview-btn').textContent = '⏳ Завантаження...';
+
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    try {
+        const response = await fetch('/api/equipment/import/preview', {
+            method: 'POST',
+            body: formData
+        });
+
+        const data = await response.json();
+
+        if (data.error) {
+            alert('❌ Помилка: ' + data.error);
+            document.getElementById('preview-btn').disabled = false;
+            document.getElementById('preview-btn').textContent = '👁️ Переглянути дані';
+            return;
+        }
+
+        previewPayload = data;
+        showPreview(data);
+
+    } catch (error) {
+        alert('❌ Помилка завантаження: ' + error.message);
+        document.getElementById('preview-btn').disabled = false;
+        document.getElementById('preview-btn').textContent = '👁️ Переглянути дані';
+    }
+}
+
+function showPreview(data) {
+    document.getElementById('step-upload').classList.add('hidden');
+    document.getElementById('step-preview').classList.remove('hidden');
+
+    // Stats
+    document.getElementById('stat-total').textContent = data.total;
+    document.getElementById('stat-valid').textContent = data.valid;
+    document.getElementById('stat-invalid').textContent = data.invalid;
+    document.getElementById('stat-duplicates').textContent = data.duplicates;
+    document.getElementById('import-count').textContent = data.valid;
+
+    // Table
+    const tbody = document.getElementById('preview-body');
+    tbody.innerHTML = '';
+
+    data.items.forEach(item => {
+        const row = document.createElement('tr');
+        row.className = item.errors.length ? 'invalid' : 'valid';
+
+        let status = '';
+        if (item.errors.length) {
+            status = item.errors.map(e => `<span class="error-badge">${e}</span>`).join('');
+        }
+        if (item.warnings.length) {
+            status += item.warnings.map(w => `<span class="warning-badge">${w}</span>`).join('');
+        }
+        if (!item.errors.length) {
+            status = '<span class="success-badge">✓ OK</span>';
+        }
+
+        row.innerHTML = `
+            <td>${item.row_num}</td>
+            <td>${item.name || '—'}</td>
+            <td>${item.equipment_type || '—'}</td>
+            <td><strong>${item.serial_number || '—'}</strong></td>
+            <td>${item.manufacturer || '—'}</td>
+            <td>${item.manufacture_date || '—'}</td>
+            <td>${item.condition || 'working'}</td>
+            <td>${status}</td>
+        `;
+
+        tbody.appendChild(row);
+    });
+
+    document.getElementById('import-btn').disabled = data.valid === 0;
+}
+
+function backToUpload() {
+    document.getElementById('step-preview').classList.add('hidden');
+    document.getElementById('step-upload').classList.remove('hidden');
+    document.getElementById('preview-btn').disabled = false;
+    document.getElementById('preview-btn').textContent = '👁️ Переглянути дані';
+}
+
+async function executeImport() {
+    if (!previewPayload) return;
+
+    if (!confirm(`Імпортувати ${previewPayload.valid} одиниць обладнання?`)) return;
+
+    document.getElementById('import-btn').disabled = true;
+    document.getElementById('import-btn').textContent = '⏳ Імпорт...';
+
+    try {
+        const response = await fetch('/api/equipment/import/execute', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(previewPayload)
+        });
+
+        const result = await response.json();
+        showResults(result);
+
+    } catch (error) {
+        alert('❌ Помилка імпорту: ' + error.message);
+        document.getElementById('import-btn').disabled = false;
+        document.getElementById('import-btn').textContent = '✅ Імпортувати';
+    }
+}
+
+function showResults(result) {
+    document.getElementById('step-preview').classList.add('hidden');
+    document.getElementById('step-results').classList.remove('hidden');
+
+    document.getElementById('result-success').textContent = result.success;
+    document.getElementById('result-failed').textContent = result.failed;
+    document.getElementById('result-skipped').textContent = result.skipped;
+
+    if (result.errors && result.errors.length) {
+        document.getElementById('result-errors').classList.remove('hidden');
+        const errorList = document.getElementById('error-list');
+        errorList.innerHTML = '';
+        result.errors.forEach(err => {
+            const li = document.createElement('li');
+            li.textContent = `Рядок ${err.row} (${err.serial}): ${err.error}`;
+            errorList.appendChild(li);
+        });
+    }
+}
+</script>
+{% endblock %}

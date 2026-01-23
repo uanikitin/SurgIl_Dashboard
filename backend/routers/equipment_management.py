@@ -5,13 +5,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import List, Optional
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Query
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, desc, func
-from starlette.responses import RedirectResponse
+# from starlette.responses import RedirectResponse
 
 from backend.db import get_db
 from backend.web.templates import templates
@@ -20,6 +20,8 @@ from backend.models.wells import Well
 from backend.models.equipment import Equipment, EquipmentInstallation, EquipmentMaintenance
 from backend.models.users import User
 from backend.documents.models import Document
+import io
+
 
 router = APIRouter(tags=["equipment-management"])
 
@@ -107,7 +109,7 @@ async def create_equipment(
     db.refresh(equipment)
 
     return RedirectResponse(
-        url=f"/equipment/{equipment.id}",
+        url=f"/equipment/view/{equipment.id}",
         status_code=303
     )
 
@@ -209,7 +211,7 @@ async def equipment_list_page(
 # Деталі обладнання
 # ======================================================================================
 
-@router.get("/equipment/{equipment_id}", response_class=HTMLResponse)
+@router.get("/equipment/view/{equipment_id}", response_class=HTMLResponse)
 async def equipment_detail_page(
     request: Request,
     equipment_id: int,
@@ -246,7 +248,6 @@ async def equipment_detail_page(
     user_ids = set()
     for inst, _ in installations_raw:
         if inst.installed_by:
-            # Перетворюємо в int якщо це строка
             try:
                 user_ids.add(int(inst.installed_by))
             except (ValueError, TypeError):
@@ -267,12 +268,10 @@ async def equipment_detail_page(
     # Обробка історії
     installation_history = []
     for inst, well_num in installations_raw:
-        # Розрахунок тривалості
         start_dt = inst.installed_at
         end_dt = inst.removed_at or datetime.now()
         duration_days = (end_dt - start_dt).days
 
-        # Отримуємо username
         installed_by_name = None
         if inst.installed_by:
             try:
@@ -287,21 +286,20 @@ async def equipment_detail_page(
             except (ValueError, TypeError):
                 pass
 
-        # Перевірка наявності акту
         has_document = inst.document_id is not None
         no_document_confirmed = getattr(inst, 'no_document_confirmed', False) or False
 
         installation_history.append({
             "id": inst.id,
             "well_number": well_num,
-            "well_id": inst.well_id,  # Додаємо для посилань
+            "well_id": inst.well_id,
             "installed_at": inst.installed_at,
             "removed_at": inst.removed_at,
             "is_active": inst.removed_at is None,
             "duration_days": duration_days,
-            "installed_by": installed_by_name or f"User {inst.installed_by}" if inst.installed_by else None,
-            "removed_by": removed_by_name or f"User {inst.removed_by}" if inst.removed_by else None,
-            "installation_location": getattr(inst, 'installation_location', None),  # НОВЕ
+            "installed_by": installed_by_name or (f"User {inst.installed_by}" if inst.installed_by else None),
+            "removed_by": removed_by_name or (f"User {inst.removed_by}" if inst.removed_by else None),
+            "installation_location": getattr(inst, 'installation_location', None),
             "has_document": has_document,
             "no_document_confirmed": no_document_confirmed,
             "document_id": inst.document_id,
@@ -325,8 +323,7 @@ async def equipment_detail_page(
 
     # Додаємо well_id для створення акту демонтажу
     if current_installation:
-        # Знаходимо installation record для отримання well_id
-        for inst, well_num in installations_raw:
+        for inst, _well_num in installations_raw:
             if inst.removed_at is None:
                 current_installation['well_id'] = inst.well_id
                 break
@@ -540,7 +537,7 @@ async def update_equipment_status(
 
         if active_installation:
             active_installation.removed_at = datetime.now()
-            active_installation.removed_by = str(current_admin.id)
+            active_installation.removed_by = current_admin if isinstance(current_admin, str) else str(current_admin.id)
             if notes:
                 active_installation.notes = (active_installation.notes or "") + f"\nЗміна статусу: {notes}"
 
@@ -651,4 +648,416 @@ async def delete_equipment(
     return JSONResponse({
         "success": True,
         "message": f"Обладнання {equipment.name} видалено",
+    })
+
+@router.get("/equipment/import", response_class=HTMLResponse)
+async def equipment_import_page(
+        request: Request,
+):
+    """Сторінка імпорту обладнання з Excel"""
+
+    context = {
+        "request": request,
+    }
+
+    return templates.TemplateResponse("equipment_import.html", context)
+
+
+@router.get("/api/equipment/template")
+async def download_template():
+    """Завантажити Excel шаблон"""
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Обладнання"
+
+    # Заголовки
+    headers = [
+        "№", "Назва*", "Тип", "Серійний номер*", "Виробник",
+        "Дата виробництва", "Опис", "Характеристики", "Стан", "Локація", "Примітки"
+    ]
+
+    # Стиль
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_num)
+        cell.value = header
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    # Приклад
+    example = [
+        1, "Електронний устьевой манометр SMOD", "Манометр", "SMOD-2024-001",
+        "UNITOOL", "2024-01-15", "Система моніторингу тиску",
+        "Діапазон: 0-40 МПа", "Робоче", "Склад", ""
+    ]
+
+    for col_num, value in enumerate(example, 1):
+        ws.cell(row=2, column=col_num).value = value
+
+    # Збереження в пам'ять
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    from fastapi.responses import StreamingResponse
+
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=Equipment_Template.xlsx"}
+    )
+
+
+from fastapi import UploadFile, File
+from openpyxl import load_workbook
+import io
+
+@router.post("/api/equipment/import/preview")
+async def preview_import(
+        file: UploadFile = File(...),
+        db: Session = Depends(get_db),
+):
+    """
+    Попередній перегляд даних з Excel
+    Валідація перед імпортом
+    """
+
+    try:
+        # Читання файлу
+        contents = await file.read()
+        wb = load_workbook(io.BytesIO(contents))
+        ws = wb.active
+
+        results = {
+            "total": 0,
+            "valid": 0,
+            "invalid": 0,
+            "duplicates": 0,
+            "items": []
+        }
+
+        # Отримати існуючі серійні номери
+        existing_serials = {eq.serial_number for eq in db.query(Equipment.serial_number).all()}
+
+        # Читання даних (пропускаємо заголовок)
+        for row_num, row in enumerate(ws.iter_rows(min_row=2, values_only=True), 2):
+            if not row or not any(row):  # Пустий рядок
+                continue
+
+            results["total"] += 1
+
+            # Парсинг рядка
+            item = {
+                "row_num": row_num,
+                "name": row[1] if len(row) > 1 else None,
+                "equipment_type": row[2] if len(row) > 2 else None,
+                "serial_number": row[3] if len(row) > 3 else None,
+                "manufacturer": row[4] if len(row) > 4 else None,
+                "manufacture_date": row[5] if len(row) > 5 else None,
+                "description": row[6] if len(row) > 6 else None,
+                "specifications": row[7] if len(row) > 7 else None,
+                "condition": row[8] if len(row) > 8 else "working",
+                "current_location": row[9] if len(row) > 9 else "Склад",
+                "notes": row[10] if len(row) > 10 else None,
+                "errors": [],
+                "warnings": []
+            }
+
+            # Валідація
+            if not item["name"]:
+                item["errors"].append("Відсутня назва")
+
+            if not item["serial_number"]:
+                item["errors"].append("Відсутній серійний номер")
+            elif item["serial_number"] in existing_serials:
+                item["errors"].append(f"Серійний номер {item['serial_number']} вже існує")
+                results["duplicates"] += 1
+
+            # Валідація стану
+            valid_conditions = ["робоче", "не робоче", "потребує ремонту", "working", "broken", "needs_repair"]
+            if item["condition"] and str(item["condition"]).lower() not in valid_conditions:
+                item["warnings"].append(f"Некоректний стан: {item['condition']}, буде встановлено 'working'")
+                item["condition"] = "working"
+
+            # Нормалізація стану
+            condition_map = {
+                "робоче": "working",
+                "не робоче": "broken",
+                "потребує ремонту": "needs_repair"
+            }
+            if item["condition"]:
+                item["condition"] = condition_map.get(str(item["condition"]).lower(), item["condition"])
+
+            # Парсинг дати
+            if item["manufacture_date"]:
+                if isinstance(item["manufacture_date"], date):
+                    item["manufacture_date"] = item["manufacture_date"].isoformat()
+                elif isinstance(item["manufacture_date"], str):
+                    try:
+                        parsed_date = datetime.strptime(item["manufacture_date"], "%Y-%m-%d")
+                        item["manufacture_date"] = parsed_date.date().isoformat()
+                    except:
+                        item["warnings"].append(f"Некоректна дата: {item['manufacture_date']}")
+                        item["manufacture_date"] = None
+
+            if not item["errors"]:
+                results["valid"] += 1
+            else:
+                results["invalid"] += 1
+
+            results["items"].append(item)
+
+        return JSONResponse(results)
+
+    except Exception as e:
+        return JSONResponse(
+            {"error": str(e), "type": type(e).__name__},
+            status_code=400
+        )
+
+
+@router.post("/api/equipment/import/execute")
+async def execute_import(
+        data: dict,
+        db: Session = Depends(get_db),
+        current_admin=Depends(get_current_admin),
+):
+    """
+    Виконати імпорт обладнання
+    """
+
+    try:
+        items = data.get("items", [])
+
+        results = {
+            "success": 0,
+            "failed": 0,
+            "skipped": 0,
+            "errors": []
+        }
+
+        for item in items:
+            # Пропустити якщо є помилки
+            if item.get("errors"):
+                results["skipped"] += 1
+                continue
+
+            try:
+                # Парсинг дати
+                manufacture_date = None
+                if item.get("manufacture_date"):
+                    try:
+                        manufacture_date = datetime.fromisoformat(item["manufacture_date"]).date()
+                    except:
+                        pass
+
+                # Створення обладнання
+                equipment = Equipment(
+                    name=item["name"],
+                    equipment_type=item.get("equipment_type"),
+                    serial_number=item["serial_number"],
+                    manufacturer=item.get("manufacturer"),
+                    manufacture_date=manufacture_date,
+                    description=item.get("description"),
+                    specifications=item.get("specifications"),
+                    status="available",
+                    condition=item.get("condition", "working"),
+                    current_location=item.get("current_location", "Склад"),
+                    notes=item.get("notes"),
+                    created_at=datetime.now(),
+                    updated_at=datetime.now(),
+                )
+
+                db.add(equipment)
+                db.commit()
+
+                results["success"] += 1
+
+            except Exception as e:
+                db.rollback()
+                results["failed"] += 1
+                results["errors"].append({
+                    "row": item.get("row_num"),
+                    "serial": item.get("serial_number"),
+                    "error": str(e)
+                })
+
+        return JSONResponse(results)
+
+    except Exception as e:
+        db.rollback()
+        return JSONResponse(
+            {"error": str(e), "type": type(e).__name__},
+            status_code=400
+        )
+
+
+# ======================================================================================
+# API: Редактирование оборудования
+# ======================================================================================
+
+@router.post("/api/equipment/{equipment_id}/update")
+async def update_equipment(
+        equipment_id: int,
+        name: str = Form(...),
+        equipment_type: Optional[str] = Form(None),
+        serial_number: Optional[str] = Form(None),
+        manufacturer: Optional[str] = Form(None),
+        manufacture_date: Optional[str] = Form(None),
+        description: Optional[str] = Form(None),
+        condition: str = Form("working"),
+        notes: Optional[str] = Form(None),
+        db: Session = Depends(get_db),
+        current_admin=Depends(get_current_admin),
+):
+    """Редактирование оборудования"""
+
+    equipment = db.query(Equipment).filter(Equipment.id == equipment_id).first()
+    if not equipment:
+        raise HTTPException(status_code=404, detail="Обладнання не знайдено")
+
+    # Обновляем поля
+    equipment.name = name
+    if equipment_type:
+        equipment.equipment_type = equipment_type
+    if serial_number:
+        equipment.serial_number = serial_number
+    if manufacturer:
+        equipment.manufacturer = manufacturer
+
+    if manufacture_date:
+        try:
+            equipment.manufacture_date = datetime.fromisoformat(manufacture_date)
+        except:
+            pass
+
+    equipment.description = description
+    equipment.condition = condition
+    equipment.notes = notes
+    equipment.updated_at = datetime.now()
+
+    db.commit()
+
+    return JSONResponse({
+        "success": True,
+        "message": "✅ Обладнання оновлено",
+        "equipment_id": equipment.id
+    })
+
+
+# ======================================================================================
+# API для работы с установками (installation)
+# ======================================================================================
+
+@router.get("/api/installation/{installation_id}")
+async def get_installation_record(
+        installation_id: int,
+        db: Session = Depends(get_db)
+):
+    """Получить запись установки"""
+
+    installation = db.query(EquipmentInstallation).filter(
+        EquipmentInstallation.id == installation_id
+    ).first()
+
+    if not installation:
+        raise HTTPException(status_code=404, detail="Запис встановлення не знайдено")
+
+    return {
+        "id": installation.id,
+        "equipment_id": installation.equipment_id,
+        "well_id": installation.well_id,
+        "installed_at": installation.installed_at,
+        "removed_at": installation.removed_at,
+        "installation_location": installation.installation_location,
+        "notes": installation.notes,
+        "installed_by": installation.installed_by,
+        "removed_by": installation.removed_by
+    }
+
+
+@router.post("/api/installation/{installation_id}/update")
+async def update_installation_record(
+        installation_id: int,
+        installed_at: Optional[str] = Form(None),
+        removed_at: Optional[str] = Form(None),
+        installation_location: Optional[str] = Form(None),
+        notes: Optional[str] = Form(None),
+        db: Session = Depends(get_db),
+        current_admin=Depends(get_current_admin)
+):
+    """Обновить запись установки"""
+
+    installation = db.query(EquipmentInstallation).filter(
+        EquipmentInstallation.id == installation_id
+    ).first()
+
+    if not installation:
+        raise HTTPException(status_code=404, detail="Запис встановлення не знайдено")
+
+    # Обновляем поля
+    if installed_at:
+        try:
+            installation.installed_at = datetime.fromisoformat(installed_at.replace('T', ' '))
+        except:
+            pass
+
+    if removed_at:
+        try:
+            installation.removed_at = datetime.fromisoformat(removed_at.replace('T', ' '))
+        except:
+            pass
+
+    if installation_location:
+        installation.installation_location = installation_location
+
+    if notes:
+        installation.notes = notes
+
+    installation.updated_at = datetime.now()
+    db.commit()
+
+    return JSONResponse({
+        "success": True,
+        "message": "✅ Запис встановлення оновлено",
+        "installation_id": installation.id
+    })
+
+
+@router.delete("/api/installation/{installation_id}/delete")
+async def delete_installation_record(
+        installation_id: int,
+        db: Session = Depends(get_db),
+        current_admin=Depends(get_current_admin)
+):
+    """Удалить запись установки (только если не активная)"""
+
+    installation = db.query(EquipmentInstallation).filter(
+        EquipmentInstallation.id == installation_id
+    ).first()
+
+    if not installation:
+        raise HTTPException(status_code=404, detail="Запис встановлення не знайдено")
+
+    # Проверка: нельзя удалять активную установку
+    if installation.removed_at is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Не можна видалити активне встановлення. Спочатку демонтуйте обладнання."
+        )
+
+    db.delete(installation)
+    db.commit()
+
+    return JSONResponse({
+        "success": True,
+        "message": f"✅ Запис встановлення видалено",
+        "installation_id": installation_id
     })

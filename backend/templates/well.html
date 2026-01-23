@@ -280,101 +280,341 @@
   </div>
 
   {# === РЯД 1, КОЛОНКА 3: ОБОРУДОВАНИЕ (совпадает по колонке с картой) === #}
-    <div style="height:100%;">
-    <div style="margin-bottom:4px;">
-      <h2 style="margin:0; font-size:14px; font-weight:700;">Оборудование</h2>
-    </div>
+    <!--
+===========================================
+ЗАМІНИТИ БЛОК CURRENT_EQUIPMENT В well.html
+Знайти рядки 288-377 і замінити на цей код
+===========================================
+-->
+{% if current_equipment %}
+  <div style="
+      height:100%;
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-content:flex-start;
+      overflow-y:auto;
+      padding-right:4px;
+      box-sizing:border-box;
+    ">
+    {% for eq in current_equipment %}
+      {# Використовуємо type_info якщо є, інакше equipment_by_code #}
+      {% if eq.type_info %}
+        {% set eq_type = eq.type_info %}
+      {% else %}
+        {% set eq_type = equipment_by_code.get(eq.type_code) %}
+      {% endif %}
 
-    {% if current_equipment %}
-      <div
-        style="
-          height:100%;
-          display:flex;
-          flex-wrap:wrap;
-          gap:8px;
-          align-content:flex-start;
-          overflow-y:auto;
-          padding-right:4px;
+      {# ОБЕРТКА С ССЫЛКОЙ - ВСЯ КАРТОЧКА КЛИКАБЕЛЬНА #}
+      <a href="/equipment/view/{{ eq.id }}"
+         target="_blank"
+         style="
+          display:block;
+          text-decoration:none;
+          color:inherit;
+          background:#fffbeb;
+          border-radius:12px;
+          padding:12px 12px;
+          border:1px solid #fcd34d;
+          min-width:280px;
+          max-width:320px;
           box-sizing:border-box;
+          display:flex;
+          align-items:flex-start;
+          gap:10px;
+          font-size:12px;
+          position:relative;
+          transition:all 0.2s ease;
+          cursor:pointer;
         "
-      >
-        {% for eq in current_equipment %}
-          {% set eq_type = equipment_by_code.get(eq.type_code) %}
-          <div
-            style="
-              background:#fffbeb;         /* если захочешь только рамку — поменяй на background:transparent; */
-              border-radius:12px;
-              padding:12px 12px;
-              border:1px solid #fcd34d;
-              min-width:230px;
-              max-width:260px;
-              box-sizing:border-box;
-              display:flex;
-              align-items:flex-start;
-              gap:8px;
-              font-size:12px;
-            "
-          >
-            <div style="flex:1 1 auto;">
-              <div style="
-                  font-size:11px;
-                  text-transform:uppercase;
-                  color:#b45309;
-                  font-weight:700;
-                  letter-spacing:0.05em;
-              ">
-                {{ eq_type.label if eq_type else eq.type_code }}
-              </div>
+        onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,0.1)';this.style.borderColor='#f59e0b';"
+        onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='none';this.style.borderColor='#fcd34d';"
+        title="Натисніть для перегляду деталей обладнання">
 
-              <div style="font-size:14px; font-weight:700; margin-top:2px; color:#92400e;">
-                SN: {{ eq.serial_number or "—" }}
-              </div>
+        {# ЛЕВАЯ ЧАСТЬ - ТЕКСТОВАЯ ИНФОРМАЦИЯ #}
+        <div style="flex:1 1 auto; min-width:0;"> {# min-width:0 для правильного обрезания текста #}
 
-              {% if eq.channel %}
-                <div style="font-size:11px; margin-top:2px; color:#78350f;">
-                  Канал: {{ eq.channel }}
-                </div>
-              {% endif %}
-
-              {% if eq.installed_at %}
-                <div style="font-size:10px; margin-top:2px; color:#6b7280;">
-                  Устан.: {{ eq.installed_at.strftime("%d.%m.%Y %H:%M") }}
-                </div>
-              {% endif %}
-
-              {% if eq.note %}
-                <div style="font-size:11px; margin-top:2px; color:#4b5563;">
-                  {{ eq.note }}
-                </div>
-              {% endif %}
-            </div>
-
-<!--            {% if eq_type and eq_type.icon %}-->
-<!--              <div style="flex:0 0 auto;">-->
-<!--                <img-->
-<!--                  src="{{ url_for('static', path='icons/' ~ eq_type.icon) }}"-->
-<!--                  alt="{{ eq_type.label }}"-->
-<!--                  style="width:60px; height:60px; object-fit:contain;"-->
-<!--                >-->
-<!--              </div>-->
-                        {% if eq_type and eq_type.icon %}
-              <div style="flex:0 0 auto;">
-                <img
-                  src="{{ url_for('static', path='icons/' ~ eq_type.icon) }}"
-                  alt="{{ eq_type.label }}"
-                  class="well-eq-icon"
-                >
-              </div>
-            {% endif %}
+          {# ТИП ОБОРУДОВАНИЯ - ВЫДЕЛЕННЫЙ #}
+          {# ИСПРАВЛЕНИЕ: Проверяем все возможные варианты полей #}
+          <div style="
+              font-size:10px;
+              text-transform:uppercase;
+              color:#ffffff;
+              font-weight:700;
+              letter-spacing:0.05em;
+              background:linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+              padding:2px 8px;
+              border-radius:10px;
+              display:inline-block;
+              margin-bottom:6px;
+          ">
+            {# Исправленная логика определения типа оборудования #}
+            {% if eq.equipment_type %}
+              {{ eq.equipment_type }}
+            {% elif eq.type %}
+              {{ eq.type }}
+            {% elif eq_type and eq_type.label %}
+              {{ eq_type.label }}
+            {% elif eq.type_code %}
+              {{ eq.type_code }}
+            {% else %}
+              Тип не указан
             {% endif %}
           </div>
-        {% endfor %}
-      </div>
+
+          {# НАЗВАНИЕ #}
+          {% if eq.name %}
+          <div style="
+              font-size:13px;
+              font-weight:600;
+              margin-top:2px;
+              color:#92400e;
+              line-height:1.3;
+              white-space:nowrap;
+              overflow:hidden;
+              text-overflow:ellipsis;
+          ">
+            {{ eq.name }}
+          </div>
+          {% endif %}
+
+          {# СЕРИЙНЫЙ НОМЕР #}
+          <div style="
+              font-size:11px;
+              font-weight:700;
+              margin-top:2px;
+              color:#92400e;
+              display:flex;
+              align-items:center;
+              gap:4px;
+          ">
+            <span style="color:#78350f;font-weight:500;">Сер.№:</span>
+            <span style="background:#fef3c7;padding:1px 6px;border-radius:4px;">
+              {{ eq.serial_number or "—" }}
+            </span>
+          </div>
+
+          {# МЕСТО УСТАНОВКИ #}
+          {% if eq.installation_location %}
+          <div style="
+              font-size:10px;
+              margin-top:4px;
+              color:#78350f;
+              background:#fef3c7;
+              padding:2px 6px;
+              border-radius:4px;
+              display:inline-flex;
+              align-items:center;
+              gap:3px;
+          ">
+            <span>📍</span>
+            <span>{{ eq.installation_location }}</span>
+          </div>
+          {% endif %}
+
+          {# ДАТА УСТАНОВКИ - ВЫДЕЛЕННАЯ #}
+          {% if eq.installation_date %}
+          <div style="
+              font-size:10px;
+              margin-top:6px;
+              color:#ffffff;
+              background:linear-gradient(135deg, #10b981 0%, #059669 100%);
+              padding:4px 8px;
+              border-radius:8px;
+              display:flex;
+              align-items:center;
+              justify-content:space-between;
+              font-weight:600;
+            ">
+            <span style="display:flex;align-items:center;gap:3px;">
+              <span>⏱️</span>
+              <span>Установлено</span>
+            </span>
+            <span style="font-weight:700;">
+              {{ eq.installation_date.strftime("%d.%m") }}
+            </span>
+          </div>
+          <div style="
+              font-size:9px;
+              color:#047857;
+              text-align:center;
+              margin-top:2px;
+              font-weight:500;
+            ">
+            {{ eq.installation_date.strftime("%H:%M") }}
+          </div>
+          {% elif eq.installed_at %}
+          <div style="
+              font-size:10px;
+              margin-top:6px;
+              color:#ffffff;
+              background:linear-gradient(135deg, #10b981 0%, #059669 100%);
+              padding:4px 8px;
+              border-radius:8px;
+              display:flex;
+              align-items:center;
+              justify-content:space-between;
+              font-weight:600;
+            ">
+            <span style="display:flex;align-items:center;gap:3px;">
+              <span>⏱️</span>
+              <span>Установлено</span>
+            </span>
+            <span style="font-weight:700;">
+              {{ eq.installed_at.strftime("%d.%m") }}
+            </span>
+          </div>
+          <div style="
+              font-size:9px;
+              color:#047857;
+              text-align:center;
+              margin-top:2px;
+              font-weight:500;
+            ">
+            {{ eq.installed_at.strftime("%H:%M") }}
+          </div>
+          {% endif %}
+
+          {# СОСТОЯНИЕ ОБОРУДОВАНИЯ #}
+          {% if eq.condition %}
+          <div style="font-size:10px;margin-top:6px;">
+            {% if eq.condition == 'working' %}
+              <span style="
+                  color:#16a34a;
+                  background:#dcfce7;
+                  padding:2px 8px;
+                  border-radius:12px;
+                  display:inline-flex;
+                  align-items:center;
+                  gap:3px;
+                  font-weight:600;
+                ">
+                <span>✓</span>
+                <span>Робоче</span>
+              </span>
+            {% elif eq.condition == 'needs_repair' %}
+              <span style="
+                  color:#ea580c;
+                  background:#ffedd5;
+                  padding:2px 8px;
+                  border-radius:12px;
+                  display:inline-flex;
+                  align-items:center;
+                  gap:3px;
+                  font-weight:600;
+                ">
+                <span>⚠</span>
+                <span>Потребує ремонту</span>
+              </span>
+            {% elif eq.condition == 'broken' %}
+              <span style="
+                  color:#dc2626;
+                  background:#fee2e2;
+                  padding:2px 8px;
+                  border-radius:12px;
+                  display:inline-flex;
+                  align-items:center;
+                  gap:3px;
+                  font-weight:600;
+                ">
+                <span>✗</span>
+                <span>Не робоче</span>
+              </span>
+            {% endif %}
+          </div>
+          {% endif %}
+
+        </div> {# Конец левой части #}
+
+        {# ПРАВАЯ ЧАСТЬ - МАКСИМАЛЬНО БОЛЬШАЯ ИКОНКА #}
+<div style="
+    flex: 0 0 80px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    align-self: stretch;  /* Растягиваем на всю высоту */
+    margin: -12px 0 -12px 0;  /* Компенсируем padding карточки */
+    padding: 12px 0;
+  ">
+
+  {# КОНТЕЙНЕР ИКОНКИ #}
+  <div style="
+      width: 72px;
+      height: 102px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: white;
+      border-radius: 20px;
+      padding: 12px;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      border: 2px solid;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+    "
+    {# Динамический цвет границы на основе типа #}
+    {% if 'датчик устья' in ((eq.equipment_type or eq.type or '')|lower) %}
+      style="border-color: #3b82f6;"
+    {% elif 'датчик шлейфа' in ((eq.equipment_type or eq.type or '')|lower) %}
+      style="border-color: #16a34a;"
+    {% elif 'датчик затрубного' in ((eq.equipment_type or eq.type or '')|lower) %}
+      style="border-color: #f59e0b;"
+    {% elif 'шлюз устьевой' in ((eq.equipment_type or eq.type or '')|lower) %}
+      style="border-color: #ef4444;"
     {% else %}
-      <p style="font-size:12px; color:#6b7280; margin:0;">
-        Активное оборудование не установлено.
-      </p>
+      style="border-color: #8b5cf6;"
     {% endif %}
+    onmouseover="this.style.transform='scale(1.2)'; this.style.boxShadow='0 10px 30px rgba(0,0,0,0.15)';"
+    onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 6px 20px rgba(0,0,0,0.08)';">
+
+    {# БОЛЬШАЯ ЧЕТКАЯ ИКОНКА #}
+    {% set eq_type_lower = (eq.equipment_type or eq.type or '')|lower %}
+
+    {% if 'датчик' in eq_type_lower or 'сенсор' in eq_type_lower or 'wellhead_sensor' in eq_type_lower or 'line_sensor' in eq_type_lower or 'annulus_sensor' in eq_type_lower %}
+      <img src="/static/icons/СSMOD_1.png" alt="Датчик давления" style="width:100%;height:100%;object-fit:contain;">
+    {% elif 'шлюз' in eq_type_lower or 'gateway' in eq_type_lower or 'wellhead_gateway' in eq_type_lower %}
+      <img src="/static/icons/WH_launcher_1.png" alt="Шлюз устьевой" style="width:100%;height:100%;object-fit:contain;">
+    {% elif eq.icon_path %}
+      <img src="{{ eq.icon_path }}" alt="Иконка" style="width:100%;height:100%;object-fit:contain;">
+    {% elif eq_type and eq_type.icon %}
+      <img src="{{ eq_type.icon }}" alt="Иконка" style="width:100%;height:100%;object-fit:contain;">
+    {% else %}
+      <div style="font-size:48px;line-height:1;color:#8b5cf6;">
+        🔧
+      </div>
+    {% endif %}
+  </div>
+
+</div> {# Конец правой части #}
+
+      </a> {# Закрывающий тег ссылки #}
+    {% endfor %}
+  </div>
+{% else %}
+  <p style="font-size:12px;color:#6b7280;margin:0;">
+    Активне обладнання не встановлено.
+  </p>
+{% endif %}
+
+
+{# Кнопка "Встановити обладнання" #}
+<div style="margin-top:10px;">
+  <button onclick="showInstallEquipmentModal()" style="
+      width:100%;
+      padding:10px;
+      background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
+      color:white;
+      border:none;
+      border-radius:8px;
+      font-weight:600;
+      cursor:pointer;
+      transition:transform 0.2s;
+    "
+    onmouseover="this.style.transform='scale(1.02)'"
+    onmouseout="this.style.transform='scale(1)'">
+    ➕ Встановити обладнання
+  </button>
+
   </div>
 
   {# === РЯД 2, КОЛОНКИ 1–2: КОНСТРУКЦИЯ СКВАЖИНЫ === #}
@@ -2323,5 +2563,357 @@
   background: #555;
 }
 </style>
+<!--
+=<!--
+===========================================
+ДОДАТИ В КІНЕЦЬ well.html (перед </body>)
+===========================================
+-->
 
+<!-- МОДАЛЬНЕ ВІКНО ДЛЯ ВСТАНОВЛЕННЯ ОБЛАДНАННЯ -->
+<div id="install-equipment-modal" style="
+    display:none;
+    position:fixed;
+    top:0;
+    left:0;
+    right:0;
+    bottom:0;
+    background:rgba(0,0,0,0.5);
+    z-index:2000;
+    align-items:center;
+    justify-content:center;
+  ">
+  <div style="
+      background:white;
+      padding:30px;
+      border-radius:12px;
+      max-width:600px;
+      width:90%;
+      max-height:80vh;
+      overflow-y:auto;
+    ">
+    <h2 style="margin:0 0 20px 0;font-size:24px;">
+      ➕ Встановити обладнання на свердловину {{ well.number }}
+    </h2>
+
+    <form id="install-equipment-form" onsubmit="submitInstallForm(event)"
+      method="post" action="/api/wells/15/install-equipment">
+
+      <!-- Вибір обладнання -->
+      <div style="margin-bottom:20px;">
+        <label style="display:block;font-weight:600;margin-bottom:8px;">
+          Обладнання *
+        </label>
+        <select name="equipment_id" required style="
+            width:100%;
+            padding:10px;
+            border:1px solid #d1d5db;
+            border-radius:6px;
+            font-size:14px;
+          ">
+          <option value="">Виберіть обладнання...</option>
+          {% if available_equipment %}
+            {% for eq in available_equipment %}
+            <option value="{{ eq.id }}">
+              {{ eq.equipment_type }} - {{ eq.name }} (SN: {{ eq.serial_number }})
+              {% if eq.condition != 'working' %} - {{ eq.condition }}{% endif %}
+            </option>
+            {% endfor %}
+          {% endif %}
+        </select>
+        {% if not available_equipment %}
+          <p style="color:#dc2626;font-size:13px;margin-top:8px;">
+            ⚠️ Немає доступного обладнання на складі.
+            <a href="/equipment/add" target="_blank" style="color:#2563eb;">Додати нове</a>
+          </p>
+        {% endif %}
+      </div>
+
+      <!-- Місце встановлення -->
+      <div style="margin-bottom:20px;">
+        <label style="display:block;font-weight:600;margin-bottom:8px;">
+          Місце встановлення *
+        </label>
+        <select name="installation_location" required style="
+            width:100%;
+            padding:10px;
+            border:1px solid #d1d5db;
+            border-radius:6px;
+            font-size:14px;
+          ">
+          <option value="">Виберіть місце...</option>
+          <option value="Устье">🔧 Устье (устьове обладнання)</option>
+          <option value="НКТ">📏 НКТ (насосно-компресорні труби)</option>
+          <option value="Шлейф">🛤️ Шлейф (трубопровід)</option>
+          <option value="Затруб">🔩 Затруб (затрубний простір)</option>
+          <option value="Інше">📦 Інше</option>
+        </select>
+      </div>
+
+      <!-- Дата і час встановлення (НОВЕ) -->
+      <div style="margin-bottom:20px;">
+        <label style="display:block;font-weight:600;margin-bottom:8px;">
+          Дата і час встановлення *
+        </label>
+        <input type="datetime-local" name="installed_at" required
+               style="
+                 width:100%;
+                 padding:10px;
+                 border:1px solid #d1d5db;
+                 border-radius:6px;
+                 font-size:14px;
+               ">
+        <small style="color:#6b7280;font-size:12px;margin-top:4px;display:block;">
+          За замовчуванням встановлюється поточна дата і час
+        </small>
+      </div>
+
+      <!-- Примітки -->
+      <div style="margin-bottom:20px;">
+        <label style="display:block;font-weight:600;margin-bottom:8px;">
+          Примітки
+        </label>
+        <textarea name="notes" rows="3" style="
+            width:100%;
+            padding:10px;
+            border:1px solid #d1d5db;
+            border-radius:6px;
+            font-size:14px;
+            resize:vertical;
+          " placeholder="Додаткова інформація..."></textarea>
+      </div>
+
+      <!-- Створити документ -->
+      <div style="margin-bottom:20px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="checkbox" name="create_document" value="true">
+          <span>Створити акт встановлення після збереження</span>
+        </label>
+      </div>
+
+      <!-- Кнопки -->
+      <div style="display:flex;gap:10px;margin-top:30px;">
+        <button type="button" onclick="closeInstallEquipmentModal()" style="
+            flex:1;
+            padding:12px;
+            background:#6b7280;
+            color:white;
+            border:none;
+            border-radius:8px;
+            font-weight:600;
+            cursor:pointer;
+          ">
+          Скасувати
+        </button>
+        <button type="submit" style="
+            flex:1;
+            padding:12px;
+            background:linear-gradient(135deg,#10b981 0%,#059669 100%);
+            color:white;
+            border:none;
+            border-radius:8px;
+            font-weight:600;
+            cursor:pointer;
+          ">
+          ✓ Встановити
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- JAVASCRIPT -->
+<script>
+// Встановити поточну дату і час при відкритті модалу
+function showInstallEquipmentModal() {
+  document.getElementById('install-equipment-modal').style.display = 'flex';
+
+  // Встановити поточну дату і час
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+
+  const dateTimeValue = `${year}-${month}-${day}T${hours}:${minutes}`;
+  const dateTimeInput = document.querySelector('input[name="installed_at"]');
+  if (dateTimeInput) {
+    dateTimeInput.value = dateTimeValue;
+  }
+}
+
+function closeInstallEquipmentModal() {
+  document.getElementById('install-equipment-modal').style.display = 'none';
+  document.getElementById('install-equipment-form').reset();
+}
+
+async function submitInstallEquipment(event) {
+  event.preventDefault();
+
+  const form = event.target;
+  const formData = new FormData(form);
+
+  // Disable button
+  const submitBtn = form.querySelector('button[type="submit"]');
+  const originalText = submitBtn.textContent;
+  submitBtn.disabled = true;
+  submitBtn.textContent = '⏳ Встановлення...';
+
+  try {
+    const response = await fetch('/api/wells/{{ well.id }}/install-equipment', {
+      method: 'POST',
+      body: formData
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      if (result.redirect) {
+        // Перенаправити на створення акту
+        window.location.href = result.redirect;
+      } else if (result.reload) {
+        // Перезавантажити сторінку
+        alert('✅ ' + result.message);
+        window.location.reload();
+      }
+    } else {
+      alert('❌ Помилка: ' + (result.detail || result.error || 'Невідома помилка'));
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalText;
+    }
+  } catch (error) {
+    alert('❌ Помилка: ' + error.message);
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalText;
+  }
+}
+
+// Закриття модалу по кліку поза ним
+document.getElementById('install-equipment-modal').addEventListener('click', function(e) {
+  if (e.target === this) {
+    closeInstallEquipmentModal();
+  }
+});
+</script>
+
+
+<script>
+// Исправление для формы установки оборудования
+document.addEventListener('DOMContentLoaded', function() {
+  const installForm = document.getElementById('install-equipment-form');
+  if (installForm) {
+    console.log('Найдена форма установки оборудования, исправляю...');
+
+    // 1. Исправить action
+    installForm.action = '/api/wells/' + {{ well.id }} + '/install-equipment';
+
+    // 2. Переопределить функцию submitInstallForm если она есть
+    if (typeof submitInstallForm === 'function') {
+      const originalSubmitInstallForm = submitInstallForm;
+
+      window.submitInstallForm = function(event) {
+        event.preventDefault();
+
+        console.log('Отправка формы установки оборудования...');
+
+        const form = document.getElementById('install-equipment-form');
+        const submitBtn = form.querySelector('button[type="submit"]');
+        const originalText = submitBtn ? submitBtn.textContent : '';
+
+        // Показать загрузку
+        if (submitBtn) {
+          submitBtn.textContent = 'Встановлення...';
+          submitBtn.disabled = true;
+        }
+
+        // Отправить
+        fetch(form.action, {
+          method: 'POST',
+          body: new FormData(form)
+        })
+        .then(response => {
+          if (!response.ok) {
+            throw new Error('HTTP error ' + response.status);
+          }
+          return response.json();
+        })
+        .then(data => {
+          console.log('Успех:', data);
+
+          if (data.success) {
+            // Закрыть модальное окно
+            const modal = document.getElementById('install-equipment-modal');
+            if (modal) {
+              modal.classList.remove('show');
+              modal.style.display = 'none';
+              document.body.classList.remove('modal-open');
+
+              // Удалить backdrop
+              const backdrop = document.querySelector('.modal-backdrop');
+              if (backdrop) backdrop.remove();
+            }
+
+            // Показать сообщение
+            alert(data.message);
+
+            // Перезагрузить страницу
+            setTimeout(() => {
+              window.location.reload();
+            }, 800);
+          } else {
+            alert('Ошибка: ' + (data.error || data.detail));
+          }
+        })
+        .catch(error => {
+          console.error('Ошибка:', error);
+          alert('Ошибка: ' + error.message);
+        })
+        .finally(() => {
+          // Восстановить кнопку
+          if (submitBtn) {
+            submitBtn.textContent = originalText;
+            submitBtn.disabled = false;
+          }
+        });
+
+        return false;
+      };
+
+      console.log('Функция submitInstallForm переопределена');
+    }
+
+    // 3. Удалить старый onsubmit и добавить новый
+    installForm.onsubmit = null;
+    installForm.addEventListener('submit', function(event) {
+      if (typeof submitInstallForm === 'function') {
+        return submitInstallForm(event);
+      }
+
+      // Если функции нет, использовать наш обработчик
+      event.preventDefault();
+      handleInstallEquipment();
+      return false;
+    });
+
+    console.log('Форма исправлена');
+  }
+
+  function handleInstallEquipment() {
+    const form = document.getElementById('install-equipment-form');
+    if (!form) return;
+
+    fetch(form.action, {
+      method: 'POST',
+      body: new FormData(form)
+    })
+    .then(r => r.json())
+    .then(data => {
+      alert(data.message);
+      setTimeout(() => window.location.reload(), 500);
+    })
+    .catch(err => alert('Ошибка: ' + err.message));
+  }
+});
+</script>
 {% endblock %}

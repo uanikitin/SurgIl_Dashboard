@@ -268,10 +268,16 @@
     {# === HEADER === #}
     <div class="page-header">
         <h1>🔧 Обладнання</h1>
-        <a href="/equipment/add" class="btn-add">
-            <span>+</span>
-            <span>Додати обладнання</span>
-        </a>
+        <div style="display: flex; gap: 10px;">
+            <a href="/equipment/import" class="btn-add" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                <span>📊</span>
+                <span>Імпорт з Excel</span>
+            </a>
+            <a href="/equipment/add" class="btn-add">
+                <span>+</span>
+                <span>Додати обладнання</span>
+            </a>
+        </div>
     </div>
 
     {# === СТАТИСТИКА === #}
@@ -369,66 +375,66 @@
                 </tr>
             </thead>
             <tbody>
-                {% for eq in equipment_list %}
-                <tr onclick="window.location.href='/equipment/{{ eq.id }}'">
-                    <td>{{ eq.id }}</td>
-                    <td>{{ eq.name }}</td>
-                    <td>{{ eq.equipment_type or '—' }}</td>
-                    <td><strong>{{ eq.serial_number or '—' }}</strong></td>
-                    <td>
-                        {% if eq.status == 'installed' %}
-                        <span class="status-badge status-badge--installed">
-                            <span class="icon">🟢</span>
-                            Встановлено
-                        </span>
-                        {% elif eq.status == 'available' %}
-                        <span class="status-badge status-badge--available">
-                            <span class="icon">📦</span>
-                            На складі
-                        </span>
-                        {% elif eq.status == 'maintenance' %}
-                        <span class="status-badge status-badge--maintenance">
-                            <span class="icon">🔧</span>
-                            Обслуговування
-                        </span>
-                        {% elif eq.status == 'broken' %}
-                        <span class="status-badge status-badge--broken">
-                            <span class="icon">❌</span>
-                            Зламано
-                        </span>
-                        {% else %}
-                        <span class="status-badge">{{ eq.status }}</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if eq.condition == 'working' %}
-                        <span class="condition-badge condition-badge--working">
-                            <span>✅</span>
-                            Робоче
-                        </span>
-                        {% elif eq.condition == 'broken' %}
-                        <span class="condition-badge condition-badge--broken">
-                            <span>❌</span>
-                            Не робоче
-                        </span>
-                        {% elif eq.condition == 'needs_repair' %}
-                        <span class="condition-badge condition-badge--needs_repair">
-                            <span>⚠️</span>
-                            Потребує ремонту
-                        </span>
-                        {% else %}
-                        <span>—</span>
-                        {% endif %}
-                    </td>
-                    <td>{{ eq.current_location or '—' }}</td>
-                    <td onclick="event.stopPropagation()">
-                        <a href="/equipment/{{ eq.id }}" style="text-decoration: none; color: #007bff;">
-                            Деталі →
-                        </a>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
+    {% for eq in equipment_list %}
+    <tr onclick="window.location.href='/equipment/view/{{ eq.id }}'">
+        <td>{{ eq.id }}</td>
+        <td>{{ eq.name }}</td>
+        <td>{{ eq.equipment_type or '—' }}</td>
+        <td><strong>{{ eq.serial_number or '—' }}</strong></td>
+        <td>
+            {% if eq.status == 'installed' %}
+            <span class="status-badge status-badge--installed">
+                <span class="icon">🟢</span>
+                Встановлено
+            </span>
+            {% elif eq.status == 'available' %}
+            <span class="status-badge status-badge--available">
+                <span class="icon">📦</span>
+                На складі
+            </span>
+            {% elif eq.status == 'maintenance' %}
+            <span class="status-badge status-badge--maintenance">
+                <span class="icon">🔧</span>
+                Обслуговування
+            </span>
+            {% elif eq.status == 'broken' %}
+            <span class="status-badge status-badge--broken">
+                <span class="icon">❌</span>
+                Зламано
+            </span>
+            {% else %}
+            <span class="status-badge">{{ eq.status }}</span>
+            {% endif %}
+        </td>
+        <td>
+            {% if eq.condition == 'working' %}
+            <span class="condition-badge condition-badge--working">
+                <span>✅</span>
+                Робоче
+            </span>
+            {% elif eq.condition == 'broken' %}
+            <span class="condition-badge condition-badge--broken">
+                <span>❌</span>
+                Не робоче
+            </span>
+            {% elif eq.condition == 'needs_repair' %}
+            <span class="condition-badge condition-badge--needs_repair">
+                <span>⚠️</span>
+                Потребує ремонту
+            </span>
+            {% else %}
+            <span>—</span>
+            {% endif %}
+        </td>
+        <td>{{ eq.current_location or '—' }}</td>
+        <td onclick="event.stopPropagation()">
+            <a href="/equipment/view/{{ eq.id }}" style="text-decoration: none; color: #007bff;">
+                Деталі →
+            </a>
+        </td>
+    </tr>
+    {% endfor %}
+</tbody>
         </table>
         {% else %}
         <div class="empty-state">

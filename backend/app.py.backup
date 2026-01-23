@@ -69,8 +69,7 @@ from starlette.datastructures import FormData
 from fastapi.templating import Jinja2Templates
 
 from backend.routers import equipment_documents
-# Вариант 3: Абсолютный импорт
-from backend.config.equipment_config import get_equipment_config, EQUIPMENT_TYPES
+
 
 templates = Jinja2Templates(directory="backend/templates")
 
@@ -628,13 +627,13 @@ def visual_page(
         db: Session = Depends(get_db),
         selected: list[int] = Query(default=[]),
         current_user: str = Depends(get_current_user),
-        # ЕДИНЫЙ НАБОР ФИЛЬТРОВ для плиток И графика
-        tl_wells: list[str] = Query(default=[]),  # Мультивыбор скважин
-        tl_statuses: list[str] = Query(default=[]),  # Мультивыбор статусов
-        tl_event_types: list[str] = Query(default=[]),  # Мультивыбор типов событий
-        tl_reagents: list[str] = Query(default=[]),  # Мультивыбор реагентов
-        tl_period: str = Query("3d"),  # Быстрый выбор периода: 1d, 3d, 1w, 1m, custom
-        tl_date_from: str = Query(None),  # Для ручного периода
+        # ЄДИНИЙ НАБІР ФІЛЬТРІВ для плиток І графіка
+        tl_wells: list[str] = Query(default=[]),  # Мультивибір свердловин
+        tl_statuses: list[str] = Query(default=[]),  # Мультивибір статусів
+        tl_event_types: list[str] = Query(default=[]),  # Мультивибір типів подій
+        tl_reagents: list[str] = Query(default=[]),  # Мультивибір реагентів
+        tl_period: str = Query("3d"),  # Швидкий вибір періоду: 1d, 3d, 1w, 1m, custom
+        tl_date_from: str = Query(None),  # Для ручного періоду
         tl_date_to: str = Query(None),
         tl_sort: str = Query("desc"),
 ):
@@ -697,7 +696,6 @@ def visual_page(
             w.current_status_css = None
             w.current_status_start = None
             w.current_status_days = None
-
 
     # ----- B) СТАТИСТИКА СОБЫТИЙ ПО КАЛЕНДАРНЫМ СУТКАМ -----
     if tiles:
@@ -855,65 +853,33 @@ def visual_page(
         map_center_lat = None
         map_center_lon = None
 
-    # ----- D) АКТИВНОЕ ОБОРУДОВАНИЕ И КАНАЛЫ СВЯЗИ -----
+    # ----- D) АКТИВНОЕ ОБОРУДОВАНИЕ И КАНАЛ СВЯЗИ НА ПЛИТКАХ -----
     if tiles:
         well_ids = [w.id for w in tiles]
 
-        # ===== ШАГ 1: ПОЛУЧЕНИЕ АКТИВНОГО ОБОРУДОВАНИЯ ИЗ Equipment + EquipmentInstallation =====
-        from collections import defaultdict as _dd
-        eq_by_well = _dd(list)
-
-        # Запрос активных установок оборудования через ORM
-        active_installations = (
-            db.query(EquipmentInstallation, Equipment)
-            .join(Equipment, Equipment.id == EquipmentInstallation.equipment_id)
+        eq_rows = (
+            db.query(WellEquipment)
             .filter(
-                EquipmentInstallation.well_id.in_(well_ids),
-                EquipmentInstallation.removed_at.is_(None),  # ещё установлено
-                Equipment.deleted_at.is_(None)              # оборудование не удалено
+                WellEquipment.well_id.in_(well_ids),
+                WellEquipment.removed_at.is_(None),
             )
-            .order_by(EquipmentInstallation.installed_at.desc())
             .all()
         )
 
-        for inst, eq in active_installations:
-            # Определяем тип оборудования для конфигурации
-            # Приоритет: equipment_type -> name -> serial_number
-            type_code = eq.equipment_type or eq.name or eq.serial_number or 'unknown'
+        from collections import defaultdict as _dd
+        eq_by_well = _dd(list)
+        for eq in eq_rows:
+            eq_by_well[eq.well_id].append(eq)
 
-            # Получаем конфигурацию (иконка, цвет, label)
-            eq_config = get_equipment_config(code=type_code, equipment_type=eq.name)
-
-            # Формируем объект для шаблона (совместимый с текущим форматом)
-            eq_obj = {
-                'id': eq.id,
-                'type_code': type_code,
-                'model': eq.name,  # название оборудования
-                'serial': eq.serial_number,
-                'installation_location': inst.installation_location,  # Устье, НКТ, Шлейф и т.д.
-                'installation_date': inst.installed_at,
-                'config': eq_config
-            }
-
-            eq_by_well[inst.well_id].append(eq_obj)
-
-        # Присваиваем оборудование скважинам
-        for w in tiles:
-            equipment_list = eq_by_well.get(w.id, [])
-            w.equipment_active = equipment_list
-
-        # ===== ШАГ 2: КАНАЛЫ СВЯЗИ ИЗ well_channels =====
-        # Получаем активные каналы (ended_at IS NULL)
         ch_rows = (
             db.query(WellChannel)
             .filter(
                 WellChannel.well_id.in_(well_ids),
-                WellChannel.ended_at.is_(None),  # активный канал
+                WellChannel.ended_at.is_(None),
             )
             .all()
         )
 
-        # Если для одной скважины несколько активных каналов - берём самый свежий по started_at
         channel_by_well: dict[int, WellChannel] = {}
         for ch in ch_rows:
             prev = channel_by_well.get(ch.well_id)
@@ -922,33 +888,11 @@ def visual_page(
             if (not prev) or (cur_start > prev_start):
                 channel_by_well[ch.well_id] = ch
 
-        # Присваиваем каналы скважинам
-        # ЛОГИКА: Показываем канал только если на скважине есть датчик давления
-        # (канал связи используется для передачи данных с датчиков давления)
         for w in tiles:
+            w.equipment_active = eq_by_well.get(w.id, [])
             current_ch = channel_by_well.get(w.id)
-
-            # Проверяем наличие датчиков давления на скважине
-            has_pressure_sensor = False
-            for eq in w.equipment_active:
-                eq_type = (eq.get('type_code', '') or '').upper()
-                eq_name = (eq.get('model', '') or '').upper()
-                # Проверяем по типу оборудования (датчики давления)
-                if any(keyword in eq_type for keyword in ['PRESSURE', 'PRESSURE_SENSOR', 'CSMOD', 'SMOD', 'WELLHEAD_SENSOR', 'LINE_SENSOR']):
-                    has_pressure_sensor = True
-                    break
-                # Также проверяем по названию оборудования
-                if any(keyword in eq_name for keyword in ['ДАТЧИК ДАВЛЕНИЯ', 'PRESSURE', 'CSMOD', 'SMOD']):
-                    has_pressure_sensor = True
-                    break
-
-            # Показываем канал только если есть датчик давления
-            if has_pressure_sensor and current_ch:
-                w.current_channel = current_ch.channel
-            else:
-                w.current_channel = None
+            w.current_channel = current_ch.channel if current_ch else None
     else:
-        # Если нет выбранных скважин - инициализируем пустые списки
         for w in tiles:
             w.equipment_active = []
             w.current_channel = None
@@ -1196,14 +1140,12 @@ def visual_page(
             "status_groups": status_groups_for_sidebar(),
             "status_config": STATUS_LIST,
             "equipment_types": EQUIPMENT_LIST,
-            # Передаем ваш конфиг в шаблон
-            "equipment_by_code": EQUIPMENT_TYPES,  # из equipment_config.py
-            "get_equipment_config": get_equipment_config,  # функция для шаблона
+            "equipment_by_code": EQUIPMENT_BY_CODE,
             "updated_at": updated_at,
             "current_user": current_user,
             "is_admin": is_admin,
 
-            # ТАЙМЛАЙН - обновленные переменные
+            # ТАЙМЛАЙН - оновлені змінні
             "timeline_filters": timeline_filters,
             "timeline_injections": timeline_injections,
             "timeline_events": timeline_events,
@@ -1952,19 +1894,6 @@ def admin_toggle_reagents_access(
     return RedirectResponse("/admin/users", status_code=status.HTTP_303_SEE_OTHER)
 
 
-# В app.py добавьте ПЕРЕД функцией well_page:
-@app.get("/well/number/{well_number}")
-def redirect_from_number_to_id(
-        well_number: int,
-        db: Session = Depends(get_db)
-):
-    """Редирект с номера скважины на её ID"""
-    well = db.query(Well).filter(Well.number == well_number).first()
-    if not well:
-        raise HTTPException(status_code=404, detail=f"Скважина с номером {well_number} не найдена")
-
-    # Редирект на страницу с ID
-    return RedirectResponse(f"/well/{well.id}", status_code=302)
 @app.get("/well/{well_identifier}", response_class=HTMLResponse)
 def well_page(
         well_identifier: str,  # <- Может быть и номером, и ID
@@ -1991,16 +1920,7 @@ def well_page(
     preset = preset or "week"
 
     # 1) Скважина
-    # 1) Скважина
-    well = None
-
-    # Сначала пробуем найти по номеру (преобразуем в int)
-    try:
-        well_number = int(well_identifier)
-        well = db.query(Well).filter(Well.number == well_number).first()
-    except ValueError:
-        # Если не получилось преобразовать в int
-        pass
+    well = db.query(Well).filter(Well.number == well_identifier).first()
 
     # Если не нашли по номеру, пробуем как ID
     if not well:
@@ -2054,7 +1974,7 @@ def well_page(
     # --- оборудование на этой скважине ---
     equipment_list = (
         db.query(WellEquipment)
-        .filter(WellEquipment.well_id == well.id)
+        .filter(WellEquipment.well_id == well_id)
         .order_by(WellEquipment.type_code.asc(), WellEquipment.installed_at.desc())
         .all()
     )
@@ -2081,7 +2001,7 @@ def well_page(
             "type": equipment.equipment_type,
             "serial_number": equipment.serial_number,
             "manufacturer": equipment.manufacturer,
-            "model": getattr(equipment, 'model', None),  # Безопасно
+            "model": equipment.model,
             "condition": equipment.condition,
             "installation_date": installation.installed_at,
             "installation_location": getattr(installation, 'installation_location', None),
@@ -2110,7 +2030,7 @@ def well_page(
 
     channel_history = (
         db.query(WellChannel)
-        .filter(WellChannel.well_id == well.id)
+        .filter(WellChannel.well_id == well_id)
         .order_by(WellChannel.started_at.desc())
         .all()
     )
@@ -2128,7 +2048,7 @@ def well_page(
             db.query(WellEquipment)
             .filter(
                 WellEquipment.id == edit_equipment_id,
-                WellEquipment.well_id == well.id,
+                WellEquipment.well_id == well_id,
             )
             .first()
         )
@@ -2139,7 +2059,7 @@ def well_page(
             db.query(WellChannel)
             .filter(
                 WellChannel.id == edit_channel_id,
-                WellChannel.well_id == well.id,
+                WellChannel.well_id == well_id,
             )
             .first()
         )
@@ -2147,7 +2067,7 @@ def well_page(
     # --- ЗАМЕТКИ ПО СКВАЖИНЕ (для левого/правого окна) ---
     notes = (
         db.query(WellNote)
-        .filter(WellNote.well_id == well.id)
+        .filter(WellNote.well_id == well_id)
         .order_by(WellNote.created_at.desc())
         .all()
     )
@@ -2158,7 +2078,7 @@ def well_page(
             db.query(WellNote)
             .filter(
                 WellNote.id == edit_note,
-                WellNote.well_id == well.id,
+                WellNote.well_id == well_id,
             )
             .first()
         )
@@ -2581,7 +2501,7 @@ def set_well_status(
     # 4) Закрываем предыдущий активный статус (dt_end = start_dt)
     last_active = (
         db.query(WellStatus)
-        .filter(WellStatus.well_id == well.id, WellStatus.dt_end.is_(None))
+        .filter(WellStatus.well_id == well_id, WellStatus.dt_end.is_(None))
         .order_by(WellStatus.dt_start.desc())
         .first()
     )
@@ -2634,7 +2554,7 @@ def edit_well_status(
 
     st = (
         db.query(WellStatus)
-        .filter(WellStatus.id == status_id, WellStatus.well_id == well.id)
+        .filter(WellStatus.id == status_id, WellStatus.well_id == well_id)
         .first()
     )
     if not st:
@@ -2680,7 +2600,7 @@ def delete_well_status(
     """
     st = (
         db.query(WellStatus)
-        .filter(WellStatus.id == status_id, WellStatus.well_id == well.id)
+        .filter(WellStatus.id == status_id, WellStatus.well_id == well_id)
         .first()
     )
     if not st:
@@ -2784,7 +2704,7 @@ def save_well_note(
         # --- РЕДАКТИРОВАНИЕ ---
         note = (
             db.query(WellNote)
-            .filter(WellNote.id == note_id, WellNote.well_id == well.id)
+            .filter(WellNote.id == note_id, WellNote.well_id == well_id)
             .first()
         )
         if not note:
@@ -2821,7 +2741,7 @@ def delete_well_note(
     """
     note = (
         db.query(WellNote)
-        .filter(WellNote.id == note_id, WellNote.well_id == well.id)
+        .filter(WellNote.id == note_id, WellNote.well_id == well_id)
         .first()
     )
     if not note:
@@ -2924,7 +2844,7 @@ def edit_well_equipment(
 ):
     eq = (
         db.query(WellEquipment)
-        .filter(WellEquipment.id == eq_id, WellEquipment.well_id == well.id)
+        .filter(WellEquipment.id == eq_id, WellEquipment.well_id == well_id)
         .first()
     )
     if not eq:
@@ -2964,7 +2884,7 @@ def delete_well_equipment(
 ):
     eq = (
         db.query(WellEquipment)
-        .filter(WellEquipment.id == eq_id, WellEquipment.well_id == well.id)
+        .filter(WellEquipment.id == eq_id, WellEquipment.well_id == well_id)
         .first()
     )
     if not eq:
@@ -3001,7 +2921,7 @@ def add_well_channel(
     # Закрываем предыдущий активный канал
     last_active = (
         db.query(WellChannel)
-        .filter(WellChannel.well_id == well.id, WellChannel.ended_at.is_(None))
+        .filter(WellChannel.well_id == well_id, WellChannel.ended_at.is_(None))
         .order_by(WellChannel.started_at.desc())
         .first()
     )
@@ -3039,7 +2959,7 @@ def edit_well_channel(
 ):
     ch = (
         db.query(WellChannel)
-        .filter(WellChannel.id == channel_id, WellChannel.well_id == well.id)
+        .filter(WellChannel.id == channel_id, WellChannel.well_id == well_id)
         .first()
     )
     if not ch:
@@ -3070,7 +2990,7 @@ def delete_well_channel(
 ):
     ch = (
         db.query(WellChannel)
-        .filter(WellChannel.id == channel_id, WellChannel.well_id == well.id)
+        .filter(WellChannel.id == channel_id, WellChannel.well_id == well_id)
         .first()
     )
     if not ch:
@@ -3332,4 +3252,3 @@ def debug_well_equipment(
             dict(row._mapping) for row in equipment_with_location
         ]
     }
-

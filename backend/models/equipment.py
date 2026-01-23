@@ -40,6 +40,14 @@ class Equipment(Base):
     status: Mapped[str] = mapped_column(String(50), default="available")
     current_location: Mapped[Optional[str]] = mapped_column(String(200))
 
+    # ВНЕСЕНО НОВОЕ ПОЛЕ: Связь с текущей скважиной
+    well_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("wells.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+
     # Сервис
     last_maintenance_date: Mapped[Optional[date]] = mapped_column(Date)
     next_maintenance_date: Mapped[Optional[date]] = mapped_column(Date)
@@ -63,6 +71,9 @@ class Equipment(Base):
         back_populates="equipment",
         order_by="EquipmentMaintenance.maintenance_date.desc()"
     )
+
+    # ВНЕСЕНА НОВАЯ СВЯЗЬ: Связь с текущей скважиной
+    well: Mapped[Optional["Well"]] = relationship("Well")
 
     def __repr__(self):
         return f"<Equipment {self.name} ({self.serial_number})>"
@@ -168,6 +179,8 @@ class EquipmentMaintenance(Base):
 Index("idx_equipment_serial", Equipment.serial_number)
 Index("idx_equipment_status", Equipment.status)
 Index("idx_equipment_type", Equipment.equipment_type)
+# ВНЕСЕН НОВЫЙ ИНДЕКС: Для быстрого поиска оборудования по скважине
+Index("idx_equipment_well", Equipment.well_id)
 
 Index("idx_equip_install_equipment", EquipmentInstallation.equipment_id)
 Index("idx_equip_install_well", EquipmentInstallation.well_id)

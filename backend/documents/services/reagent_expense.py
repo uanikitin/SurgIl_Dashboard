@@ -133,3 +133,36 @@ def refill_reagent_expense_items(
 
     db.flush()
     return len(events)
+
+
+def get_wells_with_events(db: Session, year: int, month: int) -> list[int]:
+    """
+    Возвращает список well_id скважин, у которых есть реагентные события за указанный месяц.
+    Реагентное событие = запись в events с reagent IS NOT NULL и qty > 0.
+    """
+    dt_from, dt_to = _dt_range_for_month(year, month)
+
+    # Получаем список номеров скважин (строковые) с реагентными событиями
+    well_numbers_rows = (
+        db.query(Event.well)
+        .filter(Event.event_time >= dt_from)
+        .filter(Event.event_time <= dt_to)
+        .filter(Event.reagent.isnot(None))
+        .filter(sa.func.length(sa.cast(Event.reagent, sa.String)) > 0)
+        .distinct()
+        .all()
+    )
+
+    well_numbers_set = {str(r[0]).strip() for r in well_numbers_rows if r and r[0]}
+
+    if not well_numbers_set:
+        return []
+
+    # Конвертируем номера скважин в well_id
+    wells = (
+        db.query(Well.id)
+        .filter(sa.cast(Well.number, sa.String).in_(well_numbers_set))
+        .all()
+    )
+
+    return [w[0] for w in wells]

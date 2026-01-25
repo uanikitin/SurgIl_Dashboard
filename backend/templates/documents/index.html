@@ -27,10 +27,37 @@
     <a href="/visual" class="back-btn">←</a>
     <h1>Акты и документы</h1>
   </div>
-  <div class="header-right">
-    <a href="/documents/reagent-expense/new" class="btn-header">+ Акт расхода реагентов</a>
-  </div>
 </header>
+
+{# ============================================================
+   FLASH MESSAGE
+   ============================================================ #}
+{% if flash_msg %}
+<div class="flash-message flash-{{ flash_msg_type }}" style="
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  {% if flash_msg_type == 'success' %}
+    background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0;
+  {% elif flash_msg_type == 'warning' %}
+    background: #fef3c7; color: #92400e; border: 1px solid #fcd34d;
+  {% elif flash_msg_type == 'error' %}
+    background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5;
+  {% else %}
+    background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd;
+  {% endif %}
+">
+  <span style="flex:1;">
+    {% if flash_msg_type == 'success' %}✅{% elif flash_msg_type == 'warning' %}⚠️{% elif flash_msg_type == 'error' %}❌{% else %}ℹ️{% endif %}
+    {{ flash_msg }}
+  </span>
+  <button onclick="this.parentElement.remove()" style="background:none; border:none; cursor:pointer; font-size:18px; opacity:0.6;">&times;</button>
+</div>
+{% endif %}
 
 {# ============================================================
    KPI СЕКЦИЯ
@@ -154,6 +181,118 @@
       <div class="section-controls">
         <a class="btn-apply" href="/documents/reagent-expense/new">+ Создать акт</a>
       </div>
+    </div>
+
+    {# KPI карточки для реагентных актов #}
+    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; margin-top:16px;">
+      <div class="kpi-card" style="padding:12px;">
+        <div class="kpi-icon" style="background:#e0e7ff; color:#3730a3; width:36px; height:36px; font-size:16px;">📄</div>
+        <div class="kpi-data">
+          <div class="kpi-value" style="font-size:20px;">{{ reagent_expense_stats.total }}</div>
+          <div class="kpi-label" style="font-size:12px;">Всего актов</div>
+        </div>
+      </div>
+      <div class="kpi-card" style="padding:12px;">
+        <div class="kpi-icon" style="background:#dbeafe; color:#1d4ed8; width:36px; height:36px; font-size:16px;">📅</div>
+        <div class="kpi-data">
+          <div class="kpi-value" style="font-size:20px;">{{ reagent_expense_stats.current_month }}</div>
+          <div class="kpi-label" style="font-size:12px;">За текущий месяц</div>
+        </div>
+      </div>
+      <div class="kpi-card" style="padding:12px;">
+        <div class="kpi-icon" style="background:#fef3c7; color:#d97706; width:36px; height:36px; font-size:16px;">📝</div>
+        <div class="kpi-data">
+          <div class="kpi-value" style="font-size:20px;">{{ reagent_expense_stats.drafts }}</div>
+          <div class="kpi-label" style="font-size:12px;">Черновиков</div>
+        </div>
+      </div>
+    </div>
+
+    {# Accordion актов по скважинам #}
+    <div style="margin-top:16px;">
+      {% if reagent_expense_groups|length > 0 %}
+        <div class="reagent-accordion">
+          {% for group in reagent_expense_groups %}
+            <details class="reagent-well-group" {% if group.drafts > 0 %}open{% endif %}>
+              <summary class="reagent-well-header">
+                <div style="display:flex; align-items:center; gap:12px; flex:1;">
+                  <span class="reagent-arrow">►</span>
+                  <span style="font-weight:700; font-size:14px;">Скв {{ group.well_number }}</span>
+                  <div style="display:flex; gap:8px; margin-left:auto;">
+                    <span style="background:#e5e7eb; color:#374151; padding:3px 8px; border-radius:4px; font-size:11px; font-weight:600;">
+                      {{ group.total }} акт{{ 'ов' if group.total > 4 or group.total == 0 else ('а' if group.total > 1 else '') }}
+                    </span>
+                    {% if group.drafts > 0 %}
+                      <span style="background:#fef3c7; color:#92400e; padding:3px 8px; border-radius:4px; font-size:11px; font-weight:600;">
+                        {{ group.drafts }} черновик{{ 'ов' if group.drafts > 4 else ('а' if group.drafts > 1 else '') }}
+                      </span>
+                    {% endif %}
+                  </div>
+                </div>
+              </summary>
+              <div class="reagent-well-content">
+                <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                  <thead>
+                    <tr style="background:#f8f9fa; text-align:left;">
+                      <th style="padding:8px 12px; border-bottom:1px solid #dee2e6;">№ документа</th>
+                      <th style="padding:8px 12px; border-bottom:1px solid #dee2e6;">Период</th>
+                      <th style="padding:8px 12px; border-bottom:1px solid #dee2e6;">Статус</th>
+                      <th style="padding:8px 12px; border-bottom:1px solid #dee2e6;">Дата</th>
+                      <th style="padding:8px 12px; border-bottom:1px solid #dee2e6; text-align:center;">Действие</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for doc in group.docs %}
+                    <tr style="border-bottom:1px solid #f0f0f0;">
+                      <td style="padding:8px 12px; font-weight:600;">{{ doc.doc_number or "—" }}</td>
+                      <td style="padding:8px 12px;">
+                        {% if doc.period_year and doc.period_month %}
+                          {{ doc.period_year }}-{{ "%02d"|format(doc.period_month) }}
+                        {% else %}—{% endif %}
+                      </td>
+                      <td style="padding:8px 12px;">
+                        {% if doc.status == 'draft' %}
+                          <span style="background:#fef3c7; color:#92400e; padding:3px 6px; border-radius:4px; font-size:11px; font-weight:600;">Черновик</span>
+                        {% elif doc.status == 'generated' %}
+                          <span style="background:#dbeafe; color:#1e40af; padding:3px 6px; border-radius:4px; font-size:11px; font-weight:600;">Создан</span>
+                        {% elif doc.status == 'signed' %}
+                          <span style="background:#d1fae5; color:#065f46; padding:3px 6px; border-radius:4px; font-size:11px; font-weight:600;">Подписан</span>
+                        {% elif doc.status == 'sent' %}
+                          <span style="background:#e0e7ff; color:#3730a3; padding:3px 6px; border-radius:4px; font-size:11px; font-weight:600;">Отправлен</span>
+                        {% elif doc.status == 'archived' %}
+                          <span style="background:#e5e7eb; color:#374151; padding:3px 6px; border-radius:4px; font-size:11px; font-weight:600;">Архив</span>
+                        {% else %}
+                          <span style="background:#f3f4f6; color:#6b7280; padding:3px 6px; border-radius:4px; font-size:11px;">{{ doc.status }}</span>
+                        {% endif %}
+                      </td>
+                      <td style="padding:8px 12px; color:#6b7280; font-size:12px;">
+                        {% if doc.created_at %}{{ doc.created_at.strftime("%d.%m.%Y") }}{% else %}—{% endif %}
+                      </td>
+                      <td style="padding:8px 12px; text-align:center;">
+                        <a href="/documents/{{ doc.id }}" class="admin-link" style="font-weight:600;">Открыть</a>
+                      </td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          {% endfor %}
+        </div>
+        {% if reagent_expense_stats.total > 20 %}
+          <div style="margin-top:12px; font-size:12px; color:#6b7280; text-align:center;">
+            Показаны последние 20 из {{ reagent_expense_stats.total }} актов
+          </div>
+        {% endif %}
+      {% else %}
+        {# Пустое состояние #}
+        <div style="padding:40px; text-align:center; background:#f9fafb; border-radius:8px; border:1px dashed #d1d5db;">
+          <div style="font-size:32px; margin-bottom:12px;">📋</div>
+          <div style="font-size:15px; font-weight:600; color:#374151; margin-bottom:4px;">Актов расхода реагентов пока нет</div>
+          <div style="font-size:13px; color:#6b7280; margin-bottom:16px;">Создайте первый акт для учёта расхода реагентов по скважинам</div>
+          <a href="/documents/reagent-expense/new" class="btn-apply" style="display:inline-block;">+ Создать акт</a>
+        </div>
+      {% endif %}
     </div>
   </section>
 
@@ -432,6 +571,44 @@
 /* Well accordion */
 .well-details[open] .well-arrow { transform: rotate(90deg); }
 .well-header:hover { background: #f0f0f0; }
+
+/* Reagent expense accordion */
+.reagent-accordion {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.reagent-well-group {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.reagent-well-header {
+  list-style: none;
+  cursor: pointer;
+  padding: 12px 16px;
+  background: #f9fafb;
+  display: flex;
+  align-items: center;
+}
+.reagent-well-header:hover {
+  background: #f3f4f6;
+}
+.reagent-well-header::-webkit-details-marker {
+  display: none;
+}
+.reagent-arrow {
+  font-size: 10px;
+  transition: transform 0.2s;
+  color: #6b7280;
+}
+.reagent-well-group[open] .reagent-arrow {
+  transform: rotate(90deg);
+}
+.reagent-well-content {
+  padding: 0;
+  border-top: 1px solid #e5e7eb;
+}
 </style>
 
 <script>

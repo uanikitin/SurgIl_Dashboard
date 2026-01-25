@@ -63,7 +63,9 @@ from typing import List
 def documents_index(
         request: Request,
         db: Session = Depends(get_db),
-        status: List[str] | None = Query(None)  # <-- Изменено: теперь принимаем список
+        status: List[str] | None = Query(None),
+        msg: str | None = Query(None),
+        msg_type: str | None = Query(None),
 ):
     """
     Главная страница актов с канбаном и списком скважин.
@@ -72,6 +74,7 @@ def documents_index(
     - Мультивыбор статусов через чекбоксы
     - Сортировка скважин по разным критериям
     - Сохранение выбора в localStorage (на клиенте)
+    - Flash-сообщения через query params (msg, msg_type)
     """
 
     # ========== Канбан-доска ==========
@@ -219,6 +222,65 @@ def documents_index(
                     well_total_stats[d.well_id]["by_group"][group] = 0
                 well_total_stats[d.well_id]["by_group"][group] += 1
 
+    # ========== KPI и таблица для секции "Акты расхода реагентов" ==========
+    # Находим тип документа reagent_expense
+    reagent_expense_type = db.query(DocumentType).filter(DocumentType.code == "reagent_expense").first()
+
+    reagent_expense_stats = {
+        "total": 0,
+        "current_month": 0,
+        "drafts": 0,
+    }
+    reagent_expense_docs = []
+
+    if reagent_expense_type:
+        # Все акты расхода реагентов (не удалённые)
+        re_docs_query = (
+            db.query(Document)
+            .filter(Document.doc_type_id == reagent_expense_type.id)
+            .filter(Document.deleted_at.is_(None))
+        )
+
+        all_re_docs = re_docs_query.order_by(Document.created_at.desc()).all()
+        reagent_expense_stats["total"] = len(all_re_docs)
+
+        # Черновики
+        reagent_expense_stats["drafts"] = len([d for d in all_re_docs if d.status == "draft"])
+
+        # За текущий месяц
+        from datetime import date as _date
+        today = _date.today()
+        reagent_expense_stats["current_month"] = len([
+            d for d in all_re_docs
+            if d.period_year == today.year and d.period_month == today.month
+        ])
+
+        # Последние 20 актов для таблицы
+        reagent_expense_docs = all_re_docs[:20]
+
+    # Группировка по скважинам для accordion
+    reagent_expense_by_well = {}
+    for doc in reagent_expense_docs:
+        well_key = doc.well_id or 0
+        if well_key not in reagent_expense_by_well:
+            reagent_expense_by_well[well_key] = {
+                "well": doc.well,
+                "well_number": doc.well.number if doc.well else "—",
+                "docs": [],
+                "total": 0,
+                "drafts": 0,
+            }
+        reagent_expense_by_well[well_key]["docs"].append(doc)
+        reagent_expense_by_well[well_key]["total"] += 1
+        if doc.status == "draft":
+            reagent_expense_by_well[well_key]["drafts"] += 1
+
+    # Сортируем группы: сначала те, у которых есть черновики, потом по номеру скважины
+    reagent_expense_groups = sorted(
+        reagent_expense_by_well.values(),
+        key=lambda g: (-(g["drafts"]), str(g["well_number"]))
+    )
+
     # ========== Список уникальных статусов для фильтра ==========
     unique_statuses_dict = {}
 
@@ -272,6 +334,13 @@ def documents_index(
             "well_total_stats": well_total_stats,
             "available_statuses": available_statuses,
             "selected_statuses": selected_statuses,
+            # KPI и таблица для секции "Акты расхода реагентов"
+            "reagent_expense_stats": reagent_expense_stats,
+            "reagent_expense_docs": reagent_expense_docs,
+            "reagent_expense_groups": reagent_expense_groups,
+            # Flash-сообщения
+            "flash_msg": msg,
+            "flash_msg_type": msg_type or "info",
         },
     )
 
@@ -369,12 +438,29 @@ def document_detail(doc_id: int, request: Request, db: Session = Depends(get_db)
         .all()
     )
 
+    # Для reagent_expense: список статусов из БД и сохранённые в документе
+    all_status_names = []
+    saved_status_names = []
+    if doc.doc_type and doc.doc_type.code == "reagent_expense":
+        all_status_names = [
+            r[0] for r in (
+                db.query(WellStatus.status)
+                .distinct()
+                .order_by(WellStatus.status.asc())
+                .all()
+            )
+            if r and r[0]
+        ]
+        saved_status_names = (doc.meta or {}).get("status_names", [])
+
     return templates.TemplateResponse(
         "documents/detail.html",
         {
             "request": request,
             "doc": doc,
             "items": items,
+            "all_status_names": all_status_names,
+            "saved_status_names": saved_status_names,
         },
     )
 
@@ -531,6 +617,11 @@ def reagent_expense_new(request: Request, db: Session = Depends(get_db)):
         if r and r[0]
     ]
     today = date.today()
+
+    # 2) дефолтный выбор скважин: те, у которых есть реагентные события за текущий месяц
+    from backend.documents.services.reagent_expense import get_wells_with_events
+    wells_with_events_ids = get_wells_with_events(db, today.year, today.month)
+
     return templates.TemplateResponse(
         "documents/reagent_expense_new.html",
         {
@@ -540,12 +631,14 @@ def reagent_expense_new(request: Request, db: Session = Depends(get_db)):
             "status_names": status_names,
             "default_year": today.year,
             "default_month": today.month,
+            "wells_with_events_ids": wells_with_events_ids,
         },
     )
 
 
 @router.post("/documents/reagent-expense/create")
 def reagent_expense_create(
+    request: Request,
     db: Session = Depends(get_db),
     year: int = Form(...),
     month: int = Form(...),
@@ -553,6 +646,7 @@ def reagent_expense_create(
     numbering_mode: str = Form("auto"),# auto|manual
     manual_number: str = Form(""),
     well_ids: list[int] = Form([]),
+    status_names: list[str] = Form([]),  # фильтр по статусам
 ):
     dt = db.query(DocumentType).filter(DocumentType.code == "reagent_expense").first()
     if not dt:
@@ -565,8 +659,44 @@ def reagent_expense_create(
     prefix = dt.auto_number_prefix or "АРР"
     if numbering_mode == "manual" and manual_number.strip() and len(well_ids) != 1:
         raise HTTPException(status_code=400, detail="Manual number allowed only when one well selected")
+
+    if not well_ids:
+        # Нет выбранных скважин — возврат с сообщением
+        from urllib.parse import urlencode
+        params = urlencode({"msg": "Не выбрано ни одной скважины", "msg_type": "warning"})
+        return RedirectResponse(url=f"/documents?{params}", status_code=303)
+
+    # Определяем скважины с дубликатами (частичный success вместо полного отказа)
+    existing_docs = (
+        db.query(Document)
+        .filter(
+            Document.well_id.in_(well_ids),
+            Document.period_year == year,
+            Document.period_month == month,
+            Document.doc_type_id == dt.id,
+            Document.deleted_at.is_(None),
+        )
+        .all()
+    )
+    existing_well_ids = {d.well_id for d in existing_docs}
+    skipped_duplicates = []
+    for d in existing_docs:
+        if d.well:
+            skipped_duplicates.append(f"W{d.well.number}")
+
+    # Фильтруем валидные скважины
+    valid_well_ids = [wid for wid in well_ids if wid not in existing_well_ids]
+
+    if not valid_well_ids:
+        # Все скважины — дубликаты
+        from urllib.parse import urlencode
+        msg = f"Акты за {year}-{month:02d} уже существуют для всех выбранных скважин: {', '.join(skipped_duplicates)}"
+        params = urlencode({"msg": msg, "msg_type": "warning"})
+        return RedirectResponse(url=f"/documents?{params}", status_code=303)
+
     created = 0
-    for wid in well_ids:
+    created_wells = []
+    for wid in valid_well_ids:
         doc = Document(
             doc_type_id=dt.id,
             well_id=wid,
@@ -599,13 +729,13 @@ def reagent_expense_create(
         period_start = date(year, month, 1)
         period_end = date(year, month, last_day)
 
-        # 2) берем периоды статусов из БД (well_status) и НЕ хардкодим allowed
-        #    далее ты уже сможешь в UI выбрать какие статусы учитывать,
-        #    а сейчас просто используем ВСЕ статусы для скважины в пределах месяца.
+        # 2) берем периоды статусов из БД (well_status)
+        #    Если status_names не пуст — фильтруем по выбранным статусам.
+        #    Если status_names пуст — берём все статусы (fallback).
         from backend.models.well_status import WellStatus  # подстрой импорт под свой путь
         from backend.models.events import Event  # подстрой импорт под свой путь
 
-        ws_periods = (
+        ws_query = (
             db.query(WellStatus)
             .filter(WellStatus.well_id == wid)
             .filter(sa.func.date(WellStatus.dt_start) <= period_end)
@@ -615,14 +745,20 @@ def reagent_expense_create(
                     sa.func.date(WellStatus.dt_end) >= period_start,
                 )
             )
-            .order_by(WellStatus.dt_start.asc())
-            .all()
         )
 
-        # если периодов нет — можно либо не заполнять строки, либо заполнять по всему месяцу.
-        # Я делаю fallback: месяц целиком.
+        # НОВОЕ: фильтрация по выбранным статусам (если список не пуст)
+        if status_names:
+            ws_query = ws_query.filter(WellStatus.status.in_(status_names))
+
+        ws_periods = ws_query.order_by(WellStatus.dt_start.asc()).all()
+
+        # если периодов нет — fallback: месяц целиком (только если status_names пуст)
         if not ws_periods:
-            ws_periods = [type("Tmp", (), {"status": None, "dt_start": period_start, "dt_end": period_end})]
+            if not status_names:
+                # Пустой status_names = все статусы → fallback на весь месяц
+                ws_periods = [type("Tmp", (), {"status": None, "dt_start": period_start, "dt_end": period_end})]
+            # else: status_names задан, но периодов нет → акт будет без строк (корректно)
 
         # 3) собираем события дозирования реагентов из events в пересечении с периодами статусов
         #    !!! ВАЖНО: подстрой фильтр event_type под твоё реальное значение.
@@ -689,11 +825,27 @@ def reagent_expense_create(
         meta["summary_foam"] = summary_foam
         meta["summary_inhibitor"] = summary_inhibitor
         meta["total_injections"] = line_no
+        # Сохраняем выбранные статусы для последующего refill
+        meta["status_names"] = status_names if status_names else []
         doc.meta = meta
         created += 1
+        created_wells.append(f"W{doc.well.number}" if doc.well else f"ID{wid}")
 
     db.commit()
-    return RedirectResponse(url="/documents", status_code=303)
+
+    # Формируем сообщение о результате
+    from urllib.parse import urlencode
+    msg_parts = []
+    if created > 0:
+        msg_parts.append(f"Создано актов: {created} ({', '.join(created_wells)})")
+    if skipped_duplicates:
+        msg_parts.append(f"Пропущены (уже существуют): {', '.join(skipped_duplicates)}")
+
+    msg = ". ".join(msg_parts) if msg_parts else "Операция завершена"
+    msg_type = "success" if created > 0 else "warning"
+
+    params = urlencode({"msg": msg, "msg_type": msg_type})
+    return RedirectResponse(url=f"/documents?{params}", status_code=303)
 
 @router.post("/documents/create")
 def documents_create(
@@ -759,15 +911,25 @@ def documents_soft_delete(doc_id: int, db: Session = Depends(get_db)):
 from backend.documents.services.reagent_expense import refill_reagent_expense_items
 
 @router.post("/documents/{doc_id}/reagent-expense/refill")
-def reagent_expense_refill(doc_id: int, db: Session = Depends(get_db)):
+def reagent_expense_refill(
+    doc_id: int,
+    db: Session = Depends(get_db),
+    status_names: list[str] = Form([]),
+):
     doc = db.query(Document).filter(Document.id == doc_id).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    # пример: какие статусы учитывать (можешь менять)
-    allowed = ["Оптимизация", "Адаптация", "Освоение", "Наблюдение"]
+    # Используем статусы из формы; если пусто — None (fallback на все события)
+    allowed = status_names if status_names else None
 
     n = refill_reagent_expense_items(db, doc_id, allowed_statuses=allowed)
+
+    # Сохраняем выбранные статусы в meta для следующего раза
+    meta = doc.meta or {}
+    meta["status_names"] = status_names if status_names else []
+    doc.meta = meta
+
     db.commit()
 
     return RedirectResponse(url=f"/documents/{doc_id}", status_code=303)
@@ -1029,6 +1191,48 @@ def document_generate_pdf(
     db.commit()
 
     return RedirectResponse(url=f"/documents/{doc_id}", status_code=303)
+
+
+@router.get("/documents/{doc_id}/preview-pdf")
+def document_preview_pdf(doc_id: int, db: Session = Depends(get_db)):
+    """
+    Предпросмотр PDF inline в браузере.
+    Если PDF ещё не сгенерирован — возвращает 404 с подсказкой.
+    """
+    from fastapi.responses import FileResponse
+    from urllib.parse import quote
+
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if not doc.pdf_filename:
+        raise HTTPException(
+            status_code=404,
+            detail="PDF not generated yet. Click 'Generate PDF' first."
+        )
+
+    pdf_path = Path("backend/static") / doc.pdf_filename
+    if not pdf_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"PDF file not found: {doc.pdf_filename}"
+        )
+
+    # RFC 5987: filename*=UTF-8'' для поддержки Unicode в HTTP заголовках
+    filename = pdf_path.name
+    filename_ascii = filename.encode('ascii', 'ignore').decode('ascii') or f"document_{doc_id}.pdf"
+    filename_utf8 = quote(filename, safe='')
+
+    # Content-Disposition с fallback для старых браузеров
+    content_disposition = f"inline; filename=\"{filename_ascii}\"; filename*=UTF-8''{filename_utf8}"
+
+    return FileResponse(
+        path=str(pdf_path),
+        media_type="application/pdf",
+        headers={"Content-Disposition": content_disposition}
+    )
+
 
 @router.post("/documents/{doc_id}/sign")
 def document_sign(

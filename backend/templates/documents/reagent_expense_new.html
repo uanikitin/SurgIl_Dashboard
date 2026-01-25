@@ -73,22 +73,33 @@
     </div>
 
     <div style="font-size:12px; opacity:.75; margin-top:8px;">
-      Эти статусы используются для выбора периодов из <code>well_status</code> при автозаполнении строк акта.
+      В акт включаются только реагентные события, попадающие в периоды с выбранными статусами.<br>
+      Если снять все статусы — будут учтены все события за месяц (fallback).
     </div>
   </div>
 
   <!-- Скважины -->
-  <div style="display:flex; gap:12px; align-items:center; margin-top:4px;">
+  <div style="display:flex; gap:12px; align-items:center; margin-top:4px; flex-wrap:wrap;">
     <button type="button" class="btn" onclick="toggleAllWells(true)">Выбрать все</button>
     <button type="button" class="btn" onclick="toggleAllWells(false)">Снять все</button>
-    <div style="opacity:.8;">Выбери скважины, для которых создаём акты</div>
+    <div id="wellsCounter" style="font-weight:600; color:#007bff;">Выбрано: <span id="selectedCount">{{ wells_with_events_ids|length }}</span> из {{ wells|length }}</div>
   </div>
 
   <div style="border:1px solid #eee; border-radius:10px; padding:12px; max-height:420px; overflow:auto;">
+    {% if wells_with_events_ids and wells_with_events_ids|length > 0 %}
+    <div style="background:#e8f4fd; border:1px solid #b8daff; border-radius:8px; padding:10px 14px; margin-bottom:12px; font-size:13px; color:#004085;">
+      ℹ️ По умолчанию выбраны скважины с реагентными событиями за {{ default_month }}.{{ default_year }}
+    </div>
+    {% elif wells|length > 0 %}
+    <div style="background:#fff3cd; border:1px solid #ffc107; border-radius:8px; padding:10px 14px; margin-bottom:12px; font-size:13px; color:#856404;">
+      ⚠️ Нет скважин с реагентными событиями за {{ default_month }}.{{ default_year }}. Выберите вручную.
+    </div>
+    {% endif %}
     <div style="display:grid; grid-template-columns: repeat(6, 1fr); gap:8px;">
       {% for w in wells %}
         <label style="border:1px solid #eee; border-radius:10px; padding:8px; display:flex; gap:8px; align-items:center;">
-          <input type="checkbox" name="well_ids" value="{{ w.id }}">
+          <input type="checkbox" name="well_ids" value="{{ w.id }}" onchange="updateWellsCounter()"
+                 {% if w.id in wells_with_events_ids %}checked{% endif %}>
           <strong>{{ w.number }}</strong>
         </label>
       {% endfor %}
@@ -102,8 +113,15 @@
 </form>
 
 <script>
+function updateWellsCounter(){
+  const total = document.querySelectorAll('input[type="checkbox"][name="well_ids"]').length;
+  const selected = document.querySelectorAll('input[type="checkbox"][name="well_ids"]:checked').length;
+  document.getElementById('selectedCount').textContent = selected;
+}
+
 function toggleAllWells(v){
   document.querySelectorAll('input[type="checkbox"][name="well_ids"]').forEach(cb => cb.checked = v);
+  updateWellsCounter();
 }
 function toggleAllStatuses(v){
   document.querySelectorAll('input[type="checkbox"][name="status_names"]').forEach(cb => cb.checked = v);

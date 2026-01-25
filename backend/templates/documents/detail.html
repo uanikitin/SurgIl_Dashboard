@@ -85,22 +85,87 @@
       </div>
     </form>
 
-    <form method="post" action="/documents/{{ doc.id }}/generate-pdf" style="display:inline-block; margin-left:10px;">
+    <div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; margin-top:12px;">
+      <form method="post" action="/documents/{{ doc.id }}/generate-pdf" style="display:inline-block;">
+        <label style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+          <input type="checkbox" name="split_tables" value="1">
+          <span style="font-size:13px;">2 таблицы (пенные / ингибирующие)</span>
+        </label>
+        <button class="btn btn-primary" type="submit">Сгенерировать PDF</button>
+      </form>
 
-      <label style="display:flex; gap:8px; align-items:center; margin-top:8px;">
-  <input type="checkbox" name="split_tables" value="1">
-  2 таблицы (пенные / ингибирующие)
-</label>
+      {% if doc.pdf_filename %}
+        <button type="button" class="btn" onclick="togglePdfPreview()" style="display:inline-flex; align-items:center; gap:6px;">
+          📄 <span id="previewBtnText">Показать PDF</span>
+        </button>
+        <a href="/documents/{{ doc.id }}/preview-pdf" target="_blank" class="btn" style="display:inline-flex; align-items:center; gap:6px;">
+          🔗 В новой вкладке
+        </a>
+        <a href="/static/{{ doc.pdf_filename }}" download class="btn" style="display:inline-flex; align-items:center; gap:6px;">
+          ⬇️ Скачать
+        </a>
+      {% else %}
+        <span style="font-size:13px; color:#6b7280; padding:8px;">PDF ещё не сгенерирован</span>
+      {% endif %}
+    </div>
 
-  <button class="btn btn-primary" type="submit">Сгенерировать PDF</button>
-</form>
+    {% if doc.pdf_filename %}
+    <div id="pdfPreviewContainer" style="display:none; margin-top:16px; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;">
+      <div style="background:#f3f4f6; padding:8px 12px; display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-weight:600; font-size:13px;">Предпросмотр PDF</span>
+        <button type="button" onclick="togglePdfPreview()" style="background:none; border:none; cursor:pointer; font-size:18px;">&times;</button>
+      </div>
+      <iframe id="pdfPreviewFrame" src="" style="width:100%; height:600px; border:none;"></iframe>
+    </div>
+    <script>
+      function togglePdfPreview() {
+        const container = document.getElementById('pdfPreviewContainer');
+        const frame = document.getElementById('pdfPreviewFrame');
+        const btnText = document.getElementById('previewBtnText');
+        if (container.style.display === 'none') {
+          frame.src = '/documents/{{ doc.id }}/preview-pdf';
+          container.style.display = 'block';
+          btnText.textContent = 'Скрыть PDF';
+        } else {
+          container.style.display = 'none';
+          frame.src = '';
+          btnText.textContent = 'Показать PDF';
+        }
+      }
+    </script>
+    {% endif %}
 
-    <form method="post" action="/documents/{{ doc.id }}/reagent-expense/refill" style="display:inline-block; margin-left:10px;">
-  <button type="submit"
-          onclick="return confirm('Пересобрать строки из events? Все ручные правки строк акта будут потеряны.');">
-    Пересобрать из events
-  </button>
-</form>
+    {% if doc.doc_type and doc.doc_type.code == 'reagent_expense' %}
+    <div style="margin-top:16px; padding:12px; border:1px solid #e5e7eb; border-radius:8px; background:#f9fafb;">
+      <div style="font-weight:600; margin-bottom:8px;">Пересборка строк из событий</div>
+
+      <form method="post" action="/documents/{{ doc.id }}/reagent-expense/refill">
+        <div style="margin-bottom:10px;">
+          <div style="font-size:13px; color:#6b7280; margin-bottom:6px;">Учитывать статусы:</div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            {% for s in all_status_names %}
+              <label style="display:inline-flex; gap:6px; align-items:center; border:1px solid #ddd; padding:4px 10px; border-radius:6px; font-size:13px; cursor:pointer;">
+                <input type="checkbox" name="status_names" value="{{ s }}"
+                       {% if s in saved_status_names or not saved_status_names %}checked{% endif %}>
+                <span>{{ s }}</span>
+              </label>
+            {% endfor %}
+            {% if not all_status_names %}
+              <span style="opacity:.6; font-size:13px;">Статусы не найдены в БД</span>
+            {% endif %}
+          </div>
+          <div style="font-size:11px; color:#9ca3af; margin-top:6px;">
+            Если снять все — будут учтены все события за период (fallback).
+          </div>
+        </div>
+
+        <button type="submit" class="btn"
+                onclick="return confirm('Пересобрать строки из events? Все ручные правки строк акта будут потеряны.');">
+          Пересобрать из events
+        </button>
+      </form>
+    </div>
+    {% endif %}
 
     <form method="post" action="/documents/{{ doc.id }}/soft-delete" style="display:inline;">
   <button type="submit" onclick="return confirm('Удалить документ?');">
@@ -141,9 +206,8 @@
           <th>Кол-во</th>
           <th>Этап</th>
           <th>Время</th>
-          <th>Edit</th>
-<th>Edit</th>
-<th></th>
+          <th style="width:60px;"></th>
+          <th style="width:80px;"></th>
         </tr>
       </thead>
       <tbody>
@@ -155,7 +219,6 @@
           <td>{{ it.quantity or "" }}</td>
           <td>{{ it.stage or "" }}</td>
           <td>{{ it.event_time_str or "" }}</td>
-<td>{{ it.event_time_str or "" }}</td>
 
 <!-- EDIT -->
 <td style="text-align:left;">

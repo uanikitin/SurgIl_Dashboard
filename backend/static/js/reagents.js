@@ -846,26 +846,44 @@ document.addEventListener('DOMContentLoaded', () => {
 function createStockChart() {
   const data = window.reagentsData || {};
   const ctxStock = document.getElementById('chart_stock');
-  
+
   if (!ctxStock || !data.stockLabels || !data.stockValues) return;
-  
+
   if (window.stockChart instanceof Chart) {
     window.stockChart.destroy();
   }
 
-  const maxValue = Math.max(...data.stockValues);
-  const suggestedMax = Math.ceil(maxValue * 1.1);
-  
-  const chartHeight = 600;
-  
-  if (!ctxStock.dataset.heightSet) {
-    ctxStock.style.height = chartHeight + 'px';
-    ctxStock.height = chartHeight;
-    ctxStock.dataset.heightSet = 'true';
+  // Фільтруємо нульові значення (ТОП-30 без нулів)
+  const filteredData = data.stockLabels
+    .map((label, i) => ({ label, value: data.stockValues[i], unit: data.stockUnits?.[i] || 'шт' }))
+    .filter(item => item.value > 0)
+    .slice(0, 30);
+
+  if (filteredData.length === 0) {
+    const ctx = ctxStock.getContext('2d');
+    ctx.clearRect(0, 0, ctxStock.width, ctxStock.height);
+    ctx.font = '14px Arial';
+    ctx.fillStyle = '#6c757d';
+    ctx.textAlign = 'center';
+    ctx.fillText('Немає реагентів з залишком > 0', ctxStock.width / 2, ctxStock.height / 2);
+    return;
   }
 
+  const stockLabels = filteredData.map(d => d.label);
+  const stockValues = filteredData.map(d => d.value);
+  const stockUnits = filteredData.map(d => d.unit);
+
+  const maxValue = Math.max(...stockValues);
+  const suggestedMax = Math.ceil(maxValue * 1.1);
+
+  // Динамічна висота залежно від кількості елементів
+  const chartHeight = Math.max(300, filteredData.length * 25);
+
+  ctxStock.style.height = chartHeight + 'px';
+  ctxStock.height = chartHeight;
+
   // Використовуємо ТІ САМІ кольори, що й на таймлайні
-  const colors = data.stockLabels.map(reagentName => {
+  const colors = stockLabels.map(reagentName => {
     // Шукаємо колір для цього реагента
     return window.reagentsData.reagentColors[reagentName] || '#6c757d';
   });
@@ -873,10 +891,10 @@ function createStockChart() {
   window.stockChart = new Chart(ctxStock, {
     type: 'bar',
     data: {
-      labels: data.stockLabels,
+      labels: stockLabels,
       datasets: [{
         label: 'Залишок',
-        data: data.stockValues,
+        data: stockValues,
         backgroundColor: colors,
         borderColor: colors.map(c => c),
         borderWidth: 1,
@@ -896,7 +914,7 @@ function createStockChart() {
           callbacks: {
             label: (ctx) => {
               const value = ctx.parsed.x.toFixed(3);
-              const unit = data.stockUnits?.[ctx.dataIndex] || 'шт';
+              const unit = stockUnits[ctx.dataIndex] || 'шт';
               return `Залишок: ${value} ${unit}`;
             }
           }
@@ -907,18 +925,23 @@ function createStockChart() {
           beginAtZero: true,
           max: suggestedMax,
           ticks: {
-            stepSize: Math.ceil(suggestedMax / 10)
+            stepSize: Math.ceil(suggestedMax / 10),
+            font: { size: 11 }
           },
           title: {
             display: true,
-            text: 'Кількість'
-          }
+            text: 'Кількість',
+            font: { size: 12 }
+          },
+          grid: { color: 'rgba(0,0,0,0.06)' }
         },
         y: {
           ticks: {
             font: { size: 11 },
-            autoSkip: false
-          }
+            autoSkip: false,
+            padding: 5
+          },
+          grid: { display: false }
         }
       }
     }

@@ -7,14 +7,71 @@
 <div class="card" style="padding:16px; max-width:820px;">
   <form method="post" action="/documents/well-handover/create" style="display:grid; gap:12px;">
 
-    <label><b>Тип акта</b></label>
-    <select name="doc_type_id" required>
-      <option value="{{ dt_accept.id }}">Акт приема скважины</option>
-      <option value="{{ dt_transfer.id }}">Акт передачи скважины</option>
-    </select>
+    <!-- ТИП АКТА -->
+    <div style="background:#e7f3ff; padding:16px; border-radius:8px; border-left:4px solid #0066cc;">
+      <label style="font-weight:700; font-size:16px; margin-bottom:12px; display:block;">Тип акта</label>
+
+      <div style="display:grid; gap:8px;">
+        <!-- Общие акты -->
+        <div style="font-weight:600; opacity:0.7; font-size:13px; margin-top:4px;">Общие акты:</div>
+        <label style="display:flex; align-items:center; gap:8px; padding:8px 12px; background:white; border-radius:6px; cursor:pointer;">
+          <input type="radio" name="doc_type_id" value="{{ doc_types.well_acceptance.id }}"
+                 onchange="toggleStageFields(this)" data-is-stage="false" checked>
+          <span>📥 <b>Акт приёма скважины</b> — скважина передаётся Подрядчику</span>
+        </label>
+        <label style="display:flex; align-items:center; gap:8px; padding:8px 12px; background:white; border-radius:6px; cursor:pointer;">
+          <input type="radio" name="doc_type_id" value="{{ doc_types.well_transfer.id }}"
+                 onchange="toggleStageFields(this)" data-is-stage="false">
+          <span>📤 <b>Акт возврата скважины</b> — скважина возвращается Заказчику</span>
+        </label>
+
+        <!-- Этапные акты -->
+        <div style="font-weight:600; opacity:0.7; font-size:13px; margin-top:12px;">Акты по этапам работ:</div>
+        <label style="display:flex; align-items:center; gap:8px; padding:8px 12px; background:white; border-radius:6px; cursor:pointer;">
+          <input type="radio" name="doc_type_id" value="{{ doc_types.well_stage_accept.id }}"
+                 onchange="toggleStageFields(this)" data-is-stage="true">
+          <span>📥 <b>Акт приёма на этап</b> — для выполнения работ по конкретному этапу</span>
+        </label>
+        <label style="display:flex; align-items:center; gap:8px; padding:8px 12px; background:white; border-radius:6px; cursor:pointer;">
+          <input type="radio" name="doc_type_id" value="{{ doc_types.well_stage_return.id }}"
+                 onchange="toggleStageFields(this)" data-is-stage="true">
+          <span>📤 <b>Акт возврата после этапа</b> — после выполнения работ по этапу</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- ВЫБОР ЭТАПА (показывается только для этапных актов) -->
+    <div id="stage-fields" style="display:none; background:#fff3cd; padding:16px; border-radius:8px; border-left:4px solid #ffc107;">
+      <label style="font-weight:700; margin-bottom:8px; display:block;">📋 Этап работ</label>
+      <select name="stage_status" id="stage-status" style="width:100%; padding:10px; font-size:15px;">
+        <option value="">-- Выберите этап --</option>
+        {% for status in allowed_statuses %}
+        <option value="{{ status }}">{{ status }}</option>
+        {% endfor %}
+      </select>
+      <div style="font-size:12px; opacity:0.7; margin-top:8px;">
+        Этап будет указан в тексте акта
+      </div>
+
+      <!-- Скрытое поле для well_status_id (заполняется при выборе из истории) -->
+      <input type="hidden" name="well_status_id" id="well-status-id" value="">
+
+      {% if well_statuses %}
+      <div style="margin-top:12px; padding-top:12px; border-top:1px solid #e5c07b;">
+        <div style="font-size:13px; font-weight:600; margin-bottom:8px;">Или выберите из истории скважины:</div>
+        {% for ws in well_statuses[:5] %}
+        <label style="display:flex; align-items:center; gap:8px; padding:6px; cursor:pointer; font-size:13px;">
+          <input type="radio" name="history_status" value="{{ ws.id }}"
+                 onchange="selectHistoryStatus('{{ ws.status }}', {{ ws.id }})">
+          <span>{{ ws.status }} ({{ ws.dt_start.strftime('%d.%m.%Y') }}{% if ws.dt_end %} — {{ ws.dt_end.strftime('%d.%m.%Y') }}{% endif %})</span>
+        </label>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
 
     <label><b>Скважина</b></label>
-    <select name="well_id" required>
+    <select name="well_id" required onchange="reloadWithWell(this.value)">
       {% for w in wells %}
         <option value="{{ w.id }}"{% if selected_well_id == w.id %} selected{% endif %}>{{ w.number }}</option>
       {% endfor %}
@@ -69,5 +126,38 @@ document.addEventListener('DOMContentLoaded', function() {
     handoverInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
   }
 });
+
+// Показать/скрыть поля этапа
+function toggleStageFields(radio) {
+  const isStage = radio.dataset.isStage === 'true';
+  const stageFields = document.getElementById('stage-fields');
+  const stageSelect = document.getElementById('stage-status');
+
+  stageFields.style.display = isStage ? 'block' : 'none';
+  stageSelect.required = isStage;
+
+  if (!isStage) {
+    stageSelect.value = '';
+    document.getElementById('well-status-id').value = '';
+  }
+}
+
+// Выбор статуса из истории
+function selectHistoryStatus(status, statusId) {
+  document.getElementById('stage-status').value = status;
+  document.getElementById('well-status-id').value = statusId;
+}
+
+// Перезагрузка страницы при смене скважины
+function reloadWithWell(wellId) {
+  const currentType = document.querySelector('input[name="doc_type_id"]:checked');
+  const kind = currentType ? getKindFromTypeId(currentType.value) : '';
+  window.location.href = `/documents/well-handover/new?well_id=${wellId}&kind=${kind}`;
+}
+
+function getKindFromTypeId(typeId) {
+  // Simplified - just reload without kind
+  return '';
+}
 </script>
 {% endblock %}

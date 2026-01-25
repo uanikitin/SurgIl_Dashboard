@@ -21,6 +21,18 @@
 
   {% set m = doc.meta or {} %}
 
+  {% if is_stage_doc and stage_status %}
+  <div style="background:#fff3cd; padding:12px; border-radius:6px; margin-bottom:16px; border-left:4px solid #ffc107;">
+    <div style="font-weight:600;">📋 Этапный акт</div>
+    <div style="font-size:15px; margin-top:4px;">
+      Этап: <b>{{ stage_status }}</b>
+      {% if well_status_id %}
+        <span style="opacity:0.6; font-size:12px;">(ID: {{ well_status_id }})</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
   <form method="post" action="/documents/well-handover/{{ doc.id }}/update" style="display:grid; gap:10px;">
 
     <div style="background:#f8f9fa; padding:12px; border-radius:6px; border-left:3px solid #0d6efd;">
@@ -67,6 +79,12 @@
            placeholder="например 16.60"
            {% if doc.status != 'draft' %}disabled{% endif %}>
 
+    {% if m.get('pressure_source') %}
+    <div style="font-size:12px; opacity:0.7; background:#f0f0f0; padding:6px 10px; border-radius:4px; margin-top:-4px;">
+      📊 Источник: {{ m.get('pressure_source') }}
+    </div>
+    {% endif %}
+
     <label><b>Территория вокруг скважины</b></label>
     <input name="territory_state" value="{{ m.get('territory_state','') }}"
            {% if doc.status != 'draft' %}disabled{% endif %}>
@@ -84,9 +102,27 @@
     </div>
   </form>
 
-  <form method="post" action="/documents/well-handover/{{ doc.id }}/generate-pdf" style="margin-top:12px;">
-    <button type="submit">Сгенерировать PDF</button>
-  </form>
+  <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">
+    <form method="post" action="/documents/well-handover/{{ doc.id }}/generate-pdf">
+      <button type="submit">{% if doc.pdf_filename %}Перегенерировать PDF{% else %}Сгенерировать PDF{% endif %}</button>
+    </form>
+
+    {% if doc.pdf_filename %}
+      <a href="/static/{{ doc.pdf_filename }}" target="_blank" class="btn btn-secondary" style="padding:8px 16px; text-decoration:none;">
+        📄 Открыть PDF
+      </a>
+    {% endif %}
+  </div>
+
+  {% if doc.pdf_filename %}
+  <div style="margin-top:16px; border:1px solid #ddd; border-radius:8px; overflow:hidden;">
+    <div style="background:#f8f9fa; padding:8px 12px; font-weight:600; display:flex; justify-content:space-between; align-items:center;">
+      <span>📄 Предпросмотр PDF</span>
+      <a href="/static/{{ doc.pdf_filename }}" target="_blank" style="font-size:13px;">Открыть в новой вкладке →</a>
+    </div>
+    <iframe src="/static/{{ doc.pdf_filename }}" style="width:100%; height:500px; border:none;"></iframe>
+  </div>
+  {% endif %}
 
   {% if doc.status == 'draft' %}
     <form method="post" action="/documents/well-handover/{{ doc.id }}/rebuild-from-events" style="margin-top:8px;">
@@ -117,12 +153,44 @@
       <div style="border-top:1px solid #e5e5e5; margin:8px 0;"></div>
       <div style="display:grid; grid-template-columns:200px 1fr; gap:8px;">
         <div style="opacity:0.7;">Трубное давление:</div>
-        <div><b>{{ m.get('tube_pressure','—') }}</b> кгс/см²</div>
+        <div>
+          {% if m.get('tube_pressure') is not none %}
+            <b>{{ "%.2f"|format(m.get('tube_pressure')|float) }}</b> кгс/см²
+          {% else %}
+            <span style="opacity:0.5;">—</span>
+          {% endif %}
+        </div>
       </div>
       <div style="display:grid; grid-template-columns:200px 1fr; gap:8px;">
         <div style="opacity:0.7;">Шлейфное давление:</div>
-        <div><b>{{ m.get('line_pressure','—') }}</b> кгс/см²</div>
+        <div>
+          {% if m.get('line_pressure') is not none %}
+            <b>{{ "%.2f"|format(m.get('line_pressure')|float) }}</b> кгс/см²
+          {% else %}
+            <span style="opacity:0.5;">—</span>
+          {% endif %}
+        </div>
       </div>
+      {% if m.get('pressure_source') or m.get('pressure_source_type') %}
+      <div style="display:grid; grid-template-columns:200px 1fr; gap:8px;">
+        <div style="opacity:0.7;">Источник давлений:</div>
+        <div style="font-size:13px;">
+          {% if m.get('pressure_source_type') %}
+            <span style="background:#e7f3ff; padding:2px 6px; border-radius:3px; font-size:11px; margin-right:4px;">
+              {{ m.get('pressure_source_type') }}
+            </span>
+          {% endif %}
+          {{ m.get('pressure_source', '—') }}
+        </div>
+      </div>
+      {% endif %}
+      {% if m.get('stage_status') %}
+      <div style="border-top:1px solid #e5e5e5; margin:8px 0;"></div>
+      <div style="display:grid; grid-template-columns:200px 1fr; gap:8px;">
+        <div style="opacity:0.7;">Этап работ:</div>
+        <div><b>{{ m.get('stage_status') }}</b></div>
+      </div>
+      {% endif %}
     </div>
   </section>
 
@@ -130,6 +198,12 @@
     <h2 style="margin:0 0 12px 0;">Движение по канбану</h2>
 
     {% if doc.status == "generated" %}
+      <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+        <form method="post" action="/documents/well-handover/{{ doc.id }}/revert-to-draft" style="display:inline;">
+          <button type="submit" class="btn-secondary">✏️ Вернуть в черновик</button>
+        </form>
+      </div>
+
       <form method="post" action="/documents/{{ doc.id }}/sign" style="display:grid; gap:8px; max-width:520px;">
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
           <input name="signer_name" placeholder="ФИО подписанта (опц.)" />

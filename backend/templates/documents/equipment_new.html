@@ -80,23 +80,68 @@
           <div id="serials-{{ loop.index }}" style="display:none; margin-left:32px;">
             {% if eq_class['items']|length > 0 %}
               {% for eq in eq_class['items'] %}
-              <div style="display:flex; align-items:center; gap:12px; padding:8px; margin-bottom:6px; border-radius:6px; {% if eq.status == 'available' %}background:#e7f5e7{% else %}background:#fff3cd{% endif %};">
+              <div style="display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:8px; margin-bottom:6px; border-radius:6px; {% if eq.status == 'available' %}background:#e7f5e7{% elif eq._installed_on_same_well %}background:#e7f0ff{% else %}background:#fff3cd{% endif %};">
                 <input type="checkbox" name="equipment_ids" value="{{ eq.id }}"
-                       {% if eq.status != 'available' and kind == 'install' %}disabled title="Занято"{% endif %}>
+                       class="eq-checkbox" data-eq-id="{{ eq.id }}"
+                       {% if kind == 'install' and eq._installed_on_other_well %}disabled title="Установлено на другой скважине"{% endif %}
+                       onchange="toggleLocationSelect(this)">
                 <span style="font-family:monospace; font-weight:600;">{{ eq.serial_number }}</span>
                 <span style="flex:1; opacity:0.7; font-size:13px;">{{ eq.manufacturer or '—' }}</span>
 
                 {% if eq.status == 'installed' %}
-                  <span style="padding:4px 8px; background:#ffc107; color:#000; border-radius:4px; font-size:12px; font-weight:600;">
-                    📍 {{ eq.current_location }}
-                  </span>
-                  {% if kind == 'install' %}
+                  {% if eq._installed_on_same_well %}
+                    {# Установлено на ЭТОЙ ЖЕ скважине - разрешаем #}
+                    <span style="padding:4px 8px; background:#0066cc; color:white; border-radius:4px; font-size:12px; font-weight:600;">
+                      📍 Уже на этой скв.
+                    </span>
+                    {% if eq._has_existing_doc %}
+                      <span style="color:#856404; font-size:12px;">⚠️ Акт уже существует</span>
+                    {% else %}
+                      <span style="color:#0066cc; font-size:12px;">ℹ️ Без акта</span>
+                    {% endif %}
+                  {% elif eq._installed_on_other_well %}
+                    {# Установлено на ДРУГОЙ скважине - блокируем #}
+                    <span style="padding:4px 8px; background:#dc3545; color:white; border-radius:4px; font-size:12px; font-weight:600;">
+                      🚫 Скв. {{ eq._installed_well_number }}
+                    </span>
                     <span style="color:#dc3545; font-size:12px;">⚠️ Сначала демонтируй</span>
+                  {% else %}
+                    <span style="padding:4px 8px; background:#ffc107; color:#000; border-radius:4px; font-size:12px; font-weight:600;">
+                      📍 {{ eq.current_location }}
+                    </span>
                   {% endif %}
                 {% else %}
                   <span style="padding:4px 8px; background:#28a745; color:white; border-radius:4px; font-size:12px; font-weight:600;">
                     ✓ Доступно
                   </span>
+                {% endif %}
+
+                {# Место монтажа для каждого оборудования #}
+                {% if kind == 'install' and not eq._installed_on_other_well %}
+                <div id="location-{{ eq.id }}" class="eq-location-row" style="display:none; width:100%; margin-top:8px; padding:8px; background:#fff; border-radius:4px; border:1px solid #0066cc;">
+                  <label style="font-size:12px; font-weight:600; color:#0066cc;">📍 Место монтажа:</label>
+                  <select name="location_{{ eq.id }}" class="eq-location-select" style="margin-left:8px; padding:4px 8px; font-size:13px; border-radius:4px; border:1px solid #ccc;"
+                          {% if eq._installation_location %}disabled{% endif %}>
+                    {% if eq._installation_location %}
+                      <option value="{{ eq._installation_location }}" selected>{{ eq._installation_location }}</option>
+                    {% else %}
+                      <option value="">-- Выберите --</option>
+                      <option value="Устье">Устье</option>
+                      <option value="НКТ">НКТ</option>
+                      <option value="Шлейф">Шлейф</option>
+                      <option value="Затруб">Затруб</option>
+                      <option value="Інше">Інше</option>
+                    {% endif %}
+                  </select>
+                  {% if eq._installation_location %}
+                    <span style="margin-left:8px; font-size:11px; color:#666;">(уже указано)</span>
+                  {% endif %}
+                </div>
+                {% elif kind == 'removal' and eq._installation_location %}
+                {# Для демонтажа показываем место, откуда демонтируем (только отображение) #}
+                <div style="width:100%; margin-top:8px; padding:6px 8px; background:#fff9e6; border-radius:4px; border:1px solid #ffc107;">
+                  <span style="font-size:12px; color:#856404;">📍 Место: <b>{{ eq._installation_location }}</b></span>
+                </div>
                 {% endif %}
               </div>
               {% endfor %}
@@ -282,15 +327,46 @@ function toggleClass(index) {
   updateCount();
 }
 
-// Подсчёт
+// Показать/скрыть поле места монтажа при выборе оборудования
+function toggleLocationSelect(checkbox) {
+  const eqId = checkbox.dataset.eqId;
+  const locationDiv = document.getElementById('location-' + eqId);
+  if (locationDiv) {
+    locationDiv.style.display = checkbox.checked ? 'block' : 'none';
+  }
+  updateCount();
+}
+
+// Подсчёт и валидация
 function updateCount() {
-  const count = document.querySelectorAll('input[name="equipment_ids"]:checked').length;
+  const checkedBoxes = document.querySelectorAll('input[name="equipment_ids"]:checked');
+  const count = checkedBoxes.length;
   document.getElementById('count').textContent = count;
-  document.getElementById('submit-btn').disabled = count === 0;
+
+  // Проверяем, что для всех выбранных указано место монтажа (для монтажа)
+  let allLocationsValid = true;
+  const kind = '{{ kind }}';
+
+  if (kind === 'install') {
+    checkedBoxes.forEach(cb => {
+      const eqId = cb.dataset.eqId;
+      const locationSelect = document.querySelector(`select[name="location_${eqId}"]`);
+      if (locationSelect && !locationSelect.disabled && !locationSelect.value) {
+        allLocationsValid = false;
+      }
+    });
+  }
+
+  document.getElementById('submit-btn').disabled = count === 0 || !allLocationsValid;
 }
 
 document.querySelectorAll('input[name="equipment_ids"]').forEach(cb => {
   cb.addEventListener('change', updateCount);
+});
+
+// Обновлять валидацию при изменении места монтажа
+document.querySelectorAll('.eq-location-select').forEach(sel => {
+  sel.addEventListener('change', updateCount);
 });
 
 // Модалки

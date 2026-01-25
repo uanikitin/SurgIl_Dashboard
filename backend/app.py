@@ -1514,13 +1514,18 @@ def admin_reagents_page(
 
         total_used_today += consumption_today
 
+        # Конвертуємо datetime в строку для JSON-сериалізації
+        last_inv_date = balance_info.get("last_inventory_date")
+        last_inv_date_str = last_inv_date.isoformat() if last_inv_date else None
+
         reagents_data.append({
             "name": reagent.name,
             "unit": reagent.default_unit,
             "stock": float(balance_info["current_balance"]),
             "avg_daily": avg_daily,
             "consumption_today": float(consumption_today),
-            "last_inventory_date": balance_info.get("last_inventory_date"),
+            "last_inventory_date": last_inv_date,  # datetime для Jinja2 шаблону
+            "last_inventory_date_str": last_inv_date_str,  # строка для JSON
             "calculation_method": balance_info["calculation_method"]
         })
 
@@ -1639,6 +1644,10 @@ def admin_reagents_page(
     # 🔧 ДОДАНО: отримуємо список типів подій
     event_types = list(set(ev.event_type.lower() for ev in events_rows if ev.event_type))
 
+    # Отримуємо доступні статуси скважин
+    from backend.models.well_status import ALLOWED_STATUS
+    well_statuses = list(ALLOWED_STATUS)
+
     return templates.TemplateResponse(
         "admin_reagents.html",
         {
@@ -1659,6 +1668,7 @@ def admin_reagents_page(
             "reagent_names": reagent_names,
             "wells": wells,
             "event_types": event_types,  # 🔧 ДОДАНО
+            "well_statuses": well_statuses,  # Статуси скважин для фільтра
 
             # Дати
             "as_of_date": as_of_date.strftime("%Y-%m-%d"),

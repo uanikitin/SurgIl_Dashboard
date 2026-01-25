@@ -17,3 +17,12 @@ __pycache__/
 
 # системные файлы macOS
 .DS_Store
+
+# Generated LaTeX/PDF artifacts
+backend/static/generated/pdf/
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+

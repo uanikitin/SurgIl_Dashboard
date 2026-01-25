@@ -70,15 +70,19 @@ def _parse_dt(dt_str: str, field_name: str) -> datetime:
 
 
 def _to_float_or_none(x) -> Optional[float]:
-    """Convert to float or None"""
+    """
+    Безопасное преобразование в float.
+    Поддерживает запятую как десятичный разделитель.
+    Возвращает None при невалидном вводе.
+    """
     if x is None:
         return None
     x = str(x).strip().replace(",", ".")
-    if not x:
+    if not x or x == "—" or x.lower() in ("none", "null"):
         return None
     try:
         return float(x)
-    except:
+    except (ValueError, TypeError):
         return None
 
 
@@ -338,6 +342,41 @@ def equipment_doc_new(
                 .order_by(Equipment.name.asc(), Equipment.serial_number.asc())
                 .all()
             )
+
+            # Проверяем для каждого оборудования, на какой скважине оно установлено
+            for eq in all_equipment:
+                eq._installed_on_same_well = False
+                eq._installed_on_other_well = False
+                eq._installed_well_number = None
+                eq._has_existing_doc = False
+                eq._installation_location = None  # Место монтажа из installation
+
+                if eq.status == 'installed':
+                    # Ищем активную установку
+                    active_install = (
+                        db.query(EquipmentInstallation)
+                        .filter(
+                            EquipmentInstallation.equipment_id == eq.id,
+                            EquipmentInstallation.removed_at.is_(None)
+                        )
+                        .first()
+                    )
+                    if active_install:
+                        # Сохраняем место монтажа
+                        eq._installation_location = active_install.installation_location
+
+                        if active_install.well_id == well_id:
+                            # Установлено на ТОЙ ЖЕ скважине
+                            eq._installed_on_same_well = True
+                            eq._installed_well_number = well.number
+                            # Проверяем, есть ли уже акт
+                            if active_install.document_id:
+                                eq._has_existing_doc = True
+                        else:
+                            # Установлено на ДРУГОЙ скважине
+                            eq._installed_on_other_well = True
+                            other_well = db.query(Well).filter(Well.id == active_install.well_id).first()
+                            eq._installed_well_number = other_well.number if other_well else active_install.well_id
         else:
             # ИСПРАВЛЕНО: Для демонтажа ищем по current_location
             # Ищем оборудование где current_location содержит номер скважины
@@ -351,6 +390,21 @@ def equipment_doc_new(
                 .order_by(Equipment.name.asc(), Equipment.serial_number.asc())
                 .all()
             )
+
+            # Для демонтажа добавляем _installation_location из активной установки
+            for eq in all_equipment:
+                eq._installation_location = None
+                active_install = (
+                    db.query(EquipmentInstallation)
+                    .filter(
+                        EquipmentInstallation.equipment_id == eq.id,
+                        EquipmentInstallation.well_id == well_id,
+                        EquipmentInstallation.removed_at.is_(None)
+                    )
+                    .first()
+                )
+                if active_install:
+                    eq._installation_location = active_install.installation_location
 
         # Группируем по названию
         grouped = defaultdict(list)
@@ -388,7 +442,7 @@ def equipment_doc_new(
 # ======================================================================================
 
 @router.post("/documents/equipment/create")
-def equipment_doc_create(
+async def equipment_doc_create(
     request: Request,
     db: Session = Depends(get_db),
     doc_type_id: int = Form(...),
@@ -404,6 +458,17 @@ def equipment_doc_create(
     note: str = Form(None),
 ):
     """Создание акта монтажа/демонтажа"""
+    # Получаем все данные формы для извлечения location_{eq_id}
+    form_data = await request.form()
+    equipment_locations = {}
+    for key, value in form_data.multi_items():
+        if key.startswith("location_") and value:
+            try:
+                eq_id = int(key.replace("location_", ""))
+                equipment_locations[eq_id] = value
+            except ValueError:
+                pass
+
     doc_type = db.query(DocumentType).filter(DocumentType.id == doc_type_id).first()
     if not doc_type:
         raise HTTPException(status_code=404, detail="Document type not found")
@@ -427,11 +492,37 @@ def equipment_doc_create(
     for eq_id in equipment_ids:
         eq = db.query(Equipment).filter(Equipment.id == eq_id).first()
         if eq:
+            # Получаем место монтажа для этого оборудования
+            eq_install_location = None
+
+            # Сначала проверяем, есть ли активная установка
+            active_install = (
+                db.query(EquipmentInstallation)
+                .filter(
+                    EquipmentInstallation.equipment_id == eq.id,
+                    EquipmentInstallation.well_id == well_id,
+                    EquipmentInstallation.removed_at.is_(None)
+                )
+                .first()
+            )
+
+            if kind == "install":
+                # Для монтажа: сначала из формы, потом из существующей установки
+                eq_install_location = equipment_locations.get(eq_id)
+                if not eq_install_location and active_install:
+                    eq_install_location = active_install.installation_location
+            else:
+                # Для демонтажа: из активной установки
+                if active_install:
+                    eq_install_location = active_install.installation_location
+
             equipment_items.append({
                 "equipment_id": eq.id,
                 "name": eq.name,
+                "equipment_type": eq.equipment_type,
                 "serial_number": eq.serial_number,
                 "manufacturer": eq.manufacturer,
+                "installation_location": eq_install_location,
                 "quantity": 1
             })
 
@@ -444,9 +535,9 @@ def equipment_doc_create(
         "tube_pressure": tube_p,
         "line_pressure": line_p,
         "note": note,
-        "equipment_items": equipment_items,
+        "equipment_items": equipment_items,  # Место монтажа хранится в каждом item
         "kind": kind,
-        "equipment_condition": equipment_condition  # "working" или "not_working"
+        "equipment_condition": equipment_condition,  # "working" или "not_working"
     }
 
     # Создание документа
@@ -473,15 +564,41 @@ def equipment_doc_create(
             eq.status = "installed"
             eq.current_location = f"Скважина {well.number}"
 
-            installation = EquipmentInstallation(
-                equipment_id=eq.id,
-                well_id=well_id,
-                document_id=doc.id,
-                installed_at=event_datetime,
-                tube_pressure_install=tube_p,
-                line_pressure_install=line_p,
+            # Проверяем, есть ли уже активная установка на ЭТУ ЖЕ скважину
+            existing_install = (
+                db.query(EquipmentInstallation)
+                .filter(
+                    EquipmentInstallation.equipment_id == eq.id,
+                    EquipmentInstallation.well_id == well_id,
+                    EquipmentInstallation.removed_at.is_(None)
+                )
+                .first()
             )
-            db.add(installation)
+
+            # Получаем место монтажа для этого оборудования
+            eq_location = equipment_locations.get(eq.id)
+
+            if existing_install:
+                # Обновляем существующую запись (добавляем document_id если не было)
+                if not existing_install.document_id:
+                    existing_install.document_id = doc.id
+                existing_install.tube_pressure_install = tube_p
+                existing_install.line_pressure_install = line_p
+                # Обновляем место монтажа если указано новое
+                if eq_location:
+                    existing_install.installation_location = eq_location
+            else:
+                # Создаём новую запись установки
+                new_installation = EquipmentInstallation(
+                    equipment_id=eq.id,
+                    well_id=well_id,
+                    document_id=doc.id,
+                    installed_at=event_datetime,
+                    tube_pressure_install=tube_p,
+                    line_pressure_install=line_p,
+                    installation_location=eq_location,
+                )
+                db.add(new_installation)
         else:
             # Демонтаж
             eq.status = "available"
@@ -558,8 +675,8 @@ def equipment_doc_generate_pdf(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    if doc.status != "draft":
-        raise HTTPException(status_code=400, detail="Only drafts can be generated")
+    if doc.status not in ["draft", "generated"]:
+        raise HTTPException(status_code=400, detail="Only drafts or generated documents can have PDF regenerated")
 
     meta = doc.meta or {}
     kind = meta.get("kind", "install")
@@ -617,13 +734,25 @@ def equipment_doc_generate_pdf(
     # Таблица оборудования
     equipment_rows = []
     for idx, item in enumerate(meta.get("equipment_items", []), 1):
-        name = _tex_escape(item.get('name', '—'))
+        # Объединяем тип и название: "SMOD — Твердый пенообразователь"
+        eq_type = item.get('equipment_type') or ''
+        name = item.get('name') or ''
+        if eq_type and name:
+            type_name = _tex_escape(f"{eq_type} — {name}")
+        elif eq_type:
+            type_name = _tex_escape(eq_type)
+        elif name:
+            type_name = _tex_escape(name)
+        else:
+            type_name = "—"
+
         serial = _tex_escape(item.get('serial_number', '—'))
+        location = _tex_escape(item.get('installation_location', '—'))
         qty = item.get('quantity', 1)
-        row = f"{idx} & {name} & {serial} & {qty} \\\\\n\\hline"
+        row = f"{idx} & {type_name} & {serial} & {location} & {qty} \\\\\n\\hline"
         equipment_rows.append(row)
 
-    equipment_table = "\n".join(equipment_rows) if equipment_rows else "— & — & — & — \\\\\n\\hline"
+    equipment_table = "\n".join(equipment_rows) if equipment_rows else "— & — & — & — & — \\\\\n\\hline"
 
     # Заменяем всю секцию между маркерами
     # Разбиваем по началу, находим конец, и вставляем таблицу
@@ -756,7 +885,7 @@ def equipment_doc_change_status(
     # Разрешённые переходы
     allowed_transitions = {
         "draft": ["generated"],
-        "generated": ["signed"],
+        "generated": ["draft", "signed"],  # Можно вернуть в черновик для редактирования
         "signed": ["sent", "archived"],
         "sent": ["archived"],
         "archived": ["signed"],

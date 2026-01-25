@@ -40,7 +40,7 @@
         </div>
 
         {% for d in board.get(s, []) %}
-          {% set is_handover = d.doc_type and d.doc_type.code in ["well_acceptance", "well_transfer"] %}
+          {% set is_handover = d.doc_type and d.doc_type.code in ["well_acceptance", "well_transfer", "well_stage_accept", "well_stage_return"] %}
           {% set is_equipment = d.doc_type and d.doc_type.code in ["equipment_install", "equipment_remove"] %}
           {% if is_handover %}
             {% set detail_url = "/documents/well-handover/" ~ d.id %}
@@ -94,20 +94,20 @@
     </div>
   </section>
 
-  <!-- MASS ACTIONS -->
+  <!-- REAGENT EXPENSE SECTION -->
   <section class="card" style="padding:16px; margin: 0 0 16px 0;">
     <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap;">
       <div>
-        <div style="font-weight:700;">Массовые акты</div>
+        <div style="font-weight:700;">Акты расхода реагентов</div>
         <div style="opacity:.7; font-size:13px;">
-          Создание актов с выбором скважин и фильтрами
+          Периодические акты по расходу реагентов для нескольких скважин
         </div>
       </div>
     </div>
 
     <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:12px;">
       <a class="btn btn-primary" href="/documents/reagent-expense/new" style="display:inline-flex; align-items:center; gap:8px;">
-        + Акт расхода реагентов (массово)
+        + Создать акт расхода реагентов
       </a>
     </div>
   </section>
@@ -243,95 +243,101 @@
             </div>
           </summary>
 
-          <div style="padding:16px; display:grid; gap:8px;">
+          <div style="padding:16px; display:grid; gap:12px;">
 
-            <div style="font-weight:600; margin-top:6px;">Обязательные разовые</div>
-
-            {% for dt in doc_types_one_time %}
-              {# Пропускаем equipment_remove - показываем только единую строку #}
-              {% if dt.code != "equipment_remove" %}
-
-              {% set st = well_stats.get((w.id, dt.id)) %}
-              <div style="display:flex; gap:12px; align-items:center; padding:8px; border:1px solid #f0f0f0; border-radius:8px;">
-                <div style="min-width:320px;">
-                  {# Для equipment_install показываем объединённое название #}
-                  {% if dt.code == "equipment_install" %}
-                    📦 Акт монтажа/демонтажа оборудования
-                  {% else %}
-                    {{ dt.name_ru }}
-                  {% endif %}
-                </div>
-
-                {# Статистика #}
-                {% if dt.code == "equipment_install" %}
-                  {% set st_install = well_stats.get((w.id, dt.id)) %}
-                  {% set dt_remove_list = doc_types_one_time|selectattr("code", "equalto", "equipment_remove")|list %}
-                  {% set dt_remove = dt_remove_list[0] if dt_remove_list else none %}
-                  {% set st_remove = well_stats.get((w.id, dt_remove.id)) if dt_remove else none %}
-
-                  {% if (st_install and st_install.docs) or (st_remove and st_remove.docs) %}
-                    <div style="display:flex; gap:8px; flex-wrap:wrap; font-size:13px;">
-                      {% if st_install and st_install.docs %}
-                        {% for x in st_install.docs %}
-                          <a href="/documents/equipment/{{ x.id }}" style="padding:2px 8px; background:#e7f5e7; border-radius:4px; text-decoration:none;">
-                            📦 {{ x.doc_number or ("#" ~ x.id) }}
-                          </a>
-                        {% endfor %}
-                      {% endif %}
-                      {% if st_remove and st_remove.docs %}
-                        {% for x in st_remove.docs %}
-                          <a href="/documents/equipment/{{ x.id }}" style="padding:2px 8px; background:#fff3cd; border-radius:4px; text-decoration:none;">
-                            🔧 {{ x.doc_number or ("#" ~ x.id) }}
-                          </a>
-                        {% endfor %}
-                      {% endif %}
-                    </div>
-                  {% else %}
-                    <span style="opacity:.7;">нет</span>
-                  {% endif %}
-                {% else %}
-                  {% if st and st.docs and (st.docs|length) > 0 %}
-                    <div style="display:flex; gap:8px; flex-wrap:wrap; font-size:13px;">
-                      {% for x in st.docs %}
-                        {% set is_handover = dt.code in ["well_acceptance", "well_transfer"] %}
-                        <a href="{{ ("/documents/well-handover/" ~ x.id) if is_handover else ("/documents/" ~ x.id) }}"
-                           style="padding:2px 8px; background:#e0e0e0; border-radius:4px; text-decoration:none;">
-                          {{ x.doc_number or ("#" ~ x.id) }}
-                        </a>
-                      {% endfor %}
-                    </div>
-                  {% else %}
-                    <span style="opacity:.7;">нет</span>
-                  {% endif %}
-                {% endif %}
-
-                {# Кнопка создания #}
-                {% if dt.code == "equipment_install" %}
-                  <a class="btn btn-primary" style="margin-left:auto; font-size:13px; padding:6px 12px;" href="/documents/equipment/new?well_id={{ w.id }}&kind=install">
-                    + Создать
-                  </a>
-                {% elif dt.code in ["well_acceptance", "well_transfer"] %}
-                  <a class="btn btn-primary" style="margin-left:auto; font-size:13px; padding:6px 12px;" href="/documents/well-handover/new?well_id={{ w.id }}&kind={{ dt.code }}">
-                    + Создать
-                  </a>
-                {% else %}
-                  <form method="post" action="/documents/create" style="margin-left:auto;">
-                    <input type="hidden" name="doc_type_id" value="{{ dt.id }}">
-                    <input type="hidden" name="well_id" value="{{ w.id }}">
-                    <button type="submit" style="font-size:13px; padding:6px 12px;">+ Создать</button>
-                  </form>
-                {% endif %}
+            {# ========== БЛОК 1: Акты по скважине ========== #}
+            <div style="border:1px solid #e0e7ff; border-radius:10px; overflow:hidden;">
+              <div style="background:#e0e7ff; padding:10px 14px; font-weight:700; display:flex; align-items:center; gap:8px;">
+                <span style="font-size:18px;">📋</span>
+                Акты приёма/передачи скважины
               </div>
-              {% endif %}
-            {% endfor %}
+              <div style="padding:12px 14px;">
+                {# Собираем все акты по скважине #}
+                {% set well_handover_codes = ["well_acceptance", "well_transfer", "well_stage_accept", "well_stage_return"] %}
+                {% set well_docs = [] %}
+                {% for dt in doc_types_one_time %}
+                  {% if dt.code in well_handover_codes %}
+                    {% set st = well_stats.get((w.id, dt.id)) %}
+                    {% if st and st.docs %}
+                      {% for x in st.docs %}
+                        {% set _ = well_docs.append({"id": x.id, "doc_number": x.doc_number, "status": x.status, "code": dt.code}) %}
+                      {% endfor %}
+                    {% endif %}
+                  {% endif %}
+                {% endfor %}
 
-            <div style="font-weight:600; margin-top:10px;">Периодические</div>
-            <div style="opacity:.75; font-size:13px;">
-              Добавим следующим шагом: выбор месяца/года + автосбор данных.
+                {% if well_docs|length > 0 %}
+                  <div style="display:flex; gap:8px; flex-wrap:wrap; font-size:13px; margin-bottom:10px;">
+                    {% for x in well_docs[:10] %}
+                      <a href="/documents/well-handover/{{ x.id }}"
+                         style="padding:4px 10px; background:{% if x.code in ['well_acceptance', 'well_stage_accept'] %}#d4edda{% else %}#fff3cd{% endif %}; border-radius:6px; text-decoration:none; display:flex; align-items:center; gap:4px;">
+                        {% if x.code in ['well_acceptance', 'well_stage_accept'] %}📥{% else %}📤{% endif %}
+                        {{ x.doc_number or ("#" ~ x.id) }}
+                        <span style="font-size:10px; opacity:0.7;">({{ x.status }})</span>
+                      </a>
+                    {% endfor %}
+                    {% if well_docs|length > 10 %}
+                      <span style="padding:4px 10px; opacity:0.6;">+{{ well_docs|length - 10 }} ещё...</span>
+                    {% endif %}
+                  </div>
+                {% else %}
+                  <div style="opacity:0.6; font-size:13px; margin-bottom:10px;">Актов пока нет</div>
+                {% endif %}
+
+                <a class="btn btn-primary" style="font-size:13px; padding:8px 14px;" href="/documents/well-handover/new?well_id={{ w.id }}">
+                  + Создать акт приёма/передачи
+                </a>
+              </div>
             </div>
 
-            <div style="margin-top:6px;">
-              <a href="/documents?well_id={{ w.id }}">Все акты по скважине</a>
+            {# ========== БЛОК 2: Акты по оборудованию ========== #}
+            <div style="border:1px solid #ffeeba; border-radius:10px; overflow:hidden;">
+              <div style="background:#ffeeba; padding:10px 14px; font-weight:700; display:flex; align-items:center; gap:8px;">
+                <span style="font-size:18px;">📦</span>
+                Акты монтажа/демонтажа оборудования
+              </div>
+              <div style="padding:12px 14px;">
+                {# Собираем все акты по оборудованию #}
+                {% set equipment_codes = ["equipment_install", "equipment_remove"] %}
+                {% set equip_docs = [] %}
+                {% for dt in doc_types_one_time %}
+                  {% if dt.code in equipment_codes %}
+                    {% set st = well_stats.get((w.id, dt.id)) %}
+                    {% if st and st.docs %}
+                      {% for x in st.docs %}
+                        {% set _ = equip_docs.append({"id": x.id, "doc_number": x.doc_number, "status": x.status, "code": dt.code}) %}
+                      {% endfor %}
+                    {% endif %}
+                  {% endif %}
+                {% endfor %}
+
+                {% if equip_docs|length > 0 %}
+                  <div style="display:flex; gap:8px; flex-wrap:wrap; font-size:13px; margin-bottom:10px;">
+                    {% for x in equip_docs[:10] %}
+                      <a href="/documents/equipment/{{ x.id }}"
+                         style="padding:4px 10px; background:{% if x.code == 'equipment_install' %}#d4edda{% else %}#f8d7da{% endif %}; border-radius:6px; text-decoration:none; display:flex; align-items:center; gap:4px;">
+                        {% if x.code == 'equipment_install' %}📦{% else %}🔧{% endif %}
+                        {{ x.doc_number or ("#" ~ x.id) }}
+                        <span style="font-size:10px; opacity:0.7;">({{ x.status }})</span>
+                      </a>
+                    {% endfor %}
+                    {% if equip_docs|length > 10 %}
+                      <span style="padding:4px 10px; opacity:0.6;">+{{ equip_docs|length - 10 }} ещё...</span>
+                    {% endif %}
+                  </div>
+                {% else %}
+                  <div style="opacity:0.6; font-size:13px; margin-bottom:10px;">Актов пока нет</div>
+                {% endif %}
+
+                <a class="btn btn-primary" style="font-size:13px; padding:8px 14px;" href="/documents/equipment/new?well_id={{ w.id }}">
+                  + Создать акт оборудования
+                </a>
+              </div>
+            </div>
+
+            {# ========== Ссылка на все акты ========== #}
+            <div style="margin-top:4px; font-size:13px;">
+              <a href="/documents?well_id={{ w.id }}" style="opacity:0.7;">Все акты по скважине →</a>
             </div>
 
           </div>

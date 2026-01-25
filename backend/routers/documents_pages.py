@@ -16,7 +16,7 @@ from backend.web.templates import templates
 
 from backend.models.wells import Well
 from backend.documents.models import Document, DocumentType, DocumentItem
-from backend.documents.models_notifications import JobExecutionLog
+from backend.documents.models_notifications import JobExecutionLog, DocumentSendLog
 from backend.models.well_status import WellStatus
 from pathlib import Path
 import subprocess
@@ -477,6 +477,15 @@ def document_detail(doc_id: int, request: Request, db: Session = Depends(get_db)
         ]
         saved_status_names = (doc.meta or {}).get("status_names", [])
 
+    # История отправок
+    send_history = (
+        db.query(DocumentSendLog)
+        .filter(DocumentSendLog.document_id == doc.id)
+        .order_by(DocumentSendLog.created_at.desc())
+        .limit(10)
+        .all()
+    )
+
     return templates.TemplateResponse(
         "documents/detail.html",
         {
@@ -485,6 +494,7 @@ def document_detail(doc_id: int, request: Request, db: Session = Depends(get_db)
             "items": items,
             "all_status_names": all_status_names,
             "saved_status_names": saved_status_names,
+            "send_history": send_history,
         },
     )
 

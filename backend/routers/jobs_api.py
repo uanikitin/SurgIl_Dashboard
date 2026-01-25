@@ -26,7 +26,13 @@ from backend.documents.services.auto_create import (
     run_monthly_auto_create,
     get_previous_month,
 )
-from backend.documents.models_notifications import JobExecutionLog
+from backend.documents.models_notifications import JobExecutionLog, DocumentSendLog
+from backend.documents.models import Document
+from backend.documents.services.notification_service import (
+    send_document_telegram,
+    send_document_email,
+    get_send_history,
+)
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -231,4 +237,152 @@ def api_job_log_detail(
         "triggered_by_user_id": log.triggered_by_user_id,
         "result_summary": log.result_summary,
         "error_message": log.error_message,
+    }
+
+
+# =============================================================================
+# POST /api/jobs/send/telegram/{document_id}
+# =============================================================================
+
+@router.post("/send/telegram/{document_id}")
+def api_send_telegram(
+    document_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    chat_id: Optional[str] = Query(None, description="ID чата Telegram (опционально)"),
+):
+    """
+    Отправить документ в Telegram.
+    Требует авторизации пользователя.
+    """
+    # Проверяем авторизацию (только ручной запуск)
+    if "user_id" not in request.session:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_id = request.session["user_id"]
+
+    # Получаем документ
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Отправляем
+    result = send_document_telegram(
+        db,
+        document,
+        chat_id=chat_id,
+        triggered_by="manual",
+        triggered_by_user_id=user_id,
+    )
+
+    if result.success:
+        return {
+            "status": "sent",
+            "channel": "telegram",
+            "recipient": result.recipient,
+            "response": result.response_data,
+        }
+    else:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "failed",
+                "channel": "telegram",
+                "recipient": result.recipient,
+                "error": result.error,
+            }
+        )
+
+
+# =============================================================================
+# POST /api/jobs/send/email/{document_id}
+# =============================================================================
+
+@router.post("/send/email/{document_id}")
+def api_send_email(
+    document_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    to_email: str = Query(..., description="Email получателя"),
+    cc_email: Optional[str] = Query(None, description="Email для копии"),
+):
+    """
+    Отправить документ на Email.
+    Требует авторизации пользователя.
+    """
+    # Проверяем авторизацию
+    if "user_id" not in request.session:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_id = request.session["user_id"]
+
+    # Получаем документ
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Отправляем
+    result = send_document_email(
+        db,
+        document,
+        to_email=to_email,
+        cc_email=cc_email,
+        triggered_by="manual",
+        triggered_by_user_id=user_id,
+    )
+
+    if result.success:
+        return {
+            "status": "sent",
+            "channel": "email",
+            "recipient": result.recipient,
+            "response": result.response_data,
+        }
+    else:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "failed",
+                "channel": "email",
+                "recipient": result.recipient,
+                "error": result.error,
+            }
+        )
+
+
+# =============================================================================
+# GET /api/jobs/send/history/{document_id}
+# =============================================================================
+
+@router.get("/send/history/{document_id}")
+def api_send_history(
+    document_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    channel: Optional[str] = Query(None, description="Фильтр по каналу (telegram/email)"),
+):
+    """
+    История отправок документа.
+    """
+    # Проверяем авторизацию
+    if "user_id" not in request.session:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    logs = get_send_history(db, document_id, channel=channel)
+
+    return {
+        "document_id": document_id,
+        "items": [
+            {
+                "id": log.id,
+                "channel": log.channel,
+                "recipient": log.recipient,
+                "status": log.status,
+                "sent_at": log.sent_at.isoformat() if log.sent_at else None,
+                "error_message": log.error_message,
+                "triggered_by": log.triggered_by,
+                "created_at": log.created_at.isoformat() if log.created_at else None,
+            }
+            for log in logs
+        ]
     }

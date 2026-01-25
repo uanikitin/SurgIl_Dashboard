@@ -26,7 +26,13 @@ from backend.documents.models import (
     DocumentItem,
     DocumentSignature,
 )
+from backend.documents.models_notifications import (
+    NotificationConfig,
+    DocumentSendLog,
+    JobExecutionLog,
+)
 import backend.documents.models
+import backend.documents.models_notifications
 # Это объект конфигурации Alembic, даёт доступ к .ini
 config = context.config
 db_url = os.getenv("DATABASE_URL")

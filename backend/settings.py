@@ -29,5 +29,21 @@ class Settings(BaseSettings):
     MASTER_ADMIN_EMAIL: str = "ua.nikitin@gmail.com"
     MASTER_ADMIN_FULL_NAME: str = "System Administrator"
 
+    # === Notifications ===
+    # Telegram
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_DEFAULT_CHAT_ID: str = ""
+
+    # Email (SMTP)
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    EMAIL_FROM: str = ""
+
+    # === Background Jobs ===
+    # Секретный ключ для API автозадач (Render Cron -> HTTP endpoint)
+    JOB_API_SECRET: str = "change_me_job_secret"
+
 settings = Settings()
 

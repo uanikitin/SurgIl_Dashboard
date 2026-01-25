@@ -16,6 +16,7 @@ from backend.web.templates import templates
 
 from backend.models.wells import Well
 from backend.documents.models import Document, DocumentType, DocumentItem
+from backend.documents.models_notifications import JobExecutionLog
 from backend.models.well_status import WellStatus
 from pathlib import Path
 import subprocess
@@ -414,9 +415,32 @@ def _get_status_css_class(status_name: str | None) -> str:
 
 
 # ===============================================================================
-# ТАКЖЕ ДОБАВЬТЕ В ИМПОРТЫ В НАЧАЛЕ ФАЙЛА:
+# СТРАНИЦА ИСТОРИИ ЗАДАЧ
 # ===============================================================================
-# from fastapi import APIRouter, Request, Depends, Form, HTTPException, Query  # <-- добавьте Query
+
+@router.get("/documents/jobs", response_class=HTMLResponse)
+def documents_jobs(request: Request, db: Session = Depends(get_db)):
+    """Страница истории автозадач."""
+    from sqlalchemy import desc
+
+    jobs = (
+        db.query(JobExecutionLog)
+        .order_by(desc(JobExecutionLog.started_at))
+        .limit(50)
+        .all()
+    )
+
+    total = db.query(JobExecutionLog).count()
+
+    return templates.TemplateResponse(
+        "documents/jobs.html",
+        {
+            "request": request,
+            "jobs": jobs,
+            "total": total,
+        },
+    )
+
 
 @router.get("/documents/{doc_id}", response_class=HTMLResponse)
 def document_detail(doc_id: int, request: Request, db: Session = Depends(get_db)):

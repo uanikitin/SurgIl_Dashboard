@@ -89,6 +89,9 @@ from backend.routers.documents_pages import router as documents_pages_router
 
 app.include_router(documents_pages_router)
 
+from backend.routers.jobs_api import router as jobs_api_router
+app.include_router(jobs_api_router)
+
 from backend.routers import documents_well_handover
 
 app.include_router(documents_well_handover.router)

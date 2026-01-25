@@ -178,10 +178,17 @@
         <h3 style="margin:0;">Акты расхода реагентов</h3>
         <p class="text-secondary" style="margin:4px 0 0 0; font-size:13px;">Периодические акты по расходу реагентов для нескольких скважин</p>
       </div>
-      <div class="section-controls">
+      <div class="section-controls" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        <button type="button" class="btn-secondary" onclick="openAutoCreateModal()">
+          🤖 Автосоздание
+        </button>
         <a class="btn-apply" href="/documents/reagent-expense/new">+ Создать акт</a>
+        <a href="/documents/jobs" class="text-secondary" style="font-size:12px; margin-left:8px;">📋 История задач</a>
       </div>
     </div>
+
+    {# Результат последнего автосоздания #}
+    <div id="autoCreateResult" style="display:none; margin-top:12px; padding:12px 16px; border-radius:8px; font-size:13px;"></div>
 
     {# KPI карточки для реагентных актов #}
     <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; margin-top:16px;">
@@ -531,6 +538,137 @@
 </div>
 </div><!-- /.page-dashboard -->
 
+{# ============================================================
+   МОДАЛЬНОЕ ОКНО АВТОСОЗДАНИЯ
+   ============================================================ #}
+<div id="autoCreateModal" class="modal-overlay" style="display:none;">
+  <div class="modal-content" style="max-width:500px;">
+    <div class="modal-header">
+      <h3 style="margin:0;">🤖 Автосоздание актов</h3>
+      <button type="button" onclick="closeAutoCreateModal()" class="modal-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin:0 0 16px 0; color:#6b7280; font-size:13px;">
+        Автоматически создать акты расхода реагентов для всех скважин с событиями за выбранный период.
+      </p>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px;">
+        <div>
+          <label style="display:block; font-weight:600; margin-bottom:6px; font-size:13px;">Год</label>
+          <input type="number" id="autoCreateYear" class="form-input" min="2020" max="2100" style="width:100%;">
+        </div>
+        <div>
+          <label style="display:block; font-weight:600; margin-bottom:6px; font-size:13px;">Месяц</label>
+          <select id="autoCreateMonth" class="form-input" style="width:100%;">
+            <option value="1">Январь</option>
+            <option value="2">Февраль</option>
+            <option value="3">Март</option>
+            <option value="4">Апрель</option>
+            <option value="5">Май</option>
+            <option value="6">Июнь</option>
+            <option value="7">Июль</option>
+            <option value="8">Август</option>
+            <option value="9">Сентябрь</option>
+            <option value="10">Октябрь</option>
+            <option value="11">Ноябрь</option>
+            <option value="12">Декабрь</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="background:#f0f9ff; border:1px solid #bae6fd; border-radius:8px; padding:12px; margin-bottom:16px;">
+        <div style="font-size:12px; color:#0369a1;">
+          <strong>Что произойдёт:</strong>
+          <ul style="margin:8px 0 0 0; padding-left:20px;">
+            <li>Система найдёт все скважины с реагентными событиями за период</li>
+            <li>Для каждой скважины создаст акт (черновик)</li>
+            <li>Дубликаты будут пропущены</li>
+          </ul>
+        </div>
+      </div>
+
+      <div id="autoCreateSpinner" style="display:none; text-align:center; padding:20px;">
+        <div style="font-size:24px; animation:spin 1s linear infinite;">⏳</div>
+        <div style="margin-top:8px; color:#6b7280;">Создание актов...</div>
+      </div>
+
+      <div id="autoCreateResultModal" style="display:none;"></div>
+    </div>
+    <div class="modal-footer" id="autoCreateFooter">
+      <button type="button" class="btn-secondary" onclick="closeAutoCreateModal()">Отмена</button>
+      <button type="button" class="btn-apply" onclick="runAutoCreate()">Создать акты</button>
+    </div>
+  </div>
+</div>
+
+<style>
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Modal styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-content {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+  width: 90%;
+  max-height: 90vh;
+  overflow: auto;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #6b7280;
+  padding: 0;
+  line-height: 1;
+}
+.modal-close:hover { color: #111827; }
+.modal-body {
+  padding: 20px;
+}
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 20px;
+  border-top: 1px solid #e5e7eb;
+  background: #f9fafb;
+  border-radius: 0 0 12px 12px;
+}
+.form-input {
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+}
+.form-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.1);
+}
+
 <style>
 /* Статусы скважин — специфичные цвета для этой страницы */
 :root {
@@ -706,6 +844,134 @@ document.addEventListener('DOMContentLoaded', function() {
   document.querySelectorAll('.status-checkbox').forEach(cb => {
     cb.addEventListener('change', filterWells);
   });
+});
+
+// ========== Автосоздание актов ==========
+function openAutoCreateModal() {
+  const modal = document.getElementById('autoCreateModal');
+  const yearInput = document.getElementById('autoCreateYear');
+  const monthSelect = document.getElementById('autoCreateMonth');
+
+  // Устанавливаем предыдущий месяц по умолчанию
+  const now = new Date();
+  let year = now.getFullYear();
+  let month = now.getMonth(); // 0-11, текущий месяц
+  if (month === 0) {
+    month = 12;
+    year--;
+  }
+
+  yearInput.value = year;
+  monthSelect.value = month;
+
+  // Сбрасываем состояние
+  document.getElementById('autoCreateSpinner').style.display = 'none';
+  document.getElementById('autoCreateResultModal').style.display = 'none';
+  document.getElementById('autoCreateResultModal').innerHTML = '';
+  document.getElementById('autoCreateFooter').style.display = 'flex';
+
+  modal.style.display = 'flex';
+}
+
+function closeAutoCreateModal() {
+  document.getElementById('autoCreateModal').style.display = 'none';
+}
+
+async function runAutoCreate() {
+  const year = document.getElementById('autoCreateYear').value;
+  const month = document.getElementById('autoCreateMonth').value;
+
+  if (!year || !month) {
+    alert('Укажите год и месяц');
+    return;
+  }
+
+  // Показываем спиннер
+  document.getElementById('autoCreateSpinner').style.display = 'block';
+  document.getElementById('autoCreateFooter').style.display = 'none';
+  document.getElementById('autoCreateResultModal').style.display = 'none';
+
+  try {
+    const response = await fetch(`/api/jobs/reagent-expense/auto-create?year=${year}&month=${month}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    });
+
+    const data = await response.json();
+
+    // Скрываем спиннер
+    document.getElementById('autoCreateSpinner').style.display = 'none';
+
+    // Показываем результат
+    const resultDiv = document.getElementById('autoCreateResultModal');
+    resultDiv.style.display = 'block';
+
+    const isSuccess = data.status === 'success' || data.status === 'skipped';
+    const bgColor = isSuccess ? '#d1fae5' : (data.status === 'partial' ? '#fef3c7' : '#fee2e2');
+    const borderColor = isSuccess ? '#a7f3d0' : (data.status === 'partial' ? '#fcd34d' : '#fca5a5');
+    const textColor = isSuccess ? '#065f46' : (data.status === 'partial' ? '#92400e' : '#991b1b');
+
+    let html = `
+      <div style="background:${bgColor}; border:1px solid ${borderColor}; color:${textColor}; padding:16px; border-radius:8px;">
+        <div style="font-weight:700; margin-bottom:8px;">
+          ${isSuccess ? '✅' : (data.status === 'partial' ? '⚠️' : '❌')}
+          Результат за ${String(month).padStart(2,'0')}.${year}
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:8px; font-size:13px;">
+          <div>Всего скважин: <strong>${data.summary?.total_wells || 0}</strong></div>
+          <div>Создано актов: <strong>${data.summary?.created || 0}</strong></div>
+          <div>Пропущено (дубли): <strong>${data.summary?.skipped_duplicate || 0}</strong></div>
+          <div>Пропущено (нет событий): <strong>${data.summary?.skipped_no_events || 0}</strong></div>
+          ${data.summary?.errors > 0 ? `<div style="grid-column:span 2; color:#991b1b;">Ошибок: <strong>${data.summary.errors}</strong></div>` : ''}
+        </div>
+      </div>
+    `;
+
+    // Детали созданных актов
+    if (data.details && data.details.length > 0) {
+      const created = data.details.filter(d => d.status === 'created');
+      if (created.length > 0) {
+        html += `<div style="margin-top:12px; font-size:13px;"><strong>Созданные акты:</strong></div>`;
+        html += `<div style="max-height:200px; overflow:auto; margin-top:8px;">`;
+        created.forEach(d => {
+          html += `<div style="padding:6px 0; border-bottom:1px solid #e5e7eb;">
+            <a href="/documents/${d.document_id}" target="_blank">${d.doc_number}</a>
+            — Скв ${d.well_number} (${d.items_count} строк)
+          </div>`;
+        });
+        html += `</div>`;
+      }
+    }
+
+    resultDiv.innerHTML = html;
+
+    // Показываем кнопку закрытия
+    document.getElementById('autoCreateFooter').innerHTML = `
+      <button type="button" class="btn-secondary" onclick="closeAutoCreateModal()">Закрыть</button>
+      <button type="button" class="btn-apply" onclick="location.reload()">Обновить страницу</button>
+    `;
+    document.getElementById('autoCreateFooter').style.display = 'flex';
+
+  } catch (error) {
+    document.getElementById('autoCreateSpinner').style.display = 'none';
+    document.getElementById('autoCreateResultModal').style.display = 'block';
+    document.getElementById('autoCreateResultModal').innerHTML = `
+      <div style="background:#fee2e2; border:1px solid #fca5a5; color:#991b1b; padding:16px; border-radius:8px;">
+        <strong>❌ Ошибка:</strong> ${error.message || 'Не удалось выполнить запрос'}
+      </div>
+    `;
+    document.getElementById('autoCreateFooter').innerHTML = `
+      <button type="button" class="btn-secondary" onclick="closeAutoCreateModal()">Закрыть</button>
+    `;
+    document.getElementById('autoCreateFooter').style.display = 'flex';
+  }
+}
+
+// Закрытие модала по клику вне его
+document.getElementById('autoCreateModal')?.addEventListener('click', function(e) {
+  if (e.target === this) closeAutoCreateModal();
 });
 </script>
 

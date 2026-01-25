@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}История задач · СУРГИЛ{% endblock %}
+
+{% block content %}
+<nav class="top-nav">
+  <div class="top-nav-inner">
+    <a href="/visual" class="top-nav-item">📊 Дашборд</a>
+    <a href="/documents" class="top-nav-item active">📄 Акты</a>
+    <a href="/admin/reagents" class="top-nav-item">🧪 Реагенты</a>
+    <a href="/equipment" class="top-nav-item">⚙️ Оборудование</a>
+    <a href="/admin/users" class="top-nav-item">👥 Пользователи</a>
+  </div>
+</nav>
+
+<div class="page-dashboard">
+
+<header class="dashboard-header">
+  <div class="header-left">
+    <a href="/documents" class="back-btn">←</a>
+    <h1>История автозадач</h1>
+  </div>
+</header>
+
+<section class="analytics-card">
+  <div class="section-header">
+    <h2 style="margin:0;">Выполненные задачи</h2>
+    <div style="font-size:13px; color:#6b7280;">
+      Последние {{ jobs|length }} из {{ total }} задач
+    </div>
+  </div>
+
+  {% if jobs|length > 0 %}
+  <table style="width:100%; border-collapse:collapse; font-size:13px; margin-top:16px;">
+    <thead>
+      <tr style="background:#f8f9fa; text-align:left;">
+        <th style="padding:10px 12px; border-bottom:2px solid #dee2e6;">ID</th>
+        <th style="padding:10px 12px; border-bottom:2px solid #dee2e6;">Тип</th>
+        <th style="padding:10px 12px; border-bottom:2px solid #dee2e6;">Статус</th>
+        <th style="padding:10px 12px; border-bottom:2px solid #dee2e6;">Начало</th>
+        <th style="padding:10px 12px; border-bottom:2px solid #dee2e6;">Завершение</th>
+        <th style="padding:10px 12px; border-bottom:2px solid #dee2e6;">Источник</th>
+        <th style="padding:10px 12px; border-bottom:2px solid #dee2e6;">Результат</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for job in jobs %}
+      <tr style="border-bottom:1px solid #e5e7eb;">
+        <td style="padding:10px 12px; font-weight:600;">#{{ job.id }}</td>
+        <td style="padding:10px 12px;">
+          {% if job.job_type == 'reagent_expense_auto_create' %}
+            📄 Акты реагентов
+          {% else %}
+            {{ job.job_type }}
+          {% endif %}
+        </td>
+        <td style="padding:10px 12px;">
+          {% if job.status == 'success' %}
+            <span style="background:#d1fae5; color:#065f46; padding:3px 8px; border-radius:4px; font-size:11px; font-weight:600;">Успешно</span>
+          {% elif job.status == 'partial' %}
+            <span style="background:#fef3c7; color:#92400e; padding:3px 8px; border-radius:4px; font-size:11px; font-weight:600;">Частично</span>
+          {% elif job.status == 'failed' %}
+            <span style="background:#fee2e2; color:#991b1b; padding:3px 8px; border-radius:4px; font-size:11px; font-weight:600;">Ошибка</span>
+          {% elif job.status == 'skipped' %}
+            <span style="background:#e5e7eb; color:#374151; padding:3px 8px; border-radius:4px; font-size:11px; font-weight:600;">Пропущено</span>
+          {% elif job.status == 'running' %}
+            <span style="background:#dbeafe; color:#1e40af; padding:3px 8px; border-radius:4px; font-size:11px; font-weight:600;">Выполняется...</span>
+          {% else %}
+            <span style="background:#f3f4f6; color:#6b7280; padding:3px 8px; border-radius:4px; font-size:11px;">{{ job.status }}</span>
+          {% endif %}
+        </td>
+        <td style="padding:10px 12px; color:#6b7280;">
+          {% if job.started_at %}{{ job.started_at.strftime("%d.%m.%Y %H:%M") }}{% else %}—{% endif %}
+        </td>
+        <td style="padding:10px 12px; color:#6b7280;">
+          {% if job.finished_at %}{{ job.finished_at.strftime("%d.%m.%Y %H:%M") }}{% else %}—{% endif %}
+        </td>
+        <td style="padding:10px 12px;">
+          {% if job.triggered_by == 'cron' %}
+            🤖 Cron
+          {% elif job.triggered_by == 'manual' %}
+            👤 Вручную
+          {% elif job.triggered_by == 'api' %}
+            🔌 API
+          {% else %}
+            {{ job.triggered_by or '—' }}
+          {% endif %}
+        </td>
+        <td style="padding:10px 12px;">
+          {% if job.result_summary %}
+            {% set s = job.result_summary %}
+            <span title="Всего: {{ s.total_wells or 0 }}, Создано: {{ s.created or 0 }}, Пропущено: {{ (s.skipped_duplicate or 0) + (s.skipped_no_events or 0) }}, Ошибок: {{ s.errors or 0 }}">
+              ✅{{ s.created or 0 }}
+              {% if s.skipped_duplicate or s.skipped_no_events %}
+                ⏭️{{ (s.skipped_duplicate or 0) + (s.skipped_no_events or 0) }}
+              {% endif %}
+              {% if s.errors %}
+                ❌{{ s.errors }}
+              {% endif %}
+            </span>
+          {% else %}
+            —
+          {% endif %}
+        </td>
+      </tr>
+      {% if job.result_summary and job.result_summary.details %}
+      <tr style="background:#f9fafb;">
+        <td colspan="7" style="padding:8px 12px 12px 40px;">
+          <details style="font-size:12px;">
+            <summary style="cursor:pointer; color:#6b7280;">Подробности ({{ job.result_summary.details|length }} записей)</summary>
+            <div style="margin-top:8px; max-height:200px; overflow:auto;">
+              {% for d in job.result_summary.details %}
+                <div style="padding:4px 0; border-bottom:1px solid #e5e7eb;">
+                  {% if d.status == 'created' %}
+                    ✅ <a href="/documents/{{ d.document_id }}">{{ d.doc_number }}</a> — Скв {{ d.well_number }} ({{ d.items_count }} строк)
+                  {% elif d.status == 'skipped' %}
+                    ⏭️ Скв {{ d.well_number }} — {{ d.reason }}
+                  {% elif d.status == 'error' %}
+                    ❌ Скв {{ d.well_number or d.well_id }} — {{ d.error }}
+                  {% else %}
+                    {{ d }}
+                  {% endif %}
+                </div>
+              {% endfor %}
+            </div>
+          </details>
+        </td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="padding:40px; text-align:center; background:#f9fafb; border-radius:8px; margin-top:16px;">
+    <div style="font-size:32px; margin-bottom:12px;">📋</div>
+    <div style="font-size:15px; font-weight:600; color:#374151;">История задач пуста</div>
+    <div style="font-size:13px; color:#6b7280; margin-top:4px;">
+      Задачи появятся после первого автосоздания актов
+    </div>
+  </div>
+  {% endif %}
+</section>
+
+</div>
+{% endblock %}

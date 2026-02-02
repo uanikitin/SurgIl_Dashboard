@@ -20,6 +20,7 @@
   <h2 style="margin:0 0 12px 0;">Поля акта</h2>
 
   {% set m = doc.meta or {} %}
+  {% set cache_bust = range(1000000000)|random %}
 
   {% if is_stage_doc and stage_status %}
   <div style="background:#fff3cd; padding:12px; border-radius:6px; margin-bottom:16px; border-left:4px solid #ffc107;">
@@ -41,7 +42,7 @@
       <label><b>Дата документа (вверху акта)</b></label>
       <input type="date" name="act_date"
              value="{{ m.get('act_date','') }}"
-             {% if doc.status != 'draft' %}disabled{% endif %}>
+             {% if doc.status not in ('draft', 'generated') %}disabled{% endif %}>
       <div style="font-size:12px; opacity:0.7; margin-top:4px; margin-bottom:12px;">
         Дата в шапке документа — строка «Дата документа: ДД.ММ.ГГГГ»
       </div>
@@ -49,7 +50,7 @@
       <label><b>Дата и время фактической передачи</b></label>
       <input type="datetime-local" name="handover_dt"
              value="{{ (m.get('handover_dt','')[:16]) if m.get('handover_dt') else '' }}"
-             {% if doc.status != 'draft' %}disabled{% endif %}>
+             {% if doc.status not in ('draft', 'generated') %}disabled{% endif %}>
       <div style="font-size:12px; opacity:0.7; margin-top:4px; margin-bottom:12px;">
         Используется в тексте — «...ДД.ММ.ГГГГ г. в ЧЧ:ММ:СС часов скважина была передана...»
       </div>
@@ -57,7 +58,7 @@
       <label><b>Техническая дата для базы данных</b></label>
       <input type="datetime-local" name="event_dt"
              value="{{ (m.get('event_dt','')[:16]) if m.get('event_dt') else '' }}"
-             {% if doc.status != 'draft' %}disabled{% endif %}>
+             {% if doc.status not in ('draft', 'generated') %}disabled{% endif %}>
       <div style="font-size:12px; opacity:0.7; margin-top:4px;">
         Используется только для выборки давлений из базы событий (обычно = дате передачи)
       </div>
@@ -65,19 +66,19 @@
 
     <label><b>Номер договора</b></label>
     <input name="contract_number" value="{{ m.get('contract_number','') }}"
-           {% if doc.status != 'draft' %}disabled{% endif %}>
+           {% if doc.status not in ('draft', 'generated') %}disabled{% endif %}>
 
     <label><b>Трубное давление, кгс/см²</b></label>
     <input name="tube_pressure"
            value="{{ m.get('tube_pressure','') }}"
            placeholder="например 17.12"
-           {% if doc.status != 'draft' %}disabled{% endif %}>
+           {% if doc.status not in ('draft', 'generated') %}disabled{% endif %}>
 
     <label><b>Шлейфное давление, кгс/см²</b></label>
     <input name="line_pressure"
            value="{{ m.get('line_pressure','') }}"
            placeholder="например 16.60"
-           {% if doc.status != 'draft' %}disabled{% endif %}>
+           {% if doc.status not in ('draft', 'generated') %}disabled{% endif %}>
 
     {% if m.get('pressure_source') %}
     <div style="font-size:12px; opacity:0.7; background:#f0f0f0; padding:6px 10px; border-radius:4px; margin-top:-4px;">
@@ -87,17 +88,17 @@
 
     <label><b>Территория вокруг скважины</b></label>
     <input name="territory_state" value="{{ m.get('territory_state','') }}"
-           {% if doc.status != 'draft' %}disabled{% endif %}>
+           {% if doc.status not in ('draft', 'generated') %}disabled{% endif %}>
 
     <label><b>Примечание</b></label>
     <textarea name="note" rows="3"
-              {% if doc.status != 'draft' %}disabled{% endif %}>{{ m.get('note','') }}</textarea>
+              {% if doc.status not in ('draft', 'generated') %}disabled{% endif %}>{{ m.get('note','') }}</textarea>
 
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
-      {% if doc.status == 'draft' %}
+      {% if doc.status in ('draft', 'generated') %}
         <button type="submit">Сохранить изменения</button>
       {% else %}
-        <span style="opacity:.7;">Редактирование доступно только в статусе draft</span>
+        <span style="opacity:.7;">Редактирование доступно только в статусе draft / generated</span>
       {% endif %}
     </div>
   </form>
@@ -108,7 +109,7 @@
     </form>
 
     {% if doc.pdf_filename %}
-      <a href="/static/{{ doc.pdf_filename }}" target="_blank" class="btn btn-secondary" style="padding:8px 16px; text-decoration:none;">
+      <a href="/static/{{ doc.pdf_filename }}?v={{ cache_bust }}" target="_blank" class="btn btn-secondary" style="padding:8px 16px; text-decoration:none;">
         📄 Открыть PDF
       </a>
     {% endif %}
@@ -118,13 +119,13 @@
   <div style="margin-top:16px; border:1px solid #ddd; border-radius:8px; overflow:hidden;">
     <div style="background:#f8f9fa; padding:8px 12px; font-weight:600; display:flex; justify-content:space-between; align-items:center;">
       <span>📄 Предпросмотр PDF</span>
-      <a href="/static/{{ doc.pdf_filename }}" target="_blank" style="font-size:13px;">Открыть в новой вкладке →</a>
+      <a href="/static/{{ doc.pdf_filename }}?v={{ cache_bust }}" target="_blank" style="font-size:13px;">Открыть в новой вкладке →</a>
     </div>
-    <iframe src="/static/{{ doc.pdf_filename }}" style="width:100%; height:500px; border:none;"></iframe>
+    <iframe src="/static/{{ doc.pdf_filename }}?v={{ cache_bust }}" style="width:100%; height:500px; border:none;"></iframe>
   </div>
   {% endif %}
 
-  {% if doc.status == 'draft' %}
+  {% if doc.status in ('draft', 'generated') %}
     <form method="post" action="/documents/well-handover/{{ doc.id }}/rebuild-from-events" style="margin-top:8px;">
       <button type="submit">Пересобрать давления из базы</button>
     </form>

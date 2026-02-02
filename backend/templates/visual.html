@@ -12,11 +12,129 @@
 {% endblock %}
 
 {% block content %}
+<nav class="top-nav">
+  <div class="top-nav-inner">
+    <a href="/visual" class="top-nav-item active">📊 Дашборд</a>
+    <a href="/documents" class="top-nav-item">📄 Акты</a>
+    <a href="/admin/reagents" class="top-nav-item">🧪 Реагенты</a>
+    <a href="/equipment" class="top-nav-item">⚙️ Оборудование</a>
+    <a href="/admin/users" class="top-nav-item">👥 Пользователи</a>
+  </div>
+</nav>
+
+<!-- ===== ДНЕВНАЯ СТАТИСТИКА ===== -->
+{% set ds = daily_stats %}
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:0 0 16px 0; max-width:100%;">
+
+  {% for period, label in [('today', 'Сегодня · ' ~ ds.today_label), ('yesterday', 'Вчера · ' ~ ds.yesterday_label)] %}
+  {% set s = ds[period] %}
+  <div style="background:#fff; border:1px solid #e0e0e0; border-radius:10px; padding:16px; {% if period == 'yesterday' %}opacity:0.85;{% endif %}">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <span style="font-weight:700; font-size:15px;">{{ label }}</span>
+      <span style="background:#f0f0f0; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:600;">{{ s.total }} событий</span>
+    </div>
+
+    <div style="font-size:13px; margin-bottom:10px; color:#333; background:#fffbe6; padding:6px 10px; border-radius:6px; border-left:3px solid #ffc107;">
+      <b>{{ s.active_wells_count }}</b> скважин
+      {% if s.status_summary %}
+        {% for st2, wl2 in s.status_summary.items() if st2 not in ['Без статуса', 'Не обслуживается'] %}
+          · {{ st2 }} <b>{{ wl2|length }}</b>
+        {% endfor %}
+      {% endif %}
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; margin-bottom:12px;">
+      <div style="text-align:center; padding:8px; background:#e7f3ff; border-radius:8px;">
+        <div style="font-size:22px; font-weight:700; color:#007bff;">{{ s.pressure }}</div>
+        <div style="font-size:11px; opacity:0.7;">Замеров</div>
+      </div>
+      <div style="text-align:center; padding:8px; background:#fff3cd; border-radius:8px;">
+        <div style="font-size:22px; font-weight:700; color:#856404;">{{ s.purge_count }}</div>
+        <div style="font-size:11px; opacity:0.7;">Продувок</div>
+      </div>
+      <div style="text-align:center; padding:8px; background:#d4edda; border-radius:8px;">
+        <div style="font-size:22px; font-weight:700; color:#155724;">{{ s.reagent }}</div>
+        <div style="font-size:11px; opacity:0.7;">Вбросов</div>
+      </div>
+      <div style="text-align:center; padding:8px; background:#fde8e8; border-radius:8px;">
+        <div style="font-size:22px; font-weight:700; color:#721c24;">{{ "%.1f"|format(s.reagent_qty) }}</div>
+        <div style="font-size:11px; opacity:0.7;">шт реагента</div>
+      </div>
+    </div>
+
+    {% if s.reagent_wells %}
+    <details style="margin-bottom:8px;">
+      <summary style="cursor:pointer; font-size:12px; font-weight:600; color:#155724;">Реагент по скважинам ({{ s.reagent_wells|length }})</summary>
+      <div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:6px;">
+        {% for well_num, qty in s.reagent_wells.items() %}
+        <span style="background:#d4edda; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600;">{{ well_num }}: {{ "%.1f"|format(qty|float) }} шт</span>
+        {% endfor %}
+      </div>
+      {% if s.reagent_well_details %}
+      <details style="margin-top:6px;">
+        <summary style="cursor:pointer; font-size:11px; opacity:0.7;">Подробнее</summary>
+        <table style="margin-top:4px; font-size:11px; border-collapse:collapse; width:100%;">
+          <tr style="opacity:0.6;"><td style="padding:2px 6px;"><b>Скв</b></td><td style="padding:2px 6px;"><b>Реагент</b></td><td style="padding:2px 6px; text-align:right;"><b>Кол-во</b></td></tr>
+          {% for d in s.reagent_well_details %}
+          <tr style="border-top:1px solid #eee;">
+            <td style="padding:2px 6px; font-weight:600;">{{ d.well }}</td>
+            <td style="padding:2px 6px;">{{ d.reagent }}</td>
+            <td style="padding:2px 6px; text-align:right;">{{ "%.1f"|format(d.qty) }} шт</td>
+          </tr>
+          {% endfor %}
+        </table>
+      </details>
+      {% endif %}
+    </details>
+    {% endif %}
+
+    {% if s.reagent_by_name %}
+    <details style="margin-bottom:8px;">
+      <summary style="cursor:pointer; font-size:12px; font-weight:600; color:#0066cc;">По типу реагента</summary>
+      <div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:6px;">
+        {% for rname, qty in s.reagent_by_name.items() %}
+        <span style="background:#e7f3ff; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600;">{{ rname }}: {{ "%.1f"|format(qty|float) }} шт</span>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+
+    {% if s.pressure_wells %}
+    <details style="margin-bottom:8px;">
+      <summary style="cursor:pointer; font-size:12px; font-weight:600; color:#007bff;">Замеры на скважинах ({{ s.pressure_wells|length }})</summary>
+      <div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:6px;">
+        {% for wn in s.pressure_wells %}
+        <span style="background:#e7f3ff; padding:2px 8px; border-radius:10px; font-size:11px;">{{ wn }}</span>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+
+    {% if s.purge_count %}
+    <details>
+      <summary style="cursor:pointer; font-size:12px; font-weight:600; color:#856404;">
+        Продувки: {{ s.purge_by_type.get('скважина',0) }} скв · {{ s.purge_by_type.get('штуцер',0) }} штуц · {{ s.purge_by_type.get('манометр',0) }} маном
+        {% if s.purge_incomplete %}<span style="color:#dc3545;"> ({{ s.purge_incomplete }} неполн.)</span>{% endif %}
+      </summary>
+      <div style="margin-top:6px; font-size:11px;">
+        {% for d in s.purge_details %}
+        <div style="display:inline-block; background:{% if d.complete %}#fff3cd{% else %}#fde8e8{% endif %}; padding:2px 8px; border-radius:10px; margin:2px;">
+          {{ d.well }} · {{ d.type }} · {{ d.phases }} {% if not d.complete %}⚠{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+
+    {% if s.total == 0 %}
+    <div style="text-align:center; opacity:0.5; font-size:13px; padding:8px;">Нет событий</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
 
 <div class="page-header">
     <h1>Скважины</h1>
-
-
 </div>
 
 <div class="visual-layout">
@@ -34,23 +152,44 @@
         </div>
 
         <div class="status-filter">
-            <label for="status-filter-select" class="status-filter__label">
-                Выбор скважин по статусу
+            <label class="status-filter__label" style="margin-bottom:8px; display:block;">
+                Фильтр по статусу
             </label>
 
-            <select id="status-filter-select" class="status-filter-select">
-                <option value="all">Все статусы</option>
-                <option value="status-watch">Наблюдение</option>
-                <option value="status-adapt">Адаптация</option>
-                <option value="status-opt">Оптимизация</option>
-                <option value="status-dev">Освоение</option>
-                <option value="status-off">Не обслуживается</option>
-                <option value="status-idle">Простой</option>
-                <option value="status-other">Другое</option>
-            </select>
+            <div id="status-checkboxes" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px;">
+              {% set status_opts = [
+                  ('status-watch', 'Наблюдение',      '#17a2b8'),
+                  ('status-adapt', 'Адаптация',       '#28a745'),
+                  ('status-opt',   'Оптимизация',     '#007bff'),
+                  ('status-dev',   'Освоение',        '#6f42c1'),
+                  ('status-off',   'Не обслуживается','#dc3545'),
+                  ('status-idle',  'Простой',         '#ffc107'),
+                  ('status-other', 'Другое',          '#6c757d'),
+              ] %}
+              {% for code, label, color in status_opts %}
+              <label class="status-chip" data-status="{{ code }}"
+                     style="display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border-radius:16px;
+                            border:2px solid {{ color }}; cursor:pointer; font-size:12px; font-weight:600;
+                            user-select:none; transition:all .15s;">
+                <input type="checkbox" class="status-cb" value="{{ code }}"
+                       {% if code != 'status-off' %}checked{% endif %}
+                       style="display:none;"
+                       onchange="onStatusFilterChange()">
+                <span class="chip-dot" style="width:8px; height:8px; border-radius:50%; background:{{ color }};"></span>
+                {{ label }}
+              </label>
+              {% endfor %}
+            </div>
 
-            <div class="status-filter__hint">
-                По умолчанию показываются все статусы.
+            <div style="display:flex; gap:6px; margin-bottom:8px;">
+              <button type="button" onclick="setAllStatuses(true)"  class="btn-secondary" style="font-size:11px; padding:3px 8px;">Все</button>
+              <button type="button" onclick="setAllStatuses(false)" class="btn-secondary" style="font-size:11px; padding:3px 8px;">Ни одного</button>
+              <button type="button" onclick="selectWellsByStatuses()" class="btn-secondary" style="font-size:11px; padding:3px 8px;">Выбрать скважины</button>
+              <button type="button" onclick="deselectWellsByStatuses()" class="btn-secondary" style="font-size:11px; padding:3px 8px;">Снять скважины</button>
+            </div>
+
+            <div class="status-filter__hint" style="font-size:11px; opacity:0.6;">
+                «Не обслуживается» скрыт по умолчанию. Отметьте нужные статусы и нажмите «Выбрать скважины».
             </div>
         </div>
 
@@ -374,79 +513,106 @@
     window.location.href = "/well/" + id;
   }
 
-  // ==== Фильтр чекбоксов по строке поиска ====
+  // ==== Фильтр чекбоксов по строке поиска (+ учёт статусного фильтра) ====
   function filterWellCheckboxes() {
     const input = document.getElementById("well-search-input");
     const term = (input?.value || "").toLowerCase().trim();
+    const activeStatuses = new Set(getActiveStatuses());
     const items = document.querySelectorAll(".well-checkbox-item");
 
     items.forEach(item => {
       const label = (item.dataset.label || "").toLowerCase();
-      item.style.display = label.includes(term) ? "" : "none";
+      const st = item.dataset.statusCss || '';
+      const matchSearch = !term || label.includes(term);
+      const matchStatus = activeStatuses.size === 0 || activeStatuses.has(st);
+      item.style.display = (matchSearch && matchStatus) ? "" : "none";
+    });
+    // Обновить видимость групп
+    document.querySelectorAll('.status-group').forEach(group => {
+      const any = Array.from(group.querySelectorAll('.well-checkbox-item')).some(i => i.style.display !== 'none');
+      group.style.display = any ? '' : 'none';
     });
   }
 
-  // ==== Фильтр плиток по статусу (выпадающий список, с сохранением выбора) ====
+  // ==== Мультифильтр по статусам ====
 
-  const STATUS_FILTER_KEY = "surgil_status_filter_select";
+  const STATUS_FILTER_KEY = "surgil_status_filter_multi";
 
-  function getSelectedStatusValue() {
-    const select = document.getElementById("status-filter-select");
-    if (!select) return "all";
-    return select.value || "all";
+  function getActiveStatuses() {
+    return Array.from(document.querySelectorAll('.status-cb:checked')).map(cb => cb.value);
   }
 
   function saveStatusFilterToStorage() {
-    const value = getSelectedStatusValue();
-    try {
-      localStorage.setItem(STATUS_FILTER_KEY, value);
-    } catch (e) {
-      // ignore
-    }
+    try { localStorage.setItem(STATUS_FILTER_KEY, JSON.stringify(getActiveStatuses())); } catch(e) {}
   }
 
   function loadStatusFilterFromStorage() {
     try {
       const raw = localStorage.getItem(STATUS_FILTER_KEY);
-      return raw || "all";
-    } catch (e) {
-      return "all";
-    }
+      return raw ? JSON.parse(raw) : null;
+    } catch(e) { return null; }
+  }
+
+  function onStatusFilterChange() {
+    saveStatusFilterToStorage();
+    updateChipStyles();
+    applyStatusFilter();
+  }
+
+  function updateChipStyles() {
+    document.querySelectorAll('.status-chip').forEach(chip => {
+      const cb = chip.querySelector('.status-cb');
+      chip.style.opacity = cb.checked ? '1' : '0.35';
+      chip.style.background = cb.checked ? '' : '#f0f0f0';
+    });
+  }
+
+  function setAllStatuses(on) {
+    document.querySelectorAll('.status-cb').forEach(cb => cb.checked = on);
+    onStatusFilterChange();
+  }
+
+  // Выбрать скважины, чей статус отмечен
+  function selectWellsByStatuses() {
+    const active = new Set(getActiveStatuses());
+    document.querySelectorAll('.well-checkbox-item').forEach(item => {
+      const st = item.dataset.statusCss || '';
+      const cb = item.querySelector('input[type="checkbox"]');
+      if (cb && active.has(st)) cb.checked = true;
+    });
+  }
+
+  // Снять скважины, чей статус отмечен
+  function deselectWellsByStatuses() {
+    const active = new Set(getActiveStatuses());
+    document.querySelectorAll('.well-checkbox-item').forEach(item => {
+      const st = item.dataset.statusCss || '';
+      const cb = item.querySelector('input[type="checkbox"]');
+      if (cb && active.has(st)) cb.checked = false;
+    });
   }
 
   function applyStatusFilter() {
-    const selected = getSelectedStatusValue();
-    const tiles = document.querySelectorAll(".well-tile");
-
-    if (selected === "all") {
-      tiles.forEach(tile => {
-        tile.style.display = "";
-      });
-      return;
-    }
-
-    tiles.forEach(tile => {
-      const css = tile.dataset.statusCss || "";
-      const classes = css.split(/\s+/).filter(Boolean);
-      const match = classes.includes(selected);
-      tile.style.display = match ? "" : "none";
+    const active = new Set(getActiveStatuses());
+    // Фильтруем плитки
+    document.querySelectorAll('.well-tile').forEach(tile => {
+      const css = tile.dataset.statusCss || '';
+      tile.style.display = active.has(css) ? '' : 'none';
     });
+    // Фильтруем сайдбар (с учётом поиска)
+    filterWellCheckboxes();
   }
 
   function initStatusFilter() {
-    const select = document.getElementById("status-filter-select");
-    if (!select) return;
-
+    // Восстановить из localStorage
     const stored = loadStatusFilterFromStorage();
-    if (stored && stored !== "all") {
-      select.value = stored;
+    if (stored) {
+      const set = new Set(stored);
+      document.querySelectorAll('.status-cb').forEach(cb => {
+        cb.checked = set.has(cb.value);
+      });
     }
-
-    select.addEventListener("change", () => {
-      saveStatusFilterToStorage();
-      applyStatusFilter();
-    });
-
+    updateChipStyles();
     applyStatusFilter();
   }
 

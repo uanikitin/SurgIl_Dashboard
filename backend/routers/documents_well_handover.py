@@ -9,6 +9,7 @@ import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from starlette.responses import RedirectResponse
 
 from backend.db import get_db
@@ -303,6 +304,80 @@ def well_handover_new(
 
     dfl = _defaults_for_doc_type(kind or "")
 
+    # --- Поиск событий-кандидатов на скважине ---
+    _event_type_labels = {
+        "equip": "Установка оборудования",
+        "pressure": "Замер давления",
+        "reagent": "Вброс реагента",
+        "purge": "Продувка скважины",
+        "note": "Заметка",
+        "other": "Другое",
+    }
+    _priority_types = ("equip", "pressure", "reagent", "purge")
+
+    def _collect_events(well_num: str, order: str) -> list[dict]:
+        """Собрать до 4 событий: по одному первому/последнему каждого типа."""
+        sort = Event.event_time.asc() if order == "asc" else Event.event_time.desc()
+        result: list[dict] = []
+        seen: set[str] = set()
+        for etype in _priority_types:
+            evt = (
+                db.query(Event)
+                .filter(Event.well == well_num, Event.event_type == etype)
+                .order_by(sort)
+                .first()
+            )
+            if evt:
+                seen.add(etype)
+                result.append(_evt_to_dict(evt, etype))
+        if len(result) < 4:
+            others = (
+                db.query(Event)
+                .filter(
+                    Event.well == well_num,
+                    Event.event_type.notin_(list(seen)) if seen else True,
+                )
+                .order_by(sort)
+                .limit(4 - len(result))
+                .all()
+            )
+            for evt in others:
+                result.append(_evt_to_dict(evt, evt.event_type or "other"))
+        return result
+
+    def _evt_to_dict(evt: Event, etype: str) -> dict:
+        return {
+            "event_time_iso": evt.event_time.strftime("%Y-%m-%dT%H:%M"),
+            "event_time_display": evt.event_time.strftime("%d.%m.%Y %H:%M"),
+            "type": etype,
+            "type_label": _event_type_labels.get(etype, etype),
+            "description": (evt.description or "")[:80],
+        }
+
+    # Первые события (для актов приёма) и последние (для актов возврата/демонтажа)
+    first_events: list[dict] = []
+    last_events: list[dict] = []
+    # Даты из well_status (для этапных актов приёма)
+    stage_dates: list[dict] = []
+
+    if well_id:
+        well_obj = db.query(Well).filter(Well.id == well_id).first()
+        if well_obj:
+            well_num_str = str(well_obj.number)
+            first_events = _collect_events(well_num_str, "asc")
+            last_events = _collect_events(well_num_str, "desc")
+
+        # Формируем даты из истории статусов
+        for ws in well_statuses:
+            stage_dates.append({
+                "id": ws.id,
+                "status": ws.status,
+                "dt_start_iso": ws.dt_start.strftime("%Y-%m-%dT%H:%M") if ws.dt_start else "",
+                "dt_start_display": ws.dt_start.strftime("%d.%m.%Y %H:%M") if ws.dt_start else "—",
+                "dt_end_iso": ws.dt_end.strftime("%Y-%m-%dT%H:%M") if ws.dt_end else "",
+                "dt_end_display": ws.dt_end.strftime("%d.%m.%Y %H:%M") if ws.dt_end else "—",
+            })
+
     return templates.TemplateResponse(
         "documents/well_handover_new.html",
         {
@@ -316,9 +391,13 @@ def well_handover_new(
             "selected_kind": kind,
             "default_contract": dfl["contract_number"],
             "default_territory": dfl["territory_state"],
-            # Новое для этапных актов
+            # Этапные акты
             "allowed_statuses": ALLOWED_STATUS,
             "well_statuses": well_statuses,
+            # События-кандидаты
+            "first_events": first_events,
+            "last_events": last_events,
+            "stage_dates": stage_dates,
         },
     )
 
@@ -344,7 +423,7 @@ def well_handover_create(
 
         # Для этапных актов
         stage_status: str = Form(""),  # Название этапа (Наблюдение, Адаптация, ...)
-        well_status_id: int | None = Form(None),  # ID записи well_status для трассировки
+        well_status_id: str = Form(""),  # ID записи well_status для трассировки
 ):
     """
     Создание акта приема/передачи скважины.
@@ -411,8 +490,8 @@ def well_handover_create(
     # Добавляем данные этапа для этапных актов
     if is_stage_doc:
         meta["stage_status"] = stage_status.strip()
-        if well_status_id:
-            meta["well_status_id"] = well_status_id
+        if well_status_id.strip().isdigit():
+            meta["well_status_id"] = int(well_status_id)
 
     # Создаем документ
     doc = Document(
@@ -490,8 +569,8 @@ def well_handover_update(
     if not doc or not doc.doc_type or doc.doc_type.code not in HANDOVER_DOC_CODES:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    if doc.status != "draft":
-        raise HTTPException(status_code=400, detail="Only draft documents can be edited")
+    if doc.status not in ("draft", "generated"):
+        raise HTTPException(status_code=400, detail="Only draft/generated documents can be edited")
 
     meta = doc.meta or {}
 
@@ -521,6 +600,7 @@ def well_handover_update(
     meta["line_pressure"] = _to_float_or_none(line_pressure)
 
     doc.meta = meta
+    flag_modified(doc, "meta")
     db.add(doc)
     db.commit()
 
@@ -588,6 +668,7 @@ def well_handover_rebuild_from_events(doc_id: int, db: Session = Depends(get_db)
     meta["pressure_source_time"] = pressure_data["source_time"].isoformat() if pressure_data["source_time"] else None
 
     doc.meta = meta
+    flag_modified(doc, "meta")
     db.add(doc)
     db.commit()
 

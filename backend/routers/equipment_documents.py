@@ -317,6 +317,10 @@ def equipment_doc_new(
         db.commit()
         db.refresh(dt_removal)
 
+    # Если скважина выбрана, но kind не указан — ставим install по умолчанию
+    if well_id and not kind:
+        kind = "install"
+
     equipment_classes = []
     pressure_data = {
         "tube_pressure": None,
@@ -420,6 +424,94 @@ def equipment_doc_new(
                 "available": available_count
             })
 
+    # --- Кандидаты для поля «Дата и время» ---
+    _evt_labels = {
+        "equip": "Установка оборудования",
+        "pressure": "Замер давления",
+        "reagent": "Вброс реагента",
+        "purge": "Продувка скважины",
+    }
+    _priority = ("equip", "pressure", "reagent", "purge")
+
+    first_events: list[dict] = []
+    last_events: list[dict] = []
+    install_dates: list[dict] = []
+
+    if well_id:
+        well_obj = db.query(Well).filter(Well.id == well_id).first()
+        if well_obj:
+            well_num_str = str(well_obj.number)
+
+            def _collect(order: str) -> list[dict]:
+                sort = Event.event_time.asc() if order == "asc" else Event.event_time.desc()
+                result: list[dict] = []
+                seen: set[str] = set()
+                for etype in _priority:
+                    evt = (
+                        db.query(Event)
+                        .filter(Event.well == well_num_str, Event.event_type == etype)
+                        .order_by(sort)
+                        .first()
+                    )
+                    if evt:
+                        seen.add(etype)
+                        result.append({
+                            "dt_iso": evt.event_time.strftime("%Y-%m-%dT%H:%M"),
+                            "dt_display": evt.event_time.strftime("%d.%m.%Y %H:%M"),
+                            "label": _evt_labels.get(etype, etype),
+                            "desc": (evt.description or "")[:80],
+                        })
+                if len(result) < 4:
+                    others = (
+                        db.query(Event)
+                        .filter(
+                            Event.well == well_num_str,
+                            Event.event_type.notin_(list(seen)) if seen else True,
+                        )
+                        .order_by(sort)
+                        .limit(4 - len(result))
+                        .all()
+                    )
+                    for evt in others:
+                        et = evt.event_type or "other"
+                        result.append({
+                            "dt_iso": evt.event_time.strftime("%Y-%m-%dT%H:%M"),
+                            "dt_display": evt.event_time.strftime("%d.%m.%Y %H:%M"),
+                            "label": _evt_labels.get(et, et),
+                            "desc": (evt.description or "")[:80],
+                        })
+                return result
+
+            first_events = _collect("asc")
+            last_events = _collect("desc")
+
+            # Даты из таблицы установок оборудования на этой скважине
+            installations = (
+                db.query(EquipmentInstallation)
+                .join(Equipment, Equipment.id == EquipmentInstallation.equipment_id)
+                .filter(EquipmentInstallation.well_id == well_id)
+                .order_by(EquipmentInstallation.installed_at.desc())
+                .limit(6)
+                .all()
+            )
+            for inst in installations:
+                eq = inst.equipment
+                eq_label = f"{eq.name} {eq.serial_number}" if eq else f"ID {inst.equipment_id}"
+                if inst.installed_at:
+                    install_dates.append({
+                        "dt_iso": inst.installed_at.strftime("%Y-%m-%dT%H:%M"),
+                        "dt_display": inst.installed_at.strftime("%d.%m.%Y %H:%M"),
+                        "label": "Монтаж",
+                        "desc": eq_label,
+                    })
+                if inst.removed_at:
+                    install_dates.append({
+                        "dt_iso": inst.removed_at.strftime("%Y-%m-%dT%H:%M"),
+                        "dt_display": inst.removed_at.strftime("%d.%m.%Y %H:%M"),
+                        "label": "Демонтаж",
+                        "desc": eq_label,
+                    })
+
     return templates.TemplateResponse(
         "documents/equipment_new.html",
         {
@@ -433,6 +525,10 @@ def equipment_doc_new(
             "auto_tube_pressure": pressure_data.get("tube_pressure"),
             "auto_line_pressure": pressure_data.get("line_pressure"),
             "pressure_source_desc": pressure_data.get("source_desc"),
+            # Кандидаты дат
+            "first_events": first_events,
+            "last_events": last_events,
+            "install_dates": install_dates,
         },
     )
 

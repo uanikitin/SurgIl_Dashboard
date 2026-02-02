@@ -16,12 +16,12 @@
         <div style="font-weight:600; opacity:0.7; font-size:13px; margin-top:4px;">Общие акты:</div>
         <label style="display:flex; align-items:center; gap:8px; padding:8px 12px; background:white; border-radius:6px; cursor:pointer;">
           <input type="radio" name="doc_type_id" value="{{ doc_types.well_acceptance.id }}"
-                 onchange="toggleStageFields(this)" data-is-stage="false" checked>
+                 onchange="onDocTypeChange(this)" data-is-stage="false" data-picker="first" checked>
           <span>📥 <b>Акт приёма скважины</b> — скважина передаётся Подрядчику</span>
         </label>
         <label style="display:flex; align-items:center; gap:8px; padding:8px 12px; background:white; border-radius:6px; cursor:pointer;">
           <input type="radio" name="doc_type_id" value="{{ doc_types.well_transfer.id }}"
-                 onchange="toggleStageFields(this)" data-is-stage="false">
+                 onchange="onDocTypeChange(this)" data-is-stage="false" data-picker="last">
           <span>📤 <b>Акт возврата скважины</b> — скважина возвращается Заказчику</span>
         </label>
 
@@ -29,12 +29,12 @@
         <div style="font-weight:600; opacity:0.7; font-size:13px; margin-top:12px;">Акты по этапам работ:</div>
         <label style="display:flex; align-items:center; gap:8px; padding:8px 12px; background:white; border-radius:6px; cursor:pointer;">
           <input type="radio" name="doc_type_id" value="{{ doc_types.well_stage_accept.id }}"
-                 onchange="toggleStageFields(this)" data-is-stage="true">
+                 onchange="onDocTypeChange(this)" data-is-stage="true" data-picker="stage">
           <span>📥 <b>Акт приёма на этап</b> — для выполнения работ по конкретному этапу</span>
         </label>
         <label style="display:flex; align-items:center; gap:8px; padding:8px 12px; background:white; border-radius:6px; cursor:pointer;">
           <input type="radio" name="doc_type_id" value="{{ doc_types.well_stage_return.id }}"
-                 onchange="toggleStageFields(this)" data-is-stage="true">
+                 onchange="onDocTypeChange(this)" data-is-stage="true" data-picker="last">
           <span>📤 <b>Акт возврата после этапа</b> — после выполнения работ по этапу</span>
         </label>
       </div>
@@ -90,7 +90,79 @@
       </div>
 
       <label><b>Дата и время фактической передачи</b></label>
-      <input type="datetime-local" name="handover_dt" required>
+
+      <!-- Первые события (акты приёма: well_acceptance) -->
+      {% if first_events %}
+      <div id="events-first" class="event-picker" style="display:none; background:#d4edda; padding:12px; border-radius:6px; margin-bottom:8px; font-size:13px; border-left:3px solid #28a745;">
+        <div style="font-weight:600; margin-bottom:8px;">Первые события на скважине:</div>
+        {% for ev in first_events %}
+        <label style="display:flex; align-items:center; gap:8px; padding:6px 8px; cursor:pointer; border-radius:4px;"
+               onmouseover="this.style.background='#c3e6cb'" onmouseout="this.style.background='transparent'">
+          <input type="radio" name="event_pick" value="{{ ev.event_time_iso }}"
+                 onchange="document.getElementById('handover-dt').value=this.value">
+          <span style="background:#e7f3ff; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; white-space:nowrap;">{{ ev.type_label }}</span>
+          <span style="white-space:nowrap;">{{ ev.event_time_display }}</span>
+          {% if ev.description %}<span style="opacity:0.6; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ ev.description }}</span>{% endif %}
+        </label>
+        {% endfor %}
+        <label style="display:flex; align-items:center; gap:8px; padding:6px 8px; cursor:pointer; border-radius:4px; margin-top:4px; border-top:1px solid #b8daff;"
+               onmouseover="this.style.background='#c3e6cb'" onmouseout="this.style.background='transparent'">
+          <input type="radio" name="event_pick" value="manual"
+                 onchange="document.getElementById('handover-dt').value=''; document.getElementById('handover-dt').focus();">
+          <span style="opacity:0.7;">Ввести вручную</span>
+        </label>
+      </div>
+      {% endif %}
+
+      <!-- Последние события (акты возврата/демонтажа: well_transfer, well_stage_return) -->
+      {% if last_events %}
+      <div id="events-last" class="event-picker" style="display:none; background:#fde8e8; padding:12px; border-radius:6px; margin-bottom:8px; font-size:13px; border-left:3px solid #dc3545;">
+        <div style="font-weight:600; margin-bottom:8px;">Последние события на скважине:</div>
+        {% for ev in last_events %}
+        <label style="display:flex; align-items:center; gap:8px; padding:6px 8px; cursor:pointer; border-radius:4px;"
+               onmouseover="this.style.background='#f5c6cb'" onmouseout="this.style.background='transparent'">
+          <input type="radio" name="event_pick" value="{{ ev.event_time_iso }}"
+                 onchange="document.getElementById('handover-dt').value=this.value">
+          <span style="background:#ffeeba; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; white-space:nowrap;">{{ ev.type_label }}</span>
+          <span style="white-space:nowrap;">{{ ev.event_time_display }}</span>
+          {% if ev.description %}<span style="opacity:0.6; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ ev.description }}</span>{% endif %}
+        </label>
+        {% endfor %}
+        <label style="display:flex; align-items:center; gap:8px; padding:6px 8px; cursor:pointer; border-radius:4px; margin-top:4px; border-top:1px solid #f5c6cb;"
+               onmouseover="this.style.background='#f5c6cb'" onmouseout="this.style.background='transparent'">
+          <input type="radio" name="event_pick" value="manual"
+                 onchange="document.getElementById('handover-dt').value=''; document.getElementById('handover-dt').focus();">
+          <span style="opacity:0.7;">Ввести вручную</span>
+        </label>
+      </div>
+      {% endif %}
+
+      <!-- Даты из истории статусов (этапный акт приёма: well_stage_accept) -->
+      {% if stage_dates %}
+      <div id="events-stage" class="event-picker" style="display:none; background:#fff3cd; padding:12px; border-radius:6px; margin-bottom:8px; font-size:13px; border-left:3px solid #ffc107;">
+        <div style="font-weight:600; margin-bottom:8px;">Даты приёма на этап (из истории статусов):</div>
+        {% for sd in stage_dates %}
+        <label style="display:flex; align-items:center; gap:8px; padding:6px 8px; cursor:pointer; border-radius:4px;"
+               onmouseover="this.style.background='#ffeeba'" onmouseout="this.style.background='transparent'">
+          <input type="radio" name="event_pick" value="{{ sd.dt_start_iso }}"
+                 onchange="document.getElementById('handover-dt').value=this.value">
+          <span style="background:#d4edda; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; white-space:nowrap;">{{ sd.status }}</span>
+          <span style="white-space:nowrap;">{{ sd.dt_start_display }}</span>
+          {% if sd.dt_end_iso %}
+            <span style="opacity:0.6; font-size:12px;">→ {{ sd.dt_end_display }}</span>
+          {% endif %}
+        </label>
+        {% endfor %}
+        <label style="display:flex; align-items:center; gap:8px; padding:6px 8px; cursor:pointer; border-radius:4px; margin-top:4px; border-top:1px solid #ffeeba;"
+               onmouseover="this.style.background='#ffeeba'" onmouseout="this.style.background='transparent'">
+          <input type="radio" name="event_pick" value="manual"
+                 onchange="document.getElementById('handover-dt').value=''; document.getElementById('handover-dt').focus();">
+          <span style="opacity:0.7;">Ввести вручную</span>
+        </label>
+      </div>
+      {% endif %}
+
+      <input type="datetime-local" name="handover_dt" id="handover-dt" required>
       <div style="font-size:12px; opacity:0.7; margin-top:-8px;">
         Когда фактически передали скважину
       </div>
@@ -113,51 +185,71 @@
 </div>
 
 <script>
-// Автозаполнение текущим временем
-document.addEventListener('DOMContentLoaded', function() {
-  const handoverInput = document.querySelector('input[name="handover_dt"]');
-  if (handoverInput && !handoverInput.value) {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    handoverInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
-  }
-});
+// === Переключение блока событий в зависимости от типа акта ===
+function showPicker(pickerName) {
+  // Скрыть все блоки
+  document.querySelectorAll('.event-picker').forEach(el => el.style.display = 'none');
+  // Сбросить radio
+  document.querySelectorAll('input[name="event_pick"]').forEach(r => r.checked = false);
 
-// Показать/скрыть поля этапа
-function toggleStageFields(radio) {
+  const map = { first: 'events-first', last: 'events-last', stage: 'events-stage' };
+  const block = document.getElementById(map[pickerName]);
+  if (block) {
+    block.style.display = 'block';
+    // Автовыбор первого radio в блоке
+    const first = block.querySelector('input[name="event_pick"]');
+    if (first && first.value !== 'manual') {
+      first.checked = true;
+      document.getElementById('handover-dt').value = first.value;
+      return;
+    }
+  }
+  // Fallback — текущее время
+  setNow();
+}
+
+function setNow() {
+  const inp = document.getElementById('handover-dt');
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  inp.value = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+}
+
+// === Единый обработчик смены типа акта ===
+function onDocTypeChange(radio) {
+  // Показать/скрыть поля этапа
   const isStage = radio.dataset.isStage === 'true';
   const stageFields = document.getElementById('stage-fields');
   const stageSelect = document.getElementById('stage-status');
-
   stageFields.style.display = isStage ? 'block' : 'none';
   stageSelect.required = isStage;
-
   if (!isStage) {
     stageSelect.value = '';
     document.getElementById('well-status-id').value = '';
   }
+  // Переключить блок событий
+  showPicker(radio.dataset.picker);
 }
 
-// Выбор статуса из истории
+// === Выбор статуса из истории ===
 function selectHistoryStatus(status, statusId) {
   document.getElementById('stage-status').value = status;
   document.getElementById('well-status-id').value = statusId;
 }
 
-// Перезагрузка страницы при смене скважины
+// === Перезагрузка страницы при смене скважины ===
 function reloadWithWell(wellId) {
-  const currentType = document.querySelector('input[name="doc_type_id"]:checked');
-  const kind = currentType ? getKindFromTypeId(currentType.value) : '';
-  window.location.href = `/documents/well-handover/new?well_id=${wellId}&kind=${kind}`;
+  window.location.href = `/documents/well-handover/new?well_id=${wellId}`;
 }
 
-function getKindFromTypeId(typeId) {
-  // Simplified - just reload without kind
-  return '';
-}
+// === Init ===
+document.addEventListener('DOMContentLoaded', function() {
+  const checked = document.querySelector('input[name="doc_type_id"]:checked');
+  if (checked) {
+    showPicker(checked.dataset.picker);
+  } else {
+    setNow();
+  }
+});
 </script>
 {% endblock %}

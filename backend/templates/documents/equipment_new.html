@@ -49,9 +49,73 @@
 
     {% if well_id %}
 
-    <!-- Дата -->
+    <!-- Дата и время -->
     <div style="margin-bottom:20px;">
       <label><b>Дата и время</b></label>
+
+      <!-- Первые события (для монтажа) -->
+      {% if first_events %}
+      <div id="pick-first" class="dt-picker" style="display:none; background:#d4edda; padding:12px; border-radius:6px; margin-bottom:8px; font-size:13px; border-left:3px solid #28a745;">
+        <div style="font-weight:600; margin-bottom:8px;">Первые события на скважине:</div>
+        {% for ev in first_events %}
+        <label style="display:flex; align-items:center; gap:8px; padding:6px 8px; cursor:pointer; border-radius:4px;"
+               onmouseover="this.style.background='#c3e6cb'" onmouseout="this.style.background='transparent'">
+          <input type="radio" name="dt_pick" value="{{ ev.dt_iso }}"
+                 onchange="applyDt(this.value)">
+          <span style="background:#e7f3ff; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; white-space:nowrap;">{{ ev.label }}</span>
+          <span style="white-space:nowrap;">{{ ev.dt_display }}</span>
+          {% if ev.desc %}<span style="opacity:0.6; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ ev.desc }}</span>{% endif %}
+        </label>
+        {% endfor %}
+        <label style="display:flex; align-items:center; gap:8px; padding:6px 8px; cursor:pointer; border-radius:4px; margin-top:4px; border-top:1px solid #b8daff;"
+               onmouseover="this.style.background='#c3e6cb'" onmouseout="this.style.background='transparent'">
+          <input type="radio" name="dt_pick" value="manual"
+                 onchange="document.getElementById('event-dt').value=''; document.getElementById('event-dt').focus();">
+          <span style="opacity:0.7;">Ввести вручную</span>
+        </label>
+      </div>
+      {% endif %}
+
+      <!-- Последние события (для демонтажа) -->
+      {% if last_events %}
+      <div id="pick-last" class="dt-picker" style="display:none; background:#fde8e8; padding:12px; border-radius:6px; margin-bottom:8px; font-size:13px; border-left:3px solid #dc3545;">
+        <div style="font-weight:600; margin-bottom:8px;">Последние события на скважине:</div>
+        {% for ev in last_events %}
+        <label style="display:flex; align-items:center; gap:8px; padding:6px 8px; cursor:pointer; border-radius:4px;"
+               onmouseover="this.style.background='#f5c6cb'" onmouseout="this.style.background='transparent'">
+          <input type="radio" name="dt_pick" value="{{ ev.dt_iso }}"
+                 onchange="applyDt(this.value)">
+          <span style="background:#ffeeba; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; white-space:nowrap;">{{ ev.label }}</span>
+          <span style="white-space:nowrap;">{{ ev.dt_display }}</span>
+          {% if ev.desc %}<span style="opacity:0.6; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ ev.desc }}</span>{% endif %}
+        </label>
+        {% endfor %}
+        <label style="display:flex; align-items:center; gap:8px; padding:6px 8px; cursor:pointer; border-radius:4px; margin-top:4px; border-top:1px solid #f5c6cb;"
+               onmouseover="this.style.background='#f5c6cb'" onmouseout="this.style.background='transparent'">
+          <input type="radio" name="dt_pick" value="manual"
+                 onchange="document.getElementById('event-dt').value=''; document.getElementById('event-dt').focus();">
+          <span style="opacity:0.7;">Ввести вручную</span>
+        </label>
+      </div>
+      {% endif %}
+
+      <!-- Даты из таблицы установок -->
+      {% if install_dates %}
+      <div id="pick-installs" class="dt-picker" style="display:none; background:#e7f0ff; padding:12px; border-radius:6px; margin-bottom:8px; font-size:13px; border-left:3px solid #0066cc;">
+        <div style="font-weight:600; margin-bottom:8px;">Из истории монтажа/демонтажа:</div>
+        {% for d in install_dates %}
+        <label style="display:flex; align-items:center; gap:8px; padding:6px 8px; cursor:pointer; border-radius:4px;"
+               onmouseover="this.style.background='#cce0ff'" onmouseout="this.style.background='transparent'">
+          <input type="radio" name="dt_pick" value="{{ d.dt_iso }}"
+                 onchange="applyDt(this.value)">
+          <span style="background:{% if d.label == 'Монтаж' %}#d4edda{% else %}#fde8e8{% endif %}; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; white-space:nowrap;">{{ d.label }}</span>
+          <span style="white-space:nowrap;">{{ d.dt_display }}</span>
+          <span style="opacity:0.6; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ d.desc }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      {% endif %}
+
       <input type="datetime-local" name="event_dt" id="event-dt" required onchange="fetchPressure()">
     </div>
 
@@ -310,10 +374,60 @@
 </div>
 
 <script>
-// Установка текущей даты
+// === Выбор даты из событий ===
+function applyDt(val) {
+  const inp = document.getElementById('event-dt');
+  if (inp && val !== 'manual') {
+    inp.value = val;
+    fetchPressure();
+  }
+}
+
+function showDtPicker() {
+  // Скрыть все
+  document.querySelectorAll('.dt-picker').forEach(el => el.style.display = 'none');
+  document.querySelectorAll('input[name="dt_pick"]').forEach(r => r.checked = false);
+
+  const kind = '{{ kind }}';
+  const eventBlock = document.getElementById(kind === 'removal' ? 'pick-last' : 'pick-first');
+  const installBlock = document.getElementById('pick-installs');
+
+  // Показать блок событий
+  if (eventBlock) eventBlock.style.display = 'block';
+  // Показать блок установок всегда (если есть)
+  if (installBlock) installBlock.style.display = 'block';
+
+  // Автовыбор первого radio из блока событий
+  if (eventBlock) {
+    const first = eventBlock.querySelector('input[name="dt_pick"]');
+    if (first && first.value !== 'manual') {
+      first.checked = true;
+      applyDt(first.value);
+      return;
+    }
+  }
+  // Иначе из установок
+  if (installBlock) {
+    const first = installBlock.querySelector('input[name="dt_pick"]');
+    if (first && first.value !== 'manual') {
+      first.checked = true;
+      applyDt(first.value);
+      return;
+    }
+  }
+  // Fallback — текущее время
+  setNow();
+}
+
+function setNow() {
+  const inp = document.getElementById('event-dt');
+  if (inp) inp.value = new Date().toISOString().slice(0, 16);
+}
+
+// Init
 const eventDtInput = document.getElementById('event-dt');
 if (eventDtInput) {
-  eventDtInput.value = new Date().toISOString().slice(0,16);
+  showDtPicker();
 }
 
 // Переключение класса

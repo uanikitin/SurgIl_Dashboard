@@ -3,9 +3,17 @@
 {% block title %}Админ-панель · Пользователи{% endblock %}
 
 {% block content %}
-<div class="admin-page">
-    <a href="/visual" class="back-link">← Назад к дашборду</a>
+<nav class="top-nav">
+  <div class="top-nav-inner">
+    <a href="/visual" class="top-nav-item">📊 Дашборд</a>
+    <a href="/documents" class="top-nav-item">📄 Акты</a>
+    <a href="/admin/reagents" class="top-nav-item">🧪 Реагенты</a>
+    <a href="/equipment" class="top-nav-item">⚙️ Оборудование</a>
+    <a href="/admin/users" class="top-nav-item active">👥 Пользователи</a>
+  </div>
+</nav>
 
+<div class="admin-page">
     <div class="admin-header-row">
         <div>
             <h1>Пользователи</h1>

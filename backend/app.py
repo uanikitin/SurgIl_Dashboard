@@ -1185,6 +1185,216 @@ def visual_page(
         'Другое': '#6c757d',  # сірий
     }
 
+    # ===== ДНЕВНАЯ СТАТИСТИКА (сегодня + вчера) =====
+    from collections import defaultdict as _defaultdict
+    from decimal import Decimal as _Decimal
+
+    _today_start = now_naive.replace(hour=0, minute=0, second=0, microsecond=0)
+    _yesterday_start = _today_start - timedelta(days=1)
+
+    def _classify_purge(event) -> str:
+        """Определить тип продувки по описанию: скважина / штуцер / манометр."""
+        desc = ((event.description or "") + " " + (event.purge_phase or "")).lower()
+        if "штуцер" in desc or "штуц" in desc:
+            return "штуцер"
+        if "манометр" in desc or "маном" in desc:
+            return "манометр"
+        return "скважина"
+
+    def _group_purge_sessions(purge_events: list) -> list[dict]:
+        """
+        Группируем продувки в сессии.
+
+        Правила:
+        - Сортируем по (well, event_time)
+        - start открывает сессию, stop закрывает
+        - Если между событиями одной скважины > 4ч — новая сессия
+        - Если нет явного start/stop — каждое событие = сессия
+        """
+        MAX_GAP = timedelta(hours=4)
+        # Сортируем по скважине, потом по времени
+        sorted_evts = sorted(purge_events, key=lambda e: (e.well or "", e.event_time))
+
+        sessions: list[dict] = []
+        open_sessions: dict[str, dict] = {}  # well -> current session
+
+        for e in sorted_evts:
+            well = e.well or "?"
+            phase = (e.purge_phase or "").lower().strip()
+            ptype = _classify_purge(e)
+
+            cur = open_sessions.get(well)
+
+            # Закрыть старую сессию если большой разрыв
+            if cur and e.event_time - cur["last_time"] > MAX_GAP:
+                cur["complete"] = False
+                sessions.append(cur)
+                cur = None
+                open_sessions.pop(well, None)
+
+            if phase == "start" or (not cur and phase in ("", "press")):
+                # Новая сессия
+                if cur:  # предыдущая не закрыта
+                    cur["complete"] = False
+                    sessions.append(cur)
+                open_sessions[well] = {
+                    "well": well,
+                    "type": ptype,
+                    "start_time": e.event_time,
+                    "last_time": e.event_time,
+                    "phases": [phase or "?"],
+                    "complete": False,
+                }
+            elif phase == "stop":
+                if cur:
+                    cur["phases"].append("stop")
+                    cur["last_time"] = e.event_time
+                    cur["duration_min"] = int((e.event_time - cur["start_time"]).total_seconds() / 60)
+                    cur["complete"] = "start" in cur["phases"]
+                    sessions.append(cur)
+                    open_sessions.pop(well, None)
+                else:
+                    # stop без start — одиночная сессия
+                    sessions.append({
+                        "well": well, "type": ptype,
+                        "start_time": e.event_time, "last_time": e.event_time,
+                        "phases": ["stop"], "complete": False, "duration_min": 0,
+                    })
+            else:
+                # press или пустая фаза — добавить к текущей
+                if cur:
+                    cur["phases"].append(phase or "?")
+                    cur["last_time"] = e.event_time
+                else:
+                    open_sessions[well] = {
+                        "well": well, "type": ptype,
+                        "start_time": e.event_time, "last_time": e.event_time,
+                        "phases": [phase or "?"], "complete": False,
+                    }
+
+        # Закрыть оставшиеся
+        for cur in open_sessions.values():
+            cur["complete"] = False
+            sessions.append(cur)
+
+        # Вычислить длительность для всех
+        for s in sessions:
+            if "duration_min" not in s:
+                s["duration_min"] = int((s["last_time"] - s["start_time"]).total_seconds() / 60)
+
+        return sessions
+
+    def _day_stats(dt_from, dt_to):
+        """Собрать статистику событий за период [dt_from, dt_to)."""
+        evts = (
+            db.query(Event)
+            .filter(Event.event_time >= dt_from, Event.event_time < dt_to)
+            .all()
+        )
+        st = {
+            "pressure": 0,
+            "purge_events": 0,  # сырое кол-во событий продувки
+            "reagent": 0,
+            "equip": 0,
+            "other": 0,
+            "total": len(evts),
+            "reagent_qty": _Decimal(0),  # штуки
+            "reagent_wells": _defaultdict(lambda: _Decimal(0)),
+            "reagent_well_details": _defaultdict(lambda: _defaultdict(lambda: _Decimal(0))),  # well -> reagent -> qty
+            "reagent_by_name": _defaultdict(lambda: _Decimal(0)),
+            "pressure_wells": set(),
+        }
+        purge_raw = []
+        for e in evts:
+            et = (e.event_type or "other").lower()
+            if et == "pressure":
+                st["pressure"] += 1
+                st["pressure_wells"].add(e.well or "?")
+            elif et == "purge":
+                st["purge_events"] += 1
+                purge_raw.append(e)
+            elif et == "reagent":
+                st["reagent"] += 1
+                if e.qty:
+                    q = _Decimal(str(e.qty))
+                    st["reagent_qty"] += q
+                    st["reagent_wells"][e.well or "?"] += q
+                    st["reagent_well_details"][e.well or "?"][e.reagent or "Реагент"] += q
+                    st["reagent_by_name"][e.reagent or "Реагент"] += q
+            elif et == "equip":
+                st["equip"] += 1
+            else:
+                st["other"] += 1
+
+        # Группировка продувок
+        purge_sessions = _group_purge_sessions(purge_raw)
+        # Разбивка по типу
+        purge_by_type = _defaultdict(list)
+        for s in purge_sessions:
+            purge_by_type[s["type"]].append(s)
+
+        st["purge_sessions"] = purge_sessions
+        st["purge_count"] = len(purge_sessions)
+        st["purge_by_type"] = {
+            "скважина": len(purge_by_type.get("скважина", [])),
+            "штуцер": len(purge_by_type.get("штуцер", [])),
+            "манометр": len(purge_by_type.get("манометр", [])),
+        }
+        st["purge_wells"] = sorted({s["well"] for s in purge_sessions})
+        st["purge_incomplete"] = sum(1 for s in purge_sessions if not s["complete"])
+        st["purge_details"] = [
+            {
+                "well": s["well"],
+                "type": s["type"],
+                "start": s["start_time"].strftime("%H:%M"),
+                "duration": s["duration_min"],
+                "phases": "→".join(s["phases"]),
+                "complete": s["complete"],
+            }
+            for s in sorted(purge_sessions, key=lambda x: x["start_time"])
+        ]
+
+        # Сводка по статусам скважин, на которых были работы
+        active_well_nums = set()
+        for e in evts:
+            if e.well:
+                active_well_nums.add(e.well)
+        status_summary = _defaultdict(list)  # status -> [well_num, ...]
+        if active_well_nums:
+            int_nums = [int(n) for n in active_well_nums if str(n).isdigit()]
+            if int_nums:
+                from sqlalchemy import func as _sqla_func
+                # Подзапрос: последний статус для каждой скважины (dt_end IS NULL = активный)
+                rows = (
+                    db.query(Well.number, WellStatus.status)
+                    .join(WellStatus, WellStatus.well_id == Well.id)
+                    .filter(Well.number.in_(int_nums), WellStatus.dt_end.is_(None))
+                    .all()
+                )
+                for wn, ws in rows:
+                    status_summary[ws or "Без статуса"].append(wn)
+        st["active_wells_count"] = len(active_well_nums)
+        st["status_summary"] = dict(sorted(status_summary.items(), key=lambda x: -len(x[1])))
+
+        # Конвертация для шаблона
+        st["reagent_qty"] = float(st["reagent_qty"])
+        st["reagent_wells"] = dict(sorted(st["reagent_wells"].items(), key=lambda x: -float(x[1])))
+        st["reagent_well_details"] = [
+            {"well": w, "reagent": r, "qty": float(q)}
+            for w, reagents in sorted(st["reagent_well_details"].items())
+            for r, q in sorted(reagents.items())
+        ]
+        st["reagent_by_name"] = dict(sorted(st["reagent_by_name"].items(), key=lambda x: -float(x[1])))
+        st["pressure_wells"] = sorted(st["pressure_wells"])
+        return st
+
+    daily_stats = {
+        "today": _day_stats(_today_start, _today_start + timedelta(days=1)),
+        "yesterday": _day_stats(_yesterday_start, _today_start),
+        "today_label": _today_start.strftime("%d.%m.%Y"),
+        "yesterday_label": _yesterday_start.strftime("%d.%m.%Y"),
+    }
+
     return templates.TemplateResponse(
         "visual.html",
         {
@@ -1218,6 +1428,7 @@ def visual_page(
             "timeline_event_translations": event_type_translations,
             "timeline_well_statuses": timeline_well_statuses,
             "timeline_status_colors": timeline_status_colors,
+            "daily_stats": daily_stats,
         },
     )
 

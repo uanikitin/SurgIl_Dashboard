@@ -9,6 +9,284 @@
     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
     crossorigin=""
 >
+<style>
+/* ============================================================
+   VISUAL DASHBOARD — PROFESSIONAL LIGHT THEME v3
+   ============================================================ */
+
+/* --- Base font — darker text --- */
+.visual-layout, .daily-stats-grid, .tl-card, .map-block {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
+    font-size: 14px; line-height: 1.5; color: #1e293b;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ===== DAILY STATS ===== */
+.daily-stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 0 0 18px; }
+.daily-stats-card {
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px;
+}
+.daily-stats-card--yesterday { opacity: 0.75; }
+.daily-stats-card__header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.daily-stats-card__title { font-weight: 600; font-size: 14px; color: #1e293b; }
+.daily-stats-card__badge {
+    background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 10px;
+    border-radius: 8px; font-size: 12px; font-weight: 600; color: #64748b;
+    font-variant-numeric: tabular-nums;
+}
+
+.daily-stats-active {
+    font-size: 13px; margin-bottom: 10px; color: #334155;
+    background: #fefce8; padding: 6px 10px; border-radius: 6px;
+    border-left: 3px solid #eab308;
+}
+.daily-stats-active b { color: #1e293b; }
+
+.daily-stats-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px; }
+.ds-metric { text-align: center; padding: 8px 4px; border-radius: 6px; border: 1px solid #e2e8f0; }
+.ds-metric__value {
+    font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+}
+.ds-metric__label { font-size: 11px; color: #64748b; margin-top: 2px; }
+.ds-metric--pressure { background: #eff6ff; border-color: #bfdbfe; }
+.ds-metric--pressure .ds-metric__value { color: #2563eb; }
+.ds-metric--purge { background: #fefce8; border-color: #fde68a; }
+.ds-metric--purge .ds-metric__value { color: #a16207; }
+.ds-metric--reagent { background: #f0fdf4; border-color: #bbf7d0; }
+.ds-metric--reagent .ds-metric__value { color: #16a34a; }
+.ds-metric--qty { background: #fef2f2; border-color: #fecaca; }
+.ds-metric--qty .ds-metric__value { color: #dc2626; }
+
+/* Details */
+.ds-details { margin-bottom: 6px; }
+.ds-details summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+.ds-details--reagent summary { color: #16a34a; }
+.ds-details--bytype summary { color: #2563eb; }
+.ds-details--pressure summary { color: #0284c7; }
+.ds-details--purge summary { color: #a16207; }
+.ds-details .ds-tag-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.ds-tag { padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ds-tag--reagent { background: #dcfce7; color: #166534; }
+.ds-tag--bytype { background: #dbeafe; color: #1e40af; }
+.ds-tag--pressure { background: #e0f2fe; color: #075985; font-weight: 400; }
+.ds-tag--purge-ok { background: #fef9c3; color: #854d0e; }
+.ds-tag--purge-bad { background: #fee2e2; color: #991b1b; }
+.ds-details-inner summary { cursor: pointer; font-size: 12px; color: #94a3b8; }
+.ds-detail-table { margin-top: 4px; font-size: 12px; border-collapse: collapse; width: 100%; }
+.ds-detail-table th { padding: 3px 6px; color: #94a3b8; font-weight: 600; text-align: left; border-bottom: 1px solid #e2e8f0; }
+.ds-detail-table th:last-child { text-align: right; }
+.ds-detail-table td { padding: 3px 6px; color: #475569; }
+.ds-detail-table td:first-child { font-weight: 600; color: #1e293b; }
+.ds-detail-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.ds-detail-table tr + tr { border-top: 1px solid #f1f5f9; }
+.ds-purge-incomplete { color: #dc2626; }
+.ds-no-events { text-align: center; color: #94a3b8; font-size: 13px; padding: 10px; }
+
+/* ===== STATUS CHIPS — equal width ===== */
+.status-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 10px; border-radius: 4px; cursor: pointer;
+    font-size: 12px; font-weight: 600; user-select: none;
+    transition: opacity .15s; background: #fff;
+    min-width: 120px; justify-content: center;
+    box-sizing: border-box;
+}
+.chip-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.status-cb { display: none; }
+#status-checkboxes { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+
+/* ===== SIDEBAR ===== */
+.status-filter-actions { display: flex; gap: 4px; margin-bottom: 8px; flex-wrap: wrap; }
+.status-filter-actions .btn-secondary {
+    font-size: 12px; padding: 3px 8px; background: #fff;
+    border: 1px solid #e2e8f0; color: #64748b; border-radius: 4px; cursor: pointer;
+}
+.status-filter-actions .btn-secondary:hover { border-color: #3b82f6; color: #3b82f6; }
+.status-filter__hint { font-size: 12px; color: #94a3b8; line-height: 1.4; }
+.status-filter__label { margin-bottom: 6px; display: block; color: #64748b; font-size: 12px; font-weight: 600; }
+
+/* ===== WELL TILES ===== */
+.well-tile {
+    background: #fff !important;
+    border: 1px solid #d1d5db !important;
+    border-radius: 8px !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
+    padding: 0 !important;
+    gap: 0 !important;
+    transition: border-color .15s, box-shadow .15s;
+    font-size: 13px;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+}
+.well-tile:hover { border-color: #93c5fd !important; box-shadow: 0 2px 8px rgba(59,130,246,0.08) !important; }
+.well-tile--hidden { display: none !important; }
+
+/* --- NEW: Unified top block with status color strip --- */
+.well-tile__top {
+    padding: 10px 14px 8px;
+    border-bottom: 1px solid #e2e8f0;
+    position: relative;
+}
+/* Colored top strip — 6px bar in status color */
+.well-tile__top::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 6px;
+    background: var(--tile-status-color, #94a3b8);
+    border-radius: 8px 8px 0 0;
+}
+/* 2-column grid: left = well+id+channel, right = status+date+days */
+.well-tile__top-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px; align-items: start;
+}
+/* LEFT: well number + ID below + channel below */
+.well-tile__left { display: flex; flex-direction: column; gap: 2px; }
+.well-tile__well-num {
+    font-size: 18px; font-weight: 800; color: #0f172a;
+    letter-spacing: -0.01em; white-space: nowrap; line-height: 1.2;
+}
+.well-tile__id { font-size: 11px; color: #64748b; line-height: 1.3; }
+.well-tile__channel {
+    font-size: 13px; color: #334155;
+    display: flex; align-items: flex-end; gap: 4px;
+    margin-top: 2px; line-height: 1;
+}
+.well-tile__channel .channel-icon { width: 18px; height: 18px; flex-shrink: 0; vertical-align: bottom; }
+
+/* RIGHT: status + date + days — all right-aligned */
+.well-tile__right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.well-tile__status-name {
+    font-size: 18px; font-weight: 700;
+    color: var(--tile-status-color, #64748b);
+    text-transform: uppercase; letter-spacing: 0.02em;
+    text-align: right; line-height: 1.2;
+}
+.well-tile__status-date { font-size: 12px; color: #475569; text-align: right; line-height: 1.3; }
+.well-tile__days { font-size: 13px; color: #334155; text-align: right; }
+.well-tile__days strong { font-weight: 700; color: #0f172a; font-variant-numeric: tabular-nums; }
+
+/* --- Card body (everything below top block) --- */
+.well-tile__body { padding: 8px 14px 10px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+
+.well-tile__coords { font-size: 12px; color: #64748b; font-variant-numeric: tabular-nums; }
+.well-tile__description { font-size: 13px; color: #475569; line-height: 1.4; }
+
+/* Equipment block — enlarged icons */
+.well-tile .well-equipment-box { margin: 4px 0; }
+.well-tile .equipment-title { font-size: 11px; font-weight: 600; color: #64748b; margin-bottom: 4px; }
+.well-tile .equipment-badges { gap: 6px; display: flex; flex-direction: row; flex-wrap: nowrap; overflow-x: auto; }
+.well-tile .equipment-badge { font-size: 13px; padding: 4px 6px; flex: 1 1 0; min-width: 0; align-items: center; text-align: center; }
+.well-tile .equipment-icon { width: 80px !important; height: 80px !important; object-fit: contain; }
+.well-tile .equipment-label { font-size: 9px !important; font-weight: 600; line-height: 1.2; }
+.well-tile .equipment-location { font-size: 11px; }
+.well-tile .equipment-empty { font-size: 13px; }
+
+/* Stats block — collapsible events */
+.well-tile__stats { font-size: 13px; border-top: 1px solid #e2e8f0; margin-top: auto; padding-top: 6px; }
+.well-tile__stats-summary { font-size: 13px; color: #1e293b; line-height: 1.6; }
+.well-tile__stats-summary strong { color: #0f172a; font-variant-numeric: tabular-nums; }
+.well-tile__stats-summary .muted { color: #64748b; font-size: 12px; }
+.well-tile__stats-details { margin-top: 4px; }
+.stats-detail-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 6px; }
+.stats-detail-metric { text-align: center; padding: 5px 2px; border-radius: 4px; border: 1px solid #e2e8f0; background: #f8fafc; }
+.stats-detail-metric__value { font-size: 15px; font-weight: 700; color: #0f172a; font-variant-numeric: tabular-nums; }
+.stats-detail-metric__label { font-size: 9px; color: #64748b; margin-top: 1px; }
+.well-tile__stats-details summary {
+    cursor: pointer; font-size: 12px; font-weight: 600; color: #3b82f6;
+    list-style: none; user-select: none;
+}
+.well-tile__stats-details summary::-webkit-details-marker { display: none; }
+.well-tile__stats-details summary::before { content: '▸ '; }
+.well-tile__stats-details[open] summary::before { content: '▾ '; }
+.well-tile__stats-details .stats-detail-rows { padding: 4px 0 2px 0; }
+.well-tile__stats-details .stats-detail-rows .well-tile__stats-row { font-size: 12px; color: #334155; line-height: 1.6; }
+.well-tile__stats-details .stats-detail-rows .well-tile__stats-row strong { color: #0f172a; font-variant-numeric: tabular-nums; }
+.well-tile__stats hr { border: 0; border-top: 1px solid #e2e8f0; margin: 6px 0; }
+
+/* Footer button */
+.well-tile__footer { padding: 0 14px 10px; }
+.well-tile__footer button {
+    background: #fff; border: 1px solid #d1d5db; color: #3b82f6;
+    font-weight: 600; font-size: 12px; border-radius: 6px; padding: 6px 12px;
+    transition: all .15s; cursor: pointer; width: 100%;
+}
+.well-tile__footer button:hover { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+
+
+/* ===== MAP ===== */
+#wells-map { border: 1px solid #d1d5db; border-radius: 8px; }
+.map-block h2 { font-size: 15px; font-weight: 600; color: #1e293b; margin-bottom: 10px; }
+
+/* ===== TIMELINE CARD ===== */
+.tl-card {
+    background: #fff; border: 1px solid #d1d5db; border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04); margin-top: 24px; margin-bottom: 20px;
+}
+.tl-card .card-header {
+    padding: 12px 16px; border-bottom: 1px solid #e2e8f0;
+}
+.tl-card .card-header h2 { margin: 0; font-size: 15px; font-weight: 600; color: #1e293b; }
+.tl-card .card-body { padding: 16px; }
+.tl-header-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+.tl-header-controls { display: flex; gap: 8px; align-items: center; }
+.tl-header-controls label {
+    display: flex; align-items: center; gap: 5px; cursor: pointer;
+    user-select: none; font-size: 13px; font-weight: 500; color: #64748b;
+}
+.tl-subtitle { color: #94a3b8; font-size: 13px; }
+
+/* Period bar */
+.tl-period-bar {
+    padding: 10px 12px; background: #f8fafc; border: 1px solid #e2e8f0;
+    border-radius: 8px; margin-bottom: 14px;
+}
+.tl-period-bar__title { color: #475569; font-weight: 600; margin-bottom: 8px; font-size: 13px; }
+.tl-period-bar__buttons { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.tl-custom-dates {
+    margin-left: 8px; background: #fff; padding: 6px 10px; border-radius: 6px;
+    display: flex; align-items: center; gap: 6px; border: 1px solid #e2e8f0;
+}
+.tl-custom-dates label { color: #475569; font-weight: 500; font-size: 13px; }
+
+/* Color modal */
+.tl-color-modal {
+    display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    background: #fff; border: 1px solid #d1d5db; padding: 24px;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.12); z-index: 1000; border-radius: 10px;
+    max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto;
+}
+.tl-color-modal h3 { margin-top: 0; color: #1e293b; border-bottom: 2px solid #3b82f6; padding-bottom: 10px; font-size: 15px; }
+.tl-color-modal__footer {
+    display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px;
+    padding-top: 12px; border-top: 1px solid #e2e8f0;
+}
+
+/* Legend grid — BELOW chart */
+.tl-legends-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 16px; margin-bottom: 0; }
+.legend-card { background: #f8fafc; padding: 10px 12px; border-radius: 8px; border: 1px solid #e2e8f0; }
+.legend-header {
+    font-weight: 600; margin-bottom: 6px; font-size: 13px; color: #475569;
+    padding-bottom: 4px; border-bottom: 1px solid #e2e8f0;
+}
+.legend-btn-row { display: flex; gap: 4px; margin-bottom: 6px; }
+
+/* Chart container */
+.tl-chart-box { width: 100%; position: relative; background: #fff; border-radius: 8px; padding: 16px; border: 1px solid #e2e8f0; }
+.tl-chart-controls { display: flex; gap: 8px; margin-bottom: 12px; justify-content: flex-end; }
+.tl-chart-area { height: 600px; background: #fff; border-radius: 6px; }
+.tl-chart-hints {
+    margin-top: 12px; padding: 8px 12px; background: #f8fafc;
+    border-radius: 6px; font-size: 12px; color: #64748b;
+    border-left: 3px solid #3b82f6;
+}
+.tl-chart-hints strong { color: #475569; }
+
+/* Wells legend row */
+#legend_wells { gap: 5px !important; }
+
+/* Page header */
+.page-header h1 { font-size: 18px; font-weight: 600; color: #1e293b; }
+</style>
 {% endblock %}
 
 {% block content %}
@@ -24,17 +302,17 @@
 
 <!-- ===== ДНЕВНАЯ СТАТИСТИКА ===== -->
 {% set ds = daily_stats %}
-<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:0 0 16px 0; max-width:100%;">
+<div class="daily-stats-grid">
 
   {% for period, label in [('today', 'Сегодня · ' ~ ds.today_label), ('yesterday', 'Вчера · ' ~ ds.yesterday_label)] %}
   {% set s = ds[period] %}
-  <div style="background:#fff; border:1px solid #e0e0e0; border-radius:10px; padding:16px; {% if period == 'yesterday' %}opacity:0.85;{% endif %}">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-      <span style="font-weight:700; font-size:15px;">{{ label }}</span>
-      <span style="background:#f0f0f0; padding:3px 10px; border-radius:12px; font-size:12px; font-weight:600;">{{ s.total }} событий</span>
+  <div class="daily-stats-card {% if period == 'yesterday' %}daily-stats-card--yesterday{% endif %}">
+    <div class="daily-stats-card__header">
+      <span class="daily-stats-card__title">{{ label }}</span>
+      <span class="daily-stats-card__badge">{{ s.total }} событий</span>
     </div>
 
-    <div style="font-size:13px; margin-bottom:10px; color:#333; background:#fffbe6; padding:6px 10px; border-radius:6px; border-left:3px solid #ffc107;">
+    <div class="daily-stats-active">
       <b>{{ s.active_wells_count }}</b> скважин
       {% if s.status_summary %}
         {% for st2, wl2 in s.status_summary.items() if st2 not in ['Без статуса', 'Не обслуживается'] %}
@@ -43,43 +321,43 @@
       {% endif %}
     </div>
 
-    <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; margin-bottom:12px;">
-      <div style="text-align:center; padding:8px; background:#e7f3ff; border-radius:8px;">
-        <div style="font-size:22px; font-weight:700; color:#007bff;">{{ s.pressure }}</div>
-        <div style="font-size:11px; opacity:0.7;">Замеров</div>
+    <div class="daily-stats-metrics">
+      <div class="ds-metric ds-metric--pressure">
+        <div class="ds-metric__value">{{ s.pressure }}</div>
+        <div class="ds-metric__label">Замеров</div>
       </div>
-      <div style="text-align:center; padding:8px; background:#fff3cd; border-radius:8px;">
-        <div style="font-size:22px; font-weight:700; color:#856404;">{{ s.purge_count }}</div>
-        <div style="font-size:11px; opacity:0.7;">Продувок</div>
+      <div class="ds-metric ds-metric--purge">
+        <div class="ds-metric__value">{{ s.purge_count }}</div>
+        <div class="ds-metric__label">Продувок</div>
       </div>
-      <div style="text-align:center; padding:8px; background:#d4edda; border-radius:8px;">
-        <div style="font-size:22px; font-weight:700; color:#155724;">{{ s.reagent }}</div>
-        <div style="font-size:11px; opacity:0.7;">Вбросов</div>
+      <div class="ds-metric ds-metric--reagent">
+        <div class="ds-metric__value">{{ s.reagent }}</div>
+        <div class="ds-metric__label">Вбросов</div>
       </div>
-      <div style="text-align:center; padding:8px; background:#fde8e8; border-radius:8px;">
-        <div style="font-size:22px; font-weight:700; color:#721c24;">{{ "%.1f"|format(s.reagent_qty) }}</div>
-        <div style="font-size:11px; opacity:0.7;">шт реагента</div>
+      <div class="ds-metric ds-metric--qty">
+        <div class="ds-metric__value">{{ "%.1f"|format(s.reagent_qty) }}</div>
+        <div class="ds-metric__label">шт реагента</div>
       </div>
     </div>
 
     {% if s.reagent_wells %}
-    <details style="margin-bottom:8px;">
-      <summary style="cursor:pointer; font-size:12px; font-weight:600; color:#155724;">Реагент по скважинам ({{ s.reagent_wells|length }})</summary>
-      <div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:6px;">
+    <details class="ds-details ds-details--reagent">
+      <summary>Реагент по скважинам ({{ s.reagent_wells|length }})</summary>
+      <div class="ds-tag-list">
         {% for well_num, qty in s.reagent_wells.items() %}
-        <span style="background:#d4edda; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600;">{{ well_num }}: {{ "%.1f"|format(qty|float) }} шт</span>
+        <span class="ds-tag ds-tag--reagent">{{ well_num }}: {{ "%.1f"|format(qty|float) }} шт</span>
         {% endfor %}
       </div>
       {% if s.reagent_well_details %}
-      <details style="margin-top:6px;">
-        <summary style="cursor:pointer; font-size:11px; opacity:0.7;">Подробнее</summary>
-        <table style="margin-top:4px; font-size:11px; border-collapse:collapse; width:100%;">
-          <tr style="opacity:0.6;"><td style="padding:2px 6px;"><b>Скв</b></td><td style="padding:2px 6px;"><b>Реагент</b></td><td style="padding:2px 6px; text-align:right;"><b>Кол-во</b></td></tr>
+      <details class="ds-details-inner" style="margin-top:6px;">
+        <summary>Подробнее</summary>
+        <table class="ds-detail-table">
+          <tr><th>Скв</th><th>Реагент</th><th>Кол-во</th></tr>
           {% for d in s.reagent_well_details %}
-          <tr style="border-top:1px solid #eee;">
-            <td style="padding:2px 6px; font-weight:600;">{{ d.well }}</td>
-            <td style="padding:2px 6px;">{{ d.reagent }}</td>
-            <td style="padding:2px 6px; text-align:right;">{{ "%.1f"|format(d.qty) }} шт</td>
+          <tr>
+            <td>{{ d.well }}</td>
+            <td>{{ d.reagent }}</td>
+            <td>{{ "%.1f"|format(d.qty) }} шт</td>
           </tr>
           {% endfor %}
         </table>
@@ -89,45 +367,45 @@
     {% endif %}
 
     {% if s.reagent_by_name %}
-    <details style="margin-bottom:8px;">
-      <summary style="cursor:pointer; font-size:12px; font-weight:600; color:#0066cc;">По типу реагента</summary>
-      <div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:6px;">
+    <details class="ds-details ds-details--bytype">
+      <summary>По типу реагента</summary>
+      <div class="ds-tag-list">
         {% for rname, qty in s.reagent_by_name.items() %}
-        <span style="background:#e7f3ff; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600;">{{ rname }}: {{ "%.1f"|format(qty|float) }} шт</span>
+        <span class="ds-tag ds-tag--bytype">{{ rname }}: {{ "%.1f"|format(qty|float) }} шт</span>
         {% endfor %}
       </div>
     </details>
     {% endif %}
 
     {% if s.pressure_wells %}
-    <details style="margin-bottom:8px;">
-      <summary style="cursor:pointer; font-size:12px; font-weight:600; color:#007bff;">Замеры на скважинах ({{ s.pressure_wells|length }})</summary>
-      <div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:6px;">
+    <details class="ds-details ds-details--pressure">
+      <summary>Замеры на скважинах ({{ s.pressure_wells|length }})</summary>
+      <div class="ds-tag-list">
         {% for wn in s.pressure_wells %}
-        <span style="background:#e7f3ff; padding:2px 8px; border-radius:10px; font-size:11px;">{{ wn }}</span>
+        <span class="ds-tag ds-tag--pressure">{{ wn }}</span>
         {% endfor %}
       </div>
     </details>
     {% endif %}
 
     {% if s.purge_count %}
-    <details>
-      <summary style="cursor:pointer; font-size:12px; font-weight:600; color:#856404;">
+    <details class="ds-details ds-details--purge">
+      <summary>
         Продувки: {{ s.purge_by_type.get('скважина',0) }} скв · {{ s.purge_by_type.get('штуцер',0) }} штуц · {{ s.purge_by_type.get('манометр',0) }} маном
-        {% if s.purge_incomplete %}<span style="color:#dc3545;"> ({{ s.purge_incomplete }} неполн.)</span>{% endif %}
+        {% if s.purge_incomplete %}<span class="ds-purge-incomplete"> ({{ s.purge_incomplete }} неполн.)</span>{% endif %}
       </summary>
-      <div style="margin-top:6px; font-size:11px;">
+      <div class="ds-tag-list" style="margin-top:6px; font-size:11px;">
         {% for d in s.purge_details %}
-        <div style="display:inline-block; background:{% if d.complete %}#fff3cd{% else %}#fde8e8{% endif %}; padding:2px 8px; border-radius:10px; margin:2px;">
+        <span class="ds-tag {% if d.complete %}ds-tag--purge-ok{% else %}ds-tag--purge-bad{% endif %}" style="display:inline-block; margin:2px;">
           {{ d.well }} · {{ d.type }} · {{ d.phases }} {% if not d.complete %}⚠{% endif %}
-        </div>
+        </span>
         {% endfor %}
       </div>
     </details>
     {% endif %}
 
     {% if s.total == 0 %}
-    <div style="text-align:center; opacity:0.5; font-size:13px; padding:8px;">Нет событий</div>
+    <div class="ds-no-events">Нет событий</div>
     {% endif %}
   </div>
   {% endfor %}
@@ -152,43 +430,40 @@
         </div>
 
         <div class="status-filter">
-            <label class="status-filter__label" style="margin-bottom:8px; display:block;">
+            <label class="status-filter__label">
                 Фильтр по статусу
             </label>
 
-            <div id="status-checkboxes" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px;">
+            <div id="status-checkboxes">
               {% set status_opts = [
                   ('status-watch', 'Наблюдение',      '#17a2b8'),
                   ('status-adapt', 'Адаптация',       '#28a745'),
                   ('status-opt',   'Оптимизация',     '#007bff'),
                   ('status-dev',   'Освоение',        '#6f42c1'),
-                  ('status-off',   'Не обслуживается','#dc3545'),
                   ('status-idle',  'Простой',         '#ffc107'),
                   ('status-other', 'Другое',          '#6c757d'),
+                  ('status-off',   'Не обслуживается','#dc3545'),
               ] %}
               {% for code, label, color in status_opts %}
               <label class="status-chip" data-status="{{ code }}"
-                     style="display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border-radius:16px;
-                            border:2px solid {{ color }}; cursor:pointer; font-size:12px; font-weight:600;
-                            user-select:none; transition:all .15s;">
+                     style="border:2px solid {{ color }};">
                 <input type="checkbox" class="status-cb" value="{{ code }}"
                        {% if code != 'status-off' %}checked{% endif %}
-                       style="display:none;"
                        onchange="onStatusFilterChange()">
-                <span class="chip-dot" style="width:8px; height:8px; border-radius:50%; background:{{ color }};"></span>
+                <span class="chip-dot" style="background:{{ color }};"></span>
                 {{ label }}
               </label>
               {% endfor %}
             </div>
 
-            <div style="display:flex; gap:6px; margin-bottom:8px;">
-              <button type="button" onclick="setAllStatuses(true)"  class="btn-secondary" style="font-size:11px; padding:3px 8px;">Все</button>
-              <button type="button" onclick="setAllStatuses(false)" class="btn-secondary" style="font-size:11px; padding:3px 8px;">Ни одного</button>
-              <button type="button" onclick="selectWellsByStatuses()" class="btn-secondary" style="font-size:11px; padding:3px 8px;">Выбрать скважины</button>
-              <button type="button" onclick="deselectWellsByStatuses()" class="btn-secondary" style="font-size:11px; padding:3px 8px;">Снять скважины</button>
+            <div class="status-filter-actions">
+              <button type="button" onclick="setAllStatuses(true)"  class="btn-secondary">Все</button>
+              <button type="button" onclick="setAllStatuses(false)" class="btn-secondary">Ни одного</button>
+              <button type="button" onclick="selectWellsByStatuses()" class="btn-secondary">Выбрать скважины</button>
+              <button type="button" onclick="deselectWellsByStatuses()" class="btn-secondary">Снять скважины</button>
             </div>
 
-            <div class="status-filter__hint" style="font-size:11px; opacity:0.6;">
+            <div class="status-filter__hint">
                 «Не обслуживается» скрыт по умолчанию. Отметьте нужные статусы и нажмите «Выбрать скважины».
             </div>
         </div>
@@ -308,169 +583,171 @@
                     data-status-start="{{ w.current_status_start.isoformat() if w.current_status_start else '' }}"
                     data-status-days="{{ w.current_status_days or '' }}"
                 >
-<header class="well-tile__header">
-    <div class="well-header-grid">
-        {# ==== ЛЕВАЯ КОЛОНКА: СКВАЖИНА + ID ==== #}
-        <div class="well-header-col well-header-col--left">
-            <div class="well-header-badge well-header-badge--well well-name-badge {{ w.current_status_css or '' }}">
-                <span class="well-header-badge-line">Скв</span>
-                <span class="well-header-badge-line">{{ w.number or w.id }}</span>
-            </div>
-            <div class="well-header-meta">
-                ID: {{ w.id }}
+{# ==== НОВЫЙ ВЕРХНИЙ БЛОК: СКВ + Статус + Канал + Дата ==== #}
+{% set _status_color_map = {
+    'status-watch': 'var(--status-watch-color)',
+    'status-adapt': 'var(--status-adapt-color)',
+    'status-opt':   'var(--status-opt-color)',
+    'status-dev':   'var(--status-dev-color)',
+    'status-off':   'var(--status-off-color)',
+    'status-idle':  'var(--status-idle-color)',
+    'status-other': 'var(--status-other-color)',
+} %}
+<div class="well-tile__top" style="--tile-status-color: {{ _status_color_map.get(w.current_status_css, '#94a3b8') }};">
+    <div class="well-tile__top-grid">
+        {# ЛЕВАЯ: СКВ + ID + Канал #}
+        <div class="well-tile__left">
+            <div class="well-tile__well-num">СКВ {{ w.number or w.id }}</div>
+            <div class="well-tile__id">ID {{ w.id }}</div>
+            <div class="well-tile__channel">
+                {% if w.current_channel %}
+                    Канал {{ w.current_channel }}
+                {% else %}
+                    Канал —
+                {% endif %}
+                <img src="{{ url_for('static', path='icons/pngegg-2.png') }}" class="channel-icon" alt="Связь">
             </div>
         </div>
-
-        {# ==== ЦЕНТРАЛЬНАЯ КОЛОНКА: СТАТУС + ДАТА + СУТКИ ==== #}
-        <div class="well-header-col well-header-col--center">
-            {% if w.current_status %}
-                <div class="well-header-badge well-header-badge--status status-badge {{ w.current_status_css or '' }}">
-                    {{ w.current_status }}
-                </div>
-                <div class="well-header-meta well-header-meta--status">
-                    {% if w.current_status_start %}
-                        c {{ w.current_status_start.strftime("%d.%m.%Y %H:%M") }}<br>
-                    {% endif %}
-                    {% if w.current_status_days is not none %}
-                        <strong>{{ "%.1f"|format(w.current_status_days) }}</strong> сут.
-                    {% endif %}
-                </div>
-            {% else %}
-                <div class="well-header-badge well-header-badge--status well-header-badge--empty">
-                    статус не задан
-                </div>
+        {# ПРАВАЯ: Статус + Дата + Сутки #}
+        <div class="well-tile__right">
+            <div class="well-tile__status-name">{{ w.current_status or 'статус не задан' }}</div>
+            <div class="well-tile__status-date">
+                {% if w.current_status_start %}
+                    с {{ w.current_status_start.strftime("%d.%m.%Y") }}
+                {% endif %}
+            </div>
+            {% if w.current_status_days is not none %}
+                <div class="well-tile__days"><strong>{{ "%.1f"|format(w.current_status_days) }}</strong> сут.</div>
             {% endif %}
         </div>
-
-              {# ==== ПРАВАЯ КОЛОНКА: КАНАЛ СВЯЗИ ==== #}
-        <div class="well-header-col well-header-col--right">
-            {% if w.current_channel %}
-                <div class="well-header-badge well-header-badge--channel well-name-badge">
-                    <span class="well-header-badge-line">Канал</span>
-                    <span class="well-header-badge-line">{{ w.current_channel }}</span>
-                </div>
-
-                {# Иконка под плиткой канала (только если канал есть) #}
-                <div class="channel-icon-wrapper">
-                    <img
-                        src="{{ url_for('static', path='icons/pngegg-2.png') }}"
-                        class="channel-icon"
-                        alt="Канал связи"
-                    >
-                </div>
-            {% else %}
-                {# Плейсхолдер без иконки, чтобы высота колонки не прыгала #}
-                <div class="well-header-badge well-header-badge--channel well-name-badge well-header-badge--empty">
-                    <span class="well-header-badge-line">Канал</span>
-                    <span class="well-header-badge-line">—</span>
-                </div>
-            {% endif %}
-        </div>
-</header>
-
-                    <div class="well-tile__coords">
-    {% if w.lat is not none and w.lon is not none %}
-        Координаты: {{ "%.6f"|format(w.lat) }}, {{ "%.6f"|format(w.lon) }}
-    {% else %}
-        Координаты не заданы
-    {% endif %}
+    </div>
 </div>
-{# ==== БЛОК ОБОРУДОВАНИЯ НА ПЛИТКЕ ==== #}
-<div class="well-equipment-box">
-    <div class="equipment-title">
-        Установленное оборудование
+
+<div class="well-tile__body">
+    <div class="well-tile__coords">
+        {% if w.lat is not none and w.lon is not none %}
+            {{ "%.6f"|format(w.lat) }}, {{ "%.6f"|format(w.lon) }}
+        {% else %}
+            Координаты не заданы
+        {% endif %}
     </div>
 
-    {% if w.equipment_active %}
-        <div class="equipment-badges">
-            {% for eq in w.equipment_active %}
-                {% set config = eq.config %}
-                <div class="equipment-badge"
-                     style="border-color: {{ config.border_color }}; background: {{ config.background_gradient }};"
-                     title="{{ config.label }}
+    {# ==== БЛОК ОБОРУДОВАНИЯ ==== #}
+    <div class="well-equipment-box">
+        <div class="equipment-title">
+            Установленное оборудование
+        </div>
+
+        {% if w.equipment_active %}
+            <div class="equipment-badges">
+                {% for eq in w.equipment_active %}
+                    {% set config = eq.config %}
+                    <div class="equipment-badge"
+                         style="border-color: {{ config.border_color }}; background: {{ config.background_gradient }};"
+                         title="{{ config.label }}
 {% if eq.model %}Модель: {{ eq.model }}{% endif %}
 {% if eq.serial %}Серийный: {{ eq.serial }}{% endif %}
 {% if eq.installation_location %}Место: {{ eq.installation_location }}{% endif %}
 {% if eq.installation_date %}Установлен: {{ eq.installation_date.strftime('%d.%m.%Y') }}{% endif %}">
-                    <img
-                        src="{{ config.icon }}"
-                        class="equipment-icon"
-                        alt="{{ config.label }}"
-                        onerror="this.src='/static/icons/default.png'"
-                    >
-                    <div class="equipment-info">
-                        <div class="equipment-label" style="color: {{ config.color }};">
-                            {{ config.short or config.label }}
-                        </div>
-                        {% if eq.installation_location %}
-                            <div class="equipment-location">
-                                <small>{{ eq.installation_location|truncate(15) }}</small>
+                        <img
+                            src="{{ config.icon }}"
+                            class="equipment-icon"
+                            alt="{{ config.label }}"
+                            onerror="this.src='/static/icons/default.png'"
+                        >
+                        <div class="equipment-info">
+                            <div class="equipment-label" style="color: {{ config.color }};">
+                                {{ config.short or config.label }}
                             </div>
-                        {% endif %}
+                            {% if eq.installation_location %}
+                                <div class="equipment-location">
+                                    <small>{{ eq.installation_location|truncate(15) }}</small>
+                                </div>
+                            {% endif %}
+                        </div>
                     </div>
-                </div>
-            {% endfor %}
-        </div>
-    {% else %}
-        <div class="equipment-empty muted">
-            Оборудование не установлено
-        </div>
-    {% endif %}
-</div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="equipment-empty muted">
+                Оборудование не установлено
+            </div>
+        {% endif %}
+    </div>
 
-                    <div class="well-tile__description">
-                        {{ w.description or "Описание не задано" }}
-                    </div>
+    <div class="well-tile__description">
+        {{ w.description or "Описание не задано" }}
+    </div>
 
                          <div class="well-tile__stats">
-                            {# ---- СЕГОДНЯ ---- #}
-                            <div class="well-tile__stats-row">
-                                <span>События за сегодня:</span>
-                                <strong>{{ w.events_today_total or 0 }}</strong>
+                            {# ---- СЕГОДНЯ: сводка + раскрываемые подробности ---- #}
+                            <div class="well-tile__stats-summary">
+                                Сегодня: <strong>{{ w.events_today_total or 0 }}</strong> событий
+                                <span class="muted">· обновлено {{ updated_at.strftime("%H:%M") }}</span>
                             </div>
 
-                            {# время обновления страницы (время запроса в БД) #}
-                            <div class="well-tile__stats-row">
-                                <span class="muted">Обновлено:</span>
-                                <span class="muted">
-                                    {{ updated_at.strftime("%d.%m.%Y %H:%M:%S") }}
-                                </span>
-                            </div>
-
-                            <div class="well-tile__stats-row">
-                                <span>Вбросы реагента (сегодня):</span>
-                                <strong>{{ w.events_today_reagents or 0 }}</strong>
-                                {% if w.events_today_reagent_qty is not none %}
-                                    <span class="muted">
-                                        ({{ "%.1f"|format(w.events_today_reagent_qty or 0.0) }} шт)
-                                    </span>
+                            <details class="well-tile__stats-details">
+                                <summary>Подробнее за сегодня</summary>
+                                <div class="stats-detail-rows stats-detail-grid">
+                                    <div class="stats-detail-metric">
+                                        <div class="stats-detail-metric__value">{{ w.events_today_pressure or 0 }}</div>
+                                        <div class="stats-detail-metric__label">Замеров</div>
+                                    </div>
+                                    <div class="stats-detail-metric">
+                                        <div class="stats-detail-metric__value">{{ w.events_today_purges or 0 }}</div>
+                                        <div class="stats-detail-metric__label">Продувок</div>
+                                    </div>
+                                    <div class="stats-detail-metric">
+                                        <div class="stats-detail-metric__value">{{ w.events_today_reagents or 0 }}</div>
+                                        <div class="stats-detail-metric__label">Вбросов</div>
+                                    </div>
+                                    <div class="stats-detail-metric">
+                                        <div class="stats-detail-metric__value">{{ "%.1f"|format(w.events_today_reagent_qty or 0.0) }}</div>
+                                        <div class="stats-detail-metric__label">шт реаг.</div>
+                                    </div>
+                                </div>
+                                {% if w.events_today_reagent_types %}
+                                <div class="well-tile__stats-row muted" style="margin-top:4px;">
+                                    Реагенты: {{ w.events_today_reagent_types }}
+                                </div>
                                 {% endif %}
+                            </details>
+
+                            <hr>
+
+                            {# ---- ВЧЕРА: сводка + раскрываемые подробности ---- #}
+                            <div class="well-tile__stats-summary">
+                                Вчера: <strong>{{ w.events_yesterday_total or 0 }}</strong> событий
                             </div>
 
-                            <div class="well-tile__stats-row">
-                                <span>Замеры давления (сегодня):</span>
-                                <strong>{{ w.events_today_pressure or 0 }}</strong>
-                            </div>
-
-                            <div class="well-tile__stats-row">
-                                <span>Типы реагентов (сегодня):</span>
-                                <strong>{{ w.events_today_reagent_types or "—" }}</strong>
-                            </div>
-
-                            {# ---- РАЗДЕЛИТЕЛЬ ---- #}
-                            <hr style="border:0; border-top:1px solid #eee; margin: 6px 0;">
-
-                            {# ---- ВЧЕРА ---- #}
-                            <div class="well-tile__stats-row">
-                                <span>События за вчера:</span>
-                                <strong>{{ w.events_yesterday_total or 0 }}</strong>
-                            </div>
-
-                            <div class="well-tile__stats-row">
-                                <span>Типы реагентов за вчера:</span>
-                                <strong>{{ w.events_yesterday_reagent_types or "—" }}</strong>
-                            </div>
+                            <details class="well-tile__stats-details">
+                                <summary>Подробнее за вчера</summary>
+                                <div class="stats-detail-rows stats-detail-grid">
+                                    <div class="stats-detail-metric">
+                                        <div class="stats-detail-metric__value">{{ w.events_yesterday_pressure or 0 }}</div>
+                                        <div class="stats-detail-metric__label">Замеров</div>
+                                    </div>
+                                    <div class="stats-detail-metric">
+                                        <div class="stats-detail-metric__value">{{ w.events_yesterday_purges or 0 }}</div>
+                                        <div class="stats-detail-metric__label">Продувок</div>
+                                    </div>
+                                    <div class="stats-detail-metric">
+                                        <div class="stats-detail-metric__value">{{ w.events_yesterday_reagents or 0 }}</div>
+                                        <div class="stats-detail-metric__label">Вбросов</div>
+                                    </div>
+                                    <div class="stats-detail-metric">
+                                        <div class="stats-detail-metric__value">{{ "%.1f"|format(w.events_yesterday_reagent_qty or 0.0) }}</div>
+                                        <div class="stats-detail-metric__label">шт реаг.</div>
+                                    </div>
+                                </div>
+                                {% if w.events_yesterday_reagent_types %}
+                                <div class="well-tile__stats-row muted" style="margin-top:4px;">
+                                    Реагенты: {{ w.events_yesterday_reagent_types }}
+                                </div>
+                                {% endif %}
+                            </details>
                         </div>
+                    </div>{# /well-tile__body #}
 
                     <footer class="well-tile__footer">
                         <button type="button" onclick="openWellPage({{ w.id }})">
@@ -562,8 +839,8 @@
   function updateChipStyles() {
     document.querySelectorAll('.status-chip').forEach(chip => {
       const cb = chip.querySelector('.status-cb');
-      chip.style.opacity = cb.checked ? '1' : '0.35';
-      chip.style.background = cb.checked ? '' : '#f0f0f0';
+      chip.style.opacity = cb.checked ? '1' : '0.4';
+      chip.style.background = cb.checked ? '' : '#f1f5f9';
     });
   }
 
@@ -594,10 +871,14 @@
 
   function applyStatusFilter() {
     const active = new Set(getActiveStatuses());
-    // Фильтруем плитки
+    // Фильтруем плитки (class-based, чтобы не конфликтовать с CSS display:flex)
     document.querySelectorAll('.well-tile').forEach(tile => {
       const css = tile.dataset.statusCss || '';
-      tile.style.display = active.has(css) ? '' : 'none';
+      if (active.has(css)) {
+        tile.classList.remove('well-tile--hidden');
+      } else {
+        tile.classList.add('well-tile--hidden');
+      }
     });
     // Фильтруем сайдбар (с учётом поиска)
     filterWellCheckboxes();
@@ -755,6 +1036,24 @@
 
   document.addEventListener("DOMContentLoaded", () => {
     initStatusFilter();
+
+    // Синхронизация раскрытия details: при открытии/закрытии одного —
+    // открыть/закрыть такой же (по индексу внутри карточки) у всех скважин
+    document.querySelectorAll('.well-tile__stats-details').forEach(det => {
+      det.addEventListener('toggle', function() {
+        const tile = this.closest('.well-tile');
+        if (!tile) return;
+        const allInTile = Array.from(tile.querySelectorAll('.well-tile__stats-details'));
+        const idx = allInTile.indexOf(this);
+        const isOpen = this.open;
+        document.querySelectorAll('.well-tile').forEach(other => {
+          const otherDetails = other.querySelectorAll('.well-tile__stats-details');
+          if (otherDetails[idx] && otherDetails[idx] !== this) {
+            otherDetails[idx].open = isOpen;
+          }
+        });
+      });
+    });
   });
 </script>
 
@@ -766,17 +1065,17 @@
 
 {# ==================== ТАЙМЛАЙН: ПОДІЇ ТА ВБРОСИ ==================== #}
 
-<div class="card" style="margin-top: 40px;">
+<div class="tl-card">
     <div class="card-header">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <div class="tl-header-row">
             <div>
                 <h2>📊 График событий по скважинам</h2>
-                <small style="color: #666;">Интерактивный таймлайн всех событий</small>
+                <small class="tl-subtitle">Интерактивный таймлайн всех событий</small>
             </div>
-            <div style="display: flex; gap: 10px; align-items: center;">
-                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;">
-                    <input type="checkbox" id="showGridLines" onchange="toggleGridLines()" style="cursor: pointer;">
-                    <span style="font-size: 13px; font-weight: 500;">📐 Горизонтальные линии</span>
+            <div class="tl-header-controls">
+                <label>
+                    <input type="checkbox" id="showGridLines" onchange="toggleGridLines()" checked style="cursor: pointer;">
+                    <span>📐 Горизонтальные линии</span>
                 </label>
                 <button class="btn btn-secondary" onclick="openColorSettings()">
                     🎨 Настроить цвета
@@ -785,54 +1084,26 @@
         </div>
     </div>
 
-    {# Модальне вікно налаштувань кольорів #}
-    <div id="colorModal" style="
-        display: none;
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        background: white;
-        padding: 30px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-        z-index: 1000;
-        border-radius: 12px;
-        max-width: 600px;
-        width: 90%;
-        max-height: 80vh;
-        overflow-y: auto;
-    ">
-        <h3 style="margin-top: 0; color: #333; border-bottom: 2px solid #0d6efd; padding-bottom: 10px;">
-            🎨 Настройка цветов
-        </h3>
+    <div id="colorModal" class="tl-color-modal">
+        <h3>🎨 Настройка цветов</h3>
         <div id="colorInputs" style="margin: 20px 0;"></div>
-        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; padding-top: 15px; border-top: 1px solid #dee2e6;">
+        <div class="tl-color-modal__footer">
             <button class="btn btn-primary" onclick="saveColors()">💾 Сохранить</button>
             <button class="btn btn-secondary" onclick="closeColorSettings()">✖ Закрыть</button>
         </div>
     </div>
 
     <div class="card-body">
-        {# ФІЛЬТР ПЕРІОДУ - ФОРМА #}
         <form method="get" action="/visual" id="periodForm">
-            {# Зберігаємо вибрані скважини з основного фільтра #}
             {% for well_id in selected_ids %}
             <input type="hidden" name="selected" value="{{ well_id }}">
             {% endfor %}
 
             <input type="hidden" name="tl_period" id="tl_period_input" value="{{ timeline_filters.period }}">
 
-            <div style="
-                padding: 15px;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                border-radius: 8px;
-                margin-bottom: 20px;
-                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-            ">
-                <div style="color: white; font-weight: 600; margin-bottom: 10px; font-size: 15px;">
-                    📅 Период отображения
-                </div>
-                <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+            <div class="tl-period-bar">
+                <div class="tl-period-bar__title">📅 Период отображения</div>
+                <div class="tl-period-bar__buttons">
                     <button type="button" class="btn-period {% if timeline_filters.period == '1d' %}active{% endif %}" data-period="1d" onclick="setPeriod('1d')">
                         📆 Сутки
                     </button>
@@ -849,10 +1120,10 @@
                         📆 Выбрать период
                     </button>
 
-                    <div id="customDatesRow" style="{% if timeline_filters.period != 'custom' %}display: none;{% endif %} margin-left: 10px; background: rgba(255,255,255,0.2); padding: 8px 12px; border-radius: 6px; display: flex; align-items: center; gap: 8px;">
-                        <label style="color: white; font-weight: 500;">От:</label>
+                    <div id="customDatesRow" class="tl-custom-dates" style="{% if timeline_filters.period != 'custom' %}display: none;{% endif %}">
+                        <label>От:</label>
                         <input type="date" name="tl_date_from" id="date_from" class="input-date" value="{{ timeline_filters.date_from }}">
-                        <label style="color: white; font-weight: 500;">До:</label>
+                        <label>До:</label>
                         <input type="date" name="tl_date_to" id="date_to" class="input-date" value="{{ timeline_filters.date_to }}">
                         <button type="button" class="btn-apply-dates" onclick="submitCustomDates()">✓ Применить</button>
                     </div>
@@ -860,100 +1131,18 @@
             </div>
         </form>
 
-        {# Легенди з чекбоксами (3 колонки) #}
-        <div style="
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 15px;
-            margin-bottom: 20px;
-        ">
-            {# Реагенти #}
-            <div class="legend-card">
-                <div class="legend-header">
-                    💉 Реагенты
-                </div>
-                <div style="display: flex; gap: 6px; margin-bottom: 10px;">
-                    <button class="btn-legend btn-legend-all" onclick="selectAllReagents(true)">✓ Все</button>
-                    <button class="btn-legend btn-legend-none" onclick="selectAllReagents(false)">✗ Ничего</button>
-                </div>
-                <div id="legend_reagents" class="legend-items"></div>
-            </div>
-
-            {# Події #}
-            <div class="legend-card">
-                <div class="legend-header">
-                    📌 События
-                </div>
-                <div style="display: flex; gap: 6px; margin-bottom: 10px;">
-                    <button class="btn-legend btn-legend-all" onclick="selectAllEvents(true)">✓ Все</button>
-                    <button class="btn-legend btn-legend-none" onclick="selectAllEvents(false)">✗ Ничего</button>
-                </div>
-                <div id="legend_events" class="legend-items"></div>
-            </div>
-
-            {# Статуси #}
-            <div class="legend-card">
-                <div class="legend-header">
-                    📊 Статусы
-                </div>
-                <div style="display: flex; gap: 6px; margin-bottom: 10px;">
-                    <button class="btn-legend btn-legend-all" onclick="selectAllStatuses(true)">✓ Все</button>
-                    <button class="btn-legend btn-legend-none" onclick="selectAllStatuses(false)">✗ Ничего</button>
-                </div>
-                <div id="legend_statuses" class="legend-items"></div>
-            </div>
-        </div>
-
-        {# Свердловини - окремий рядок #}
-        <div class="legend-card" style="margin-bottom: 20px;">
-            <div class="legend-header">
-                🎯 Скважины
-            </div>
-            <div style="display: flex; gap: 6px; margin-bottom: 10px;">
-                <button class="btn-legend btn-legend-all" onclick="selectAllWellsTimeline(true)">✓ Все</button>
-                <button class="btn-legend btn-legend-none" onclick="selectAllWellsTimeline(false)">✗ Ничего</button>
-            </div>
-            <div id="legend_wells" class="legend-items" style="
-                display: grid;
-                grid-template-columns: repeat(8, 1fr);
-                gap: 6px;
-            "></div>
-        </div>
-
-        {# Графік #}
-        <div class="chart-box" style="
-            width: 100%;
-            position: relative;
-            background: white;
-            border-radius: 8px;
-            padding: 20px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-            border: 1px solid #dee2e6;
-        ">
-            {# Кнопки керування графіком #}
-            <div style="display: flex; gap: 10px; margin-bottom: 15px; justify-content: flex-end;">
+        <div class="tl-chart-box">
+            <div class="tl-chart-controls">
                 <button onclick="resetZoom()" class="btn btn-secondary" style="padding: 8px 16px; font-size: 13px;">
                     🏠 Сброс масштаба
                 </button>
             </div>
 
-            <div style="
-                height: 600px;
-                background: white;
-                border-radius: 6px;
-            ">
+            <div class="tl-chart-area">
                 <canvas id="chart_timeline"></canvas>
             </div>
 
-            <div style="
-                margin-top: 15px;
-                padding: 10px 15px;
-                background: #e7f3ff;
-                border-radius: 4px;
-                font-size: 12px;
-                color: #495057;
-                border-left: 3px solid #0d6efd;
-            ">
+            <div class="tl-chart-hints">
                 <strong>💡 Подсказки:</strong>
                 Выделите область мышью для ZOOM •
                 Двойной клик для сброса масштаба •
@@ -961,6 +1150,45 @@
                 Shift + перетягивание для перемещения •
                 Наведите курсор на точку для деталей
             </div>
+        </div>
+
+        {# Легенда — под графиком #}
+        <div class="tl-legends-grid">
+            <div class="legend-card">
+                <div class="legend-header">💉 Реагенты</div>
+                <div class="legend-btn-row">
+                    <button class="btn-legend btn-legend-all" onclick="selectAllReagents(true)">✓ Все</button>
+                    <button class="btn-legend btn-legend-none" onclick="selectAllReagents(false)">✗ Ничего</button>
+                </div>
+                <div id="legend_reagents" class="legend-items"></div>
+            </div>
+
+            <div class="legend-card">
+                <div class="legend-header">📌 События</div>
+                <div class="legend-btn-row">
+                    <button class="btn-legend btn-legend-all" onclick="selectAllEvents(true)">✓ Все</button>
+                    <button class="btn-legend btn-legend-none" onclick="selectAllEvents(false)">✗ Ничего</button>
+                </div>
+                <div id="legend_events" class="legend-items"></div>
+            </div>
+
+            <div class="legend-card">
+                <div class="legend-header">📊 Статусы</div>
+                <div class="legend-btn-row">
+                    <button class="btn-legend btn-legend-all" onclick="selectAllStatuses(true)">✓ Все</button>
+                    <button class="btn-legend btn-legend-none" onclick="selectAllStatuses(false)">✗ Ничего</button>
+                </div>
+                <div id="legend_statuses" class="legend-items"></div>
+            </div>
+        </div>
+
+        <div class="legend-card" style="margin-top: 10px;">
+            <div class="legend-header">🎯 Скважины</div>
+            <div class="legend-btn-row">
+                <button class="btn-legend btn-legend-all" onclick="selectAllWellsTimeline(true)">✓ Все</button>
+                <button class="btn-legend btn-legend-none" onclick="selectAllWellsTimeline(false)">✗ Ничего</button>
+            </div>
+            <div id="legend_wells" class="legend-items" style="display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px;"></div>
         </div>
     </div>
 </div>
@@ -986,168 +1214,47 @@ window.reagentsData = {
 <script src="/static/js/visual_timeline.js"></script>
 
 <style>
-/* Стилі для карток */
-.card {
-    background: white;
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-    border: 1px solid #dee2e6;
-    margin-bottom: 20px;
-}
-
-.card-header {
-    padding: 15px 20px;
-    border-bottom: 2px solid #e9ecef;
-}
-
-.card-header h2 {
-    margin: 0;
-    font-size: 18px;
-    font-weight: 600;
-    color: #212529;
-}
-
-.card-body {
-    padding: 20px;
-}
-
-/* Кнопки періоду */
+/* Period buttons */
 .btn-period {
-    padding: 8px 16px;
-    border: 2px solid rgba(255,255,255,0.3);
-    background: rgba(255,255,255,0.15);
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 13px;
-    font-weight: 600;
-    transition: all 0.2s;
-    color: white;
-    backdrop-filter: blur(10px);
+    padding: 6px 14px; border: 1px solid #e2e8f0; background: #fff;
+    border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600;
+    transition: all 0.15s; color: #475569;
 }
+.btn-period:hover { border-color: #93c5fd; color: #2563eb; }
+.btn-period.active { background: #3b82f6; color: #fff; border-color: #3b82f6; }
 
-.btn-period:hover {
-    background: rgba(255,255,255,0.3);
-    border-color: rgba(255,255,255,0.5);
-    transform: translateY(-2px);
-}
-
-.btn-period.active {
-    background: white;
-    color: #667eea;
-    border-color: white;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-}
-
-/* Інпути дат */
-.input-date {
-    padding: 6px 10px;
-    border: 1px solid rgba(255,255,255,0.4);
-    border-radius: 4px;
-    font-size: 13px;
-    background: rgba(255,255,255,0.9);
-    color: #333;
-}
-
+/* Date inputs */
+.input-date { padding: 5px 8px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px; background: #fff; color: #1e293b; }
+.input-date:focus { border-color: #3b82f6; outline: none; box-shadow: 0 0 0 2px rgba(59,130,246,0.12); }
 .btn-apply-dates {
-    padding: 6px 12px;
-    background: #28a745;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    font-weight: 600;
-    cursor: pointer;
-    margin-left: 8px;
-    transition: all 0.2s;
+    padding: 5px 12px; background: #16a34a; color: #fff; border: none;
+    border-radius: 6px; font-weight: 600; font-size: 13px; cursor: pointer;
+    margin-left: 6px; transition: all 0.15s;
 }
+.btn-apply-dates:hover { background: #15803d; }
 
-.btn-apply-dates:hover {
-    background: #218838;
-    transform: translateY(-1px);
-}
+/* Legend items */
+.legend-items { max-height: 250px; overflow-y: auto; font-size: 13px; }
+.legend-items > div { margin-bottom: 1px !important; padding: 3px 8px !important; }
 
-/* Легенди */
-.legend-card {
-    background: white;
-    padding: 15px;
-    border-radius: 6px;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
-    border: 1px solid #dee2e6;
-}
-
-.legend-header {
-    font-weight: 600;
-    margin-bottom: 10px;
-    font-size: 14px;
-    color: #212529;
-    padding-bottom: 10px;
-    border-bottom: 2px solid #e9ecef;
-}
-
-.legend-items {
-    max-height: 250px;
-    overflow-y: auto;
-}
-
-/* Кнопки легенд */
+/* Legend buttons */
 .btn-legend {
-    padding: 4px 10px;
-    font-size: 11px;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-weight: 600;
-    transition: all 0.2s;
+    padding: 3px 8px; font-size: 11px; border: 1px solid transparent;
+    border-radius: 4px; cursor: pointer; font-weight: 600; transition: all 0.15s;
 }
+.btn-legend-all { background: #dcfce7; color: #16a34a; border-color: #bbf7d0; }
+.btn-legend-all:hover { background: #bbf7d0; }
+.btn-legend-none { background: #fee2e2; color: #dc2626; border-color: #fecaca; }
+.btn-legend-none:hover { background: #fecaca; }
 
-.btn-legend-all {
-    background: #28a745;
-    color: white;
-}
-
-.btn-legend-all:hover {
-    background: #218838;
-    transform: translateY(-1px);
-}
-
-.btn-legend-none {
-    background: #dc3545;
-    color: white;
-}
-
-.btn-legend-none:hover {
-    background: #c82333;
-    transform: translateY(-1px);
-}
-
-/* Кнопки */
+/* Generic buttons */
 .btn {
-    padding: 8px 16px;
-    border: none;
-    border-radius: 6px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
+    padding: 6px 14px; border: none; border-radius: 6px;
+    font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s;
 }
-
-.btn-primary {
-    background: #0d6efd;
-    color: white;
-}
-
-.btn-primary:hover {
-    background: #0b5ed7;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(13, 110, 253, 0.25);
-}
-
-.btn-secondary {
-    background: #6c757d;
-    color: white;
-}
-
-.btn-secondary:hover {
-    background: #5c636a;
-}
+.btn.btn-primary { background: #3b82f6; color: #fff; }
+.btn.btn-primary:hover { background: #2563eb; }
+.btn.btn-secondary { background: #fff; border: 1px solid #e2e8f0; color: #64748b; }
+.btn.btn-secondary:hover { border-color: #3b82f6; color: #3b82f6; }
 </style>
 {% endblock %}

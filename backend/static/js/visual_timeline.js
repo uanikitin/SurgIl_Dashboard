@@ -7,7 +7,7 @@ Chart.defaults.responsive = true;
 Chart.defaults.maintainAspectRatio = false;
 
 window.timelineChart = null;
-window.showGridLines = false;
+window.showGridLines = true;
 window.currentPeriod = '3d';
 window.filterDateFrom = null;
 window.filterDateTo = null;
@@ -451,7 +451,7 @@ function updateLegends() {
 
 function createLegendItem(label, color, checkboxClass, isCircle, value, defaultChecked = true) {
     const item = document.createElement('div');
-    item.style.cssText = 'display: flex; align-items: center; margin-bottom: 6px; padding: 6px 10px; border-radius: 6px; transition: background 0.2s;';
+    item.style.cssText = 'display: flex; align-items: center; margin-bottom: 1px; padding: 3px 8px; border-radius: 4px; transition: background 0.2s;';
     item.onmouseover = () => item.style.background = '#f8f9fa';
     item.onmouseout = () => item.style.background = 'transparent';
 
@@ -496,7 +496,7 @@ function createLegendItem(label, color, checkboxClass, isCircle, value, defaultC
 
 function createWellLegendItem(well, statusColor, status) {
     const item = document.createElement('div');
-    item.style.cssText = 'display: flex; align-items: center; padding: 5px 8px; border-radius: 6px; transition: background 0.2s;';
+    item.style.cssText = 'display: flex; align-items: center; padding: 2px 6px; border-radius: 4px; transition: background 0.2s;';
     item.onmouseover = () => item.style.background = '#f8f9fa';
     item.onmouseout = () => item.style.background = 'transparent';
 
@@ -889,37 +889,66 @@ function createTimelineChart() {
                 x: {
                     type: 'time',
                     time: {
-                        unit: 'day',
                         displayFormats: {
-                            millisecond: 'HH:mm:ss.SSS',
-                            second: 'HH:mm:ss',
-                            minute: 'HH:mm',
                             hour: 'HH:mm',
-                            day: 'dd.MM.yy',
-                            week: 'dd.MM.yy',
-                            month: 'MMM yy',
-                            quarter: 'MMM yy',
-                            year: 'yyyy'
+                            day: 'dd.MM',
                         },
-                        tooltipFormat: 'dd.MM.yyyy HH:mm'
+                        tooltipFormat: 'dd.MM.yyyy HH:mm (cccc)',
+                    },
+                    beforeBuildTicks(axis) {
+                        const totalSpan = axis.max - axis.min;
+                        if (totalSpan < 86400000 * 1.5) {
+                            axis.options.time.unit = 'hour';
+                        } else {
+                            axis.options.time.unit = 'day';
+                        }
+                    },
+                    afterBuildTicks(axis) {
+                        const totalSpan = axis.max - axis.min;
+                        if (totalSpan >= 86400000 * 1.5) {
+                            // Дневной режим: принудительно тики на полуночах
+                            const newTicks = [];
+                            let d = luxon.DateTime.fromMillis(axis.min).startOf('day');
+                            const endMs = axis.max;
+                            while (d.toMillis() <= endMs) {
+                                newTicks.push({ value: d.toMillis() });
+                                d = d.plus({ days: 1 });
+                            }
+                            axis.ticks = newTicks;
+                        }
                     },
                     ticks: {
-                        source: 'auto',
-                        autoSkip: true,
-                        maxRotation: 45,
-                        minRotation: 30,
-                        maxTicksLimit: 12
+                        autoSkip: false,
+                        maxRotation: 0,
+                        minRotation: 0,
+                        font: { size: 12, weight: '600' },
+                        color: '#1e293b',
+                        callback: function(value, index, ticks) {
+                            const dt = luxon.DateTime.fromMillis(value);
+                            const totalSpan = ticks.length >= 2
+                                ? Math.abs(ticks[ticks.length - 1].value - ticks[0].value)
+                                : Infinity;
+                            if (totalSpan < 86400000 * 1.5) {
+                                const h = dt.toFormat('HH:mm');
+                                if (dt.hour === 0 && dt.minute === 0) {
+                                    return [dt.toFormat('dd.MM'), h];
+                                }
+                                return h;
+                            }
+                            return [dt.toFormat('dd.MM'), dt.setLocale('ru').toFormat('ccc')];
+                        }
                     },
                     title: {
                         display: true,
-                        text: 'Дата и время',
+                        text: 'Дата / время',
                         font: {
                             size: 13,
                             weight: '600'
                         }
                     },
                     grid: {
-                        color: 'rgba(0, 0, 0, 0.05)'
+                        color: 'rgba(0, 0, 0, 0.15)',
+                        lineWidth: 1,
                     }
                 },
                 y: {

@@ -740,12 +740,15 @@ def visual_page(
                 "today_reagent_qty": 0.0,
                 "today_reagent_types": set(),
 
+                "today_purge_count": 0,
+
                 # вчера
                 "yesterday_total": 0,
                 "yesterday_reagent_count": 0,
                 "yesterday_pressure_count": 0,
                 "yesterday_reagent_qty": 0.0,
                 "yesterday_reagent_types": set(),
+                "yesterday_purge_count": 0,
             }
         )
 
@@ -796,6 +799,8 @@ def visual_page(
 
             elif et == "pressure":
                 bucket[f"{day}_pressure_count"] += 1
+            elif et == "purge":
+                bucket[f"{day}_purge_count"] += 1
 
                 continue
 
@@ -824,6 +829,7 @@ def visual_page(
                 w.events_today_pressure = 0
                 w.events_today_reagent_qty = 0.0
                 w.events_today_reagent_types = ""
+                w.events_today_purges = 0
 
                 # вчера
                 w.events_yesterday_total = 0
@@ -831,6 +837,7 @@ def visual_page(
                 w.events_yesterday_pressure = 0
                 w.events_yesterday_reagent_qty = 0.0
                 w.events_yesterday_reagent_types = ""
+                w.events_yesterday_purges = 0
             else:
                 # сегодня
                 w.events_today_total = s["today_total"]
@@ -838,6 +845,7 @@ def visual_page(
                 w.events_today_pressure = s["today_pressure_count"]
                 w.events_today_reagent_qty = s["today_reagent_qty"]
                 w.events_today_reagent_types = ", ".join(sorted(s["today_reagent_types"]))
+                w.events_today_purges = s["today_purge_count"]
 
                 # вчера
                 w.events_yesterday_total = s["yesterday_total"]
@@ -845,6 +853,7 @@ def visual_page(
                 w.events_yesterday_pressure = s["yesterday_pressure_count"]
                 w.events_yesterday_reagent_qty = s["yesterday_reagent_qty"]
                 w.events_yesterday_reagent_types = ", ".join(sorted(s["yesterday_reagent_types"]))
+                w.events_yesterday_purges = s["yesterday_purge_count"]
     else:
         tiles = []
 

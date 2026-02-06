@@ -312,8 +312,8 @@
       <span class="daily-stats-card__badge">{{ s.total }} событий</span>
     </div>
 
-    <div class="daily-stats-active">
-      <b>{{ s.active_wells_count }}</b> скважин
+    <div class="daily-stats-active" title="Скважины с событиями за этот период">
+      <b>{{ s.active_wells_count }}</b> скважин с активностью
       {% if s.status_summary %}
         {% for st2, wl2 in s.status_summary.items() if st2 not in ['Без статуса', 'Не обслуживается'] %}
           · {{ st2 }} <b>{{ wl2|length }}</b>
@@ -436,13 +436,14 @@
 
             <div id="status-checkboxes">
               {% set status_opts = [
-                  ('status-watch', 'Наблюдение',      '#17a2b8'),
-                  ('status-adapt', 'Адаптация',       '#28a745'),
-                  ('status-opt',   'Оптимизация',     '#007bff'),
-                  ('status-dev',   'Освоение',        '#6f42c1'),
-                  ('status-idle',  'Простой',         '#ffc107'),
-                  ('status-other', 'Другое',          '#6c757d'),
-                  ('status-off',   'Не обслуживается','#dc3545'),
+                  ('status-watch', 'Наблюдение',      '#007bff'),
+                  ('status-adapt', 'Адаптация',       '#17a2b8'),
+                  ('status-opt',   'Оптимизация',     '#28a745'),
+                  ('status-dev',   'Освоение',        '#ffc107'),
+                  ('status-idle',  'Простой',         '#fd7e14'),
+                  ('status-other', 'Другое',          '#343a40'),
+                  ('status-off',   'Не обслуживается','#6c757d'),
+                  ('',             'Без статуса',     '#94a3b8'),
               ] %}
               {% for code, label, color in status_opts %}
               <label class="status-chip" data-status="{{ code }}"
@@ -1075,10 +1076,17 @@
             <div class="tl-header-controls">
                 <label>
                     <input type="checkbox" id="showGridLines" onchange="toggleGridLines()" checked style="cursor: pointer;">
-                    <span>📐 Горизонтальные линии</span>
+                    <span>📐 Линии</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px;" title="Прозрачность полос статуса скважин">
+                    <span>🎨 Фон:</span>
+                    <input type="range" id="stripeOpacity" min="0" max="40" value="15"
+                           style="width: 60px; cursor: pointer;"
+                           oninput="updateStripeOpacity(this.value)">
+                    <span id="stripeOpacityValue" style="font-size: 11px; min-width: 28px;">15%</span>
                 </label>
                 <button class="btn btn-secondary" onclick="openColorSettings()">
-                    🎨 Настроить цвета
+                    🎨 Цвета
                 </button>
             </div>
         </div>

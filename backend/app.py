@@ -48,6 +48,7 @@ from collections import defaultdict
 from backend.models.reagent_catalog import ReagentCatalog
 from backend.services.reagent_balance_service import ReagentBalanceService
 from backend.models.users import DashboardUser
+from backend.services.well_sync_service import sync_wells_from_events, fix_wells_missing_data
 from backend.models.events import Event
 from backend.models.reagents import ReagentSupply
 from .api import wells
@@ -648,12 +649,31 @@ def visual_page(
     - внизу: карта со всеми скважинами
     """
 
+    # 0) Синхронизация: создаём скважины из events, которых нет в wells
+    # Это гарантирует что новые скважины из Telegram-бота появятся в списке
+    try:
+        new_wells = sync_wells_from_events(db)
+        if new_wells:
+            print(f"[visual_page] Созданы новые скважины из events: {[w.name for w in new_wells]}")
+
+        # Исправляем скважины без имён или координат
+        fixed = fix_wells_missing_data(db)
+        if fixed:
+            print(f"[visual_page] Исправлено {fixed} скважин")
+    except Exception as e:
+        print(f"[visual_page] Ошибка синхронизации скважин: {e}")
+        import traceback
+        traceback.print_exc()
+
     # 1) Все скважины для списка слева
     all_wells = (
         db.query(Well)
         .order_by(Well.name.asc().nulls_last(), Well.id.asc())
         .all()
     )
+
+    print(f"[visual_page] Загружено {len(all_wells)} скважин из wells")
+    print(f"[visual_page] Скважины: {[(w.id, w.number, w.name) for w in all_wells]}")
 
     # 2) Какие скважины показывать как плитки
     if selected:
@@ -1183,15 +1203,15 @@ def visual_page(
             else:
                 timeline_well_statuses[well_key] = None
 
-    # Кольори статусів (як на картках)
+    # Кольори статусів (з style.css CSS variables)
     timeline_status_colors = {
-        'Наблюдение': '#28a745',  # зелений
-        'Адаптация': '#ffc107',  # жовтий
-        'Оптимизация': '#17a2b8',  # бірюзовий
-        'Освоение': '#007bff',  # синій
-        'Не обслуживается': '#6c757d',  # сірий
-        'Простой': '#dc3545',  # червоний
-        'Другое': '#6c757d',  # сірий
+        'Наблюдение': '#007bff',       # синій (status-watch)
+        'Адаптация': '#17a2b8',        # бірюзовий (status-adapt)
+        'Оптимизация': '#28a745',      # ЗЕЛЕНИЙ (status-opt)
+        'Освоение': '#ffc107',         # жовтий (status-dev)
+        'Простой': '#fd7e14',          # оранжевий (status-idle)
+        'Не обслуживается': '#6c757d', # сірий (status-off)
+        'Другое': '#343a40',           # темно-сірий (status-other)
     }
 
     # ===== ДНЕВНАЯ СТАТИСТИКА (сегодня + вчера) =====
@@ -3272,7 +3292,7 @@ def edit_well_channel(
 ):
     ch = (
         db.query(WellChannel)
-        .filter(WellChannel.id == channel_id, WellChannel.well_id == well.id)
+        .filter(WellChannel.id == channel_id, WellChannel.well_id == well_id)
         .first()
     )
     if not ch:
@@ -3303,7 +3323,7 @@ def delete_well_channel(
 ):
     ch = (
         db.query(WellChannel)
-        .filter(WellChannel.id == channel_id, WellChannel.well_id == well.id)
+        .filter(WellChannel.id == channel_id, WellChannel.well_id == well_id)
         .first()
     )
     if not ch:
@@ -3566,3 +3586,41 @@ def debug_well_equipment(
         ]
     }
 
+
+@app.get("/debug/wells-sync")
+def debug_wells_sync(
+        db: Session = Depends(get_db),
+        current_user: str = Depends(get_current_admin)
+):
+    """Диагностика синхронизации скважин из events в wells."""
+    from sqlalchemy import distinct
+
+    # 1. Уникальные скважины из events
+    event_wells = (
+        db.query(distinct(Event.well))
+        .filter(Event.well.isnot(None))
+        .filter(Event.well != "")
+        .all()
+    )
+    event_wells_list = [r[0] for r in event_wells if r[0]]
+
+    # 2. Все скважины из wells
+    wells_db = db.query(Well.id, Well.number, Well.name, Well.lat, Well.lon).all()
+
+    # 3. Запустить синхронизацию
+    from backend.services.well_sync_service import sync_wells_from_events
+    new_wells = sync_wells_from_events(db)
+
+    return {
+        "event_wells_count": len(event_wells_list),
+        "event_wells": event_wells_list[:50],  # первые 50
+        "db_wells_count": len(wells_db),
+        "db_wells": [
+            {"id": w.id, "number": w.number, "name": w.name, "lat": w.lat, "lon": w.lon}
+            for w in wells_db
+        ],
+        "newly_created": [
+            {"id": w.id, "number": w.number, "name": w.name, "lat": w.lat, "lon": w.lon}
+            for w in new_wells
+        ]
+    }

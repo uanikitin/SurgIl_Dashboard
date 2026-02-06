@@ -12,6 +12,81 @@ window.currentPeriod = '3d';
 window.filterDateFrom = null;
 window.filterDateTo = null;
 
+// Настройка прозрачности полос статуса (0.0 - 1.0)
+window.statusStripeOpacity = 0.15;
+
+// Текущий список скважин для плагина statusStripes
+window.currentWellsList = [];
+
+// Плагин для отрисовки цветных полос по статусу скважины
+const statusStripesPlugin = {
+    id: 'statusStripes',
+    beforeDraw: (chart) => {
+        if (!window.statusStripeOpacity || window.statusStripeOpacity <= 0) return;
+
+        const ctx = chart.ctx;
+        const chartArea = chart.chartArea;
+        const yScale = chart.scales.y;
+
+        if (!chartArea || !yScale) return;
+
+        const wellStatuses = window.reagentsData?.wellStatuses || {};
+        const statusColors = window.reagentsData?.statusColors || {};
+        const wellsList = window.currentWellsList || [];
+
+        if (wellsList.length === 0) return;
+
+        ctx.save();
+
+        wellsList.forEach((well, idx) => {
+            const status = wellStatuses[well];
+            const color = statusColors[status];
+
+            if (!color) return;
+
+            // Вычисляем границы полосы для данной скважины
+            const yTop = yScale.getPixelForValue(idx - 0.5);
+            const yBottom = yScale.getPixelForValue(idx + 0.5);
+
+            // Устанавливаем цвет с прозрачностью
+            ctx.fillStyle = hexToRgba(color, window.statusStripeOpacity);
+            ctx.fillRect(
+                chartArea.left,
+                Math.min(yTop, yBottom),
+                chartArea.right - chartArea.left,
+                Math.abs(yBottom - yTop)
+            );
+        });
+
+        ctx.restore();
+    }
+};
+
+// Вспомогательная функция: HEX -> RGBA
+function hexToRgba(hex, alpha) {
+    if (!hex) return `rgba(128, 128, 128, ${alpha})`;
+
+    // Убираем # если есть
+    hex = hex.replace('#', '');
+
+    // Парсим RGB
+    let r, g, b;
+    if (hex.length === 3) {
+        r = parseInt(hex[0] + hex[0], 16);
+        g = parseInt(hex[1] + hex[1], 16);
+        b = parseInt(hex[2] + hex[2], 16);
+    } else {
+        r = parseInt(hex.substring(0, 2), 16);
+        g = parseInt(hex.substring(2, 4), 16);
+        b = parseInt(hex.substring(4, 6), 16);
+    }
+
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// Регистрируем плагин
+Chart.register(statusStripesPlugin);
+
 const EVENT_TRANSLATIONS = {
     'purge': 'Продувка',
     'reagent': 'Вброс реагента',
@@ -30,6 +105,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Загружаем кастомные цвета
     loadCustomColors();
+
+    // Загружаем сохранённую прозрачность полос
+    loadStripeOpacity();
 
     // Инициализируем период из URL
     initializePeriod();
@@ -248,6 +326,43 @@ function updateURL() {
 function toggleGridLines() {
     window.showGridLines = document.getElementById('showGridLines').checked;
     createTimelineChart();
+}
+
+function updateStripeOpacity(value) {
+    const opacity = parseInt(value) / 100;
+    window.statusStripeOpacity = opacity;
+
+    // Обновляем отображение значения
+    const valueSpan = document.getElementById('stripeOpacityValue');
+    if (valueSpan) {
+        valueSpan.textContent = value + '%';
+    }
+
+    // Перерисовываем график
+    if (window.timelineChart) {
+        window.timelineChart.update('none');
+    }
+
+    // Сохраняем в localStorage
+    try {
+        localStorage.setItem('surgil_stripe_opacity', value);
+    } catch (e) {}
+}
+
+// Загрузка сохранённой прозрачности
+function loadStripeOpacity() {
+    try {
+        const saved = localStorage.getItem('surgil_stripe_opacity');
+        if (saved !== null) {
+            const value = parseInt(saved);
+            window.statusStripeOpacity = value / 100;
+
+            const slider = document.getElementById('stripeOpacity');
+            const valueSpan = document.getElementById('stripeOpacityValue');
+            if (slider) slider.value = value;
+            if (valueSpan) valueSpan.textContent = value + '%';
+        }
+    } catch (e) {}
 }
 
 function resetZoom() {
@@ -663,14 +778,45 @@ function createTimelineChart() {
         return eventMatch && wellMatch;
     });
 
-    // Сортируем скважины по номеру
-    const wellsList = finalWells.sort((a, b) => {
-        const numA = parseInt(a);
-        const numB = parseInt(b);
-        if (!isNaN(numA) && !isNaN(numB)) {
-            return numA - numB;
+    // Порядок сортировки статусов (меньше = выше)
+    const statusOrder = {
+        'Наблюдение': 1,
+        'Адаптация': 2,
+        'Оптимизация': 3,
+        'Освоение': 4,
+        'Простой': 5,
+        'Не обслуживается': 6,
+        'Другое': 7,
+        null: 8,
+        undefined: 8,
+    };
+
+    // Находим первую дату события для каждой скважины (для сортировки по дате добавления)
+    const wellFirstDate = {};
+    [...injections, ...events].forEach(item => {
+        const well = item.well;
+        const date = new Date(item.t);
+        if (!wellFirstDate[well] || date < wellFirstDate[well]) {
+            wellFirstDate[well] = date;
         }
-        return a.localeCompare(b);
+    });
+
+    // Сортируем скважины: 1) по статусу, 2) по дате первого события
+    const wellsList = finalWells.sort((a, b) => {
+        const statusA = wellStatuses[a];
+        const statusB = wellStatuses[b];
+        const orderA = statusOrder[statusA] ?? 8;
+        const orderB = statusOrder[statusB] ?? 8;
+
+        // Сначала по статусу
+        if (orderA !== orderB) {
+            return orderA - orderB;
+        }
+
+        // Затем по дате первого события (новые сначала)
+        const dateA = wellFirstDate[a] || new Date(0);
+        const dateB = wellFirstDate[b] || new Date(0);
+        return dateB - dateA;  // новые сначала
     });
 
     console.log('Final data for chart:', {
@@ -777,6 +923,9 @@ function createTimelineChart() {
         window.timelineChart.destroy();
     }
 
+    // Сохраняем список скважин для плагина statusStripes
+    window.currentWellsList = wellsList;
+
     // Создаем новый график
     window.timelineChart = new Chart(ctxTimeline, {
         type: 'scatter',
@@ -825,6 +974,9 @@ function createTimelineChart() {
                             if (raw.qty !== undefined) {
                                 // Реагент (injection)
                                 lines.push(`🎯 Скважина: ${raw.well}`);
+                                if (raw.reagent) {
+                                    lines.push(`🧪 Тип: ${raw.reagent}`);
+                                }
                                 lines.push(`💉 Количество: ${raw.qty || 'N/A'}`);
                                 if (raw.description) {
                                     lines.push(`📝 ${raw.description}`);

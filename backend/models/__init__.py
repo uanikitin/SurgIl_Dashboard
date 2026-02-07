@@ -23,3 +23,7 @@ from .reagent_inventory import ReagentInventorySnapshot
 # ...
 
 from .reagents import ReagentSupply  # ВОТ ТУТ, а не в backend/__init__.py
+
+from .pressure_hourly import PressureHourly
+from .pressure_latest import PressureLatest
+from .lora_sensor import LoRaSensor

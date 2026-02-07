@@ -145,6 +145,18 @@
     font-size: 18px; font-weight: 800; color: #0f172a;
     letter-spacing: -0.01em; white-space: nowrap; line-height: 1.2;
 }
+.well-tile__well-num--link {
+    cursor: pointer;
+    transition: color 0.15s, text-shadow 0.15s;
+    border-radius: 4px;
+    padding: 2px 4px;
+    margin: -2px -4px;
+}
+.well-tile__well-num--link:hover {
+    color: #2563eb;
+    text-shadow: 0 0 8px rgba(37, 99, 235, 0.3);
+    background: linear-gradient(90deg, rgba(37, 99, 235, 0.08) 0%, transparent 100%);
+}
 .well-tile__id { font-size: 11px; color: #64748b; line-height: 1.3; }
 .well-tile__channel {
     font-size: 13px; color: #334155;
@@ -170,6 +182,135 @@
 
 .well-tile__coords { font-size: 12px; color: #64748b; font-variant-numeric: tabular-nums; }
 .well-tile__description { font-size: 13px; color: #475569; line-height: 1.4; }
+
+/* ===== PRESSURE TILES (MAIN ACCENT) ===== */
+.well-pressure-block {
+    margin: 6px 0;
+    padding: 8px;
+    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+    border-radius: 10px;
+    border: 1px solid #7dd3fc;
+}
+.well-pressure-block--empty {
+    background: #f8fafc;
+    border-color: #e2e8f0;
+    padding: 10px;
+}
+.pressure-no-data {
+    text-align: center;
+    color: #94a3b8;
+    font-size: 12px;
+}
+.pressure-tiles {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+}
+.pressure-tile {
+    background: white;
+    border-radius: 8px;
+    padding: 10px 2px;
+    text-align: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    border-left: 3px solid #0284c7;
+}
+.pressure-tile--tube {
+    border-left-color: #16a34a;
+    background: linear-gradient(180deg, #fff 0%, #f0fdf4 100%);
+}
+.pressure-tile--line {
+    border-left-color: #1e88e5;
+    background: linear-gradient(180deg, #fff 0%, #e3f2fd 100%);
+}
+.pressure-tile--diff {
+    border-left-color: #7c3aed;
+    background: linear-gradient(180deg, #fff 0%, #f3e8ff 100%);
+}
+.pressure-tile__value {
+    font-size: 22px;
+    font-weight: 800;
+    color: #1e293b;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+}
+.pressure-tile--tube .pressure-tile__value { color: #16a34a; }
+.pressure-tile--line .pressure-tile__value { color: #1e88e5; }
+.pressure-tile--diff .pressure-tile__value { color: #7c3aed; }
+.pressure-tile__label {
+    font-size: 10px;
+    font-weight: 600;
+    color: #64748b;
+    margin-top: 2px;
+}
+.pressure-tile__unit {
+    font-weight: 400;
+    font-size: 9px;
+    color: #94a3b8;
+}
+.pressure-meta {
+    margin-top: 6px;
+    text-align: center;
+    font-size: 10px;
+    color: #64748b;
+}
+.pressure-period-label {
+    font-weight: 600;
+    color: #3b82f6;
+}
+
+/* ===== EQUIPMENT COLLAPSIBLE ===== */
+.well-equipment-details {
+    margin: 4px 0;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    overflow: hidden;
+}
+.well-equipment-details[open] {
+    border-color: #93c5fd;
+}
+.equipment-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: #f8fafc;
+    cursor: pointer;
+    user-select: none;
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+    list-style: none;
+}
+.equipment-summary::-webkit-details-marker { display: none; }
+.equipment-summary::before {
+    content: '▸';
+    margin-right: 6px;
+    font-size: 10px;
+    color: #94a3b8;
+}
+.well-equipment-details[open] .equipment-summary::before {
+    content: '▾';
+}
+.equipment-summary:hover {
+    background: #f1f5f9;
+}
+.equipment-title-text {
+    flex: 1;
+}
+.equipment-count {
+    background: #3b82f6;
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    min-width: 20px;
+    text-align: center;
+}
+.well-equipment-details .well-equipment-box {
+    padding: 6px 10px;
+    background: white;
+}
 
 /* Equipment block — enlarged icons */
 .well-tile .well-equipment-box { margin: 4px 0; }
@@ -285,7 +426,166 @@
 #legend_wells { gap: 5px !important; }
 
 /* Page header */
-.page-header h1 { font-size: 18px; font-weight: 600; color: #1e293b; }
+.page-header h1 { font-size: 18px; font-weight: 600; color: #1e293b; margin: 0; }
+
+/* ===== LORA SETTINGS PANEL ===== */
+.lora-settings-panel {
+    background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+    border: 1px solid #86efac;
+    border-radius: 12px;
+    margin-bottom: 16px;
+    overflow: hidden;
+}
+.lora-settings-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: linear-gradient(90deg, #16a34a 0%, #22c55e 100%);
+    color: white;
+}
+.lora-settings-icon {
+    font-size: 18px;
+}
+.lora-settings-title {
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+.lora-settings-body {
+    padding: 12px 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: center;
+}
+.lora-setting-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.lora-setting-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #166534;
+}
+.pressure-period-buttons {
+    display: flex;
+    gap: 4px;
+}
+.btn-pressure-period {
+    padding: 6px 12px;
+    border: 1px solid #e2e8f0;
+    background: white;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.btn-pressure-period:hover {
+    border-color: #3b82f6;
+    color: #3b82f6;
+}
+.btn-pressure-period.active {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: white;
+    border-color: #3b82f6;
+}
+.lora-actions {
+    margin-left: auto;
+}
+.lora-btn {
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: all 0.15s;
+    text-decoration: none;
+}
+.lora-btn--refresh {
+    border: 1px solid #10b981;
+    background: #ecfdf5;
+    color: #059669;
+}
+.lora-btn--refresh:hover {
+    background: #d1fae5;
+    border-color: #059669;
+}
+.lora-btn--admin {
+    border: 1px solid #d1d5db;
+    background: white;
+    color: #6b7280;
+}
+.lora-btn--admin:hover {
+    border-color: #9ca3af;
+    color: #374151;
+}
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+.lora-btn--refresh.loading #refresh-pressure-icon {
+    display: inline-block;
+    animation: spin 1s linear infinite;
+}
+
+/* ===== STATUS GROUP SECTIONS ===== */
+.tiles-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+.status-group-section {
+    background: #f8fafc;
+    border-radius: 12px;
+    padding: 12px;
+    border: 1px solid #e2e8f0;
+}
+.status-group-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    background: white;
+    border-radius: 8px;
+    border-left: 4px solid var(--status-color, #94a3b8);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.status-group-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.status-group-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1e293b;
+    flex: 1;
+}
+.status-group-count {
+    background: var(--status-color, #94a3b8);
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 12px;
+    min-width: 24px;
+    text-align: center;
+}
+.status-group-section .tiles-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+}
 </style>
 {% endblock %}
 
@@ -409,6 +709,37 @@
     {% endif %}
   </div>
   {% endfor %}
+</div>
+
+{# ===== ПАНЕЛЬ НАСТРОЕК LORA ===== #}
+<div class="lora-settings-panel">
+    <div class="lora-settings-header">
+        <span class="lora-settings-icon">📡</span>
+        <span class="lora-settings-title">LoRa датчики давления</span>
+    </div>
+    <div class="lora-settings-body">
+        <div class="lora-setting-group">
+            <span class="lora-setting-label">Усреднение за:</span>
+            <div class="pressure-period-buttons">
+                <button type="button" class="btn-pressure-period {% if pressure_period == '10m' %}active{% endif %}"
+                        onclick="setPressurePeriod('10m')">10 мин</button>
+                <button type="button" class="btn-pressure-period {% if pressure_period == '1h' or not pressure_period %}active{% endif %}"
+                        onclick="setPressurePeriod('1h')">1 час</button>
+                <button type="button" class="btn-pressure-period {% if pressure_period == '1d' %}active{% endif %}"
+                        onclick="setPressurePeriod('1d')">Сутки</button>
+                <button type="button" class="btn-pressure-period {% if pressure_period == '1m' %}active{% endif %}"
+                        onclick="setPressurePeriod('1m')">Месяц</button>
+            </div>
+        </div>
+        <div class="lora-setting-group lora-actions">
+            <button id="btn-refresh-pressure-dashboard" onclick="refreshPressureDashboard()" class="lora-btn lora-btn--refresh" title="Обновить данные давлений с Raspberry Pi">
+                <span id="refresh-pressure-icon">&#8635;</span> Обновить давления
+            </button>
+            <a href="/api/pressure/admin/page" class="lora-btn lora-btn--admin" title="Админ-панель давлений">
+                &#9881; Давления
+            </a>
+        </div>
+    </div>
 </div>
 
 <div class="page-header">
@@ -570,9 +901,37 @@
     </aside>
 
     {# ===== ПРАВАЯ ЧАСТЬ: плитки выбранных скважин ===== #}
-    <section class="tiles-grid">
+    <section class="tiles-container">
         {% if wells %}
-            {% for w in wells %}
+            {# Порядок групп по статусам #}
+            {% set status_groups_order = [
+                ('status-opt',   'Оптимизация',     '#28a745'),
+                ('status-adapt', 'Адаптация',       '#17a2b8'),
+                ('status-watch', 'Наблюдение',      '#007bff'),
+                ('status-dev',   'Освоение',        '#ffc107'),
+                ('status-idle',  'Простой',         '#fd7e14'),
+                ('status-off',   'Не обслуживается','#6c757d'),
+                ('status-other', 'Другое',          '#343a40'),
+                ('',             'Без статуса',     '#94a3b8'),
+            ] %}
+
+            {% for status_css, status_label, status_color in status_groups_order %}
+                {# Фильтруем скважины по текущему статусу #}
+                {% set status_wells = wells|selectattr('current_status_css', 'equalto', status_css)|list %}
+                {% if status_css == '' %}
+                    {# Для "Без статуса" ищем скважины без current_status_css #}
+                    {% set status_wells = wells|rejectattr('current_status_css')|list %}
+                {% endif %}
+
+                {% if status_wells %}
+                <div class="status-group-section" data-status="{{ status_css }}">
+                    <div class="status-group-header" style="--status-color: {{ status_color }};">
+                        <span class="status-group-dot" style="background: {{ status_color }};"></span>
+                        <span class="status-group-title">{{ status_label }}</span>
+                        <span class="status-group-count">{{ status_wells|length }}</span>
+                    </div>
+                    <div class="tiles-grid">
+                        {% for w in status_wells %}
                 <article
                     class="well-tile"
                     data-well-id="{{ w.id }}"
@@ -598,7 +957,13 @@
     <div class="well-tile__top-grid">
         {# ЛЕВАЯ: СКВ + ID + Канал #}
         <div class="well-tile__left">
+            {% if w.lat is not none and w.lon is not none %}
+            <div class="well-tile__well-num well-tile__well-num--link"
+                 onclick="focusOnWellMarker({{ w.id }})"
+                 title="Показать на карте">СКВ {{ w.number or w.id }} 📍</div>
+            {% else %}
             <div class="well-tile__well-num">СКВ {{ w.number or w.id }}</div>
+            {% endif %}
             <div class="well-tile__id">ID {{ w.id }}</div>
             <div class="well-tile__channel">
                 {% if w.current_channel %}
@@ -633,48 +998,86 @@
         {% endif %}
     </div>
 
-    {# ==== БЛОК ОБОРУДОВАНИЯ ==== #}
-    <div class="well-equipment-box">
-        <div class="equipment-title">
-            Установленное оборудование
+    {# ==== БЛОК ДАВЛЕНИЙ (LoRa) ==== #}
+    {% if w.has_pressure %}
+    <div class="well-pressure-block">
+        <div class="pressure-tiles">
+            <div class="pressure-tile pressure-tile--tube">
+                <div class="pressure-tile__value">{{ "%.2f"|format(w.pressure_tube or 0) }}</div>
+                <div class="pressure-tile__label">Ptr <span class="pressure-tile__unit">атм</span></div>
+            </div>
+            <div class="pressure-tile pressure-tile--line">
+                <div class="pressure-tile__value">{{ "%.2f"|format(w.pressure_line or 0) }}</div>
+                <div class="pressure-tile__label">Pshl <span class="pressure-tile__unit">атм</span></div>
+            </div>
+            <div class="pressure-tile pressure-tile--diff">
+                <div class="pressure-tile__value">{{ "%.2f"|format(w.pressure_diff or 0) }}</div>
+                <div class="pressure-tile__label">ΔP <span class="pressure-tile__unit">атм</span></div>
+            </div>
         </div>
+        <div class="pressure-meta">
+            {% if w.pressure_updated %}
+            обн. {{ w.pressure_updated.strftime("%d.%m %H:%M") }}
+            {% endif %}
+            · период: <span class="pressure-period-label" data-period="{{ pressure_period }}">
+                {% if pressure_period == '10m' %}10 мин
+                {% elif pressure_period == '1h' %}1 час
+                {% elif pressure_period == '1d' %}сутки
+                {% elif pressure_period == '1m' %}месяц
+                {% else %}1 час{% endif %}
+            </span>
+        </div>
+    </div>
+    {% else %}
+    <div class="well-pressure-block well-pressure-block--empty">
+        <div class="pressure-no-data">Нет данных давления</div>
+    </div>
+    {% endif %}
 
-        {% if w.equipment_active %}
-            <div class="equipment-badges">
-                {% for eq in w.equipment_active %}
-                    {% set config = eq.config %}
-                    <div class="equipment-badge"
-                         style="border-color: {{ config.border_color }}; background: {{ config.background_gradient }};"
-                         title="{{ config.label }}
+    {# ==== БЛОК ОБОРУДОВАНИЯ (сворачиваемый) ==== #}
+    <details class="well-equipment-details">
+        <summary class="equipment-summary">
+            <span class="equipment-title-text">Оборудование</span>
+            <span class="equipment-count">{{ w.equipment_active|length if w.equipment_active else 0 }}</span>
+        </summary>
+        <div class="well-equipment-box">
+            {% if w.equipment_active %}
+                <div class="equipment-badges">
+                    {% for eq in w.equipment_active %}
+                        {% set config = eq.config %}
+                        <div class="equipment-badge"
+                             style="border-color: {{ config.border_color }}; background: {{ config.background_gradient }};"
+                             title="{{ config.label }}
 {% if eq.model %}Модель: {{ eq.model }}{% endif %}
 {% if eq.serial %}Серийный: {{ eq.serial }}{% endif %}
 {% if eq.installation_location %}Место: {{ eq.installation_location }}{% endif %}
 {% if eq.installation_date %}Установлен: {{ eq.installation_date.strftime('%d.%m.%Y') }}{% endif %}">
-                        <img
-                            src="{{ config.icon }}"
-                            class="equipment-icon"
-                            alt="{{ config.label }}"
-                            onerror="this.src='/static/icons/default.png'"
-                        >
-                        <div class="equipment-info">
-                            <div class="equipment-label" style="color: {{ config.color }};">
-                                {{ config.short or config.label }}
-                            </div>
-                            {% if eq.installation_location %}
-                                <div class="equipment-location">
-                                    <small>{{ eq.installation_location|truncate(15) }}</small>
+                            <img
+                                src="{{ config.icon }}"
+                                class="equipment-icon"
+                                alt="{{ config.label }}"
+                                onerror="this.src='/static/icons/default.png'"
+                            >
+                            <div class="equipment-info">
+                                <div class="equipment-label" style="color: {{ config.color }};">
+                                    {{ eq.serial or config.short or config.label }}
                                 </div>
-                            {% endif %}
+                                {% if eq.installation_location %}
+                                    <div class="equipment-location">
+                                        <small>{{ eq.installation_location|truncate(15) }}</small>
+                                    </div>
+                                {% endif %}
+                            </div>
                         </div>
-                    </div>
-                {% endfor %}
-            </div>
-        {% else %}
-            <div class="equipment-empty muted">
-                Оборудование не установлено
-            </div>
-        {% endif %}
-    </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="equipment-empty muted">
+                    Оборудование не установлено
+                </div>
+            {% endif %}
+        </div>
+    </details>
 
     <div class="well-tile__description">
         {{ w.description or "Описание не задано" }}
@@ -756,6 +1159,10 @@
                         </button>
                     </footer>
                 </article>
+                        {% endfor %}
+                    </div>{# /tiles-grid #}
+                </div>{# /status-group-section #}
+                {% endif %}
             {% endfor %}
         {% else %}
             <p>
@@ -789,6 +1196,35 @@
   function openWellPage(id) {
     if (!id) return;
     window.location.href = "/well/" + id;
+  }
+
+  // ==== Изменение периода давлений ====
+  function setPressurePeriod(period) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('pressure_period', period);
+    window.location.href = url.toString();
+  }
+
+  // ==== Фокус на маркере скважины на карте ====
+  function focusOnWellMarker(wellId) {
+    const marker = window.wellMarkers?.[wellId];
+    const map = window.wellsMap;
+    if (!marker || !map) {
+      alert('Карта или маркер скважины не загружены');
+      return;
+    }
+
+    // Скроллим к карте
+    const mapEl = document.getElementById('wells-map');
+    if (mapEl) {
+      mapEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    // Центрируем карту на маркере и открываем popup
+    setTimeout(() => {
+      map.setView(marker.getLatLng(), 15);
+      marker.openPopup();
+    }, 300);
   }
 
   // ==== Фильтр чекбоксов по строке поиска (+ учёт статусного фильтра) ====
@@ -981,6 +1417,8 @@
     const map = L.map("wells-map", {
       scrollWheelZoom: false
     });
+    window.wellsMap = map;
+    window.wellMarkers = {};
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
@@ -1024,6 +1462,10 @@
       });
 
       group.addLayer(marker);
+
+      if (w.id) {
+        window.wellMarkers[w.id] = marker;
+      }
     });
 
     group.addTo(map);
@@ -1051,6 +1493,19 @@
           const otherDetails = other.querySelectorAll('.well-tile__stats-details');
           if (otherDetails[idx] && otherDetails[idx] !== this) {
             otherDetails[idx].open = isOpen;
+          }
+        });
+      });
+    });
+
+    // Синхронизация раскрытия оборудования: при открытии/закрытии одного —
+    // открыть/закрыть у всех карточек
+    document.querySelectorAll('.well-equipment-details').forEach(det => {
+      det.addEventListener('toggle', function() {
+        const isOpen = this.open;
+        document.querySelectorAll('.well-equipment-details').forEach(other => {
+          if (other !== this) {
+            other.open = isOpen;
           }
         });
       });
@@ -1140,7 +1595,7 @@
         </form>
 
         <div class="tl-chart-box">
-            <div class="tl-chart-controls">
+            <div class="tl-chart-controls" style="display:flex;gap:8px;align-items:center;">
                 <button onclick="resetZoom()" class="btn btn-secondary" style="padding: 8px 16px; font-size: 13px;">
                     🏠 Сброс масштаба
                 </button>
@@ -1220,6 +1675,42 @@ window.reagentsData = {
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2"></script>
 
 <script src="/static/js/visual_timeline.js"></script>
+
+<script>
+// Обновление давлений с Pi
+async function refreshPressureDashboard() {
+  const btn = document.getElementById('btn-refresh-pressure-dashboard');
+  const icon = document.getElementById('refresh-pressure-icon');
+  if (!btn || !icon) return;
+
+  btn.disabled = true;
+  btn.classList.add('loading');
+  btn.style.opacity = '0.6';
+
+  try {
+    const r = await fetch('/api/pressure/refresh', {method: 'POST'});
+    const data = await r.json();
+    if (data.status === 'ok') {
+      btn.style.background = '#d1fae5';
+      btn.textContent = '✓ Готово!';
+      setTimeout(() => {
+        btn.innerHTML = '<span id="refresh-pressure-icon">&#8635;</span> Обновить давления';
+        btn.style.background = '';
+        btn.classList.remove('loading');
+      }, 2000);
+    } else {
+      alert(data.message || 'Ошибка обновления');
+      btn.classList.remove('loading');
+    }
+  } catch(e) {
+    alert('Ошибка: ' + e.message);
+    btn.classList.remove('loading');
+  } finally {
+    btn.disabled = false;
+    btn.style.opacity = '1';
+  }
+}
+</script>
 
 <style>
 /* Period buttons */

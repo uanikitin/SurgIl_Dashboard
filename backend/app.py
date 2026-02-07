@@ -49,6 +49,7 @@ from backend.models.reagent_catalog import ReagentCatalog
 from backend.services.reagent_balance_service import ReagentBalanceService
 from backend.models.users import DashboardUser
 from backend.services.well_sync_service import sync_wells_from_events, fix_wells_missing_data
+from backend.services.pressure_aggregate_service import get_wells_pressure_stats
 from backend.models.events import Event
 from backend.models.reagents import ReagentSupply
 from .api import wells
@@ -87,8 +88,10 @@ app.add_middleware(
 )
 
 from backend.routers.documents_pages import router as documents_pages_router
+from backend.routers.pressure import router as pressure_router
 
 app.include_router(documents_pages_router)
+app.include_router(pressure_router)
 
 from backend.routers.jobs_api import router as jobs_api_router
 app.include_router(jobs_api_router)
@@ -641,6 +644,8 @@ def visual_page(
         tl_date_from: str = Query(None),  # Для ручного периода
         tl_date_to: str = Query(None),
         tl_sort: str = Query("desc"),
+        # Фильтр периода для давлений на плитках
+        pressure_period: str = Query("1h"),  # 10m, 1h, 1d, 1m
 ):
     """
     Главная страница дашборда:
@@ -1003,6 +1008,32 @@ def visual_page(
     )
     updated_at = datetime.now()
     is_admin = bool(request.session.get("is_admin", False))
+
+    # ========== ДАВЛЕНИЯ ДЛЯ ПЛИТОК ==========
+    # Получаем средние давления для всех плиток
+    pressure_stats = {}
+    if tiles_sorted:
+        well_ids = [w.id for w in tiles_sorted]
+        try:
+            pressure_stats = get_wells_pressure_stats(db, well_ids, pressure_period)
+        except Exception as e:
+            print(f"[visual_page] Ошибка получения давлений: {e}")
+
+    # Присваиваем давления скважинам
+    for w in tiles_sorted:
+        ps = pressure_stats.get(w.id)
+        if ps and ps.get("has_data"):
+            w.pressure_tube = ps.get("p_tube_avg")
+            w.pressure_line = ps.get("p_line_avg")
+            w.pressure_diff = ps.get("p_diff_avg")
+            w.pressure_updated = ps.get("updated_at")
+            w.has_pressure = True
+        else:
+            w.pressure_tube = None
+            w.pressure_line = None
+            w.pressure_diff = None
+            w.pressure_updated = None
+            w.has_pressure = False
 
     # ========== ТАЙМЛАЙН: ЗАВАНТАЖЕННЯ ДАНИХ ==========
 
@@ -1458,6 +1489,8 @@ def visual_page(
             "timeline_well_statuses": timeline_well_statuses,
             "timeline_status_colors": timeline_status_colors,
             "daily_stats": daily_stats,
+            # Давления
+            "pressure_period": pressure_period,
         },
     )
 
@@ -2738,6 +2771,42 @@ def well_page(
             "edit_status": edit_status_obj,
         }
     is_admin = bool(request.session.get("is_admin", False))
+
+    # --- Последние давления скважины (из PostgreSQL pressure_latest) ---
+    pressure_latest = None
+    pressure_sensors = {}  # {'tube': 'U2401-0004', 'line': 'U2401-0005'}
+    try:
+        pl_row = db.execute(
+            text("""
+                SELECT well_id, measured_at, p_tube, p_line, updated_at
+                FROM pressure_latest
+                WHERE well_id = :well_id
+            """),
+            {"well_id": well.id},
+        ).mappings().first()
+        if pl_row:
+            pressure_latest = dict(pl_row)
+            # Добавляем время Кунграда (UTC+5)
+            if pressure_latest.get("measured_at"):
+                pressure_latest["measured_at_local"] = (
+                    pressure_latest["measured_at"] + timedelta(hours=5)
+                )
+
+        # Серийники датчиков через текущий канал скважины
+        sensor_rows = db.execute(
+            text("""
+                SELECT ls.serial_number, ls.position
+                FROM lora_sensors ls
+                JOIN well_channels wc ON wc.channel = ls.channel AND wc.ended_at IS NULL
+                WHERE wc.well_id = :well_id
+            """),
+            {"well_id": well.id},
+        ).fetchall()
+        for sr in sensor_rows:
+            pressure_sensors[sr[1]] = sr[0]  # position -> serial_number
+    except Exception:
+        pass  # Таблица может не существовать на dev
+
     return templates.TemplateResponse(
         "well.html",
         {
@@ -2793,6 +2862,9 @@ def well_page(
                     "all": "Всё время"
                 }.get(preset, "Период")
             },
+            "pressure_latest": pressure_latest,
+            "pressure_sensors": pressure_sensors,
+            "now_utc": datetime.utcnow(),
         },
     )
 

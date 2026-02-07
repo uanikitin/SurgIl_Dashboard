@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "day": {
+    "start": "07:00",
+    "end": "22:00",
+    "interval_min": 5
+  },
+  "night": {
+    "interval_min": 30
+  },
+  "last_run": "2026-02-07T18:08:50.053655"
+}

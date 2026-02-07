@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Давления — Просмотр базы</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:#f0f2f5; color:#333; }
+
+    .header {
+      background:linear-gradient(135deg,#1e3a5f,#2d5a8e);
+      color:white; padding:20px 30px;
+      display:flex; justify-content:space-between; align-items:center;
+    }
+    .header h1 { font-size:22px; font-weight:600; }
+    .header a { color:#93c5fd; text-decoration:none; font-size:14px; }
+    .header a:hover { color:white; }
+
+    .tabs {
+      display:flex; gap:0; background:white;
+      border-bottom:2px solid #e5e7eb;
+      padding:0 20px; overflow-x:auto;
+    }
+    .tab {
+      padding:12px 20px; cursor:pointer; font-size:14px; font-weight:500;
+      color:#6b7280; border-bottom:3px solid transparent;
+      white-space:nowrap; transition:all .2s;
+    }
+    .tab:hover { color:#1d4ed8; background:#f8fafc; }
+    .tab.active { color:#1d4ed8; border-bottom-color:#1d4ed8; }
+    .tab .badge {
+      display:inline-block; background:#e5e7eb; color:#374151;
+      padding:1px 8px; border-radius:10px; font-size:11px; margin-left:6px;
+    }
+    .tab.active .badge { background:#dbeafe; color:#1d4ed8; }
+
+    .container { max-width:1400px; margin:20px auto; padding:0 20px; }
+
+    .panel { display:none; }
+    .panel.active { display:block; }
+
+    .controls {
+      display:flex; gap:10px; margin-bottom:15px; align-items:center; flex-wrap:wrap;
+    }
+    .controls select, .controls input {
+      padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;
+      font-size:13px; background:white;
+    }
+    .controls button {
+      padding:8px 16px; border:1px solid #d1d5db; border-radius:6px;
+      background:white; cursor:pointer; font-size:13px; transition:all .2s;
+    }
+    .controls button:hover { background:#f3f4f6; }
+    .controls button.primary {
+      background:#1d4ed8; color:white; border-color:#1d4ed8;
+    }
+    .controls button.primary:hover { background:#1e40af; }
+
+    .info-bar {
+      display:flex; gap:20px; margin-bottom:15px; flex-wrap:wrap;
+    }
+    .info-card {
+      background:white; padding:12px 18px; border-radius:8px;
+      border:1px solid #e5e7eb; min-width:150px;
+    }
+    .info-card .label { font-size:11px; color:#9ca3af; text-transform:uppercase; letter-spacing:.05em; }
+    .info-card .value { font-size:20px; font-weight:700; color:#1e3a5f; margin-top:2px; }
+
+    table {
+      width:100%; border-collapse:collapse; background:white;
+      border-radius:8px; overflow:hidden;
+      box-shadow:0 1px 3px rgba(0,0,0,.1);
+    }
+    th {
+      background:#f8fafc; padding:10px 12px; text-align:left;
+      font-size:12px; font-weight:600; color:#6b7280;
+      text-transform:uppercase; letter-spacing:.03em;
+      border-bottom:2px solid #e5e7eb;
+      position:sticky; top:0; z-index:1;
+    }
+    td {
+      padding:8px 12px; font-size:13px; border-bottom:1px solid #f3f4f6;
+    }
+    tr:hover td { background:#f8fafc; }
+    .val-null { color:#d1d5db; font-style:italic; }
+    .val-source-csv { color:#059669; }
+    .val-source-sqlite { color:#7c3aed; }
+    .val-online { color:#16a34a; font-weight:600; }
+    .val-stale { color:#d97706; }
+    .val-offline { color:#dc2626; font-weight:600; }
+
+    .pagination {
+      display:flex; gap:8px; margin-top:15px; justify-content:center; align-items:center;
+    }
+    .pagination button {
+      padding:6px 14px; border:1px solid #d1d5db; border-radius:4px;
+      background:white; cursor:pointer; font-size:13px;
+    }
+    .pagination button:disabled { opacity:.4; cursor:default; }
+    .pagination button.active { background:#1d4ed8; color:white; border-color:#1d4ed8; }
+    .pagination span { font-size:13px; color:#6b7280; }
+
+    .loading {
+      text-align:center; padding:40px; color:#9ca3af; font-size:14px;
+    }
+    .scroll-wrapper {
+      max-height:70vh; overflow:auto; border-radius:8px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🔧 Давления LoRa — Просмотр базы</h1>
+  <div>
+    <a href="/">← Дашборд</a>
+  </div>
+</div>
+
+<div class="tabs" id="tabs">
+  <div class="tab active" data-panel="overview">Обзор</div>
+  <div class="tab" data-panel="sensors">Датчики (LoRa)</div>
+  <div class="tab" data-panel="channels">Каналы → Скважины</div>
+  <div class="tab" data-panel="latest">pressure_latest</div>
+  <div class="tab" data-panel="hourly">pressure_hourly</div>
+  <div class="tab" data-panel="readings">pressure_readings <span class="badge">SQLite</span></div>
+  <div class="tab" data-panel="csv_log">csv_import_log <span class="badge">SQLite</span></div>
+  <div class="tab" data-panel="tracing_state">tracing_state <span class="badge">SQLite</span></div>
+  <div class="tab" data-panel="schedule">Расписание</div>
+</div>
+
+<div class="container">
+
+  <!-- ═══ Обзор ═══ -->
+  <div class="panel active" id="panel-overview">
+    <div class="info-bar" id="overview-cards">
+      <div class="loading">Загрузка...</div>
+    </div>
+
+    <h3 style="margin:20px 0 10px; font-size:16px; color:#374151;">Все скважины — текущие давления</h3>
+    <div class="scroll-wrapper">
+      <table id="overview-table">
+        <thead>
+          <tr>
+            <th>well_id</th><th>Скважина</th><th>Канал</th>
+            <th>Ptr (устье)</th><th>Pshl (шлейф)</th>
+            <th>Замер (UTC)</th><th>Давность</th><th>Статус</th>
+          </tr>
+        </thead>
+        <tbody id="overview-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══ Датчики (LoRa) ═══ -->
+  <div class="panel" id="panel-sensors">
+    <div class="scroll-wrapper">
+      <table id="sensors-table">
+        <thead>
+          <tr>
+            <th>Канал</th><th>Серийный номер</th><th>Место</th>
+            <th>Скважина (сейчас)</th><th>Описание</th><th>Примечание</th>
+          </tr>
+        </thead>
+        <tbody id="sensors-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══ Каналы → Скважины ═══ -->
+  <div class="panel" id="panel-channels">
+    <div class="scroll-wrapper">
+      <table id="channels-table">
+        <thead>
+          <tr>
+            <th>id</th><th>Канал</th><th>well_id</th><th>Скважина</th>
+            <th>Начало</th><th>Окончание</th><th>Примечание</th><th>Активен</th>
+          </tr>
+        </thead>
+        <tbody id="channels-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══ pressure_latest ═══ -->
+  <div class="panel" id="panel-latest">
+    <div class="scroll-wrapper">
+      <table id="latest-table">
+        <thead>
+          <tr>
+            <th>well_id</th><th>Скважина</th><th>p_tube</th><th>p_line</th>
+            <th>measured_at</th><th>updated_at</th>
+          </tr>
+        </thead>
+        <tbody id="latest-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══ pressure_hourly ═══ -->
+  <div class="panel" id="panel-hourly">
+    <div class="controls">
+      <label>Скважина:
+        <select id="hourly-well"></select>
+      </label>
+      <label>Дней:
+        <select id="hourly-days">
+          <option value="1">1</option>
+          <option value="3">3</option>
+          <option value="7" selected>7</option>
+          <option value="30">30</option>
+          <option value="90">90</option>
+        </select>
+      </label>
+      <button class="primary" onclick="loadHourly()">Загрузить</button>
+      <span id="hourly-count" style="font-size:13px; color:#6b7280;"></span>
+    </div>
+    <div class="scroll-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>hour_start</th><th>Ptr avg</th><th>Ptr min</th><th>Ptr max</th>
+            <th>Pshl avg</th><th>Pshl min</th><th>Pshl max</th>
+            <th>Замеров</th><th>Пропуски</th>
+          </tr>
+        </thead>
+        <tbody id="hourly-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══ pressure_readings (локальный SQLite) ═══ -->
+  <div class="panel" id="panel-readings">
+    <div class="controls">
+      <label>Скважина:
+        <select id="readings-well"></select>
+      </label>
+      <label>Источник:
+        <select id="readings-source">
+          <option value="">Все</option>
+          <option value="csv">CSV</option>
+          <option value="sqlite">SQLite</option>
+        </select>
+      </label>
+      <label>Последние:
+        <select id="readings-limit">
+          <option value="100">100</option>
+          <option value="500">500</option>
+          <option value="1000">1000</option>
+        </select>
+      </label>
+      <button class="primary" onclick="loadReadings()">Загрузить</button>
+      <span id="readings-count" style="font-size:13px; color:#6b7280;"></span>
+    </div>
+    <div class="scroll-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>id</th><th>well_id</th><th>channel</th><th>measured_at</th>
+            <th>p_tube</th><th>p_line</th><th>source</th><th>source_file</th>
+          </tr>
+        </thead>
+        <tbody id="readings-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══ csv_import_log ═══ -->
+  <div class="panel" id="panel-csv_log">
+    <div class="scroll-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>filename</th><th>status</th><th>rows_imported</th>
+            <th>rows_skipped</th><th>sha256</th><th>imported_at</th>
+          </tr>
+        </thead>
+        <tbody id="csv-log-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══ tracing_import_state ═══ -->
+  <div class="panel" id="panel-tracing_state">
+    <div class="scroll-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>trend_name</th><th>last_ts</th><th>last_ts (datetime UTC)</th>
+            <th>rows_imported_total</th><th>updated_at</th>
+          </tr>
+        </thead>
+        <tbody id="tracing-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══ Расписание ═══ -->
+  <div class="panel" id="panel-schedule">
+    <div style="max-width:600px;">
+
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:24px;">
+        <h3 style="font-size:18px;color:#1e3a5f;margin:0;">Автообновление давлений</h3>
+        <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none;">
+          <input type="checkbox" id="sched-enabled" onchange="toggleSchedule()"
+            style="width:18px;height:18px;accent-color:#1d4ed8;cursor:pointer;">
+          <span id="sched-status-label" style="font-size:14px;font-weight:600;"></span>
+        </label>
+      </div>
+
+      <div id="sched-settings" style="display:flex;flex-direction:column;gap:18px;">
+
+        <div style="background:white;padding:16px 20px;border-radius:8px;border:1px solid #e5e7eb;">
+          <div style="font-size:13px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:.03em;margin-bottom:10px;">
+            Дневной режим
+          </div>
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+            <label style="font-size:13px;">
+              С <input type="time" id="sched-day-start" value="07:00"
+                style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin:0 4px;">
+            </label>
+            <label style="font-size:13px;">
+              до <input type="time" id="sched-day-end" value="22:00"
+                style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin:0 4px;">
+            </label>
+            <label style="font-size:13px;">
+              каждые
+              <select id="sched-day-interval"
+                style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin:0 4px;">
+                <option value="1">1 мин</option>
+                <option value="5">5 мин</option>
+                <option value="10">10 мин</option>
+                <option value="15">15 мин</option>
+                <option value="30">30 мин</option>
+                <option value="60">60 мин</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div style="background:white;padding:16px 20px;border-radius:8px;border:1px solid #e5e7eb;">
+          <div style="font-size:13px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:.03em;margin-bottom:10px;">
+            Ночной режим
+          </div>
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+            <label style="font-size:13px;">
+              каждые
+              <select id="sched-night-interval"
+                style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;margin:0 4px;">
+                <option value="15">15 мин</option>
+                <option value="30">30 мин</option>
+                <option value="60">60 мин</option>
+                <option value="120">120 мин</option>
+              </select>
+            </label>
+            <span style="font-size:12px;color:#9ca3af;">(вне дневных часов)</span>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px;align-items:center;">
+          <button onclick="saveSchedule()" style="
+            padding:10px 24px;border:none;border-radius:6px;
+            background:#1d4ed8;color:white;font-size:14px;font-weight:600;
+            cursor:pointer;transition:background .2s;
+          ">Сохранить</button>
+
+          <button onclick="refreshNow()" style="
+            padding:10px 24px;border:1px solid #10b981;border-radius:6px;
+            background:#ecfdf5;color:#059669;font-size:14px;font-weight:500;
+            cursor:pointer;transition:all .2s;display:inline-flex;align-items:center;gap:6px;
+          "><span id="sched-refresh-icon">&#8635;</span> Обновить сейчас</button>
+
+          <span id="sched-save-msg" style="font-size:13px;color:#059669;display:none;">Сохранено!</span>
+        </div>
+
+      </div>
+
+      <div id="sched-last-run" style="margin-top:20px;padding:12px 16px;background:#f8fafc;border-radius:8px;border:1px solid #e5e7eb;">
+        <span style="font-size:12px;color:#9ca3af;">Последний запуск:</span>
+        <span id="sched-last-run-time" style="font-size:13px;font-weight:500;margin-left:6px;">...</span>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API = '/api/pressure/admin';
+
+// ─── Tabs ───
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', function() {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    this.classList.add('active');
+    const panel = document.getElementById('panel-' + this.dataset.panel);
+    if (panel) panel.classList.add('active');
+
+    // Lazy load
+    const p = this.dataset.panel;
+    if (p === 'overview' && !loaded.overview) loadOverview();
+    if (p === 'sensors' && !loaded.sensors) loadSensors();
+    if (p === 'channels' && !loaded.channels) loadChannels();
+    if (p === 'latest' && !loaded.latest) loadLatest();
+    if (p === 'csv_log' && !loaded.csv_log) loadCsvLog();
+    if (p === 'tracing_state' && !loaded.tracing_state) loadTracingState();
+    if (p === 'schedule' && !loaded.schedule) loadSchedule();
+  });
+});
+
+const loaded = {};
+
+// ─── Helpers ───
+function v(val) {
+  if (val === null || val === undefined) return '<span class="val-null">NULL</span>';
+  return val;
+}
+function fmtDt(s) {
+  if (!s) return '<span class="val-null">—</span>';
+  return s.replace('T', ' ').substring(0, 19);
+}
+function ageStr(isoStr) {
+  if (!isoStr) return '';
+  const diff = (Date.now() - new Date(isoStr + 'Z').getTime()) / 1000;
+  if (diff < 60) return Math.round(diff) + ' сек';
+  if (diff < 3600) return Math.round(diff/60) + ' мин';
+  if (diff < 86400) return Math.round(diff/3600) + ' ч ' + Math.round((diff%3600)/60) + ' мин';
+  return Math.round(diff/86400) + ' дн ' + Math.round((diff%86400)/3600) + ' ч';
+}
+function statusClass(isoStr) {
+  if (!isoStr) return 'val-offline';
+  const diff = (Date.now() - new Date(isoStr + 'Z').getTime()) / 1000;
+  if (diff < 7200) return 'val-online';
+  if (diff < 86400) return 'val-stale';
+  return 'val-offline';
+}
+function statusLabel(isoStr) {
+  if (!isoStr) return 'нет данных';
+  const diff = (Date.now() - new Date(isoStr + 'Z').getTime()) / 1000;
+  if (diff < 7200) return '● онлайн';
+  if (diff < 86400) return '● устарели';
+  return '● офлайн';
+}
+
+async function fetchJson(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+// ─── Overview ───
+async function loadOverview() {
+  try {
+    const data = await fetchJson(API + '/overview');
+    loaded.overview = true;
+
+    // Cards
+    const cards = document.getElementById('overview-cards');
+    cards.innerHTML = `
+      <div class="info-card"><div class="label">Скважин с давлениями</div><div class="value">${data.total_wells}</div></div>
+      <div class="info-card"><div class="label">Записей в pressure.db</div><div class="value">${(data.total_readings || 0).toLocaleString()}</div></div>
+      <div class="info-card"><div class="label">Часовых агрегатов</div><div class="value">${(data.total_hourly || 0).toLocaleString()}</div></div>
+      <div class="info-card"><div class="label">CSV файлов</div><div class="value">${data.csv_files_imported || 0}</div></div>
+      <div class="info-card"><div class="label">Каналов (активных)</div><div class="value">${data.active_channels || 0}</div></div>
+    `;
+
+    // Table
+    const tbody = document.getElementById('overview-body');
+    tbody.innerHTML = data.wells.map(w => `
+      <tr>
+        <td>${w.well_id}</td>
+        <td><a href="/well/${w.well_number || w.well_id}" style="color:#1d4ed8;text-decoration:none;font-weight:500;">${w.well_name}</a></td>
+        <td>${v(w.channel)}</td>
+        <td style="font-weight:600;color:#e53935;">${v(w.p_tube)}</td>
+        <td style="font-weight:600;color:#1e88e5;">${v(w.p_line)}</td>
+        <td>${fmtDt(w.measured_at)}</td>
+        <td>${ageStr(w.measured_at)}</td>
+        <td class="${statusClass(w.measured_at)}">${statusLabel(w.measured_at)}</td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    document.getElementById('overview-cards').innerHTML = '<div class="loading">Ошибка: ' + e.message + '</div>';
+  }
+}
+
+// ─── Sensors ───
+async function loadSensors() {
+  const data = await fetchJson(API + '/sensors');
+  loaded.sensors = true;
+  document.getElementById('sensors-body').innerHTML = data.map(s => `
+    <tr>
+      <td style="font-weight:700;font-size:16px;text-align:center;">${s.channel}</td>
+      <td style="font-family:monospace;font-weight:600;">${s.serial_number}</td>
+      <td style="color:${s.position === 'tube' ? '#e53935' : '#1e88e5'};font-weight:500;">
+        ${s.position_ru} (${s.position === 'tube' ? 'Ptr' : 'Pshl'})
+      </td>
+      <td>${s.well_number ? `<a href="/well/${s.well_number}" style="color:#1d4ed8;text-decoration:none;font-weight:500;">Скв ${s.well_number}</a>` : '<span class="val-null">не назначена</span>'}</td>
+      <td style="font-size:12px;">${v(s.label)}</td>
+      <td style="font-size:12px;">${v(s.note)}</td>
+    </tr>
+  `).join('');
+}
+
+// ─── Channels ───
+async function loadChannels() {
+  const data = await fetchJson(API + '/channels');
+  loaded.channels = true;
+  document.getElementById('channels-body').innerHTML = data.map(ch => `
+    <tr>
+      <td>${ch.id}</td>
+      <td style="font-weight:700;font-size:16px;">${ch.channel}</td>
+      <td>${ch.well_id}</td>
+      <td><a href="/well/${ch.well_number || ch.well_id}" style="color:#1d4ed8;text-decoration:none;">${ch.well_name}</a></td>
+      <td>${fmtDt(ch.started_at)}</td>
+      <td>${ch.ended_at ? fmtDt(ch.ended_at) : '<span class="val-online">Активен</span>'}</td>
+      <td>${v(ch.note)}</td>
+      <td class="${ch.ended_at ? '' : 'val-online'}">${ch.ended_at ? 'Нет' : '● Да'}</td>
+    </tr>
+  `).join('');
+}
+
+// ─── Latest ───
+async function loadLatest() {
+  const data = await fetchJson(API + '/latest');
+  loaded.latest = true;
+  document.getElementById('latest-body').innerHTML = data.map(r => `
+    <tr>
+      <td>${r.well_id}</td>
+      <td>${r.well_name}</td>
+      <td style="font-weight:600;color:#e53935;">${v(r.p_tube)}</td>
+      <td style="font-weight:600;color:#1e88e5;">${v(r.p_line)}</td>
+      <td>${fmtDt(r.measured_at)}</td>
+      <td>${fmtDt(r.updated_at)}</td>
+    </tr>
+  `).join('');
+}
+
+// ─── Hourly ───
+async function loadHourly() {
+  const wellId = document.getElementById('hourly-well').value;
+  const days = document.getElementById('hourly-days').value;
+  if (!wellId) return;
+
+  const data = await fetchJson(`/api/pressure/hourly/${wellId}?days=${days}`);
+  document.getElementById('hourly-count').textContent = `${data.count} записей`;
+  document.getElementById('hourly-body').innerHTML = data.points.map(r => `
+    <tr>
+      <td>${fmtDt(r.t)}</td>
+      <td style="color:#e53935;">${v(r.p_tube_avg)}</td>
+      <td>${v(r.p_tube_min)}</td>
+      <td>${v(r.p_tube_max)}</td>
+      <td style="color:#1e88e5;">${v(r.p_line_avg)}</td>
+      <td>${v(r.p_line_min)}</td>
+      <td>${v(r.p_line_max)}</td>
+      <td>${r.count}</td>
+      <td>${r.has_gaps ? '⚠️ Да' : '✓'}</td>
+    </tr>
+  `).join('');
+}
+
+// ─── Readings ───
+async function loadReadings() {
+  const wellId = document.getElementById('readings-well').value;
+  const source = document.getElementById('readings-source').value;
+  const limit = document.getElementById('readings-limit').value;
+
+  let url = `${API}/readings?limit=${limit}`;
+  if (wellId) url += `&well_id=${wellId}`;
+  if (source) url += `&source=${source}`;
+
+  const data = await fetchJson(url);
+  document.getElementById('readings-count').textContent = `${data.rows.length} из ${data.total} записей`;
+  document.getElementById('readings-body').innerHTML = data.rows.map(r => `
+    <tr>
+      <td>${r.id}</td>
+      <td>${r.well_id}</td>
+      <td>${r.channel}</td>
+      <td>${fmtDt(r.measured_at)}</td>
+      <td style="color:#e53935;">${v(r.p_tube)}</td>
+      <td style="color:#1e88e5;">${v(r.p_line)}</td>
+      <td class="${r.source === 'csv' ? 'val-source-csv' : 'val-source-sqlite'}">${r.source}</td>
+      <td style="font-size:11px;color:#9ca3af;">${r.source_file || ''}</td>
+    </tr>
+  `).join('');
+}
+
+// ─── CSV Log ───
+async function loadCsvLog() {
+  const data = await fetchJson(API + '/csv_log');
+  loaded.csv_log = true;
+  document.getElementById('csv-log-body').innerHTML = data.map(r => `
+    <tr>
+      <td style="font-size:12px;">${r.filename}</td>
+      <td style="color:${r.status === 'imported' ? '#059669' : '#dc2626'}; font-weight:500;">${r.status}</td>
+      <td>${v(r.rows_imported)}</td>
+      <td>${v(r.rows_skipped)}</td>
+      <td style="font-size:10px;color:#9ca3af;">${(r.file_sha256 || '').substring(0, 16)}…</td>
+      <td>${fmtDt(r.imported_at)}</td>
+    </tr>
+  `).join('');
+}
+
+// ─── Tracing State ───
+async function loadTracingState() {
+  const data = await fetchJson(API + '/tracing_state');
+  loaded.tracing_state = true;
+  document.getElementById('tracing-body').innerHTML = data.map(r => `
+    <tr>
+      <td style="font-weight:600;">${r.trend_name}</td>
+      <td style="font-size:11px;">${r.last_ts}</td>
+      <td>${fmtDt(r.last_ts_dt)}</td>
+      <td>${(r.rows_imported_total || 0).toLocaleString()}</td>
+      <td>${fmtDt(r.updated_at)}</td>
+    </tr>
+  `).join('');
+}
+
+// ─── Schedule ───
+async function loadSchedule() {
+  try {
+    const data = await fetchJson('/api/pressure/schedule');
+    loaded.schedule = true;
+
+    document.getElementById('sched-enabled').checked = data.enabled;
+    document.getElementById('sched-status-label').textContent = data.enabled ? 'ВКЛ' : 'ВЫКЛ';
+    document.getElementById('sched-status-label').style.color = data.enabled ? '#059669' : '#dc2626';
+
+    document.getElementById('sched-day-start').value = data.day?.start || '07:00';
+    document.getElementById('sched-day-end').value = data.day?.end || '22:00';
+    document.getElementById('sched-day-interval').value = data.day?.interval_min || 5;
+    document.getElementById('sched-night-interval').value = data.night?.interval_min || 30;
+
+    if (data.last_run) {
+      const dt = new Date(data.last_run);
+      document.getElementById('sched-last-run-time').textContent =
+        dt.toLocaleString('ru-RU') + ' (' + ageStr(data.last_run) + ' назад)';
+    } else {
+      document.getElementById('sched-last-run-time').textContent = 'ещё не запускался';
+    }
+  } catch(e) {
+    console.error('Schedule load error:', e);
+  }
+}
+
+async function toggleSchedule() {
+  const enabled = document.getElementById('sched-enabled').checked;
+  document.getElementById('sched-status-label').textContent = enabled ? 'ВКЛ' : 'ВЫКЛ';
+  document.getElementById('sched-status-label').style.color = enabled ? '#059669' : '#dc2626';
+
+  await fetch('/api/pressure/schedule', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({enabled})
+  });
+}
+
+async function saveSchedule() {
+  const body = {
+    enabled: document.getElementById('sched-enabled').checked,
+    day_start: document.getElementById('sched-day-start').value,
+    day_end: document.getElementById('sched-day-end').value,
+    day_interval: parseInt(document.getElementById('sched-day-interval').value),
+    night_interval: parseInt(document.getElementById('sched-night-interval').value),
+  };
+
+  try {
+    const r = await fetch('/api/pressure/schedule', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    if (r.ok) {
+      const msg = document.getElementById('sched-save-msg');
+      msg.style.display = 'inline';
+      setTimeout(() => msg.style.display = 'none', 3000);
+    }
+  } catch(e) {
+    alert('Ошибка сохранения: ' + e.message);
+  }
+}
+
+async function refreshNow() {
+  const icon = document.getElementById('sched-refresh-icon');
+  icon.style.animation = 'spin 1s linear infinite';
+  if (!document.getElementById('spin-style')) {
+    const s = document.createElement('style');
+    s.id = 'spin-style';
+    s.textContent = '@keyframes spin { from{transform:rotate(0)} to{transform:rotate(360deg)} }';
+    document.head.appendChild(s);
+  }
+
+  try {
+    const r = await fetch('/api/pressure/refresh', {method: 'POST'});
+    const data = await r.json();
+    icon.style.animation = '';
+    if (data.status === 'ok') {
+      alert('Обновление завершено за ' + (data.result?.duration_sec || '?') + ' сек');
+      loadSchedule();  // обновить last_run
+    } else {
+      alert('Статус: ' + (data.message || JSON.stringify(data)));
+    }
+  } catch(e) {
+    icon.style.animation = '';
+    alert('Ошибка: ' + e.message);
+  }
+}
+
+// ─── Init: populate well selects ───
+async function init() {
+  loadOverview();
+
+  // Populate well selects
+  try {
+    const data = await fetchJson('/api/pressure/latest');
+    const wells = data.wells || [];
+    const options = '<option value="">Все</option>' +
+      wells.map(w => `<option value="${w.well_id}">Скв ${w.well_number} (id=${w.well_id})</option>`).join('');
+    ['hourly-well', 'readings-well'].forEach(id => {
+      const sel = document.getElementById(id);
+      if (sel) sel.innerHTML = options;
+    });
+  } catch(e) {}
+}
+
+init();
+</script>
+
+</body>
+</html>

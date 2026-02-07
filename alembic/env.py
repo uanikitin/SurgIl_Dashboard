@@ -33,6 +33,9 @@ from backend.documents.models_notifications import (
 )
 import backend.documents.models
 import backend.documents.models_notifications
+from backend.models.pressure_hourly import PressureHourly
+from backend.models.pressure_latest import PressureLatest
+from backend.models.lora_sensor import LoRaSensor
 # Это объект конфигурации Alembic, даёт доступ к .ini
 config = context.config
 db_url = os.getenv("DATABASE_URL")

@@ -92,6 +92,10 @@
     other:    '📌',
   };
 
+  function getReagentMarkerSize() {
+    return parseInt(localStorage.getItem('reagentMarkerSize') || '8', 10);
+  }
+
   // ══════════════════ Custom interaction mode: syncNearest ══════════════════
   // Показывает в тултипе ВСЕ данные одновременно (давление + события рядом).
   // - Давление (yAxisID: 'y'): ближайшая 1 точка по X на каждый dataset
@@ -576,8 +580,8 @@
           backgroundColor: color,
           borderColor: color,
           borderWidth: 2,
-          pointRadius: 8,
-          pointHoverRadius: 12,
+          pointRadius: getReagentMarkerSize(),
+          pointHoverRadius: getReagentMarkerSize() + 4,
           pointHitRadius: 25,
           pointStyle: 'circle',        // круги для реагентов
           yAxisID: 'y_reagent',
@@ -946,6 +950,13 @@
         },
       },
     });
+
+    // После создания: отключаем pan если режим не активен
+    // (pan.enabled=true нужен при создании чтобы Hammer.js зарегистрировал recognizers)
+    if (!panMode) {
+      syncChart.options.plugins.zoom.pan.enabled = false;
+      syncChart.update('none');
+    }
 
     // Обновляем кастомную легенду после рендера
     updateCustomLegend(datasets);
@@ -1504,19 +1515,19 @@
     window._syncPanMode = panMode;  // Для delta chart
     if (!syncChart) return;
 
-    // Pan is always enabled (Hammer.js needs it at init).
-    // We toggle only drag-zoom:
-    //   Pan ON  → drag.enabled=false → Hammer.js pan takes over
-    //   Pan OFF → drag.enabled=true  → drag-zoom takes priority over pan
+    // Pan ON  → pan.enabled=true, drag.enabled=false → Hammer.js pan
+    // Pan OFF → pan.enabled=false, drag.enabled=true  → drag-zoom only
+    syncChart.options.plugins.zoom.pan.enabled = panMode;
     syncChart.options.plugins.zoom.zoom.drag.enabled = !panMode;
-    syncChart.update();
+    syncChart.update('none');
     canvas.style.cursor = panMode ? 'grab' : 'crosshair';
 
     // Синхронизируем с delta chart
     if (window.deltaChart && window.deltaChart.instance) {
       const dc = window.deltaChart.instance;
+      dc.options.plugins.zoom.pan.enabled = panMode;
       dc.options.plugins.zoom.zoom.drag.enabled = !panMode;
-      dc.update();
+      dc.update('none');
     }
 
     updatePanButtonUI();
@@ -2021,6 +2032,20 @@ Pshl (шлейф): ${pshlStats.count} точек
 
   // Настраиваем панель цветов
   setupColorSettings();
+
+  // Настраиваем слайдер размера маркеров реагентов
+  (function setupReagentMarkerSlider() {
+    const slider = document.getElementById('reagent-marker-size');
+    const label = document.getElementById('reagent-marker-size-label');
+    if (!slider) return;
+    const saved = localStorage.getItem('reagentMarkerSize');
+    if (saved) { slider.value = saved; if (label) label.textContent = saved; }
+    slider.addEventListener('input', function() {
+      if (label) label.textContent = this.value;
+      localStorage.setItem('reagentMarkerSize', this.value);
+      loadChart();
+    });
+  })();
 
   // Начальная загрузка
   loadChart(7, 5);

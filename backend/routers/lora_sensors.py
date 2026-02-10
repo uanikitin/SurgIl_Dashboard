@@ -1,13 +1,14 @@
 """
-Управление LoRa-манометрами и их установками на скважины.
+Управление LoRa-манометрами (прошивка CSV).
 
 Страница: /admin/lora-sensors
 - Прошивка датчиков (указание откуда читать данные CSV)
-- Установка датчиков на скважины с указанием места (затруб/шлейф)
-- История перемещений
+- Просмотр текущей установки (через equipment_installation)
+- История перемещений (через equipment_installation)
+
+Установка/снятие/перенос датчиков — через equipment_management.py.
 """
 
-from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Request, Form, HTTPException
@@ -28,7 +29,7 @@ async def lora_sensors_page(
 ):
     """Страница управления LoRa-датчиками."""
 
-    # Все датчики с текущей установкой
+    # Все датчики с текущей установкой (через equipment_installation)
     sensors = db.execute(text("""
         SELECT
             s.id,
@@ -37,15 +38,16 @@ async def lora_sensors_page(
             s.csv_channel,
             s.csv_column,
             s.label,
-            i.id as installation_id,
-            i.well_id,
-            i.position,
+            ei.id as installation_id,
+            ei.well_id,
+            CASE WHEN s.csv_column = 'Ptr' THEN 'tube' ELSE 'line' END as position,
             w.name as well_name,
-            i.installed_at,
-            i.notes as installation_notes
+            ei.installed_at,
+            ei.notes as installation_notes
         FROM lora_sensors s
-        LEFT JOIN sensor_installations i ON i.sensor_id = s.id AND i.removed_at IS NULL
-        LEFT JOIN wells w ON w.id = i.well_id
+        LEFT JOIN equipment e ON e.serial_number = s.serial_number
+        LEFT JOIN equipment_installation ei ON ei.equipment_id = e.id AND ei.removed_at IS NULL
+        LEFT JOIN wells w ON w.id = ei.well_id
         ORDER BY s.csv_group, s.csv_channel, s.csv_column
     """)).fetchall()
 
@@ -133,78 +135,6 @@ async def edit_sensor(
     return RedirectResponse("/admin/lora-sensors", status_code=303)
 
 
-@router.post("/admin/lora-sensors/install")
-async def install_sensor(
-    request: Request,
-    sensor_id: int = Form(...),
-    well_id: int = Form(...),
-    position: str = Form(...),
-    installed_at: str = Form(...),
-    notes: Optional[str] = Form(None),
-    db: Session = Depends(get_db),
-):
-    """Установить датчик на скважину."""
-
-    # Проверяем что датчик не установлен
-    existing = db.execute(text("""
-        SELECT id FROM sensor_installations
-        WHERE sensor_id = :sensor_id AND removed_at IS NULL
-    """), {"sensor_id": sensor_id}).fetchone()
-
-    if existing:
-        raise HTTPException(400, "Датчик уже установлен. Сначала снимите его.")
-
-    # Парсим дату
-    try:
-        installed_dt = datetime.fromisoformat(installed_at)
-    except ValueError:
-        raise HTTPException(400, "Неверный формат даты")
-
-    # Создаём установку
-    db.execute(text("""
-        INSERT INTO sensor_installations (sensor_id, well_id, position, installed_at, notes)
-        VALUES (:sensor_id, :well_id, :position, :installed_at, :notes)
-    """), {
-        "sensor_id": sensor_id,
-        "well_id": well_id,
-        "position": position,
-        "installed_at": installed_dt,
-        "notes": notes,
-    })
-    db.commit()
-
-    return RedirectResponse("/admin/lora-sensors", status_code=303)
-
-
-@router.post("/admin/lora-sensors/remove")
-async def remove_sensor(
-    request: Request,
-    installation_id: int = Form(...),
-    removed_at: str = Form(...),
-    db: Session = Depends(get_db),
-):
-    """Снять датчик со скважины."""
-
-    # Парсим дату
-    try:
-        removed_dt = datetime.fromisoformat(removed_at)
-    except ValueError:
-        raise HTTPException(400, "Неверный формат даты")
-
-    # Обновляем установку
-    db.execute(text("""
-        UPDATE sensor_installations
-        SET removed_at = :removed_at
-        WHERE id = :installation_id AND removed_at IS NULL
-    """), {
-        "installation_id": installation_id,
-        "removed_at": removed_dt,
-    })
-    db.commit()
-
-    return RedirectResponse("/admin/lora-sensors", status_code=303)
-
-
 @router.get("/admin/lora-sensors/{sensor_id}/history", response_class=HTMLResponse)
 async def sensor_history(
     request: Request,
@@ -223,17 +153,19 @@ async def sensor_history(
 
     history = db.execute(text("""
         SELECT
-            i.id,
-            i.well_id,
+            ei.id,
+            ei.well_id,
             w.name as well_name,
-            i.position,
-            i.installed_at,
-            i.removed_at,
-            i.notes
-        FROM sensor_installations i
-        JOIN wells w ON w.id = i.well_id
-        WHERE i.sensor_id = :sensor_id
-        ORDER BY i.installed_at DESC
+            CASE WHEN s.csv_column = 'Ptr' THEN 'tube' ELSE 'line' END as position,
+            ei.installed_at,
+            ei.removed_at,
+            ei.notes
+        FROM lora_sensors s
+        JOIN equipment e ON e.serial_number = s.serial_number
+        JOIN equipment_installation ei ON ei.equipment_id = e.id
+        JOIN wells w ON w.id = ei.well_id
+        WHERE s.id = :sensor_id
+        ORDER BY ei.installed_at DESC
     """), {"sensor_id": sensor_id}).fetchall()
 
     return templates.TemplateResponse("lora_sensor_history.html", {
@@ -257,13 +189,14 @@ async def api_lora_sensors(
             s.csv_group,
             s.csv_channel,
             s.csv_column,
-            i.well_id,
+            ei.well_id,
             w.name as well_name,
-            i.position,
-            i.installed_at
+            CASE WHEN s.csv_column = 'Ptr' THEN 'tube' ELSE 'line' END as position,
+            ei.installed_at
         FROM lora_sensors s
-        LEFT JOIN sensor_installations i ON i.sensor_id = s.id AND i.removed_at IS NULL
-        LEFT JOIN wells w ON w.id = i.well_id
+        LEFT JOIN equipment e ON e.serial_number = s.serial_number
+        LEFT JOIN equipment_installation ei ON ei.equipment_id = e.id AND ei.removed_at IS NULL
+        LEFT JOIN wells w ON w.id = ei.well_id
         ORDER BY s.csv_group, s.csv_channel
     """)).fetchall()
 

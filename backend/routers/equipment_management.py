@@ -402,11 +402,19 @@ async def move_equipment(
     if action == "install":
         # ==== ВСТАНОВЛЕННЯ ====
 
-        # Перевірка: чи не встановлено вже
+        # Якщо є активна установка на ІНШІЙ свердловині — автоматично закриваємо
         if active_installation:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Обладнання вже встановлено на свердловині {active_installation.well_id}"
+            if active_installation.well_id == well_id_int:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Обладнання вже встановлено на цій свердловині"
+                )
+            # Автозакриття старої установки (дата = дата нової установки)
+            active_installation.removed_at = datetime.now()
+            active_installation.removed_by = str(current_admin.id)
+            active_installation.notes = (
+                (active_installation.notes or "")
+                + f"\nАвтозакриття: обладнання встановлено на іншу свердловину"
             )
 
         # Перевірка: well_id обов'язковий
@@ -424,11 +432,11 @@ async def move_equipment(
             well_id=well_id_int,
             installed_at=datetime.now(),
             removed_at=None,
-            tube_pressure_install=None,  # Можна додати якщо передається
+            tube_pressure_install=None,
             line_pressure_install=None,
             installed_by=str(current_admin.id),
-            installation_location=installation_location,  # НОВЕ
-            document_id=None,  # Буде заповнено якщо створюється акт
+            installation_location=installation_location,
+            document_id=None,
             no_document_confirmed=no_document_confirmed,
             notes=notes,
         )
@@ -479,6 +487,84 @@ async def move_equipment(
 
     else:
         raise HTTPException(status_code=400, detail="action має бути 'install' або 'remove'")
+
+
+# ======================================================================================
+# API: Переміщення датчика на іншу свердловину (атомарний transfer)
+# ======================================================================================
+
+@router.post("/api/equipment/{equipment_id}/transfer")
+async def transfer_equipment(
+    equipment_id: int,
+    target_well_id: int = Form(...),
+    transfer_at: Optional[str] = Form(None),
+    notes: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    current_admin=Depends(get_current_admin),
+):
+    """
+    Атомарний перевод обладнання на іншу свердловину.
+    Закриває поточну установку і створює нову в одній транзакції.
+    """
+    equipment = db.query(Equipment).filter(Equipment.id == equipment_id).first()
+    if not equipment:
+        raise HTTPException(status_code=404, detail="Обладнання не знайдено")
+
+    # Перевіряємо поточну установку
+    active_installation = db.query(EquipmentInstallation).filter(
+        EquipmentInstallation.equipment_id == equipment_id,
+        EquipmentInstallation.removed_at.is_(None),
+    ).first()
+    if not active_installation:
+        raise HTTPException(status_code=400, detail="Обладнання не встановлено на жодній свердловині")
+
+    if active_installation.well_id == target_well_id:
+        raise HTTPException(status_code=400, detail="Обладнання вже на цій свердловині")
+
+    # Перевіряємо цільову свердловину
+    target_well = db.query(Well).filter(Well.id == target_well_id).first()
+    if not target_well:
+        raise HTTPException(status_code=404, detail=f"Свердловина {target_well_id} не знайдена")
+
+    # Час переводу
+    dt_transfer = datetime.now()
+    if transfer_at and transfer_at.strip():
+        try:
+            dt_transfer = datetime.fromisoformat(transfer_at)
+        except ValueError:
+            pass
+
+    # Атомарна операція: закриваємо стару + відкриваємо нову
+    active_installation.removed_at = dt_transfer
+    active_installation.removed_by = str(current_admin.id)
+    if notes:
+        active_installation.notes = (
+            (active_installation.notes or "")
+            + f"\nПеревод на свердловину {target_well.number}: {notes}"
+        )
+
+    new_installation = EquipmentInstallation(
+        equipment_id=equipment_id,
+        well_id=target_well_id,
+        installed_at=dt_transfer,
+        removed_at=None,
+        installed_by=str(current_admin.id),
+        installation_location=active_installation.installation_location,
+        notes=f"Перевод зі свердловини {active_installation.well_id}. {notes or ''}".strip(),
+    )
+    db.add(new_installation)
+
+    # Оновлюємо обладнання
+    equipment.current_location = f"Свердловина {target_well.number}"
+
+    db.commit()
+
+    return JSONResponse({
+        "success": True,
+        "message": f"Обладнання переведено на свердловину {target_well.number}",
+        "old_installation_id": active_installation.id,
+        "new_installation_id": new_installation.id,
+    })
 
 
 # ======================================================================================

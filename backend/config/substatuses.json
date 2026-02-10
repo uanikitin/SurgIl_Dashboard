@@ -1,0 +1,7 @@
+[
+  {"code": "substatus-working",      "label": "В работе",              "color": "#10b981", "order": 10},
+  {"code": "substatus-valve-closed", "label": "Задвижка перекрыта",    "color": "#ef4444", "order": 20},
+  {"code": "substatus-suspended",    "label": "Работы приостановлены", "color": "#f59e0b", "order": 30},
+  {"code": "substatus-conservation", "label": "На консервации",        "color": "#6b7280", "order": 40},
+  {"code": "substatus-waiting",      "label": "Ожидание",              "color": "#eab308", "order": 50}
+]

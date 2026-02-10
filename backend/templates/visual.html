@@ -902,6 +902,36 @@
 
     {# ===== ПРАВАЯ ЧАСТЬ: плитки выбранных скважин ===== #}
     <section class="tiles-container">
+
+        {# === ГЛОБАЛЬНАЯ ЛЕНТА СОБЫТИЙ === #}
+        {% if global_recent_events %}
+        <div class="global-events-widget" style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:10px 14px;margin-bottom:12px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                <span style="font-size:12px;font-weight:700;color:#334155;">Последние события</span>
+                <div style="display:flex;gap:4px;">
+                    <button onclick="scrollGlobalEvents(-1)" style="width:24px;height:24px;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc;cursor:pointer;font-size:14px;color:#64748b;display:flex;align-items:center;justify-content:center;" title="Назад">&#8249;</button>
+                    <button onclick="scrollGlobalEvents(1)" style="width:24px;height:24px;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc;cursor:pointer;font-size:14px;color:#64748b;display:flex;align-items:center;justify-content:center;" title="Вперёд">&#8250;</button>
+                </div>
+            </div>
+            <div id="global-events-container" style="overflow:hidden;position:relative;">
+                <div id="global-events-list" style="display:flex;flex-direction:column;gap:4px;">
+                    {% for ev in global_recent_events %}
+                    <div class="global-event-row" style="display:flex;gap:8px;align-items:baseline;font-size:11px;padding:4px 6px;border-radius:6px;{% if loop.index > 3 %}display:none;{% endif %}"
+                         data-idx="{{ loop.index0 }}">
+                        <span style="color:#94a3b8;white-space:nowrap;font-size:10px;">{{ ev.event_time.strftime("%d.%m %H:%M") if ev.event_time else "—" }}</span>
+                        <span style="font-weight:600;color:#3b82f6;white-space:nowrap;">Скв {{ ev.well or "?" }}</span>
+                        <span style="font-weight:500;color:#475569;">{{ event_type_translations.get(ev.event_type, ev.event_type or "—") }}</span>
+                        {% if ev.description %}<span style="color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;">{{ ev.description|truncate(60) }}</span>{% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            <div style="text-align:center;margin-top:4px;">
+                <span id="global-events-page" style="font-size:9px;color:#94a3b8;"></span>
+            </div>
+        </div>
+        {% endif %}
+
         {% if wells %}
             {# Порядок групп по статусам #}
             {% set status_groups_order = [
@@ -965,18 +995,34 @@
             <div class="well-tile__well-num">СКВ {{ w.number or w.id }}</div>
             {% endif %}
             <div class="well-tile__id">ID {{ w.id }}</div>
+            {% if w.lora_sensors_info %}
             <div class="well-tile__channel">
-                {% if w.current_channel %}
-                    Канал {{ w.current_channel }}
-                {% else %}
-                    Канал —
-                {% endif %}
+                Канал {{ w.current_channel }}
                 <img src="{{ url_for('static', path='icons/pngegg-2.png') }}" class="channel-icon" alt="Связь">
+                <span style="font-size:9px; color:#6b7280; margin-left:2px;" title="{% for s in w.lora_sensors_info %}{{ s.position }}: SN {{ s.serial_number }}&#10;{% endfor %}">
+                  ({{ w.lora_sensors_info|length }} датч.)
+                </span>
             </div>
+            {% endif %}
         </div>
         {# ПРАВАЯ: Статус + Дата + Сутки #}
-        <div class="well-tile__right">
+        <div class="well-tile__right" style="position:relative;">
+            {% if is_admin %}
+            <div class="well-tile__status-name" style="cursor:pointer;" onclick="event.stopPropagation();toggleStatusMenu(this, {{ w.id }})" title="Изменить статус">{{ w.current_status or 'статус не задан' }}</div>
+            <div class="vis-status-menu" data-well-id="{{ w.id }}" style="display:none;position:absolute;top:24px;right:0;background:white;border:1px solid #e5e7eb;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.15);min-width:180px;overflow:hidden;z-index:30;">
+              {% for st in status_config %}
+              <button onclick="event.stopPropagation();setVisWellStatus({{ w.id }}, '{{ st.label }}')"
+                style="display:flex;align-items:center;gap:6px;width:100%;padding:7px 12px;border:none;background:none;cursor:pointer;font-size:12px;color:#374151;text-align:left;font-weight:{% if w.current_status == st.label %}700{% else %}400{% endif %};"
+                onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='none'">
+                <span style="width:8px;height:8px;border-radius:50%;background:{{ st.color }};flex-shrink:0;"></span>
+                {{ st.label }}
+                {% if w.current_status == st.label %}<span style="margin-left:auto;color:#3b82f6;">&#10003;</span>{% endif %}
+              </button>
+              {% endfor %}
+            </div>
+            {% else %}
             <div class="well-tile__status-name">{{ w.current_status or 'статус не задан' }}</div>
+            {% endif %}
             <div class="well-tile__status-date">
                 {% if w.current_status_start %}
                     с {{ w.current_status_start.strftime("%d.%m.%Y") }}
@@ -986,6 +1032,27 @@
                 <div class="well-tile__days"><strong>{{ "%.1f"|format(w.current_status_days) }}</strong> сут.</div>
             {% endif %}
         </div>
+    </div>
+
+    {# === ПОДСТАТУС (оперативное состояние) === #}
+    <div style="padding:0 12px 4px 12px;display:flex;align-items:center;gap:6px;">
+        {% if is_admin %}
+        <span class="substatus-pill" data-well-id="{{ w.id }}"
+              onclick="event.stopPropagation();toggleSubStatusMenu(this, {{ w.id }})"
+              style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:500;background:{{ w.current_substatus_color }}18;color:{{ w.current_substatus_color }};border:1px solid {{ w.current_substatus_color }}40;"
+              title="Изменить подстатус">
+            <span style="width:5px;height:5px;border-radius:50%;background:{{ w.current_substatus_color }};"></span>
+            {{ w.current_substatus }}
+        </span>
+        {% else %}
+        <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:500;background:{{ w.current_substatus_color }}18;color:{{ w.current_substatus_color }};border:1px solid {{ w.current_substatus_color }}40;">
+            <span style="width:5px;height:5px;border-radius:50%;background:{{ w.current_substatus_color }};"></span>
+            {{ w.current_substatus }}
+        </span>
+        {% endif %}
+        {% if w.current_substatus_start %}
+        <span style="font-size:9px;color:#94a3b8;">с {{ w.current_substatus_start.strftime("%d.%m %H:%M") }}</span>
+        {% endif %}
     </div>
 </div>
 
@@ -1045,13 +1112,39 @@
                 <div class="equipment-badges">
                     {% for eq in w.equipment_active %}
                         {% set config = eq.config %}
-                        <div class="equipment-badge"
-                             style="border-color: {{ config.border_color }}; background: {{ config.background_gradient }};"
-                             title="{{ config.label }}
-{% if eq.model %}Модель: {{ eq.model }}{% endif %}
-{% if eq.serial %}Серийный: {{ eq.serial }}{% endif %}
-{% if eq.installation_location %}Место: {{ eq.installation_location }}{% endif %}
-{% if eq.installation_date %}Установлен: {{ eq.installation_date.strftime('%d.%m.%Y') }}{% endif %}">
+                        <div class="equipment-badge" style="border-color: {{ config.border_color }}; background: {{ config.background_gradient }}; position:relative;"
+                             title="{{ config.label }}{% if eq.model %}&#10;Модель: {{ eq.model }}{% endif %}{% if eq.serial %}&#10;Серийный: {{ eq.serial }}{% endif %}{% if eq.installation_location %}&#10;Место: {{ eq.installation_location }}{% endif %}{% if eq.installation_date %}&#10;Установлен: {{ eq.installation_date.strftime('%d.%m.%Y') }}{% endif %}">
+                            {% if is_admin %}
+                            <div class="eq-vis-action" style="position:absolute; top:2px; right:2px; z-index:5;">
+                                <button onclick="event.stopPropagation();toggleVisEqMenu(this)"
+                                  style="width:18px;height:18px;border-radius:50%;border:1px solid #d1d5db;background:#f3f4f6;color:#6b7280;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0.5;transition:opacity 0.15s;"
+                                  onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.5'"
+                                  title="Действия">&#8230;</button>
+                                <div class="eq-vis-menu" style="display:none;position:fixed;background:white;border:1px solid #e5e7eb;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.12);min-width:160px;overflow:hidden;z-index:9999;font-size:11px;">
+                                  <button onclick="event.stopPropagation();openVisTransferModal({{ eq.id }}, '{{ (eq.serial or eq.model or "")|e }}')"
+                                    style="display:flex;align-items:center;gap:4px;width:100%;padding:6px 10px;border:none;background:none;cursor:pointer;color:#374151;text-align:left;font-size:11px;"
+                                    onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='none'">
+                                    &#8599; На другую скв.
+                                  </button>
+                                  <button onclick="event.stopPropagation();visChangeStatus({{ eq.id }}, '{{ (eq.serial or eq.model or "")|e }}', 'maintenance', 'На ремонт')"
+                                    style="display:flex;align-items:center;gap:4px;width:100%;padding:6px 10px;border:none;background:none;cursor:pointer;color:#d97706;text-align:left;font-size:11px;"
+                                    onmouseover="this.style.background='#fffbeb'" onmouseout="this.style.background='none'">
+                                    &#128295; На ремонт
+                                  </button>
+                                  <button onclick="event.stopPropagation();visChangeStatus({{ eq.id }}, '{{ (eq.serial or eq.model or "")|e }}', 'broken', 'Сломано')"
+                                    style="display:flex;align-items:center;gap:4px;width:100%;padding:6px 10px;border:none;background:none;cursor:pointer;color:#dc2626;text-align:left;font-size:11px;"
+                                    onmouseover="this.style.background='#fef2f2'" onmouseout="this.style.background='none'">
+                                    &#9888; Сломано
+                                  </button>
+                                  <div style="border-top:1px solid #e5e7eb;"></div>
+                                  <button onclick="event.stopPropagation();visChangeStatus({{ eq.id }}, '{{ (eq.serial or eq.model or "")|e }}', 'available', 'Снять на склад')"
+                                    style="display:flex;align-items:center;gap:4px;width:100%;padding:6px 10px;border:none;background:none;cursor:pointer;color:#ef4444;text-align:left;font-size:11px;"
+                                    onmouseover="this.style.background='#fef2f2'" onmouseout="this.style.background='none'">
+                                    &#10005; На склад
+                                  </button>
+                                </div>
+                            </div>
+                            {% endif %}
                             <img
                                 src="{{ config.icon }}"
                                 class="equipment-icon"
@@ -1153,6 +1246,20 @@
                         </div>
                     </div>{# /well-tile__body #}
 
+                    {# === ПОСЛЕДНИЕ СОБЫТИЯ (из Telegram) === #}
+                    {% if w.recent_events %}
+                    <div style="padding:4px 12px 6px;border-top:1px solid #f1f5f9;">
+                        <div style="font-size:9px;font-weight:600;color:#94a3b8;text-transform:uppercase;margin-bottom:3px;">События</div>
+                        {% for ev in w.recent_events %}
+                        <div style="display:flex;gap:6px;align-items:baseline;font-size:10px;color:#64748b;line-height:1.4;{% if not loop.last %}margin-bottom:2px;{% endif %}">
+                            <span style="color:#94a3b8;white-space:nowrap;">{{ ev.event_time.strftime("%d.%m %H:%M") if ev.event_time else "—" }}</span>
+                            <span style="font-weight:500;color:#475569;">{{ event_type_translations.get(ev.event_type, ev.event_type or "—") }}</span>
+                            {% if ev.description %}<span style="color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px;display:inline-block;">{{ ev.description|truncate(40) }}</span>{% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
                     <footer class="well-tile__footer">
                         <button type="button" onclick="openWellPage({{ w.id }})">
                             Открыть скважину
@@ -1196,6 +1303,32 @@
   function openWellPage(id) {
     if (!id) return;
     window.location.href = "/well/" + id;
+  }
+
+  // ==== Смена статуса скважины из плитки ====
+  function toggleStatusMenu(el, wellId) {
+    var menu = el.nextElementSibling;
+    var isOpen = menu.style.display !== 'none';
+    // Закрываем все меню
+    document.querySelectorAll('.vis-status-menu').forEach(m => { m.style.display = 'none'; });
+    if (!isOpen) menu.style.display = 'block';
+  }
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('.vis-status-menu') && !e.target.closest('.well-tile__status-name')) {
+      document.querySelectorAll('.vis-status-menu').forEach(m => { m.style.display = 'none'; });
+    }
+  });
+  async function setVisWellStatus(wellId, statusLabel) {
+    document.querySelectorAll('.vis-status-menu').forEach(m => { m.style.display = 'none'; });
+    var formData = new FormData();
+    formData.append('status', statusLabel);
+    try {
+      var resp = await fetch('/well/' + wellId + '/status', { method: 'POST', body: formData, redirect: 'manual' });
+      // POST returns a redirect (303), we just reload
+      location.reload();
+    } catch (err) {
+      alert('Ошибка: ' + err.message);
+    }
   }
 
   // ==== Изменение периода давлений ====
@@ -1752,4 +1885,248 @@ async function refreshPressureDashboard() {
 .btn.btn-secondary { background: #fff; border: 1px solid #e2e8f0; color: #64748b; }
 .btn.btn-secondary:hover { border-color: #3b82f6; color: #3b82f6; }
 </style>
+
+{% if is_admin %}
+{# === Модальное окно перевода оборудования === #}
+<div id="vis-transfer-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.4);z-index:9999;justify-content:center;align-items:center;">
+  <div style="background:white;border-radius:12px;padding:24px;max-width:400px;width:90%;box-shadow:0 16px 48px rgba(0,0,0,0.2);">
+    <h3 style="margin:0 0 16px;font-size:16px;color:#1e293b;">Перевести на другую скважину</h3>
+    <p style="font-size:13px;color:#6b7280;margin-bottom:12px;">Оборудование: <strong id="vis-transfer-eq-name"></strong></p>
+    <input type="hidden" id="vis-transfer-eq-id">
+    <div style="margin-bottom:12px;">
+      <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Целевая скважина</label>
+      <select id="vis-transfer-well" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+        <option value="">— Выберите —</option>
+        {% for w in all_wells %}
+        <option value="{{ w.id }}">Скв {{ w.number or w.id }}{% if w.name %} — {{ w.name }}{% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div style="margin-bottom:16px;">
+      <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Дата/время</label>
+      <input type="datetime-local" id="vis-transfer-dt" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;box-sizing:border-box;">
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button onclick="closeVisTransferModal()" style="padding:8px 16px;border:1px solid #d1d5db;background:white;border-radius:6px;cursor:pointer;font-size:13px;">Отмена</button>
+      <button id="vis-transfer-btn" onclick="submitVisTransfer()" style="padding:8px 16px;border:none;background:#3b82f6;color:white;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">Перевести</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ==== ГЛОБАЛЬНАЯ ЛЕНТА СОБЫТИЙ ====
+var _geOffset = 0;
+var _gePageSize = 3;
+function scrollGlobalEvents(dir) {
+  var rows = document.querySelectorAll('.global-event-row');
+  if (!rows.length) return;
+  var total = rows.length;
+  _geOffset += dir * _gePageSize;
+  if (_geOffset < 0) _geOffset = 0;
+  if (_geOffset >= total) _geOffset = Math.max(0, total - _gePageSize);
+  rows.forEach(function(r) {
+    var idx = parseInt(r.getAttribute('data-idx'));
+    r.style.display = (idx >= _geOffset && idx < _geOffset + _gePageSize) ? 'flex' : 'none';
+  });
+  var pageEl = document.getElementById('global-events-page');
+  if (pageEl) pageEl.textContent = (_geOffset + 1) + '–' + Math.min(_geOffset + _gePageSize, total) + ' из ' + total;
+}
+// Init page indicator
+(function() {
+  var rows = document.querySelectorAll('.global-event-row');
+  var pageEl = document.getElementById('global-events-page');
+  if (pageEl && rows.length) pageEl.textContent = '1–' + Math.min(_gePageSize, rows.length) + ' из ' + rows.length;
+})();
+
+// Dropdown-меню действий (visual page)
+function toggleVisEqMenu(btn) {
+  document.querySelectorAll('.eq-vis-menu').forEach(m => { m.style.display = 'none'; });
+  var menu = btn.nextElementSibling;
+  if (!menu) return;
+  menu.style.display = 'block';
+  // Position fixed relative to button
+  var rect = btn.getBoundingClientRect();
+  var menuRect = menu.getBoundingClientRect();
+  var top = rect.bottom + 2;
+  var left = rect.right - menuRect.width;
+  // Keep within viewport
+  if (left < 4) left = 4;
+  if (top + menuRect.height > window.innerHeight - 4) top = rect.top - menuRect.height - 2;
+  menu.style.top = top + 'px';
+  menu.style.left = left + 'px';
+}
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.eq-vis-action')) {
+    document.querySelectorAll('.eq-vis-menu').forEach(m => { m.style.display = 'none'; });
+  }
+});
+
+// Смена статуса (ремонт, сломано, склад)
+async function visChangeStatus(equipmentId, equipmentName, newStatus, statusLabel) {
+  document.querySelectorAll('.eq-vis-menu').forEach(m => { m.style.display = 'none'; });
+  if (!confirm(statusLabel + ' "' + equipmentName + '"?')) return;
+
+  var formData = new FormData();
+  formData.append('new_status', newStatus);
+  if (newStatus === 'maintenance') formData.append('new_condition', 'needs_repair');
+  else if (newStatus === 'broken') formData.append('new_condition', 'broken');
+  else if (newStatus === 'available') formData.append('new_condition', 'working');
+
+  try {
+    var resp = await fetch('/api/equipment/' + equipmentId + '/update_status', { method: 'POST', body: formData });
+    if (resp.ok) {
+      var result = await resp.json();
+      alert(result.message || statusLabel + ' выполнено');
+      location.reload();
+    } else {
+      var error = await resp.json();
+      alert('Ошибка: ' + (error.detail || 'Неизвестная ошибка'));
+    }
+  } catch (err) {
+    alert('Ошибка: ' + err.message);
+  }
+}
+
+// Модалка перевода
+function openVisTransferModal(equipmentId, equipmentName) {
+  document.querySelectorAll('.eq-vis-menu').forEach(m => { m.style.display = 'none'; });
+  document.getElementById('vis-transfer-eq-id').value = equipmentId;
+  document.getElementById('vis-transfer-eq-name').textContent = equipmentName;
+  var now = new Date();
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+  document.getElementById('vis-transfer-dt').value = now.toISOString().slice(0, 16);
+  document.getElementById('vis-transfer-well').value = '';
+  document.getElementById('vis-transfer-modal').style.display = 'flex';
+}
+
+function closeVisTransferModal() {
+  document.getElementById('vis-transfer-modal').style.display = 'none';
+}
+
+document.getElementById('vis-transfer-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeVisTransferModal();
+});
+
+async function submitVisTransfer() {
+  var equipmentId = document.getElementById('vis-transfer-eq-id').value;
+  var targetWellId = document.getElementById('vis-transfer-well').value;
+  var transferAt = document.getElementById('vis-transfer-dt').value;
+  if (!targetWellId) { alert('Выберите скважину'); return; }
+
+  var btn = document.getElementById('vis-transfer-btn');
+  btn.disabled = true;
+  btn.textContent = 'Переводим...';
+
+  var formData = new FormData();
+  formData.append('target_well_id', targetWellId);
+  if (transferAt) formData.append('transfer_at', transferAt);
+
+  try {
+    var resp = await fetch('/api/equipment/' + equipmentId + '/transfer', { method: 'POST', body: formData });
+    var result = await resp.json();
+    if (result.success) {
+      alert(result.message);
+      location.reload();
+    } else {
+      alert('Ошибка: ' + (result.detail || 'Неизвестная ошибка'));
+      btn.disabled = false;
+      btn.textContent = 'Перевести';
+    }
+  } catch (err) {
+    alert('Ошибка: ' + err.message);
+    btn.disabled = false;
+    btn.textContent = 'Перевести';
+  }
+}
+
+// ==== ПОДСТАТУС ====
+var _subMenuEl = null;
+function toggleSubStatusMenu(pill, wellId) {
+  // Remove old menu if any
+  if (_subMenuEl) { _subMenuEl.remove(); _subMenuEl = null; }
+
+  var menu = document.createElement('div');
+  menu.className = 'vis-substatus-menu';
+  menu.style.cssText = 'position:fixed;background:white;border:1px solid #e5e7eb;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.15);min-width:180px;overflow:hidden;z-index:9999;font-size:11px;';
+
+  var items = {{ substatus_config | tojson }};
+  var currentSub = pill.textContent.trim();
+
+  items.forEach(function(sst) {
+    var btn = document.createElement('button');
+    btn.style.cssText = 'display:flex;align-items:center;gap:6px;width:100%;padding:7px 12px;border:none;background:none;cursor:pointer;font-size:11px;color:#374151;text-align:left;font-weight:' + (currentSub === sst.label ? '700' : '400') + ';';
+    btn.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:' + sst.color + ';flex-shrink:0;"></span>' + sst.label + (currentSub === sst.label ? '<span style="margin-left:auto;color:#10b981;">&#10003;</span>' : '');
+    btn.onmouseover = function() { this.style.background = '#f3f4f6'; };
+    btn.onmouseout = function() { this.style.background = 'none'; };
+    btn.onclick = function(e) { e.stopPropagation(); setVisWellSubStatus(wellId, sst.label); };
+    menu.appendChild(btn);
+  });
+
+  // Divider + custom option
+  var hr = document.createElement('div');
+  hr.style.cssText = 'border-top:1px solid #e5e7eb;margin:2px 0;';
+  menu.appendChild(hr);
+
+  var customBtn = document.createElement('button');
+  customBtn.style.cssText = 'display:flex;align-items:center;gap:6px;width:100%;padding:7px 12px;border:none;background:none;cursor:pointer;font-size:11px;color:#6b7280;text-align:left;font-style:italic;';
+  customBtn.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:#94a3b8;flex-shrink:0;"></span> Другое (свой текст)...';
+  customBtn.onmouseover = function() { this.style.background = '#f3f4f6'; };
+  customBtn.onmouseout = function() { this.style.background = 'none'; };
+  customBtn.onclick = function(e) {
+    e.stopPropagation();
+    if (_subMenuEl) { _subMenuEl.remove(); _subMenuEl = null; }
+    var txt = prompt('Введите подстатус:', '');
+    if (txt && txt.trim()) setVisWellSubStatus(wellId, txt.trim());
+  };
+  menu.appendChild(customBtn);
+
+  document.body.appendChild(menu);
+  _subMenuEl = menu;
+
+  // Position below pill
+  var rect = pill.getBoundingClientRect();
+  var menuRect = menu.getBoundingClientRect();
+  var top = rect.bottom + 2;
+  var left = rect.left;
+  if (left + menuRect.width > window.innerWidth - 4) left = window.innerWidth - menuRect.width - 4;
+  if (left < 4) left = 4;
+  if (top + menuRect.height > window.innerHeight - 4) top = rect.top - menuRect.height - 2;
+  menu.style.top = top + 'px';
+  menu.style.left = left + 'px';
+}
+
+document.addEventListener('click', function(e) {
+  if (_subMenuEl && !e.target.closest('.substatus-pill') && !e.target.closest('.vis-substatus-menu')) {
+    _subMenuEl.remove();
+    _subMenuEl = null;
+  }
+});
+
+async function setVisWellSubStatus(wellId, substatusLabel) {
+  if (_subMenuEl) { _subMenuEl.remove(); _subMenuEl = null; }
+  var formData = new FormData();
+  formData.append('substatus', substatusLabel);
+  try {
+    var resp = await fetch('/well/' + wellId + '/substatus', { method: 'POST', body: formData });
+    if (!resp.ok) throw new Error('Ошибка сервера: ' + resp.status);
+    var result = await resp.json();
+    if (result.success) {
+      // Update pill in DOM
+      var pill = document.querySelector('.substatus-pill[data-well-id="' + wellId + '"]');
+      if (pill) {
+        var color = result.color || '#64748b';
+        pill.style.background = color + '18';
+        pill.style.color = color;
+        pill.style.borderColor = color + '40';
+        pill.innerHTML = '<span style="width:5px;height:5px;border-radius:50%;background:' + color + ';"></span> ' + result.substatus;
+      } else {
+        location.reload();
+      }
+    }
+  } catch (err) {
+    alert('Ошибка: ' + err.message);
+  }
+}
+</script>
+{% endif %}
 {% endblock %}

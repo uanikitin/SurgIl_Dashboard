@@ -27,3 +27,4 @@ from .reagents import ReagentSupply  # ВОТ ТУТ, а не в backend/__init_
 from .pressure_hourly import PressureHourly
 from .pressure_latest import PressureLatest
 from .lora_sensor import LoRaSensor, SensorInstallation
+from .well_sub_status import WellSubStatus

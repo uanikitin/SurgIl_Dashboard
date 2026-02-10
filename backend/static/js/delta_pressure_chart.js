@@ -35,6 +35,21 @@
 
   console.log('[delta_chart] Initializing for well:', wellId);
 
+  // Создаём контейнер для сообщения "нет данных" рядом с canvas (не уничтожая его)
+  const noDataMsg = document.createElement('div');
+  noDataMsg.style.cssText = 'padding:40px;text-align:center;color:#999;display:none;';
+  canvas.parentElement.insertBefore(noDataMsg, canvas);
+
+  function showNoData(msg) {
+    noDataMsg.textContent = msg;
+    noDataMsg.style.display = 'block';
+    canvas.style.display = 'none';
+  }
+  function showCanvas() {
+    noDataMsg.style.display = 'none';
+    canvas.style.display = 'block';
+  }
+
   let deltaChart = null;
   let currentDays = 7;
   let currentInterval = 5;
@@ -92,8 +107,7 @@
       syncYSlider();
     } catch (err) {
       console.error('[delta_chart] Load error:', err);
-      canvas.parentElement.innerHTML =
-        '<div style="padding:40px;text-align:center;color:#999;">Нет данных для графика ΔP</div>';
+      showNoData('Нет данных для графика ΔP');
     }
   }
 
@@ -105,8 +119,7 @@
 
     if (!points || points.length === 0) {
       console.log('[delta_chart] No points to render');
-      canvas.parentElement.innerHTML =
-        '<div style="padding:40px;text-align:center;color:#999;">Нет данных ΔP за выбранный период</div>';
+      showNoData('Нет данных ΔP за выбранный период');
       return;
     }
 
@@ -123,8 +136,7 @@
 
     if (deltaData.length === 0) {
       console.log('[delta_chart] No valid delta data (both sensors required)');
-      canvas.parentElement.innerHTML =
-        '<div style="padding:40px;text-align:center;color:#999;">Нет данных ΔP (требуются оба датчика)</div>';
+      showNoData('Нет данных ΔP (требуются оба датчика)');
       updateStatsPanel(null);
       return;
     }
@@ -175,6 +187,7 @@
       deltaChart.destroy();
     }
 
+    showCanvas();
     const ctx = canvas.getContext('2d');
     deltaChart = new Chart(ctx, {
       type: 'line',
@@ -276,6 +289,12 @@
         },
       },
     });
+
+    // После создания: отключаем pan если режим не активен
+    if (!window._syncPanMode) {
+      deltaChart.options.plugins.zoom.pan.enabled = false;
+      deltaChart.update('none');
+    }
 
     console.log('[delta_chart] Chart created successfully');
   }

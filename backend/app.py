@@ -21,6 +21,7 @@ from .models.well_equipment import WellEquipment
 from .models.events import Event
 from .models.users import User
 from .models.well_status import WellStatus
+from .models.well_sub_status import WellSubStatus
 from .models.well_notes import WellNote
 
 from backend.services.equipment_loader import EQUIPMENT_LIST, EQUIPMENT_BY_CODE
@@ -29,6 +30,10 @@ from .config.status_registry import (
     allowed_labels,
     STATUS_LIST,
     status_groups_for_sidebar,
+)
+from .config.substatus_registry import (
+    SUBSTATUS_LIST as SUBSTATUS_CONFIG,
+    color_by_label as substatus_color,
 )
 from datetime import datetime, timedelta, date, time
 from collections import defaultdict, defaultdict as _dd
@@ -740,6 +745,69 @@ def visual_page(
             w.current_status_start = None
             w.current_status_days = None
 
+    # ----- A2) ТЕКУЩИЙ ПОДСТАТУС ДЛЯ ВСЕХ СКВАЖИН -----
+    if all_wells:
+        active_substatuses = (
+            db.query(WellSubStatus)
+            .filter(
+                WellSubStatus.well_id.in_(all_ids),
+                WellSubStatus.dt_end.is_(None),
+            )
+            .all()
+        )
+        substatus_by_well = {sst.well_id: sst for sst in active_substatuses}
+    else:
+        substatus_by_well = {}
+
+    for w in all_wells:
+        sst = substatus_by_well.get(w.id)
+        if sst:
+            w.current_substatus = sst.sub_status
+            w.current_substatus_color = substatus_color(sst.sub_status)
+            w.current_substatus_start = _to_naive(sst.dt_start)
+        else:
+            w.current_substatus = "В работе"
+            w.current_substatus_color = "#10b981"
+            w.current_substatus_start = None
+
+    # ----- A3) ПОСЛЕДНИЕ СОБЫТИЯ ДЛЯ КАЖДОЙ СКВАЖИНЫ (2 шт) -----
+    if tiles:
+        well_keys = []
+        _key_to_id = {}
+        for w in tiles:
+            k = str(w.number) if w.number else str(w.id)
+            well_keys.append(k)
+            _key_to_id[k] = w.id
+
+        recent_events_raw = (
+            db.query(Event)
+            .filter(Event.well.in_(well_keys))
+            .order_by(Event.event_time.desc())
+            .limit(len(well_keys) * 3)
+            .all()
+        )
+        recent_by_well: dict[int, list] = {}
+        for ev in recent_events_raw:
+            wid = _key_to_id.get(str(ev.well))
+            if wid is None:
+                continue
+            lst = recent_by_well.setdefault(wid, [])
+            if len(lst) < 2:
+                lst.append(ev)
+
+        for w in tiles:
+            w.recent_events = recent_by_well.get(w.id, [])
+    else:
+        for w in tiles:
+            w.recent_events = []
+
+    # ----- A4) ГЛОБАЛЬНАЯ ЛЕНТА (последние 20 событий) -----
+    global_recent_events = (
+        db.query(Event)
+        .order_by(Event.event_time.desc())
+        .limit(20)
+        .all()
+    )
 
     # ----- B) СТАТИСТИКА СОБЫТИЙ ПО КАЛЕНДАРНЫМ СУТКАМ -----
     if tiles:
@@ -973,36 +1041,48 @@ def visual_page(
             if (not prev) or (cur_start > prev_start):
                 channel_by_well[ch.well_id] = ch
 
+        # ===== ШАГ 3: КАНАЛЫ СВЯЗИ ИЗ LoRa-датчиков (equipment_installation → lora_sensors) =====
+        lora_channel_by_well: dict[int, int] = {}
+        lora_sensors_by_well: dict[int, list] = {}
+        try:
+            _lora_rows = db.execute(
+                text("""
+                    SELECT ei.well_id, ls.csv_channel, ls.csv_column, ls.serial_number
+                    FROM equipment_installation ei
+                    JOIN equipment e ON e.id = ei.equipment_id
+                    JOIN lora_sensors ls ON ls.serial_number = e.serial_number
+                    WHERE ei.well_id = ANY(:well_ids) AND ei.removed_at IS NULL
+                    ORDER BY ei.well_id, ls.csv_column
+                """),
+                {"well_ids": well_ids},
+            ).fetchall()
+            for r in _lora_rows:
+                wid, ch, col, sn = r[0], r[1], r[2], r[3]
+                lora_channel_by_well[wid] = ch
+                lora_sensors_by_well.setdefault(wid, []).append({
+                    "csv_channel": ch, "csv_column": col, "serial_number": sn,
+                    "position": "tube" if col == "Ptr" else "line",
+                })
+        except Exception as e:
+            print(f"[visual_page] LoRa channel query error: {e}")
+
         # Присваиваем каналы скважинам
-        # ЛОГИКА: Показываем канал только если на скважине есть датчик давления
-        # (канал связи используется для передачи данных с датчиков давления)
+        # Приоритет: LoRa-канал (из прошивки датчиков) → WellChannel (ручной)
         for w in tiles:
-            current_ch = channel_by_well.get(w.id)
-
-            # Проверяем наличие датчиков давления на скважине
-            has_pressure_sensor = False
-            for eq in w.equipment_active:
-                eq_type = (eq.get('type_code', '') or '').upper()
-                eq_name = (eq.get('model', '') or '').upper()
-                # Проверяем по типу оборудования (датчики давления)
-                if any(keyword in eq_type for keyword in ['PRESSURE', 'PRESSURE_SENSOR', 'CSMOD', 'SMOD', 'WELLHEAD_SENSOR', 'LINE_SENSOR']):
-                    has_pressure_sensor = True
-                    break
-                # Также проверяем по названию оборудования
-                if any(keyword in eq_name for keyword in ['ДАТЧИК ДАВЛЕНИЯ', 'PRESSURE', 'CSMOD', 'SMOD']):
-                    has_pressure_sensor = True
-                    break
-
-            # Показываем канал только если есть датчик давления
-            if has_pressure_sensor and current_ch:
-                w.current_channel = current_ch.channel
+            lora_ch = lora_channel_by_well.get(w.id)
+            if lora_ch is not None:
+                w.current_channel = lora_ch
+                w.lora_sensors_info = lora_sensors_by_well.get(w.id, [])
             else:
-                w.current_channel = None
+                current_ch = channel_by_well.get(w.id)
+                w.current_channel = current_ch.channel if current_ch else None
+                w.lora_sensors_info = []
     else:
         # Если нет выбранных скважин - инициализируем пустые списки
         for w in tiles:
             w.equipment_active = []
             w.current_channel = None
+            w.lora_sensors_info = []
 
     # ==== Сортировка ПЛИТОК по статусу ====
     status_order = {
@@ -1034,9 +1114,11 @@ def visual_page(
             print(f"[visual_page] Ошибка получения давлений: {e}")
 
     # Присваиваем давления скважинам
+    # Показываем давления только если на скважине есть активные LoRa-датчики
     for w in tiles_sorted:
+        has_sensors = bool(getattr(w, 'lora_sensors_info', None))
         ps = pressure_stats.get(w.id)
-        if ps and ps.get("has_data"):
+        if has_sensors and ps and ps.get("has_data"):
             w.pressure_tube = ps.get("p_tube_avg")
             w.pressure_line = ps.get("p_line_avg")
             w.pressure_diff = ps.get("p_diff_avg")
@@ -1483,6 +1565,7 @@ def visual_page(
             "map_center_lon": map_center_lon,
             "status_groups": status_groups_for_sidebar(),
             "status_config": STATUS_LIST,
+            "substatus_config": SUBSTATUS_CONFIG,
             "equipment_types": EQUIPMENT_LIST,
             # Передаем ваш конфиг в шаблон
             "equipment_by_code": EQUIPMENT_TYPES,  # из equipment_config.py
@@ -1506,6 +1589,9 @@ def visual_page(
             "daily_stats": daily_stats,
             # Давления
             "pressure_period": pressure_period,
+            # Глобальная лента событий
+            "global_recent_events": global_recent_events,
+            "event_type_translations": event_type_translations,
         },
     )
 
@@ -2423,6 +2509,67 @@ def well_page(
             channel_current = ch
             break
 
+    # --- Активные LoRa-датчики: берём из реально установленного оборудования ---
+    # equipment_installation → equipment.serial_number → lora_sensors (прошивка)
+    well_lora_sensors = []
+    try:
+        _lora_rows = db.execute(
+            text("""
+                SELECT ls.serial_number, ls.csv_group, ls.csv_channel, ls.csv_column,
+                       ls.label, ei.installed_at
+                FROM equipment_installation ei
+                JOIN equipment e ON e.id = ei.equipment_id
+                JOIN lora_sensors ls ON ls.serial_number = e.serial_number
+                WHERE ei.well_id = :well_id AND ei.removed_at IS NULL
+                ORDER BY ls.csv_column, ls.csv_channel
+            """),
+            {"well_id": well.id},
+        ).fetchall()
+        for r in _lora_rows:
+            csv_col = r[3]  # 'Ptr' or 'Pshl'
+            well_lora_sensors.append({
+                "serial_number": r[0],
+                "csv_group": r[1],
+                "csv_channel": r[2],
+                "csv_column": csv_col,
+                "label": r[4],
+                "position": "tube" if csv_col == "Ptr" else "line",
+                "installed_at": r[5],
+            })
+    except Exception:
+        db.rollback()  # Откатываем сломанную транзакцию
+
+    # --- История LoRa-датчиков на этой скважине (включая снятые) ---
+    well_lora_history = []
+    try:
+        _lora_hist_rows = db.execute(
+            text("""
+                SELECT ls.serial_number, ls.csv_group, ls.csv_channel, ls.csv_column,
+                       ls.label, ei.installed_at, ei.removed_at, e.status as eq_status
+                FROM equipment_installation ei
+                JOIN equipment e ON e.id = ei.equipment_id
+                JOIN lora_sensors ls ON ls.serial_number = e.serial_number
+                WHERE ei.well_id = :well_id AND ei.removed_at IS NOT NULL
+                ORDER BY ei.removed_at DESC
+            """),
+            {"well_id": well.id},
+        ).fetchall()
+        for r in _lora_hist_rows:
+            csv_col = r[3]
+            well_lora_history.append({
+                "serial_number": r[0],
+                "csv_group": r[1],
+                "csv_channel": r[2],
+                "csv_column": csv_col,
+                "label": r[4],
+                "position": "tube" if csv_col == "Ptr" else "line",
+                "installed_at": r[5],
+                "removed_at": r[6],
+                "eq_status": r[7],
+            })
+    except Exception:
+        db.rollback()
+
     # --- что редактируем сейчас (оборудование / канал) ---
     edit_equipment = None
     if edit_equipment_id is not None:
@@ -2809,20 +2956,14 @@ def well_page(
                     pressure_latest["measured_at"] + timedelta(hours=5)
                 )
 
-        # Серийники датчиков через текущий канал скважины
-        sensor_rows = db.execute(
-            text("""
-                SELECT ls.serial_number, ls.position
-                FROM lora_sensors ls
-                JOIN well_channels wc ON wc.channel = ls.channel AND wc.ended_at IS NULL
-                WHERE wc.well_id = :well_id
-            """),
-            {"well_id": well.id},
-        ).fetchall()
-        for sr in sensor_rows:
-            pressure_sensors[sr[1]] = sr[0]  # position -> serial_number
+        # Серийники датчиков — берём из well_lora_sensors (уже загружены выше)
+        for s in well_lora_sensors:
+            pressure_sensors[s["position"]] = s["serial_number"]
     except Exception:
-        pass  # Таблица может не существовать на dev
+        db.rollback()
+
+    # Список всех скважин (для модалки перевода оборудования)
+    all_wells = db.query(Well).order_by(Well.number).all()
 
     return templates.TemplateResponse(
         "well.html",
@@ -2830,6 +2971,7 @@ def well_page(
             "request": request,
             "title": f"Скважина {well.number or well.id}",
             "well": well,
+            "all_wells": all_wells,
             "events": events_for_template,
             "stats": stats,
             "preset": preset,
@@ -2853,6 +2995,8 @@ def well_page(
 
             # Каналы связи
             "channel_current": channel_current,
+            "well_lora_sensors": well_lora_sensors,
+            "well_lora_history": well_lora_history,
             "channel_history": channel_history,
             "edit_equipment": edit_equipment,
             "edit_channel": edit_channel,
@@ -2952,6 +3096,53 @@ def set_well_status(
         url=f"/well/{well_id}",
         status_code=status.HTTP_303_SEE_OTHER,
     )
+
+
+@app.post("/well/{well_id}/substatus")
+def set_well_substatus(
+        well_id: int,
+        substatus_value: str = Form(..., alias="substatus"),
+        custom_substatus: str = Form(""),
+        substatus_note: str = Form(""),
+        db: Session = Depends(get_db),
+        current_user: str = Depends(get_current_admin),
+):
+    """Установка нового подстатуса (оперативного состояния) скважины."""
+    well = db.query(Well).filter(Well.id == well_id).first()
+    if not well:
+        raise HTTPException(status_code=404, detail="Скважина не найдена")
+
+    substatus_text = (substatus_value or "").strip()
+    if substatus_text == "custom":
+        substatus_text = (custom_substatus or "").strip()
+    if not substatus_text:
+        substatus_text = "В работе"
+
+    start_dt = _to_naive(datetime.now())
+
+    # Закрываем предыдущий активный подстатус
+    last_active = (
+        db.query(WellSubStatus)
+        .filter(WellSubStatus.well_id == well.id, WellSubStatus.dt_end.is_(None))
+        .order_by(WellSubStatus.dt_start.desc())
+        .first()
+    )
+    if last_active:
+        last_start = _to_naive(last_active.dt_start)
+        if last_start is not None and last_start >= start_dt:
+            start_dt = last_start + timedelta(seconds=1)
+        last_active.dt_end = start_dt
+
+    new_sub = WellSubStatus(
+        well_id=well_id,
+        sub_status=substatus_text,
+        dt_start=start_dt,
+        note=(substatus_note or None),
+    )
+    db.add(new_sub)
+    db.commit()
+
+    return {"success": True, "substatus": substatus_text, "color": substatus_color(substatus_text)}
 
 
 @app.post("/well/{well_id}/status/{status_id}/edit")

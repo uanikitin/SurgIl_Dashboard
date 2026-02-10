@@ -14,8 +14,8 @@ pressure_import_csv — импорт CSV файлов давлений из LoRa
 
 Архитектура импорта:
   1. Для каждой колонки CSV (Ptr_1, Pshl_1, ...) ищем датчик по (csv_group, csv_channel, csv_column)
-  2. По sensor_installations находим well_id и position на момент измерения
-  3. Position определяет куда писать: 'tube' → p_tube, 'line' → p_line
+  2. По equipment_installation → equipment → lora_sensors находим well_id на момент измерения
+  3. Position определяется прошивкой: csv_column 'Ptr' → p_tube, 'Pshl' → p_line
 """
 
 import hashlib
@@ -94,7 +94,10 @@ def _load_sensor_cache() -> dict:
 
 def _load_installation_cache() -> dict:
     """
-    Загружает историю установок датчиков.
+    Загружает историю установок датчиков через equipment_installation.
+    Единый источник: equipment_installation → equipment → lora_sensors.
+    Position определяется прошивкой: csv_column 'Ptr' → tube, 'Pshl' → line.
+
     Возвращает {sensor_id: [(installed_at, removed_at, well_id, position), ...]}
     """
     from backend.db import engine as pg_engine
@@ -102,13 +105,22 @@ def _load_installation_cache() -> dict:
 
     with pg_engine.connect() as conn:
         rows = conn.execute(text("""
-            SELECT sensor_id, well_id, position, installed_at, removed_at
-            FROM sensor_installations
-            ORDER BY sensor_id, installed_at
+            SELECT ls.id AS sensor_id,
+                   ei.well_id,
+                   ls.csv_column,
+                   ei.installed_at,
+                   ei.removed_at
+            FROM equipment_installation ei
+            JOIN equipment e ON e.id = ei.equipment_id
+            JOIN lora_sensors ls ON ls.serial_number = e.serial_number
+            ORDER BY ls.id, ei.installed_at
         """)).fetchall()
 
-    for sensor_id, well_id, position, installed_at, removed_at in rows:
-        cache.setdefault(sensor_id, []).append((installed_at, removed_at, well_id, position))
+    for sensor_id, well_id, csv_column, installed_at, removed_at in rows:
+        position = 'tube' if csv_column == 'Ptr' else 'line'
+        cache.setdefault(sensor_id, []).append(
+            (installed_at, removed_at, well_id, position)
+        )
 
     return cache
 
@@ -120,21 +132,18 @@ def _find_installation(
 ) -> Optional[tuple[int, str]]:
     """
     Находит установку датчика на момент измерения.
+    При перекрытии интервалов побеждает ПОСЛЕДНЯЯ установка (с наибольшим installed_at).
     Возвращает (well_id, position) или None.
     """
     intervals = installation_cache.get(sensor_id, [])
 
-    for installed_at, removed_at, well_id, position in intervals:
+    # Обратный порядок: последняя установка проверяется первой
+    for installed_at, removed_at, well_id, position in reversed(intervals):
         if installed_at and measured_at < installed_at:
             continue
         if removed_at and measured_at > removed_at:
             continue
         return (well_id, position)
-
-    # Если нет подходящего интервала — проверяем активную установку
-    for installed_at, removed_at, well_id, position in intervals:
-        if removed_at is None and installed_at <= measured_at:
-            return (well_id, position)
 
     return None
 

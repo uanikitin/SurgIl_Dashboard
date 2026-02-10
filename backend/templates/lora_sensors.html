@@ -1,0 +1,672 @@
+{% extends "base.html" %}
+{% block title %}Прошивка манометров LoRa{% endblock %}
+
+{% block extra_head %}
+<style>
+/* === Layout === */
+.lora-page {
+    display: grid;
+    grid-template-columns: 1fr 400px;
+    gap: 24px;
+    padding: 24px;
+    max-width: 1600px;
+    margin: 0 auto;
+    min-height: calc(100vh - 120px);
+}
+
+@media (max-width: 1200px) {
+    .lora-page {
+        grid-template-columns: 1fr;
+    }
+    .edit-panel {
+        position: fixed;
+        right: 0;
+        top: 0;
+        height: 100vh;
+        width: 420px;
+        transform: translateX(100%);
+        transition: transform 0.3s ease;
+        z-index: 1000;
+    }
+    .edit-panel.active {
+        transform: translateX(0);
+    }
+    .edit-panel-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 999;
+    }
+    .edit-panel-overlay.active {
+        display: block;
+    }
+}
+
+/* === Header === */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    grid-column: 1 / -1;
+}
+
+.page-header h1 {
+    font-size: 28px;
+    font-weight: 700;
+    color: #1a1a2e;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.header-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.btn-back {
+    padding: 10px 16px;
+    background: #f8f9fa;
+    color: #495057;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: all 0.2s;
+}
+
+.btn-back:hover {
+    background: #e9ecef;
+    border-color: #adb5bd;
+}
+
+/* === Stats === */
+.stats-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.stat-item {
+    background: white;
+    padding: 10px 16px;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+}
+
+.stat-item__value {
+    font-weight: 700;
+    color: #1a1a2e;
+}
+
+.stat-item__label {
+    color: #6c757d;
+}
+
+/* === Sensors List === */
+.sensors-panel {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    overflow: hidden;
+}
+
+.panel-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid #f1f3f5;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.panel-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1a1a2e;
+}
+
+.btn-add {
+    padding: 10px 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.btn-add:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+/* === Sensor Cards === */
+.sensors-list {
+    max-height: calc(100vh - 280px);
+    overflow-y: auto;
+}
+
+.sensor-card {
+    padding: 12px 20px;
+    border-bottom: 1px solid #f1f3f5;
+    cursor: pointer;
+    transition: background 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.sensor-card:hover {
+    background: #f8f9fa;
+}
+
+.sensor-card.active {
+    background: #e8f4fd;
+    border-left: 3px solid #667eea;
+    padding-left: 17px;
+}
+
+.sensor-card:last-child {
+    border-bottom: none;
+}
+
+.sensor-serial {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1a1a2e;
+    min-width: 120px;
+}
+
+.sensor-label {
+    font-size: 12px;
+    color: #6c757d;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.firmware-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 8px;
+    background: #f1f3f5;
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: 'SF Mono', Monaco, monospace;
+    color: #495057;
+    white-space: nowrap;
+}
+
+.status-badge {
+    padding: 3px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.status-badge--installed {
+    background: #d4edda;
+    color: #155724;
+}
+
+.status-badge--free {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.well-link {
+    font-size: 12px;
+    color: #667eea;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.well-link:hover {
+    text-decoration: underline;
+}
+
+/* === Edit Panel === */
+.edit-panel {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    display: flex;
+    flex-direction: column;
+    height: fit-content;
+    position: sticky;
+    top: 24px;
+}
+
+.edit-panel-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid #f1f3f5;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.edit-panel-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1a1a2e;
+}
+
+.btn-close-panel {
+    display: none;
+    background: none;
+    border: none;
+    font-size: 24px;
+    color: #adb5bd;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+@media (max-width: 1200px) {
+    .btn-close-panel {
+        display: block;
+    }
+}
+
+.edit-panel-body {
+    padding: 24px;
+}
+
+/* === Form Styles === */
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: #495057;
+    margin-bottom: 8px;
+}
+
+.form-control {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    font-size: 14px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+}
+
+.form-hint {
+    font-size: 12px;
+    color: #6c757d;
+    margin-top: 6px;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+
+.form-section-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1a1a2e;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #f1f3f5;
+}
+
+.csv-preview {
+    background: #f8f9fa;
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-top: 16px;
+    font-size: 13px;
+}
+
+.csv-preview-label {
+    font-size: 11px;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+
+.csv-preview-value {
+    font-family: 'SF Mono', Monaco, monospace;
+    color: #1a1a2e;
+    font-weight: 500;
+}
+
+.form-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid #f1f3f5;
+}
+
+.btn-save {
+    flex: 1;
+    padding: 12px 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.btn-save:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.btn-cancel {
+    padding: 12px 20px;
+    background: #f8f9fa;
+    color: #495057;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-cancel:hover {
+    background: #e9ecef;
+}
+
+/* === Empty State === */
+.empty-panel {
+    padding: 48px 24px;
+    text-align: center;
+    color: #6c757d;
+}
+
+.empty-panel-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.4;
+}
+
+.empty-panel-text {
+    font-size: 14px;
+    margin-bottom: 8px;
+}
+
+.empty-panel-hint {
+    font-size: 12px;
+    color: #adb5bd;
+}
+
+</style>
+{% endblock %}
+
+{% block content %}
+<nav class="top-nav">
+  <div class="top-nav-inner">
+    <a href="/visual" class="top-nav-item">📊 Дашборд</a>
+    <a href="/documents" class="top-nav-item">📄 Акты</a>
+    <a href="/admin/reagents" class="top-nav-item">🧪 Реагенты</a>
+    <a href="/equipment" class="top-nav-item active">⚙️ Оборудование</a>
+    <a href="/admin/users" class="top-nav-item">👥 Пользователи</a>
+  </div>
+</nav>
+
+<div class="edit-panel-overlay" onclick="closeEditPanel()"></div>
+
+<div class="lora-page">
+    <!-- Header -->
+    <div class="page-header">
+        <h1>
+            <span>📡</span>
+            Прошивка манометров LoRa
+        </h1>
+        <div class="header-actions">
+            <a href="/equipment" class="btn-back">← Оборудование</a>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div>
+        <!-- Stats -->
+        <div class="stats-row">
+            <div class="stat-item">
+                <span class="stat-item__label">Всего:</span>
+                <span class="stat-item__value">{{ total_sensors }}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-item__label">Установлено:</span>
+                <span class="stat-item__value" style="color:#28a745">{{ installed_count }}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-item__label">Свободно:</span>
+                <span class="stat-item__value" style="color:#ffc107">{{ uninstalled_count }}</span>
+            </div>
+        </div>
+
+        <!-- Sensors List -->
+        <div class="sensors-panel">
+            <div class="panel-header">
+                <span class="panel-title">Датчики</span>
+                <button class="btn-add" onclick="showAddForm()">+ Добавить</button>
+            </div>
+            <div class="sensors-list">
+                {% for s in sensors %}
+                <div class="sensor-card" data-sensor-id="{{ s.id }}" onclick="selectSensor({{ s.id }}, '{{ s.serial_number }}', {{ s.csv_group }}, {{ s.csv_channel }}, '{{ s.csv_column }}', '{{ s.label or '' }}')">
+                    <span class="sensor-serial">{{ s.serial_number }}</span>
+                    <span class="firmware-badge">{{ s.csv_group }}/{{ s.csv_column }}_{{ s.csv_channel }}</span>
+                    <span class="sensor-label">{{ s.label or '—' }}</span>
+                    {% if s.well_name %}
+                    <a href="/well/{{ s.well_id }}" class="well-link" onclick="event.stopPropagation()">{{ s.well_name }} <small>({% if s.position == 'tube' %}устье{% else %}шлейф{% endif %})</small></a>
+                    {% else %}
+                    <span class="status-badge status-badge--free">свободен</span>
+                    {% endif %}
+                </div>
+                {% else %}
+                <div class="empty-panel">
+                    <div class="empty-panel-icon">📡</div>
+                    <div class="empty-panel-text">Датчики не добавлены</div>
+                    <div class="empty-panel-hint">Нажмите «+ Добавить» чтобы создать первый датчик</div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Panel -->
+    <div class="edit-panel" id="editPanel">
+        <div class="edit-panel-header">
+            <span class="edit-panel-title" id="panelTitle">Выберите датчик</span>
+            <button class="btn-close-panel" onclick="closeEditPanel()">×</button>
+        </div>
+        <div class="edit-panel-body">
+            <div id="emptyState" class="empty-panel">
+                <div class="empty-panel-icon">←</div>
+                <div class="empty-panel-text">Выберите датчик из списка</div>
+                <div class="empty-panel-hint">или добавьте новый</div>
+            </div>
+
+            <form id="sensorForm" action="/admin/lora-sensors/edit" method="POST" style="display: none;">
+                <input type="hidden" name="sensor_id" id="form_sensor_id">
+
+                <div class="form-group">
+                    <label class="form-label">Серийный номер</label>
+                    <input type="text" name="serial_number" id="form_serial" class="form-control" required placeholder="U2401-0001">
+                </div>
+
+                <div class="form-section-title">Прошивка CSV</div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Группа</label>
+                        <select name="csv_group" id="form_group" class="form-control" required onchange="updatePreview()">
+                            {% for g in range(1, 7) %}
+                            <option value="{{ g }}">{{ g }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Канал</label>
+                        <select name="csv_channel" id="form_channel" class="form-control" required onchange="updatePreview()">
+                            {% for ch in range(1, 6) %}
+                            <option value="{{ ch }}">{{ ch }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Колонка</label>
+                        <select name="csv_column" id="form_column" class="form-control" required onchange="updatePreview()">
+                            <option value="Ptr">Ptr</option>
+                            <option value="Pshl">Pshl</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="csv-preview">
+                    <div class="csv-preview-label">Результат</div>
+                    <div class="csv-preview-value">
+                        Файл: <strong id="preview_file">*.1_arc.csv</strong><br>
+                        Колонка: <strong id="preview_column">Ptr_1</strong>
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin-top: 20px;">
+                    <label class="form-label">Описание (опционально)</label>
+                    <input type="text" name="label" id="form_label" class="form-control" placeholder="Манометр устья №1">
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="btn-cancel" onclick="clearForm()">Отмена</button>
+                    <button type="submit" class="btn-save" id="submitBtn">Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentSensorId = null;
+let isAddMode = false;
+
+function selectSensor(id, serial, group, channel, column, label) {
+    currentSensorId = id;
+    isAddMode = false;
+
+    // Update active state
+    document.querySelectorAll('.sensor-card').forEach(card => {
+        card.classList.remove('active');
+    });
+    document.querySelector(`[data-sensor-id="${id}"]`)?.classList.add('active');
+
+    // Show form
+    document.getElementById('emptyState').style.display = 'none';
+    document.getElementById('sensorForm').style.display = 'block';
+    document.getElementById('sensorForm').action = '/admin/lora-sensors/edit';
+
+    // Fill form
+    document.getElementById('panelTitle').textContent = 'Редактирование';
+    document.getElementById('form_sensor_id').value = id;
+    document.getElementById('form_serial').value = serial;
+    document.getElementById('form_serial').readOnly = true;
+    document.getElementById('form_group').value = group;
+    document.getElementById('form_channel').value = channel;
+    document.getElementById('form_column').value = column;
+    document.getElementById('form_label').value = label;
+    document.getElementById('submitBtn').textContent = 'Сохранить';
+
+    updatePreview();
+
+    // Mobile: show panel
+    document.getElementById('editPanel').classList.add('active');
+    document.querySelector('.edit-panel-overlay').classList.add('active');
+}
+
+function showAddForm() {
+    currentSensorId = null;
+    isAddMode = true;
+
+    // Clear active state
+    document.querySelectorAll('.sensor-card').forEach(card => {
+        card.classList.remove('active');
+    });
+
+    // Show form
+    document.getElementById('emptyState').style.display = 'none';
+    document.getElementById('sensorForm').style.display = 'block';
+    document.getElementById('sensorForm').action = '/admin/lora-sensors/add';
+
+    // Clear form
+    document.getElementById('panelTitle').textContent = 'Новый датчик';
+    document.getElementById('form_sensor_id').value = '';
+    document.getElementById('form_serial').value = '';
+    document.getElementById('form_serial').readOnly = false;
+    document.getElementById('form_group').value = '1';
+    document.getElementById('form_channel').value = '1';
+    document.getElementById('form_column').value = 'Ptr';
+    document.getElementById('form_label').value = '';
+    document.getElementById('submitBtn').textContent = 'Добавить';
+
+    updatePreview();
+
+    // Mobile: show panel
+    document.getElementById('editPanel').classList.add('active');
+    document.querySelector('.edit-panel-overlay').classList.add('active');
+}
+
+function clearForm() {
+    currentSensorId = null;
+    isAddMode = false;
+
+    document.querySelectorAll('.sensor-card').forEach(card => {
+        card.classList.remove('active');
+    });
+
+    document.getElementById('emptyState').style.display = 'block';
+    document.getElementById('sensorForm').style.display = 'none';
+    document.getElementById('panelTitle').textContent = 'Выберите датчик';
+
+    closeEditPanel();
+}
+
+function closeEditPanel() {
+    document.getElementById('editPanel').classList.remove('active');
+    document.querySelector('.edit-panel-overlay').classList.remove('active');
+}
+
+function updatePreview() {
+    const group = document.getElementById('form_group').value;
+    const channel = document.getElementById('form_channel').value;
+    const column = document.getElementById('form_column').value;
+
+    document.getElementById('preview_file').textContent = `*.${group}_arc.csv`;
+    document.getElementById('preview_column').textContent = `${column}_${channel}`;
+}
+
+// Initialize preview on load
+updatePreview();
+</script>
+{% endblock %}

@@ -73,10 +73,10 @@ def get_pressure_hourly(
 
     data = []
     for r in rows:
-        # Конвертируем UTC → время Кунграда (UTC+5) для отображения
-        t_local = (r[0] + KUNKRAD_OFFSET).isoformat() if r[0] else None
+        # Время в базе UTC, конвертируем в Кунградское (+5ч) без timezone суффикса
+        t_kungrad = (r[0] + KUNKRAD_OFFSET).strftime("%Y-%m-%dT%H:%M:%S") if r[0] else None
         data.append({
-            "t": t_local,
+            "t": t_kungrad,
             "p_tube_avg": _r(r[1]),
             "p_tube_min": _r(r[2]),
             "p_tube_max": _r(r[3]),
@@ -182,16 +182,15 @@ def get_pressure_chart(
                 interval_min=interval,
             )
 
-            # Конвертируем время UTC → UTC+5
+            # Время из pandas в UTC, конвертируем в Кунградское (+5ч)
             data = []
             for point in aggregated:
                 try:
                     dt_utc = datetime.fromisoformat(point["t"])
-                    t_local = (dt_utc + KUNKRAD_OFFSET).isoformat()
+                    dt_kungrad = dt_utc + KUNKRAD_OFFSET
+                    point["t"] = dt_kungrad.strftime("%Y-%m-%dT%H:%M:%S")
                 except (ValueError, TypeError):
                     continue
-
-                point["t"] = t_local
                 data.append(point)
 
         else:
@@ -236,15 +235,15 @@ def get_pressure_chart(
             for r in rows:
                 if not r[0]:
                     continue
-                # bucket — это UTC строка, конвертируем в UTC+5
+                # Время в базе UTC, конвертируем в Кунградское (+5ч) для API
                 try:
                     dt_utc = datetime.strptime(r[0], "%Y-%m-%d %H:%M:%S")
-                    t_local = (dt_utc + KUNKRAD_OFFSET).isoformat()
+                    dt_kungrad = dt_utc + KUNKRAD_OFFSET
+                    t_kungrad = dt_kungrad.strftime("%Y-%m-%dT%H:%M:%S")  # Без timezone суффикса
                 except ValueError:
                     continue
-
                 data.append({
-                    "t": t_local,
+                    "t": t_kungrad,
                     "p_tube_avg": _safe(r[1]),
                     "p_tube_min": _safe(r[2]),
                     "p_tube_max": _safe(r[3]),

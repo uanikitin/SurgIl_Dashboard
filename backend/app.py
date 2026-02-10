@@ -8,7 +8,7 @@ from fastapi import Form
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case, text
 from sqlalchemy import desc
-from datetime import datetime, timedelta, date, time
+from datetime import datetime, timedelta, date, time, timezone
 
 from .api import wells
 from .settings import settings
@@ -116,6 +116,10 @@ app.include_router(equipment_admin_router)
 # Находим в app.py блок с подключением роутеров
 from backend.routers.well_equipment_integration import router as well_equipment_router
 app.include_router(well_equipment_router)
+
+# LoRa датчики (манометры)
+from backend.routers.lora_sensors import router as lora_sensors_router
+app.include_router(lora_sensors_router)
 
 # ------------------------------------------------------------
 # 1) SAFE helpers: FormData -> string
@@ -597,6 +601,16 @@ def _to_naive(dt: datetime | None) -> datetime | None:
 # Папка с HTML-шаблонами
 templates = Jinja2Templates(directory="backend/templates")
 templates.env.globals['time'] = lambda: int(time_module.time())  # для обновления CSS
+
+# Фильтр для конвертации UTC → UTC+5 (Кунград, Узбекистан)
+def to_kungrad_tz(dt):
+    """Конвертирует datetime из UTC в UTC+5 (время Кунграда)."""
+    if dt is None:
+        return None
+    from datetime import timedelta
+    return dt + timedelta(hours=5)
+
+templates.env.filters['to_kungrad'] = to_kungrad_tz
 
 # Чтобы браузер ВСЕГДА брал свежий CSS
 version = str(int(time_module.time()))
@@ -1133,6 +1147,7 @@ def visual_page(
             'user_id': evt.user_id,
             'username': username,
             'geo_status': evt.geo_status or 'Не указан',
+            'purge_phase': evt.purge_phase,
         }
 
         # Якщо подія - вброс реагента
@@ -1915,6 +1930,7 @@ def admin_reagents_page(
                 "description": ev.description,
                 "p_tube": ev.p_tube,
                 "p_line": ev.p_line,
+                "purge_phase": ev.purge_phase,
             })
 
     # 🔧 ДОДАНО: отримуємо список типів подій
@@ -2697,6 +2713,7 @@ def well_page(
                 "p_line": ev.p_line,
                 "operator": full_name,
                 "geo_status": ev.geo_status,
+                "purge_phase": ev.purge_phase,
             })
 
     # --- История статусов для этой скважины ---
@@ -2865,6 +2882,8 @@ def well_page(
             "pressure_latest": pressure_latest,
             "pressure_sensors": pressure_sensors,
             "now_utc": datetime.utcnow(),
+            # Серверное время UTC+5 (Кунград) как naive ISO строка для JS-фильтрации
+            "server_now_iso": datetime.now(timezone(timedelta(hours=5))).replace(tzinfo=None).isoformat(),
         },
     )
 

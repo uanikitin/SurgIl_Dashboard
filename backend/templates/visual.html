@@ -1017,7 +1017,7 @@
         </div>
         <div class="pressure-meta">
             {% if w.pressure_updated %}
-            обн. {{ w.pressure_updated.strftime("%d.%m %H:%M") }}
+            обн. {{ (w.pressure_updated|to_kungrad).strftime("%d.%m %H:%M") }} <small style="color:#94a3b8;">(+5)</small>
             {% endif %}
             · период: <span class="pressure-period-label" data-period="{{ pressure_period }}">
                 {% if pressure_period == '10m' %}10 мин
@@ -1692,12 +1692,8 @@ async function refreshPressureDashboard() {
     const data = await r.json();
     if (data.status === 'ok') {
       btn.style.background = '#d1fae5';
-      btn.textContent = '✓ Готово!';
-      setTimeout(() => {
-        btn.innerHTML = '<span id="refresh-pressure-icon">&#8635;</span> Обновить давления';
-        btn.style.background = '';
-        btn.classList.remove('loading');
-      }, 2000);
+      btn.textContent = '✓ Готово! Обновляю страницу...';
+      setTimeout(() => { location.reload(); }, 1500);
     } else {
       alert(data.message || 'Ошибка обновления');
       btn.classList.remove('loading');

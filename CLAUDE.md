@@ -4,14 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-SurgIl_Dashboard is an industrial operations dashboard for gas well management. It tracks wells, equipment, reagent inventory, and generates PDF documents for regulatory compliance.
+SurgIl_Dashboard is an industrial operations dashboard for gas well management. It tracks wells, equipment, reagent inventory, LoRa pressure sensors, and generates PDF documents for regulatory compliance.
 
 **Tech Stack:**
 
-- Backend: FastAPI (Python 3.11.9) + SQLAlchemy ORM + PostgreSQL
+- Backend: FastAPI (Python 3.11) + SQLAlchemy ORM + PostgreSQL
 - Frontend: Jinja2 templates + vanilla JavaScript + Chart.js
 - PDF Generation: XeLaTeX (must be installed on host system)
 - Notifications: Telegram bot API, SMTP email
+- Data Ingestion: SQLite import from LoRa sensors
 
 ## Development Commands
 
@@ -25,8 +26,8 @@ uvicorn backend.app:app --reload --host 0.0.0.0 --port 8000
 # Run database migrations
 alembic upgrade head
 
-# Create new migration
-alembic revision --autogenerate -m "description"
+# Create new migration (ONLY MANUAL - see warning below)
+alembic revision -m "description"
 
 # Rollback migration
 alembic downgrade -1
@@ -34,6 +35,9 @@ alembic downgrade -1
 # Utility scripts
 python scripts/fill_reagent_catalog.py    # Populate reagent catalog
 python scripts/sync_reagent_catalog.py    # Sync reagent catalog from external source
+python scripts/run_pressure_update.py     # Manual pressure pipeline run (normally scheduled)
+python scripts/diagnose_pressure_tz.py    # Debug timezone issues in pressure data
+python scripts/clean_inf_pressure.py      # Remove invalid/infinite pressure readings
 ```
 
 **External Dependencies:**
@@ -42,6 +46,11 @@ python scripts/sync_reagent_catalog.py    # Sync reagent catalog from external s
 - XeLaTeX (for PDF generation) - install via `apt install texlive-xetex` or MacTeX
 
 **No test suite exists** - consider adding pytest tests when modifying critical logic.
+
+**CRITICAL: Database Migrations**
+- NEVER use `alembic revision --autogenerate` — it drops existing tables and causes data loss!
+- ALWAYS create migrations manually: `alembic revision -m "description"` and write SQL by hand
+- Before any migration, backup the database
 
 ## Architecture
 
@@ -100,13 +109,53 @@ Routes in `app.py` + API in `api/reagents.py` + service logic in `services/reage
 **Notifications:**
 `documents/services/notification_service.py` handles Telegram and email notifications for document events.
 
+**Pressure Data Pipeline:**
+LoRa sensors → SQLite files → `pressure_pipeline.py` → PostgreSQL (`pressure_reading`, `pressure_hourly`, `pressure_latest`)
+
+- `scripts/run_pressure_update.py` - Scheduler wrapper (launchd runs every minute, applies day/night intervals from `scripts/schedule_config.json`)
+- `services/pressure_import_sqlite.py` - Imports raw readings from SQLite sensor databases
+- `services/pressure_aggregate_service.py` - Hourly aggregation for historical charts
+- `services/pressure_filter_service.py` - Spike/outlier detection and filtering
+- `routers/pressure.py` - API endpoints for pressure data and charts
+
+Schedule config (`scripts/schedule_config.json`):
+
+- Day (07:00-22:00): 5-minute intervals
+- Night: 30-minute intervals
+
+**Background Jobs API:**
+`routers/jobs_api.py` provides endpoints for automated tasks:
+
+- `POST /api/jobs/reagent-expense/auto-create` - Auto-create reagent expense documents
+- `POST /api/jobs/send/telegram/{document_id}` - Send document via Telegram
+- `POST /api/jobs/send/email/{document_id}` - Send document via email
+
+Jobs require either `X-Job-Secret` header (for cron) or user session (for UI).
+
 ### Known Technical Debt
 
-1. **Monolithic app.py** (~3400 lines) - contains mixed concerns (auth, admin, wells, reagents)
+1. **Monolithic app.py** (~3700 lines) - contains mixed concerns (auth, admin, wells, reagents)
 2. **Route duplication** - `well_equipment_integration.py` duplicates routes from `equipment_management.py`
 3. **Business logic in routes** - SQLAlchemy queries directly in FastAPI handlers
 
 See `DUPLICATES_AND_DEAD_CODE.md` and `QUICK_WINS.md` for detailed analysis.
+
+### Claude Agent Specializations
+
+The `.claude/agents/` directory contains specialized agent configurations:
+
+- **Analyst** - Business logic and workflow analysis
+- **SQLArchitect** - Database schema design
+- **APIEngineer** - Backend API development
+- **SignalProcessingEngineer** - Pressure time-series analysis
+- **DocumentEngineer** - LaTeX/GOST document templates
+- **NotificationsEngineer** - Telegram/email notifications
+- **UIDesigner** - Dashboard interface design
+- **ValidationEngineer** - Data verification
+- **DataIntegration** - ETL and data import pipelines
+- **RecoveryEngineer** - Backup and recovery planning
+
+Note: Technical documentation files (`PROJECT_OVERVIEW.md`, `QUICK_WINS.md`) are in Russian.
 
 ## Configuration
 
@@ -136,6 +185,8 @@ Environment variables (`.env`):
 - `ReagentCatalog` / `ReagentSupply` - Reagent reference data and transactions
 - `Document` / `DocumentType` / `DocumentItem` - Document management system
 - `DashboardUser` / `DashboardLoginLog` - User accounts and audit trail
+- `PressureReading` / `PressureHourly` / `PressureLatest` - LoRa sensor pressure data (raw, aggregated, current)
+- `LoraSensor` - LoRa sensor registry linked to wells
 
 ## Route Documentation
 

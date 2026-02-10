@@ -19,6 +19,7 @@ pressure_import_sqlite — импорт из CODESYS Tracing SQLite → pressure
 """
 
 import logging
+import math
 import struct
 import sqlite3
 from datetime import datetime, timezone
@@ -57,7 +58,8 @@ def _decode_float(int_val) -> Optional[float]:
         return None
     try:
         val = struct.unpack('d', struct.pack('q', int(int_val)))[0]
-        if val < MIN_VALID_PRESSURE:
+        # Фильтруем невалидные значения: отрицательные, infinity, NaN
+        if val < MIN_VALID_PRESSURE or math.isinf(val) or math.isnan(val):
             return None
         return round(val, 3)
     except (struct.error, ValueError, OverflowError):

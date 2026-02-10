@@ -10,13 +10,18 @@ pressure_import_csv — импорт CSV файлов давлений из LoRa
   - Невалидные: -1.0 (офлайн), -2.0 (ошибка)
 
 Имя файла: DD.MM.YYYY.{группа}_arc.csv
-  группа 1..6, каждая группа — 5 каналов
-  channel = (группа - 1) * 5 + индекс (индекс = 1..5)
+  группа 1..6
+
+Архитектура импорта:
+  1. Для каждой колонки CSV (Ptr_1, Pshl_1, ...) ищем датчик по (csv_group, csv_channel, csv_column)
+  2. По sensor_installations находим well_id и position на момент измерения
+  3. Position определяет куда писать: 'tube' → p_tube, 'line' → p_line
 """
 
 import hashlib
 import logging
 import re
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -26,7 +31,6 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.db_pressure import PressureSessionLocal, init_pressure_db
-from backend.models.pressure_reading import PressureReading
 from backend.models.csv_import_log import CsvImportLog
 
 log = logging.getLogger(__name__)
@@ -69,48 +73,77 @@ def _clean_pressure(val) -> Optional[float]:
     return round(v, 3)
 
 
-def _resolve_well_id(
-    channel: int, measured_at: datetime, channel_cache: dict
-) -> Optional[int]:
+def _load_sensor_cache() -> dict:
     """
-    Определяет well_id по каналу и моменту времени.
-    Использует кеш channel_cache: {channel: [(started, ended, well_id), ...]}
-    """
-    intervals = channel_cache.get(channel, [])
-    for started, ended, well_id in intervals:
-        if started and measured_at < started:
-            continue
-        if ended and measured_at > ended:
-            continue
-        return well_id
-    # Если нет активного интервала — берём последний (ended=None)
-    for started, ended, well_id in intervals:
-        if ended is None:
-            return well_id
-    return None
-
-
-def _load_channel_cache(pg_url: Optional[str] = None) -> dict:
-    """
-    Загружает маппинг channel → well_id из PostgreSQL.
-    Возвращает {channel: [(started_at, ended_at, well_id), ...]}
+    Загружает маппинг (csv_group, csv_channel, csv_column) → sensor_id.
     """
     from backend.db import engine as pg_engine
     cache = {}
+
     with pg_engine.connect() as conn:
-        rows = conn.execute(text(
-            "SELECT channel, well_id, started_at, ended_at "
-            "FROM well_channels ORDER BY channel, started_at"
-        )).fetchall()
-    for ch, well_id, started, ended in rows:
-        cache.setdefault(ch, []).append((started, ended, well_id))
+        rows = conn.execute(text("""
+            SELECT id, csv_group, csv_channel, csv_column
+            FROM lora_sensors
+        """)).fetchall()
+
+    for sensor_id, csv_group, csv_channel, csv_column in rows:
+        cache[(csv_group, csv_channel, csv_column)] = sensor_id
+
     return cache
+
+
+def _load_installation_cache() -> dict:
+    """
+    Загружает историю установок датчиков.
+    Возвращает {sensor_id: [(installed_at, removed_at, well_id, position), ...]}
+    """
+    from backend.db import engine as pg_engine
+    cache = {}
+
+    with pg_engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT sensor_id, well_id, position, installed_at, removed_at
+            FROM sensor_installations
+            ORDER BY sensor_id, installed_at
+        """)).fetchall()
+
+    for sensor_id, well_id, position, installed_at, removed_at in rows:
+        cache.setdefault(sensor_id, []).append((installed_at, removed_at, well_id, position))
+
+    return cache
+
+
+def _find_installation(
+    sensor_id: int,
+    measured_at: datetime,
+    installation_cache: dict
+) -> Optional[tuple[int, str]]:
+    """
+    Находит установку датчика на момент измерения.
+    Возвращает (well_id, position) или None.
+    """
+    intervals = installation_cache.get(sensor_id, [])
+
+    for installed_at, removed_at, well_id, position in intervals:
+        if installed_at and measured_at < installed_at:
+            continue
+        if removed_at and measured_at > removed_at:
+            continue
+        return (well_id, position)
+
+    # Если нет подходящего интервала — проверяем активную установку
+    for installed_at, removed_at, well_id, position in intervals:
+        if removed_at is None and installed_at <= measured_at:
+            return (well_id, position)
+
+    return None
 
 
 def import_csv_file(
     csv_path: Path,
     db: Session,
-    channel_cache: dict,
+    sensor_cache: dict,
+    installation_cache: dict,
 ) -> dict:
     """
     Импортирует один CSV файл в pressure_readings.
@@ -123,8 +156,7 @@ def import_csv_file(
     # Проверяем журнал — был ли уже импортирован с таким же хешем
     existing = db.query(CsvImportLog).filter_by(filename=filename).first()
     if existing and existing.file_sha256 == sha256 and existing.status == "imported":
-        # Свежие файлы (за последние 2 дня) — всегда реимпортируем,
-        # т.к. Pi дописывает данные в CSV, а INSERT OR IGNORE защитит от дублей
+        # Свежие файлы (за последние 7 дней) — всегда реимпортируем
         parsed = _parse_filename(filename)
         is_recent = False
         if parsed:
@@ -142,7 +174,7 @@ def import_csv_file(
         log.warning("Cannot parse filename: %s", filename)
         return {"status": "failed", "reason": f"bad filename: {filename}"}
 
-    _day, _month, _year, group = parsed
+    _day, _month, _year, csv_group = parsed
 
     # Читаем CSV
     try:
@@ -164,7 +196,6 @@ def import_csv_file(
         return {"status": "imported", "rows_imported": 0}
 
     # Столбцы: Дата, Время, Ptr_1, Pshl_1, Ptr_2, Pshl_2, ..., Ptr_5, Pshl_5
-    # Первые два столбца — дата и время (позиционно)
     date_col = df.columns[0]
     time_col = df.columns[1]
 
@@ -187,27 +218,42 @@ def import_csv_file(
             first_ts = dt_utc
         last_ts = dt_utc
 
-        # Для каждой пары Ptr/Pshl (индексы 1..5)
-        for idx in range(1, 6):
-            ptr_col = f"Ptr_{idx}"
-            pshl_col = f"Pshl_{idx}"
+        # Собираем данные по скважинам: well_id → {'tube': value, 'line': value}
+        well_data = defaultdict(dict)
+        well_channels = {}  # well_id → csv_channel (для колонки channel в БД)
 
-            if ptr_col not in df.columns or pshl_col not in df.columns:
-                continue
+        # Обрабатываем все колонки давлений
+        for csv_channel in range(1, 6):
+            for csv_column in ['Ptr', 'Pshl']:
+                col_name = f"{csv_column}_{csv_channel}"
 
-            p_tube = _clean_pressure(row.get(ptr_col))
-            p_line = _clean_pressure(row.get(pshl_col))
+                if col_name not in df.columns:
+                    continue
 
-            # Если оба None — пропуск
+                value = _clean_pressure(row.get(col_name))
+                if value is None:
+                    continue
+
+                # Ищем датчик по прошивке
+                sensor_id = sensor_cache.get((csv_group, csv_channel, csv_column))
+                if sensor_id is None:
+                    continue
+
+                # Ищем установку на момент измерения
+                installation = _find_installation(sensor_id, dt_utc, installation_cache)
+                if installation is None:
+                    continue
+
+                well_id, position = installation
+                well_data[well_id][position] = value
+                well_channels[well_id] = csv_channel
+
+        # Записываем данные по каждой скважине
+        for well_id, positions in well_data.items():
+            p_tube = positions.get('tube')
+            p_line = positions.get('line')
+
             if p_tube is None and p_line is None:
-                rows_skipped += 1
-                continue
-
-            channel = (group - 1) * 5 + idx
-            well_id = _resolve_well_id(channel, dt_utc, channel_cache)
-
-            if well_id is None:
-                rows_skipped += 1
                 continue
 
             # INSERT OR IGNORE (дубли по UNIQUE(well_id, measured_at))
@@ -220,7 +266,7 @@ def import_csv_file(
                     ),
                     {
                         "well_id": well_id,
-                        "channel": channel,
+                        "channel": well_channels.get(well_id, 1),
                         "measured_at": dt_utc,
                         "p_tube": p_tube,
                         "p_line": p_line,
@@ -296,7 +342,11 @@ def import_all_csv(
         csv_dir = Path(__file__).resolve().parent.parent.parent / "data" / "lora"
 
     init_pressure_db()
-    channel_cache = _load_channel_cache()
+    sensor_cache = _load_sensor_cache()
+    installation_cache = _load_installation_cache()
+
+    log.info("Loaded %d sensors, %d with installations",
+             len(sensor_cache), len(installation_cache))
 
     csv_files = sorted(csv_dir.glob("*_arc.csv"))
     if limit:
@@ -310,7 +360,7 @@ def import_all_csv(
 
     try:
         for i, fpath in enumerate(csv_files, 1):
-            result = import_csv_file(fpath, db, channel_cache)
+            result = import_csv_file(fpath, db, sensor_cache, installation_cache)
             status = result["status"]
             summary[status] = summary.get(status, 0) + 1
             total_rows += result.get("rows_imported", 0)

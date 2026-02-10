@@ -5,29 +5,41 @@
  * Значения < 0 приравниваются к 0.
  *
  * Использует тот же API: /api/pressure/chart/{well_id}?days=N&interval=M
- * Синхронизирован по времени с основным графиком давлений.
+ * СИНХРОНИЗИРОВАН с основным графиком давлений (synchronized_chart.js):
+ *   - Zoom/Pan синхронизируются между графиками
+ *   - Используются те же фильтры (sync-filter-*)
  *
  * Возможности:
  *   - Критическая линия (порог) — по умолчанию 0.5 атм, настраивается
  *   - Область ниже порога закрашивается красным
  *   - Zoom по X (drag-select), масштаб Y — ползунок
- *   - Общие кнопки периода и сглаживания с основным графиком
  */
 
 (function () {
   'use strict';
 
+  console.log('[delta_chart] Script loaded');
+
   const canvasId = 'chart_delta_pressure';
   const canvas = document.getElementById(canvasId);
-  if (!canvas) return;
+  if (!canvas) {
+    console.log('[delta_chart] Canvas not found:', canvasId);
+    return;
+  }
 
   const wellId = canvas.dataset.wellId;
-  if (!wellId) return;
+  if (!wellId) {
+    console.log('[delta_chart] Well ID not found');
+    return;
+  }
+
+  console.log('[delta_chart] Initializing for well:', wellId);
 
   let deltaChart = null;
   let currentDays = 7;
   let currentInterval = 5;
   let criticalThreshold = 0.5; // атм — по умолчанию
+  let currentDeltaData = [];   // хранение данных для пересчёта статистики
 
   // Цвета
   const COLORS = {
@@ -40,17 +52,14 @@
   };
 
   /**
-   * Собирает параметры фильтрации (общие с pressure_chart.js)
+   * Собирает параметры фильтрации (из sync-filter-* элементов)
    */
   function getFilterParams() {
-    // Используем общую функцию если доступна, иначе читаем из DOM
-    if (window.pressureFilterParams) {
-      return window.pressureFilterParams();
-    }
-    const zeros = document.getElementById('filter-zeros');
-    const spikes = document.getElementById('filter-spikes');
-    const fillMode = document.getElementById('filter-fill-mode');
-    const maxGap = document.getElementById('filter-max-gap');
+    // Читаем из sync-filter-* элементов (синхронизированный график)
+    const zeros = document.getElementById('sync-filter-zeros');
+    const spikes = document.getElementById('sync-filter-spikes');
+    const fillMode = document.getElementById('sync-filter-fill-mode');
+    const maxGap = document.getElementById('sync-filter-max-gap');
 
     let params = '';
     if (zeros && zeros.checked) params += '&filter_zeros=true';
@@ -67,9 +76,14 @@
     if (days !== undefined) currentDays = days;
     if (interval !== undefined) currentInterval = interval;
 
+    console.log('[delta_chart] loadChart called, days:', currentDays, 'interval:', currentInterval);
+
     try {
       const filterParams = getFilterParams();
-      const resp = await fetch(`/api/pressure/chart/${wellId}?days=${currentDays}&interval=${currentInterval}${filterParams}`);
+      const url = `/api/pressure/chart/${wellId}?days=${currentDays}&interval=${currentInterval}${filterParams}`;
+      console.log('[delta_chart] Fetching:', url);
+
+      const resp = await fetch(url);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const json = await resp.json();
       console.log(`[delta_chart] well=${wellId} days=${currentDays} interval=${currentInterval}min points=${json.points?.length || 0}` +
@@ -77,7 +91,7 @@
       renderChart(json.points);
       syncYSlider();
     } catch (err) {
-      console.error('Delta pressure chart error:', err);
+      console.error('[delta_chart] Load error:', err);
       canvas.parentElement.innerHTML =
         '<div style="padding:40px;text-align:center;color:#999;">Нет данных для графика ΔP</div>';
     }
@@ -87,7 +101,10 @@
    * Отрисовка графика ΔP
    */
   function renderChart(points) {
+    console.log('[delta_chart] renderChart called, points:', points?.length || 0);
+
     if (!points || points.length === 0) {
+      console.log('[delta_chart] No points to render');
       canvas.parentElement.innerHTML =
         '<div style="padding:40px;text-align:center;color:#999;">Нет данных ΔP за выбранный период</div>';
       return;
@@ -102,11 +119,21 @@
       }
     }
 
+    console.log('[delta_chart] deltaData computed:', deltaData.length, 'points');
+
     if (deltaData.length === 0) {
+      console.log('[delta_chart] No valid delta data (both sensors required)');
       canvas.parentElement.innerHTML =
         '<div style="padding:40px;text-align:center;color:#999;">Нет данных ΔP (требуются оба датчика)</div>';
+      updateStatsPanel(null);
       return;
     }
+
+    // Сохраняем данные для пересчёта статистики при смене порога
+    currentDeltaData = deltaData;
+
+    // Вычисляем статистику и обновляем панель
+    calculateAndDisplayStats(deltaData, criticalThreshold);
 
     // Определяем цвет сегментов: ниже порога — красный, выше — зелёный
     const segmentColor = function(ctx) {
@@ -171,26 +198,9 @@
             },
           },
           tooltip: {
-            backgroundColor: 'rgba(0,0,0,0.85)',
-            titleFont: { size: 13 },
-            bodyFont: { size: 12 },
-            padding: 12,
-            callbacks: {
-              title: function(items) {
-                if (!items.length) return '';
-                const d = new Date(items[0].parsed.x);
-                const dd = String(d.getUTCDate()).padStart(2, '0');
-                const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-                const yy = d.getUTCFullYear();
-                const hh = String(d.getUTCHours()).padStart(2, '0');
-                const mi = String(d.getUTCMinutes()).padStart(2, '0');
-                return `${dd}.${mm}.${yy} ${hh}:${mi} (Кунград, UTC+5)`;
-              },
-              label: function(ctx) {
-                const val = ctx.parsed.y.toFixed(3);
-                const status = ctx.parsed.y < criticalThreshold ? ' ⚠ НИЖЕ ПОРОГА' : '';
-                return `ΔP: ${val} атм${status}`;
-              },
+            enabled: false,  // Отключаем всплывающий tooltip
+            external: function(context) {
+              updateDeltaCursorPanel(context);
             },
           },
           annotation: {
@@ -217,13 +227,19 @@
           },
           zoom: {
             pan: {
-              enabled: true,
-              mode: 'x',
-              modifierKey: 'shift',
+              enabled: true,   // Always true so Hammer.js registers pan recognizers
+              mode: 'xy',
+              threshold: 5,
+              onPanComplete: function({ chart }) {
+                syncZoomToMain(chart);
+              },
             },
             zoom: {
-              drag: { enabled: true, backgroundColor: 'rgba(13, 110, 253, 0.1)' },
-              mode: 'x',
+              drag: { enabled: !window._syncPanMode, backgroundColor: 'rgba(13, 110, 253, 0.1)' },
+              mode: 'xy',
+              onZoomComplete: function({ chart }) {
+                syncZoomToMain(chart);
+              },
             },
           },
         },
@@ -241,7 +257,7 @@
               },
             },
             adapters: {
-              date: { zone: 'UTC', locale: 'ru' },
+              date: { locale: 'ru' },  // Время уже Кунградское
             },
             grid: { color: COLORS.grid },
             ticks: { font: { size: 11 }, maxRotation: 0 },
@@ -260,6 +276,166 @@
         },
       },
     });
+
+    console.log('[delta_chart] Chart created successfully');
+  }
+
+  // ══════════════════ Панель статистики ΔP ══════════════════
+
+  /**
+   * Вычисляет статистику ΔP и обновляет панель
+   * @param {Array} deltaData - массив точек {x, y} где y = ΔP
+   * @param {number} threshold - пороговое значение ΔP
+   */
+  function calculateAndDisplayStats(deltaData, threshold) {
+    if (!deltaData || deltaData.length === 0) {
+      updateStatsPanel(null);
+      return;
+    }
+
+    // Извлекаем значения ΔP
+    const values = deltaData.map(d => d.y);
+
+    // Основная статистика
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const sum = values.reduce((a, b) => a + b, 0);
+    const avg = sum / values.length;
+    const current = values[values.length - 1];
+
+    // Медиана
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    const median = sorted.length % 2 !== 0
+      ? sorted[mid]
+      : (sorted[mid - 1] + sorted[mid]) / 2;
+
+    // Время выше/ниже порога
+    // Предполагаем равномерные интервалы между точками
+    let pointsAbove = 0;
+    let pointsBelow = 0;
+
+    for (const val of values) {
+      if (val >= threshold) {
+        pointsAbove++;
+      } else {
+        pointsBelow++;
+      }
+    }
+
+    const totalPoints = values.length;
+    const percentAbove = ((pointsAbove / totalPoints) * 100).toFixed(1);
+    const percentBelow = ((pointsBelow / totalPoints) * 100).toFixed(1);
+
+    // Вычисляем примерное время (если интервал известен)
+    // Используем разницу между первой и последней точкой
+    let timeAboveStr = `${percentAbove}%`;
+    let timeBelowStr = `${percentBelow}%`;
+
+    if (deltaData.length >= 2) {
+      const firstTime = new Date(deltaData[0].x).getTime();
+      const lastTime = new Date(deltaData[deltaData.length - 1].x).getTime();
+      const totalDurationMs = lastTime - firstTime;
+      const totalDurationHours = totalDurationMs / (1000 * 60 * 60);
+
+      const hoursAbove = (pointsAbove / totalPoints) * totalDurationHours;
+      const hoursBelow = (pointsBelow / totalPoints) * totalDurationHours;
+
+      timeAboveStr = formatDuration(hoursAbove);
+      timeBelowStr = formatDuration(hoursBelow);
+    }
+
+    // Обновляем панель
+    updateStatsPanel({
+      current, max, min, avg, median,
+      timeAbove: timeAboveStr,
+      timeBelow: timeBelowStr,
+      percentAbove, percentBelow,
+    });
+  }
+
+  /**
+   * Форматирует длительность в часах в читаемую строку
+   */
+  function formatDuration(hours) {
+    if (hours < 1) {
+      return `${Math.round(hours * 60)} мин`;
+    } else if (hours < 24) {
+      const h = Math.floor(hours);
+      const m = Math.round((hours - h) * 60);
+      return m > 0 ? `${h}ч ${m}м` : `${h}ч`;
+    } else {
+      const d = Math.floor(hours / 24);
+      const h = Math.round(hours % 24);
+      return h > 0 ? `${d}д ${h}ч` : `${d}д`;
+    }
+  }
+
+  /**
+   * Обновляет панель курсора (время и значение) при наведении на график
+   */
+  function updateDeltaCursorPanel(context) {
+    const tooltipModel = context.tooltip;
+    const timeEl = document.getElementById('delta-cursor-time');
+    const valueEl = document.getElementById('delta-cursor-value');
+
+    if (!timeEl || !valueEl) return;
+
+    // Если нет данных — оставляем последние значения
+    if (tooltipModel.opacity === 0 || !tooltipModel.dataPoints?.length) {
+      return;
+    }
+
+    const dp = tooltipModel.dataPoints[0];
+    if (!dp) return;
+
+    // Время
+    const d = new Date(dp.parsed.x);
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mi = String(d.getMinutes()).padStart(2, '0');
+    timeEl.textContent = `${dd}.${mm} ${hh}:${mi}`;
+
+    // Значение ΔP
+    const val = dp.parsed.y;
+    const status = val < criticalThreshold ? ' ⚠' : '';
+    valueEl.textContent = `${val.toFixed(3)} атм${status}`;
+    valueEl.style.color = val < criticalThreshold ? '#c62828' : '#2e7d32';
+  }
+
+  /**
+   * Обновляет DOM элементы панели статистики
+   */
+  function updateStatsPanel(stats) {
+    const currentEl = document.getElementById('delta-stat-current');
+    const maxEl = document.getElementById('delta-stat-max');
+    const minEl = document.getElementById('delta-stat-min');
+    const avgEl = document.getElementById('delta-stat-avg');
+    const medianEl = document.getElementById('delta-stat-median');
+    const aboveEl = document.getElementById('delta-stat-above');
+    const belowEl = document.getElementById('delta-stat-below');
+
+    if (!currentEl) return;
+
+    if (!stats) {
+      currentEl.textContent = '—';
+      maxEl.textContent = '—';
+      minEl.textContent = '—';
+      avgEl.textContent = '—';
+      medianEl.textContent = '—';
+      aboveEl.textContent = '—';
+      belowEl.textContent = '—';
+      return;
+    }
+
+    currentEl.textContent = `${stats.current.toFixed(3)} атм`;
+    maxEl.textContent = `${stats.max.toFixed(3)} атм`;
+    minEl.textContent = `${stats.min.toFixed(3)} атм`;
+    avgEl.textContent = `${stats.avg.toFixed(3)} атм`;
+    medianEl.textContent = `${stats.median.toFixed(3)} атм`;
+    aboveEl.textContent = `${stats.timeAbove} (${stats.percentAbove}%)`;
+    belowEl.textContent = `${stats.timeBelow} (${stats.percentBelow}%)`;
   }
 
   // ── Ползунок масштаба Y ──
@@ -328,22 +504,17 @@
 
       // Обновляем сегментную раскраску — нужно перерисовать
       deltaChart.update();
+
+      // Пересчитываем статистику с новым порогом
+      if (currentDeltaData.length > 0) {
+        calculateAndDisplayStats(currentDeltaData, criticalThreshold);
+      }
     }
   }
 
-  // ── Кнопки выбора периода (общие с основным графиком) ──
-  // Слушаем те же кнопки data-pressure-days и data-pressure-interval
-  document.querySelectorAll('[data-pressure-days]').forEach(btn => {
-    btn.addEventListener('click', function () {
-      loadChart(parseInt(this.dataset.pressureDays), undefined);
-    });
-  });
-
-  document.querySelectorAll('[data-pressure-interval]').forEach(btn => {
-    btn.addEventListener('click', function () {
-      loadChart(undefined, parseInt(this.dataset.pressureInterval));
-    });
-  });
+  // ── Кнопки выбора периода ──
+  // УДАЛЕНЫ: дублирующие listeners для [data-pressure-days] и [data-pressure-interval].
+  // Теперь координатор (chart_sync.js) вызывает window.deltaChart.reload(days, interval).
 
   // Reset zoom + Y slider — своя кнопка
   const resetBtn = document.getElementById('delta-reset-zoom');
@@ -370,13 +541,66 @@
     });
   }
 
+  // ══════════════════ Синхронизация zoom с основным графиком ══════════════════
+
+  /**
+   * Синхронизирует zoom/pan обратно на основной график давлений
+   * @param {Chart} chart - экземпляр графика delta
+   */
+  function syncZoomToMain(chart) {
+    if (!window.syncChart || !window.syncChart.syncZoom) return;
+    const xScale = chart.scales.x;
+    if (!xScale) return;
+    window.syncChart.syncZoom(xScale.min, xScale.max);
+  }
+
+  /**
+   * Синхронизирует масштаб X с основным графиком
+   * Вызывается из synchronized_chart.js при zoom/pan
+   */
+  function syncZoom(xMin, xMax) {
+    if (!deltaChart) return;
+    deltaChart.options.scales.x.min = xMin;
+    deltaChart.options.scales.x.max = xMax;
+    deltaChart.update('none');
+  }
+
+  /**
+   * Сбрасывает синхронизированный zoom
+   */
+  function resetSyncZoom() {
+    if (!deltaChart) return;
+    delete deltaChart.options.scales.x.min;
+    delete deltaChart.options.scales.x.max;
+    deltaChart.update('none');
+  }
+
+  // ══════════════════ Слушатели фильтров ══════════════════
+  // Перезагружаем при изменении sync-filter-* элементов
+
+  ['sync-filter-zeros', 'sync-filter-spikes'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', () => loadChart());
+  });
+
+  const syncFillEl = document.getElementById('sync-filter-fill-mode');
+  if (syncFillEl) syncFillEl.addEventListener('change', () => loadChart());
+
+  const syncGapEl = document.getElementById('sync-filter-max-gap');
+  if (syncGapEl) syncGapEl.addEventListener('change', () => loadChart());
+
+  // ══════════════════ Инициализация ══════════════════
+
   // Начальная загрузка
   loadChart(7, 5);
 
-  // Экспортируем для внешнего доступа (если нужен)
+  // Экспортируем для внешнего доступа
   window.deltaChart = {
     reload: loadChart,
     updateThreshold: updateThreshold,
+    syncZoom: syncZoom,
+    resetZoom: resetSyncZoom,
+    get instance() { return deltaChart; },
   };
 
 })();

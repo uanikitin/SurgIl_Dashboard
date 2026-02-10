@@ -87,6 +87,245 @@ function hexToRgba(hex, alpha) {
 // Регистрируем плагин
 Chart.register(statusStripesPlugin);
 
+// ==========================================
+// ПЛАГИН ДЛЯ ОТРИСОВКИ ИНТЕРВАЛОВ ПРОДУВКИ
+// ==========================================
+window.purgeIntervals = []; // Массив интервалов продувки для отрисовки
+window.hoveredPurgeInterval = null; // Интервал под курсором
+
+const purgeIntervalsPlugin = {
+    id: 'purgeIntervals',
+    beforeDatasetsDraw: (chart) => {
+        const intervals = window.purgeIntervals || [];
+        if (intervals.length === 0) return;
+
+        const ctx = chart.ctx;
+        const chartArea = chart.chartArea;
+        const xScale = chart.scales.x;
+        const yScale = chart.scales.y;
+
+        if (!chartArea || !xScale || !yScale) return;
+
+        ctx.save();
+
+        intervals.forEach((interval, idx) => {
+            const { startTime, endTime, wellY, totalMin, pressTime, pressMin, stopMin, well } = interval;
+
+            // Конвертируем время в пиксели
+            const x1 = xScale.getPixelForValue(new Date(startTime));
+            const x2 = xScale.getPixelForValue(new Date(endTime));
+
+            // Y-координаты для скважины
+            const yTop = yScale.getPixelForValue(wellY - 0.4);
+            const yBottom = yScale.getPixelForValue(wellY + 0.4);
+            const yCenter = (yTop + yBottom) / 2;
+            const height = Math.abs(yBottom - yTop);
+
+            // Проверяем, что интервал виден на графике
+            if (x2 < chartArea.left || x1 > chartArea.right) return;
+
+            // Ограничиваем область графика
+            const clampedX1 = Math.max(x1, chartArea.left);
+            const clampedX2 = Math.min(x2, chartArea.right);
+            const width = clampedX2 - clampedX1;
+
+            if (width <= 0) return;
+
+            const isHovered = window.hoveredPurgeInterval === idx;
+
+            // Рисуем двухцветную заливку если есть pressTime
+            if (pressTime && !isHovered) {
+                const xPress = xScale.getPixelForValue(new Date(pressTime));
+                const clampedXPress = Math.max(Math.min(xPress, clampedX2), clampedX1);
+
+                // Оранжевая часть (start → press)
+                ctx.fillStyle = 'rgba(251, 146, 60, 0.25)';
+                ctx.fillRect(clampedX1, Math.min(yTop, yBottom), clampedXPress - clampedX1, height);
+
+                // Зелёная часть (press → stop)
+                ctx.fillStyle = 'rgba(34, 197, 94, 0.25)';
+                ctx.fillRect(clampedXPress, Math.min(yTop, yBottom), clampedX2 - clampedXPress, height);
+            } else {
+                // Одноцветная заливка (или при hover)
+                ctx.fillStyle = isHovered ? 'rgba(59, 130, 246, 0.3)' : 'rgba(148, 163, 184, 0.2)';
+                ctx.fillRect(clampedX1, Math.min(yTop, yBottom), width, height);
+            }
+
+            // Рисуем границы
+            ctx.strokeStyle = isHovered ? 'rgba(59, 130, 246, 0.8)' : 'rgba(100, 116, 139, 0.5)';
+            ctx.lineWidth = isHovered ? 2 : 1;
+            ctx.setLineDash(isHovered ? [] : [4, 2]);
+            ctx.strokeRect(clampedX1, Math.min(yTop, yBottom), width, height);
+            ctx.setLineDash([]);
+
+            // Сохраняем координаты для обнаружения hover
+            interval._bounds = {
+                x1: clampedX1, x2: clampedX2,
+                y1: Math.min(yTop, yBottom), y2: Math.max(yTop, yBottom)
+            };
+
+            // Рисуем текст НАД блоком
+            if (width > 25) {
+                ctx.font = 'bold 10px -apple-system, BlinkMacSystemFont, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'bottom';
+
+                const textX = clampedX1 + width / 2;
+                const textY = Math.min(yTop, yBottom) - 3; // Над блоком
+
+                if (isHovered && pressMin !== undefined && stopMin !== undefined) {
+                    // При наведении: детальная информация (две строки над блоком)
+                    const line1 = `⏱ ${totalMin} мин`;
+                    const line2 = `🔸${pressMin}м → 🔹${stopMin}м`;
+
+                    ctx.font = '9px -apple-system, BlinkMacSystemFont, sans-serif';
+                    const maxWidth = Math.max(ctx.measureText(line1).width, ctx.measureText(line2).width) + 8;
+
+                    // Фон для двух строк
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+                    ctx.fillRect(textX - maxWidth / 2, textY - 26, maxWidth, 24);
+                    ctx.strokeStyle = 'rgba(59, 130, 246, 0.6)';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(textX - maxWidth / 2, textY - 26, maxWidth, 24);
+
+                    // Текст
+                    ctx.font = 'bold 10px -apple-system, BlinkMacSystemFont, sans-serif';
+                    ctx.fillStyle = '#1e40af';
+                    ctx.fillText(line1, textX, textY - 13);
+                    ctx.font = '9px -apple-system, BlinkMacSystemFont, sans-serif';
+                    ctx.fillStyle = '#475569';
+                    ctx.fillText(line2, textX, textY - 2);
+                } else {
+                    // По умолчанию: только общее время над блоком
+                    const label = `${totalMin} мин`;
+                    const textWidth = ctx.measureText(label).width + 6;
+
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+                    ctx.fillRect(textX - textWidth / 2, textY - 13, textWidth, 12);
+
+                    ctx.fillStyle = '#334155';
+                    ctx.fillText(label, textX, textY - 2);
+                }
+            }
+        });
+
+        ctx.restore();
+    },
+
+    // Обработка движения мыши для hover эффекта
+    afterEvent: (chart, args) => {
+        if (args.event.type !== 'mousemove') return;
+
+        const intervals = window.purgeIntervals || [];
+        const x = args.event.x;
+        const y = args.event.y;
+        let found = null;
+
+        for (let i = 0; i < intervals.length; i++) {
+            const bounds = intervals[i]._bounds;
+            if (bounds && x >= bounds.x1 && x <= bounds.x2 && y >= bounds.y1 && y <= bounds.y2) {
+                found = i;
+                break;
+            }
+        }
+
+        if (window.hoveredPurgeInterval !== found) {
+            window.hoveredPurgeInterval = found;
+            chart.draw();
+        }
+    }
+};
+
+Chart.register(purgeIntervalsPlugin);
+
+// Функция для вычисления интервалов продувки из событий
+function calculatePurgeIntervals(events, wellToY) {
+    const intervals = [];
+
+    // Группируем события продувки по скважине
+    const purgesByWell = {};
+    events.forEach(ev => {
+        if (ev.type === 'purge' && ev.purge_phase) {
+            const well = ev.well;
+            if (!purgesByWell[well]) {
+                purgesByWell[well] = [];
+            }
+            purgesByWell[well].push({
+                time: new Date(ev.t),
+                phase: ev.purge_phase,
+                well: well
+            });
+        }
+    });
+
+    // Для каждой скважины находим полные циклы продувки (start → press → stop)
+    Object.keys(purgesByWell).forEach(well => {
+        const purges = purgesByWell[well].sort((a, b) => a.time - b.time);
+        const wellY = wellToY[well];
+
+        if (wellY === undefined) return;
+
+        for (let i = 0; i < purges.length; i++) {
+            const current = purges[i];
+
+            if (current.phase !== 'start') continue;
+
+            // Ищем полный цикл: start → press → stop или start → stop
+            let pressEvent = null;
+            let stopEvent = null;
+
+            for (let j = i + 1; j < purges.length; j++) {
+                const next = purges[j];
+                const diffHours = (next.time - current.time) / (1000 * 60 * 60);
+                if (diffHours > 4) break; // Ограничиваем 4 часами
+
+                if (next.phase === 'press' && !pressEvent) {
+                    pressEvent = next;
+                } else if (next.phase === 'stop') {
+                    stopEvent = next;
+                    break;
+                } else if (next.phase === 'start') {
+                    // Новый start прерывает поиск
+                    break;
+                }
+            }
+
+            // Создаём интервал если нашли хотя бы stop
+            if (stopEvent) {
+                const totalMin = Math.round((stopEvent.time - current.time) / (1000 * 60));
+                const pressMin = pressEvent ? Math.round((pressEvent.time - current.time) / (1000 * 60)) : null;
+                const stopMin = pressEvent ? Math.round((stopEvent.time - pressEvent.time) / (1000 * 60)) : null;
+
+                intervals.push({
+                    startTime: current.time.toISOString(),
+                    endTime: stopEvent.time.toISOString(),
+                    pressTime: pressEvent ? pressEvent.time.toISOString() : null,
+                    wellY: wellY,
+                    well: well,
+                    totalMin: totalMin,
+                    pressMin: pressMin,  // Время start → press (набор давления)
+                    stopMin: stopMin     // Время press → stop (пуск в линию)
+                });
+            } else if (pressEvent) {
+                // Неполная продувка: только start → press
+                const totalMin = Math.round((pressEvent.time - current.time) / (1000 * 60));
+                intervals.push({
+                    startTime: current.time.toISOString(),
+                    endTime: pressEvent.time.toISOString(),
+                    pressTime: null,
+                    wellY: wellY,
+                    well: well,
+                    totalMin: totalMin,
+                    pressMin: totalMin,
+                    stopMin: null
+                });
+            }
+        }
+    });
+
+    return intervals;
+}
+
 const EVENT_TRANSLATIONS = {
     'purge': 'Продувка',
     'reagent': 'Вброс реагента',
@@ -898,8 +1137,9 @@ function createTimelineChart() {
             description: ev.description,
             p_tube: ev.p_tube,
             p_line: ev.p_line,
-            username: ev.username,        // ← ДОДАНО
-            geo_status: ev.geo_status     // ← ДОДАНО
+            username: ev.username,
+            geo_status: ev.geo_status,
+            purge_phase: ev.purge_phase   // фаза продувки: start/press/stop
         });
     });
 
@@ -926,6 +1166,13 @@ function createTimelineChart() {
     // Сохраняем список скважин для плагина statusStripes
     window.currentWellsList = wellsList;
 
+    // Вычисляем интервалы продувки для отрисовки (используем все события, не только отфильтрованные)
+    // Фильтруем только по скважинам, чтобы интервалы всегда отображались
+    const purgeEventsForIntervals = eventsFiltered.filter(ev =>
+        ev.type === 'purge' && ev.purge_phase && finalWells.includes(ev.well)
+    );
+    window.purgeIntervals = calculatePurgeIntervals(purgeEventsForIntervals, wellToY);
+
     // Создаем новый график
     window.timelineChart = new Chart(ctxTimeline, {
         type: 'scatter',
@@ -944,6 +1191,10 @@ function createTimelineChart() {
                     display: false
                 },
                 tooltip: {
+                    // Скрыть стандартный тултип когда курсор над интервалом продувки
+                    filter: function(tooltipItem) {
+                        return window.hoveredPurgeInterval === null;
+                    },
                     backgroundColor: 'rgba(33, 37, 41, 0.96)',
                     padding: 14,
                     titleFont: { size: 13, weight: '600' },
@@ -992,16 +1243,28 @@ function createTimelineChart() {
                                 // Событие (event)
                                 lines.push(`🎯 Скважина: ${raw.well}`);
                                 lines.push(`📋 Тип: ${EVENT_TRANSLATIONS[raw.type] || raw.type}`);
+
+                                // Для продувки показываем фазу с расшифровкой
+                                if (raw.type === 'purge' && raw.purge_phase) {
+                                    const phaseLabels = {
+                                        'start': 'Начало продувки',
+                                        'press': 'Набор давления',
+                                        'stop': 'Пуск скважины в линию'
+                                    };
+                                    const phaseLabel = phaseLabels[raw.purge_phase] || raw.purge_phase;
+                                    lines.push(`🔄 Фаза: ${phaseLabel}`);
+                                }
+
                                 if (raw.p_tube !== undefined && raw.p_tube !== null) {
                                     lines.push(`📊 P трубное: ${raw.p_tube}`);
                                 }
                                 if (raw.p_line !== undefined && raw.p_line !== null) {
                                     lines.push(`📊 P шлейфное: ${raw.p_line}`);
                                 }
+                                // Описание всегда показываем если есть
                                 if (raw.description) {
                                     lines.push(`📝 ${raw.description}`);
                                 }
-                                // ДОДАНО: Оператор та геостатус
                                 if (raw.username) {
                                     lines.push(`👤 Оператор: ${raw.username}`);
                                 }

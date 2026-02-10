@@ -246,27 +246,48 @@
             },
           },
           tooltip: {
-            backgroundColor: 'rgba(0,0,0,0.85)',
-            titleFont: { size: 13 },
-            bodyFont: { size: 12 },
-            padding: 12,
-            callbacks: {
-              title: function(items) {
-                if (!items.length) return '';
-                const d = new Date(items[0].parsed.x);
-                const dd = String(d.getUTCDate()).padStart(2,'0');
-                const mm = String(d.getUTCMonth()+1).padStart(2,'0');
-                const yy = d.getUTCFullYear();
-                const hh = String(d.getUTCHours()).padStart(2,'0');
-                const mi = String(d.getUTCMinutes()).padStart(2,'0');
-                return `${dd}.${mm}.${yy} ${hh}:${mi} (Кунград, UTC+5)`;
-              },
-              label: function(ctx) {
-                if (ctx.dataset.label.includes('min') || ctx.dataset.label.includes('диапазон')) {
-                  return null;
+            enabled: false,  // Отключаем встроенный tooltip
+            external: function(context) {
+              // Используем внешний tooltip
+              const tooltipModel = context.tooltip;
+              const timeEl = document.getElementById('tooltip-time');
+              const ptrEl = document.getElementById('tooltip-ptr');
+              const pshlEl = document.getElementById('tooltip-pshl');
+              const deltaEl = document.getElementById('tooltip-delta');
+
+              if (!timeEl) return;
+
+              if (tooltipModel.opacity === 0 || !tooltipModel.dataPoints?.length) {
+                return;
+              }
+
+              // Время
+              const d = new Date(tooltipModel.dataPoints[0].parsed.x);
+              const dd = String(d.getDate()).padStart(2,'0');
+              const mm = String(d.getMonth()+1).padStart(2,'0');
+              const hh = String(d.getHours()).padStart(2,'0');
+              const mi = String(d.getMinutes()).padStart(2,'0');
+              timeEl.textContent = `${dd}.${mm} ${hh}:${mi}`;
+
+              // Значения
+              let ptr = null, pshl = null;
+              for (const dp of tooltipModel.dataPoints) {
+                const label = dp.dataset.label || '';
+                if (label.includes('Ptr') && !label.includes('min') && !label.includes('диапазон')) {
+                  ptr = dp.parsed.y;
                 }
-                return `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)} атм`;
-              },
+                if (label.includes('Pshl') && !label.includes('min') && !label.includes('диапазон')) {
+                  pshl = dp.parsed.y;
+                }
+              }
+
+              ptrEl.textContent = ptr !== null ? ptr.toFixed(2) : '—';
+              pshlEl.textContent = pshl !== null ? pshl.toFixed(2) : '—';
+              if (ptr !== null && pshl !== null) {
+                deltaEl.textContent = (ptr - pshl).toFixed(2);
+              } else {
+                deltaEl.textContent = '—';
+              }
             },
           },
           zoom: {
@@ -295,7 +316,7 @@
               },
             },
             adapters: {
-              date: { zone: 'UTC', locale: 'ru' },
+              date: { locale: 'ru' },  // Время уже Кунградское, без конвертаций
             },
             grid: { color: COLORS.grid },
             ticks: { font: { size: 11 }, maxRotation: 0 },
@@ -368,16 +389,26 @@
 
   document.querySelectorAll('[data-pressure-days]').forEach(btn => {
     btn.addEventListener('click', function () {
-      setActiveBtn('pressure-days', this);
-      loadChart(parseInt(this.dataset.pressureDays), undefined);
+      const days = parseInt(this.dataset.pressureDays);
+      if (window.updateAllCharts) {
+        window.updateAllCharts(days, undefined);
+      } else {
+        setActiveBtn('pressure-days', this);
+        loadChart(days, undefined);
+      }
     });
   });
 
   // ── Кнопки выбора интервала ──
   document.querySelectorAll('[data-pressure-interval]').forEach(btn => {
     btn.addEventListener('click', function () {
-      setActiveBtn('pressure-interval', this);
-      loadChart(undefined, parseInt(this.dataset.pressureInterval));
+      const interval = parseInt(this.dataset.pressureInterval);
+      if (window.updateAllCharts) {
+        window.updateAllCharts(undefined, interval);
+      } else {
+        setActiveBtn('pressure-interval', this);
+        loadChart(undefined, interval);
+      }
     });
   });
 
@@ -390,15 +421,43 @@
     });
   }
 
-  // ── Обработчики фильтров (общие для обоих графиков) ──
+  // Pan toggle
+  let panEnabled = false;
+  const panBtn = document.getElementById('pressure-pan-toggle');
+  if (panBtn) {
+    panBtn.addEventListener('click', () => {
+      panEnabled = !panEnabled;
+      if (pressureChart) {
+        // Toggle between drag-zoom and pan modes
+        pressureChart.options.plugins.zoom.zoom.drag.enabled = !panEnabled;
+        pressureChart.options.plugins.zoom.pan.enabled = panEnabled;
+        pressureChart.options.plugins.zoom.pan.modifierKey = null; // Remove shift requirement
+        pressureChart.update('none');
+      }
+      // Update button style
+      if (panEnabled) {
+        panBtn.style.background = '#17a2b8';
+        panBtn.style.color = 'white';
+        panBtn.textContent = '✋ Pan ON';
+      } else {
+        panBtn.style.background = 'white';
+        panBtn.style.color = '#17a2b8';
+        panBtn.textContent = '✋ Pan';
+      }
+    });
+  }
+
+  // ── Обработчики фильтров (обновляют все графики через координатор) ──
   ['filter-zeros', 'filter-spikes'].forEach(id => {
     const el = document.getElementById(id);
     if (el) {
       el.addEventListener('change', () => {
-        loadChart();
-        // Также перезагружаем ΔP график если он есть
-        if (window.deltaChart && window.deltaChart.reload) {
-          window.deltaChart.reload();
+        if (window.updateAllCharts) {
+          window.updateAllCharts();
+        } else {
+          loadChart();
+          if (window.deltaChart && window.deltaChart.reload) window.deltaChart.reload();
+          window.syncChartReload?.();
         }
       });
     }
@@ -407,9 +466,12 @@
   const fillModeEl = document.getElementById('filter-fill-mode');
   if (fillModeEl) {
     fillModeEl.addEventListener('change', () => {
-      loadChart();
-      if (window.deltaChart && window.deltaChart.reload) {
-        window.deltaChart.reload();
+      if (window.updateAllCharts) {
+        window.updateAllCharts();
+      } else {
+        loadChart();
+        if (window.deltaChart && window.deltaChart.reload) window.deltaChart.reload();
+        window.syncChartReload?.();
       }
     });
   }
@@ -417,9 +479,12 @@
   const maxGapEl = document.getElementById('filter-max-gap');
   if (maxGapEl) {
     maxGapEl.addEventListener('change', () => {
-      loadChart();
-      if (window.deltaChart && window.deltaChart.reload) {
-        window.deltaChart.reload();
+      if (window.updateAllCharts) {
+        window.updateAllCharts();
+      } else {
+        loadChart();
+        if (window.deltaChart && window.deltaChart.reload) window.deltaChart.reload();
+        window.syncChartReload?.();
       }
     });
   }
@@ -449,6 +514,7 @@
     if (e.key === 'Escape') hideRawPopup();
   });
 
+  window.showRawDataPopup = showRawDataPopup;   // экспорт для synchronized_chart.js
   function showRawDataPopup(rows, centerTime, mouseX, mouseY) {
     if (!rawPopup || !rawTable) return;
 
@@ -531,10 +597,10 @@
     const xValue = xScale.getValueForPixel(x);
     if (!xValue) return;
 
+    // Данные уже в Кунградском времени — отправляем как есть
     const clickTime = new Date(xValue);
-    // Время уже в UTC+5 (от API), отправляем как ISO без Z
     const pad = (n) => String(n).padStart(2, '0');
-    const isoStr = `${clickTime.getUTCFullYear()}-${pad(clickTime.getUTCMonth()+1)}-${pad(clickTime.getUTCDate())}T${pad(clickTime.getUTCHours())}:${pad(clickTime.getUTCMinutes())}:${pad(clickTime.getUTCSeconds())}`;
+    const isoStr = `${clickTime.getFullYear()}-${pad(clickTime.getMonth()+1)}-${pad(clickTime.getDate())}T${pad(clickTime.getHours())}:${pad(clickTime.getMinutes())}:${pad(clickTime.getSeconds())}`;
 
     try {
       const resp = await fetch(`/api/pressure/raw_nearby/${wellId}?t=${encodeURIComponent(isoStr)}&n=5`);
@@ -555,7 +621,10 @@
   // Начальная загрузка
   loadChart(7, 5);
 
-  // Экспортируем getFilterParams для использования в delta_pressure_chart.js
+  // Экспортируем для координатора и delta_pressure_chart.js
   window.pressureFilterParams = getFilterParams;
+  window.pressureChartReload = function (days, interval) {
+    loadChart(days, interval);
+  };
 
 })();

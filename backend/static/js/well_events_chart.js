@@ -351,8 +351,10 @@ function createTimelineChartWell() {
     return;
   }
 
-  const data = window.wellEventsData;
-  if (!data) {
+  // Используем отфильтрованные данные (от координатора chart_sync.js),
+  // с fallback на полные данные при первой загрузке
+  const filtered = window.wellEventsFiltered || window.wellEventsData;
+  if (!filtered) {
     console.error('wellEventsData not found!');
     return;
   }
@@ -362,7 +364,11 @@ function createTimelineChartWell() {
     timelineChartWell.destroy();
   }
 
-  const { timelineInjections, timelineEvents, reagentColors, eventColors, wellNumber } = data;
+  const timelineInjections = filtered.timelineInjections || [];
+  const timelineEvents = filtered.timelineEvents || [];
+  const reagentColors = (window.wellEventsData || filtered).reagentColors || {};
+  const eventColors = (window.wellEventsData || filtered).eventColors || {};
+  const wellNumber = (window.wellEventsData || filtered).wellNumber || '';
 
   // Получаем выбранные типы событий
   const selectedEventTypes = new Set();
@@ -443,6 +449,7 @@ function createTimelineChartWell() {
       p_tube: ev.p_tube,
       p_line: ev.p_line,
       eventType: label,
+      purge_phase: ev.purge_phase,
     });
   });
 
@@ -495,6 +502,17 @@ tooltip: {
       // Тип события
       if (raw.eventType) {
         lines.push(`📋 Тип: ${raw.eventType}`);
+      }
+
+      // Фаза продувки (для purge событий)
+      if (raw.purge_phase) {
+        const phaseLabels = {
+          'start': 'Начало продувки',
+          'press': 'Набор давления',
+          'stop': 'Пуск скважины в линию'
+        };
+        const phaseLabel = phaseLabels[raw.purge_phase] || raw.purge_phase;
+        lines.push(`🔄 Фаза: ${phaseLabel}`);
       }
 
       // Количество
@@ -553,6 +571,9 @@ tooltip: {
       scales: {
         x: {
           type: 'time',
+          adapters: {
+            date: { locale: 'ru' },
+          },
           time: {
             unit: 'day',
             displayFormats: {
@@ -777,6 +798,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     createTimelineChartWell();
     updateLegendsWell();
+
+    // Экспорт для координатора chart_sync.js
+    window.eventsChartReload = function () {
+      createTimelineChartWell();
+      updateLegendsWell();
+    };
 
     console.log('Chart initialized successfully');
   } else {

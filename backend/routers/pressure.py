@@ -33,9 +33,32 @@ KUNKRAD_OFFSET = timedelta(hours=5)
 _SQLITE_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "pressure.db"
 
 
+_sqlite_checked = False
+_sqlite_ok = False
+
+
 def _sqlite_available() -> bool:
-    """True если локальный pressure.db существует и содержит данные (>4 KB)."""
-    return _SQLITE_PATH.exists() and _SQLITE_PATH.stat().st_size > 4096
+    """True если локальный pressure.db содержит таблицу pressure_readings с данными."""
+    global _sqlite_checked, _sqlite_ok
+    if _sqlite_checked:
+        return _sqlite_ok
+
+    _sqlite_checked = True
+    _sqlite_ok = False
+
+    if not _SQLITE_PATH.exists():
+        return False
+
+    try:
+        import sqlite3
+        conn = sqlite3.connect(str(_SQLITE_PATH))
+        row = conn.execute("SELECT 1 FROM pressure_readings LIMIT 1").fetchone()
+        conn.close()
+        _sqlite_ok = row is not None
+    except Exception:
+        pass
+
+    return _sqlite_ok
 
 # Путь к конфигу расписания
 SCHEDULE_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "scripts" / "schedule_config.json"

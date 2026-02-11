@@ -22,6 +22,8 @@ class PressureReading(PressureBase):
     p_line = Column(Float, nullable=True)               # давление на шлейфе (Pshl)
     source = Column(String(10), nullable=False)         # "csv" или "sqlite"
     source_file = Column(String(128), nullable=True)    # имя файла-источника
+    sensor_id_tube = Column(Integer, nullable=True)     # lora_sensors.id для p_tube
+    sensor_id_line = Column(Integer, nullable=True)     # lora_sensors.id для p_line
 
     __table_args__ = (
         UniqueConstraint("well_id", "measured_at", name="uq_well_measured"),

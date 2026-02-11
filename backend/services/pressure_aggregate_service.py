@@ -309,7 +309,8 @@ def sync_raw_to_pg(
     try:
         rows = sqlite_db.execute(
             text(f"""
-                SELECT well_id, measured_at, p_tube, p_line
+                SELECT well_id, measured_at, p_tube, p_line,
+                       sensor_id_tube, sensor_id_line
                 FROM pressure_readings
                 WHERE {where_sql}
                   AND (p_tube IS NOT NULL OR p_line IS NOT NULL)
@@ -327,11 +328,15 @@ def sync_raw_to_pg(
     log.info("Found %d raw readings to sync to PostgreSQL", len(rows))
 
     upsert_sql = text("""
-        INSERT INTO pressure_raw (well_id, measured_at, p_tube, p_line)
-        VALUES (:well_id, :measured_at, :p_tube, :p_line)
+        INSERT INTO pressure_raw
+            (well_id, measured_at, p_tube, p_line, sensor_id_tube, sensor_id_line)
+        VALUES
+            (:well_id, :measured_at, :p_tube, :p_line, :sensor_id_tube, :sensor_id_line)
         ON CONFLICT (well_id, measured_at) DO UPDATE SET
             p_tube = EXCLUDED.p_tube,
-            p_line = EXCLUDED.p_line
+            p_line = EXCLUDED.p_line,
+            sensor_id_tube = EXCLUDED.sensor_id_tube,
+            sensor_id_line = EXCLUDED.sensor_id_line
     """)
 
     rows_synced = 0
@@ -345,6 +350,8 @@ def sync_raw_to_pg(
                     "measured_at": r[1],
                     "p_tube": _round(r[2]),
                     "p_line": _round(r[3]),
+                    "sensor_id_tube": r[4],
+                    "sensor_id_line": r[5],
                 }
                 for r in batch
             ]

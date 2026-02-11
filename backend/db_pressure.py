@@ -8,7 +8,7 @@
 import os
 from pathlib import Path
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 # Путь к файлу БД: data/pressure.db рядом с data/lora/
@@ -42,6 +42,28 @@ PressureBase = declarative_base()
 def init_pressure_db():
     """Создать все таблицы в pressure.db (идемпотентно)."""
     PressureBase.metadata.create_all(bind=pressure_engine)
+
+    # Миграция: добавить sensor_id столбцы если их нет
+    with pressure_engine.connect() as conn:
+        cols = {r[1] for r in conn.execute(
+            text("PRAGMA table_info(pressure_readings)")
+        )}
+        if "sensor_id_tube" not in cols:
+            conn.execute(text(
+                "ALTER TABLE pressure_readings ADD COLUMN sensor_id_tube INTEGER"
+            ))
+            conn.execute(text(
+                "ALTER TABLE pressure_readings ADD COLUMN sensor_id_line INTEGER"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_pr_sensor_tube "
+                "ON pressure_readings (sensor_id_tube)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_pr_sensor_line "
+                "ON pressure_readings (sensor_id_line)"
+            ))
+            conn.commit()
 
 
 def get_pressure_db():

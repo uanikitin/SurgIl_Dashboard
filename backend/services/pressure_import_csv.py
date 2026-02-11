@@ -53,8 +53,10 @@ FILENAME_RE = re.compile(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})\.(\d+)_arc\.csv$")
 # SQL для batch INSERT
 _INSERT_SQL = text(
     "INSERT OR IGNORE INTO pressure_readings "
-    "(well_id, channel, measured_at, p_tube, p_line, source, source_file) "
-    "VALUES (:well_id, :channel, :measured_at, :p_tube, :p_line, 'csv', :source_file)"
+    "(well_id, channel, measured_at, p_tube, p_line, "
+    " sensor_id_tube, sensor_id_line, source, source_file) "
+    "VALUES (:well_id, :channel, :measured_at, :p_tube, :p_line, "
+    " :sensor_id_tube, :sensor_id_line, 'csv', :source_file)"
 )
 
 
@@ -280,6 +282,7 @@ def import_csv_file(
 
         # Собираем данные по скважинам: well_id → {'tube': value, 'line': value}
         well_data = defaultdict(dict)
+        well_sensors = defaultdict(dict)  # well_id → {'tube': sensor_id, 'line': sensor_id}
         well_channels = {}  # well_id → csv_channel (для колонки channel в БД)
 
         # Обрабатываем все колонки давлений
@@ -306,7 +309,8 @@ def import_csv_file(
 
                 well_id, position = installation
                 well_data[well_id][position] = value
-                well_channels[well_id] = csv_channel
+                well_sensors[well_id][position] = sensor_id
+                well_channels[well_id] = (csv_group - 1) * 5 + csv_channel
 
         # Формируем параметры INSERT для каждой скважины
         for well_id, positions in well_data.items():
@@ -322,6 +326,8 @@ def import_csv_file(
                 "measured_at": dt_utc,
                 "p_tube": p_tube,
                 "p_line": p_line,
+                "sensor_id_tube": well_sensors[well_id].get('tube'),
+                "sensor_id_line": well_sensors[well_id].get('line'),
                 "source_file": filename,
             })
             affected_wells.add(well_id)

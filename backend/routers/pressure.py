@@ -895,7 +895,8 @@ def admin_overview(current_user: str = Depends(get_current_user)):
 
     wells = []
     for r in rows:
-        ch_label = f"Гр{r[6]}/К{r[7]}" if r[6] and r[7] else None
+        logical_ch = (r[6] - 1) * 5 + r[7] if r[6] and r[7] else None
+        ch_label = f"Гр{r[6]}/К{logical_ch}" if logical_ch else None
         wells.append({
             "well_id": r[0],
             "well_name": r[1],
@@ -937,7 +938,7 @@ def admin_channels(current_user: str = Depends(get_current_user)):
         {
             "id": r[0],
             "csv_group": r[1],
-            "csv_channel": r[2],
+            "csv_channel": (r[1] - 1) * 5 + r[2],
             "csv_column": r[3],
             "serial_number": r[4],
             "well_id": r[5],
@@ -1096,7 +1097,7 @@ def admin_sensors(current_user: str = Depends(get_current_user)):
             "id": r[0],
             "serial_number": r[1],
             "csv_group": r[2],
-            "csv_channel": r[3],
+            "csv_channel": (r[2] - 1) * 5 + r[3],
             "csv_column": r[4],
             "position": "tube" if r[4] == "Ptr" else "line",
             "position_ru": "устье" if r[4] == "Ptr" else "шлейф",
@@ -1108,3 +1109,35 @@ def admin_sensors(current_user: str = Depends(get_current_user)):
         }
         for r in rows
     ]
+
+
+# ═══════════════════════════════════════════════════════════
+# Reassignment & Backfill endpoints
+# ═══════════════════════════════════════════════════════════
+
+@router.post("/backfill-sensors")
+def pressure_backfill_sensors(
+    current_user=Depends(get_current_user),
+):
+    """
+    Заполняет sensor_id_tube / sensor_id_line для старых строк.
+    POST /api/pressure/backfill-sensors
+    """
+    from backend.services.pressure_reassign_service import backfill_sensor_ids
+    result = backfill_sensor_ids()
+    return {"status": "ok", **result}
+
+
+@router.post("/reassign")
+def pressure_reassign(
+    sensor_ids: Optional[list[int]] = Query(None),
+    dry_run: bool = Query(False),
+    current_user=Depends(get_current_user),
+):
+    """
+    Пересчёт well_id по текущим датам установки.
+    POST /api/pressure/reassign?sensor_ids=1&sensor_ids=2&dry_run=false
+    """
+    from backend.services.pressure_reassign_service import reassign_well_ids
+    result = reassign_well_ids(sensor_ids=sensor_ids, dry_run=dry_run)
+    return {"status": "ok", **result}

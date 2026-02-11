@@ -1077,7 +1077,8 @@ def visual_page(
         try:
             _lora_rows = db.execute(
                 text("""
-                    SELECT ei.well_id, ls.csv_channel, ls.csv_column, ls.serial_number
+                    SELECT ei.well_id, ls.csv_channel, ls.csv_column,
+                           ls.serial_number, ls.csv_group
                     FROM equipment_installation ei
                     JOIN equipment e ON e.id = ei.equipment_id
                     JOIN lora_sensors ls ON ls.serial_number = e.serial_number
@@ -1087,10 +1088,11 @@ def visual_page(
                 {"well_ids": well_ids},
             ).fetchall()
             for r in _lora_rows:
-                wid, ch, col, sn = r[0], r[1], r[2], r[3]
-                lora_channel_by_well[wid] = ch
+                wid, ch, col, sn, grp = r[0], r[1], r[2], r[3], r[4]
+                logical_ch = (grp - 1) * 5 + ch
+                lora_channel_by_well[wid] = logical_ch
                 lora_sensors_by_well.setdefault(wid, []).append({
-                    "csv_channel": ch, "csv_column": col, "serial_number": sn,
+                    "csv_channel": logical_ch, "csv_column": col, "serial_number": sn,
                     "position": "tube" if col == "Ptr" else "line",
                 })
         except Exception as e:
@@ -2557,10 +2559,11 @@ def well_page(
         ).fetchall()
         for r in _lora_rows:
             csv_col = r[3]  # 'Ptr' or 'Pshl'
+            logical_ch = (r[1] - 1) * 5 + r[2]  # (csv_group-1)*5 + csv_channel
             well_lora_sensors.append({
                 "serial_number": r[0],
                 "csv_group": r[1],
-                "csv_channel": r[2],
+                "csv_channel": logical_ch,
                 "csv_column": csv_col,
                 "label": r[4],
                 "position": "tube" if csv_col == "Ptr" else "line",
@@ -2586,10 +2589,11 @@ def well_page(
         ).fetchall()
         for r in _lora_hist_rows:
             csv_col = r[3]
+            logical_ch = (r[1] - 1) * 5 + r[2]
             well_lora_history.append({
                 "serial_number": r[0],
                 "csv_group": r[1],
-                "csv_channel": r[2],
+                "csv_channel": logical_ch,
                 "csv_column": csv_col,
                 "label": r[4],
                 "position": "tube" if csv_col == "Ptr" else "line",

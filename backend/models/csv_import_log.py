@@ -23,6 +23,7 @@ class CsvImportLog(PressureBase):
     last_timestamp = Column(DateTime, nullable=True)    # UTC
     imported_at = Column(DateTime, nullable=True)
     error_message = Column(String(500), nullable=True)
+    rows_in_file = Column(Integer, nullable=True)  # total rows in CSV at import time
 
     def __repr__(self):
         return f"<CsvImportLog {self.filename} status={self.status}>"

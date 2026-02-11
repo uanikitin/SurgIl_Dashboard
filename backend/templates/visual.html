@@ -1035,18 +1035,16 @@
     </div>
 
     {# === ПОДСТАТУС (оперативное состояние) === #}
-    <div style="padding:0 12px 4px 12px;display:flex;align-items:center;gap:6px;">
+    <div style="padding:2px 0 4px;display:flex;align-items:center;gap:6px;border-left:3px solid {{ w.current_substatus_color }};margin-left:-1px;padding-left:8px;">
         {% if is_admin %}
         <span class="substatus-pill" data-well-id="{{ w.id }}"
               onclick="event.stopPropagation();toggleSubStatusMenu(this, {{ w.id }})"
-              style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:500;background:{{ w.current_substatus_color }}18;color:{{ w.current_substatus_color }};border:1px solid {{ w.current_substatus_color }}40;"
+              style="cursor:pointer;font-size:10px;font-weight:500;color:{{ w.current_substatus_color }};"
               title="Изменить подстатус">
-            <span style="width:5px;height:5px;border-radius:50%;background:{{ w.current_substatus_color }};"></span>
             {{ w.current_substatus }}
         </span>
         {% else %}
-        <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:500;background:{{ w.current_substatus_color }}18;color:{{ w.current_substatus_color }};border:1px solid {{ w.current_substatus_color }}40;">
-            <span style="width:5px;height:5px;border-radius:50%;background:{{ w.current_substatus_color }};"></span>
+        <span style="font-size:10px;font-weight:500;color:{{ w.current_substatus_color }};">
             {{ w.current_substatus }}
         </span>
         {% endif %}

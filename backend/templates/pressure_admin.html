@@ -121,12 +121,11 @@
 <div class="tabs" id="tabs">
   <div class="tab active" data-panel="overview">Обзор</div>
   <div class="tab" data-panel="sensors">Датчики (LoRa)</div>
-  <div class="tab" data-panel="channels">Каналы → Скважины</div>
+  <div class="tab" data-panel="channels">Установки датчиков</div>
   <div class="tab" data-panel="latest">pressure_latest</div>
   <div class="tab" data-panel="hourly">pressure_hourly</div>
   <div class="tab" data-panel="readings">pressure_readings <span class="badge">SQLite</span></div>
   <div class="tab" data-panel="csv_log">csv_import_log <span class="badge">SQLite</span></div>
-  <div class="tab" data-panel="tracing_state">tracing_state <span class="badge">SQLite</span></div>
   <div class="tab" data-panel="schedule">Расписание</div>
 </div>
 
@@ -143,7 +142,7 @@
       <table id="overview-table">
         <thead>
           <tr>
-            <th>well_id</th><th>Скважина</th><th>Канал</th>
+            <th>well_id</th><th>Скважина</th><th>Группа/Канал</th>
             <th>Ptr (устье)</th><th>Pshl (шлейф)</th>
             <th>Замер (UTC)</th><th>Давность</th><th>Статус</th>
           </tr>
@@ -159,7 +158,7 @@
       <table id="sensors-table">
         <thead>
           <tr>
-            <th>Канал</th><th>Серийный номер</th><th>Место</th>
+            <th>Группа</th><th>Канал</th><th>Колонка</th><th>Серийный номер</th><th>Место</th>
             <th>Скважина (сейчас)</th><th>Описание</th><th>Примечание</th>
           </tr>
         </thead>
@@ -168,14 +167,15 @@
     </div>
   </div>
 
-  <!-- ═══ Каналы → Скважины ═══ -->
+  <!-- ═══ Установки датчиков ═══ -->
   <div class="panel" id="panel-channels">
     <div class="scroll-wrapper">
       <table id="channels-table">
         <thead>
           <tr>
-            <th>id</th><th>Канал</th><th>well_id</th><th>Скважина</th>
-            <th>Начало</th><th>Окончание</th><th>Примечание</th><th>Активен</th>
+            <th>Группа</th><th>Канал</th><th>Колонка</th><th>Серийный номер</th>
+            <th>well_id</th><th>Скважина</th>
+            <th>Установлен</th><th>Снят</th><th>Примечание</th><th>Активен</th>
           </tr>
         </thead>
         <tbody id="channels-body"></tbody>
@@ -277,21 +277,6 @@
           </tr>
         </thead>
         <tbody id="csv-log-body"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- ═══ tracing_import_state ═══ -->
-  <div class="panel" id="panel-tracing_state">
-    <div class="scroll-wrapper">
-      <table>
-        <thead>
-          <tr>
-            <th>trend_name</th><th>last_ts</th><th>last_ts (datetime UTC)</th>
-            <th>rows_imported_total</th><th>updated_at</th>
-          </tr>
-        </thead>
-        <tbody id="tracing-body"></tbody>
       </table>
     </div>
   </div>
@@ -405,7 +390,6 @@ document.querySelectorAll('.tab').forEach(tab => {
     if (p === 'channels' && !loaded.channels) loadChannels();
     if (p === 'latest' && !loaded.latest) loadLatest();
     if (p === 'csv_log' && !loaded.csv_log) loadCsvLog();
-    if (p === 'tracing_state' && !loaded.tracing_state) loadTracingState();
     if (p === 'schedule' && !loaded.schedule) loadSchedule();
   });
 });
@@ -463,7 +447,7 @@ async function loadOverview() {
       <div class="info-card"><div class="label">Записей в pressure.db</div><div class="value">${(data.total_readings || 0).toLocaleString()}</div></div>
       <div class="info-card"><div class="label">Часовых агрегатов</div><div class="value">${(data.total_hourly || 0).toLocaleString()}</div></div>
       <div class="info-card"><div class="label">CSV файлов</div><div class="value">${data.csv_files_imported || 0}</div></div>
-      <div class="info-card"><div class="label">Каналов (активных)</div><div class="value">${data.active_channels || 0}</div></div>
+      <div class="info-card"><div class="label">Датчиков (активных)</div><div class="value">${data.active_sensors || 0}</div></div>
     `;
 
     // Table
@@ -491,10 +475,12 @@ async function loadSensors() {
   loaded.sensors = true;
   document.getElementById('sensors-body').innerHTML = data.map(s => `
     <tr>
-      <td style="font-weight:700;font-size:16px;text-align:center;">${s.channel}</td>
+      <td style="font-weight:700;text-align:center;">${s.csv_group}</td>
+      <td style="font-weight:700;text-align:center;">${s.csv_channel}</td>
+      <td style="color:${s.csv_column === 'Ptr' ? '#e53935' : '#1e88e5'};font-weight:600;">${s.csv_column}</td>
       <td style="font-family:monospace;font-weight:600;">${s.serial_number}</td>
       <td style="color:${s.position === 'tube' ? '#e53935' : '#1e88e5'};font-weight:500;">
-        ${s.position_ru} (${s.position === 'tube' ? 'Ptr' : 'Pshl'})
+        ${s.position_ru}
       </td>
       <td>${s.well_number ? `<a href="/well/${s.well_number}" style="color:#1d4ed8;text-decoration:none;font-weight:500;">Скв ${s.well_number}</a>` : '<span class="val-null">не назначена</span>'}</td>
       <td style="font-size:12px;">${v(s.label)}</td>
@@ -503,20 +489,22 @@ async function loadSensors() {
   `).join('');
 }
 
-// ─── Channels ───
+// ─── Channels (Installations) ───
 async function loadChannels() {
   const data = await fetchJson(API + '/channels');
   loaded.channels = true;
   document.getElementById('channels-body').innerHTML = data.map(ch => `
     <tr>
-      <td>${ch.id}</td>
-      <td style="font-weight:700;font-size:16px;">${ch.channel}</td>
+      <td style="font-weight:700;text-align:center;">${ch.csv_group}</td>
+      <td style="font-weight:700;text-align:center;">${ch.csv_channel}</td>
+      <td style="color:${ch.csv_column === 'Ptr' ? '#e53935' : '#1e88e5'};font-weight:600;">${ch.csv_column}</td>
+      <td style="font-family:monospace;font-size:12px;">${ch.serial_number}</td>
       <td>${ch.well_id}</td>
-      <td><a href="/well/${ch.well_number || ch.well_id}" style="color:#1d4ed8;text-decoration:none;">${ch.well_name}</a></td>
-      <td>${fmtDt(ch.started_at)}</td>
-      <td>${ch.ended_at ? fmtDt(ch.ended_at) : '<span class="val-online">Активен</span>'}</td>
+      <td><a href="/well/${ch.well_number || ch.well_id}" style="color:#1d4ed8;text-decoration:none;">${ch.well_name || ''}</a></td>
+      <td>${fmtDt(ch.installed_at)}</td>
+      <td>${ch.removed_at ? fmtDt(ch.removed_at) : '<span class="val-online">Активен</span>'}</td>
       <td>${v(ch.note)}</td>
-      <td class="${ch.ended_at ? '' : 'val-online'}">${ch.ended_at ? 'Нет' : '● Да'}</td>
+      <td class="${ch.removed_at ? '' : 'val-online'}">${ch.removed_at ? 'Нет' : '● Да'}</td>
     </tr>
   `).join('');
 }
@@ -598,21 +586,6 @@ async function loadCsvLog() {
       <td>${v(r.rows_skipped)}</td>
       <td style="font-size:10px;color:#9ca3af;">${(r.file_sha256 || '').substring(0, 16)}…</td>
       <td>${fmtDt(r.imported_at)}</td>
-    </tr>
-  `).join('');
-}
-
-// ─── Tracing State ───
-async function loadTracingState() {
-  const data = await fetchJson(API + '/tracing_state');
-  loaded.tracing_state = true;
-  document.getElementById('tracing-body').innerHTML = data.map(r => `
-    <tr>
-      <td style="font-weight:600;">${r.trend_name}</td>
-      <td style="font-size:11px;">${r.last_ts}</td>
-      <td>${fmtDt(r.last_ts_dt)}</td>
-      <td>${(r.rows_imported_total || 0).toLocaleString()}</td>
-      <td>${fmtDt(r.updated_at)}</td>
     </tr>
   `).join('');
 }

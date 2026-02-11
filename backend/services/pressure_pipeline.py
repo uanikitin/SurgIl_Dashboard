@@ -6,6 +6,11 @@
   2. Импорт CSV → pressure.db (SQLite)
   3. Агрегация pressure.db → PostgreSQL (hourly + latest)
 
+Оптимизации:
+  - Шаг 2 возвращает affected_well_ids и min_timestamp
+  - Шаг 3 агрегирует только затронутые скважины и период
+  - Если ничего не изменилось — шаг 3 пропускается
+
 Может запускаться:
   - Вручную: python -m backend.services.pressure_pipeline
   - Из API: POST /api/pressure/refresh
@@ -62,10 +67,24 @@ def run_pipeline(skip_sync: bool = False) -> dict:
             results["steps"]["sync_csv"] = {"skipped": True}
 
         # === Шаг 2: Импорт CSV → pressure.db ===
-        results["steps"]["import_csv"] = _step_import_csv()
+        import_result = _step_import_csv()
+        results["steps"]["import_csv"] = {
+            k: v for k, v in import_result.items()
+            if k not in ("affected_well_ids", "min_timestamp")
+        }
 
         # === Шаг 3: Агрегация → PostgreSQL ===
-        results["steps"]["aggregate"] = _step_aggregate()
+        affected_wells = import_result.get("affected_well_ids", set())
+        min_timestamp = import_result.get("min_timestamp")
+
+        if affected_wells:
+            results["steps"]["aggregate"] = _step_aggregate(
+                well_ids=affected_wells,
+                since=min_timestamp,
+            )
+        else:
+            log.info("Шаг 3 пропущен (нет новых данных)")
+            results["steps"]["aggregate"] = {"skipped": True, "reason": "no new data"}
 
     except Exception as e:
         log.error(f"Пайплайн упал: {e}", exc_info=True)
@@ -116,10 +135,12 @@ def _step_import_csv() -> dict:
     try:
         from backend.services.pressure_import_csv import import_all_csv
         result = import_all_csv(CSV_DIR)
+        affected = result.get("affected_well_ids", set())
         log.info(
             f"CSV import: {result.get('imported', 0)} файлов, "
             f"{result.get('total_rows_imported', 0)} строк, "
-            f"{result.get('skipped', 0)} пропущено"
+            f"{result.get('skipped', 0)} пропущено, "
+            f"{len(affected)} скважин затронуто"
         )
         return result
     except Exception as e:
@@ -127,14 +148,17 @@ def _step_import_csv() -> dict:
         return {"error": str(e)}
 
 
-def _step_aggregate() -> dict:
+def _step_aggregate(
+    well_ids: set[int] = None,
+    since: datetime = None,
+) -> dict:
     """Шаг 3: Агрегация pressure.db → PostgreSQL hourly + latest."""
     log.info("=== Шаг 3: Агрегация → PostgreSQL ===")
     try:
         from backend.services.pressure_aggregate_service import (
             aggregate_to_hourly,
         )
-        result = aggregate_to_hourly()
+        result = aggregate_to_hourly(since=since, well_ids=well_ids)
         log.info(
             f"Aggregate: {result.get('hours_upserted', 0)} "
             f"часовых групп, "

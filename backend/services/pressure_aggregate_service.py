@@ -9,6 +9,10 @@ pressure_aggregate_service — агрегация pressure.db → PostgreSQL
 
 Использует raw SQL для PostgreSQL чтобы избежать зависимости
 от всех ORM-моделей (Equipment и т.д.).
+
+Оптимизации:
+  - Целевая агрегация: если переданы affected well_ids, агрегируются только они
+  - pressure_latest обновляется только для затронутых скважин
 """
 
 import logging
@@ -26,6 +30,7 @@ log = logging.getLogger(__name__)
 
 def aggregate_to_hourly(
     since: Optional[datetime] = None,
+    well_ids: Optional[set[int]] = None,
     batch_size: int = 500,
 ) -> dict:
     """
@@ -33,6 +38,7 @@ def aggregate_to_hourly(
 
     Args:
         since: Начало периода агрегации (UTC). По умолчанию — last 48h.
+        well_ids: Если задано, агрегирует только эти скважины.
         batch_size: Размер пакета для commit.
 
     Returns: {"hours_upserted": N, "wells_updated": N}
@@ -42,13 +48,28 @@ def aggregate_to_hourly(
     if since is None:
         since = datetime.utcnow() - timedelta(hours=48)
 
-    log.info("Aggregating pressure data since %s", since)
+    # Формируем WHERE-условие
+    where_parts = [
+        "measured_at >= :since",
+        "(p_tube IS NOT NULL OR p_line IS NOT NULL)",
+    ]
+    params = {"since": since}
+
+    if well_ids:
+        # SQLite: IN со списком int (безопасно — из нашего кода)
+        well_id_csv = ",".join(str(int(w)) for w in well_ids)
+        where_parts.append(f"well_id IN ({well_id_csv})")
+        log.info("Aggregating %d wells since %s", len(well_ids), since)
+    else:
+        log.info("Aggregating ALL wells since %s", since)
+
+    where_sql = " AND ".join(where_parts)
 
     # 1. Читаем агрегаты из pressure.db
     sqlite_db = PressureSessionLocal()
     try:
         rows = sqlite_db.execute(
-            text("""
+            text(f"""
                 SELECT
                     well_id,
                     strftime('%Y-%m-%d %H:00:00', measured_at) as hour_start,
@@ -60,12 +81,11 @@ def aggregate_to_hourly(
                     MAX(p_line) as p_line_max,
                     COUNT(*) as reading_count
                 FROM pressure_readings
-                WHERE measured_at >= :since
-                    AND (p_tube IS NOT NULL OR p_line IS NOT NULL)
+                WHERE {where_sql}
                 GROUP BY well_id, strftime('%Y-%m-%d %H:00:00', measured_at)
                 ORDER BY hour_start
             """),
-            {"since": since},
+            params,
         ).fetchall()
     finally:
         sqlite_db.close()
@@ -123,7 +143,7 @@ def aggregate_to_hourly(
         log.info("  upserted %d / %d", hours_upserted, len(rows))
 
     # 3. Обновляем pressure_latest
-    wells_updated = _update_latest()
+    wells_updated = _update_latest(well_ids=well_ids)
 
     log.info(
         "Aggregation complete: %d hours upserted, %d wells updated",
@@ -137,16 +157,28 @@ def aggregate_full_history() -> dict:
     return aggregate_to_hourly(since=datetime(2020, 1, 1))
 
 
-def _update_latest() -> int:
+def _update_latest(well_ids: Optional[set[int]] = None) -> int:
     """
     Обновляет pressure_latest из pressure.db.
     Берёт среднее за последние 3 минуты (по каждой скважине),
     чтобы сгладить кратковременные скачки давления.
+
+    Args:
+        well_ids: Если задано, обновляет только эти скважины.
     """
+    # Фильтр по скважинам
+    if well_ids:
+        well_id_csv = ",".join(str(int(w)) for w in well_ids)
+        well_filter = f"AND pr.well_id IN ({well_id_csv})"
+        sub_filter = f"AND well_id IN ({well_id_csv})"
+    else:
+        well_filter = ""
+        sub_filter = ""
+
     sqlite_db = PressureSessionLocal()
     try:
         rows = sqlite_db.execute(
-            text("""
+            text(f"""
                 SELECT
                     pr.well_id,
                     MAX(pr.measured_at) as measured_at,
@@ -156,11 +188,13 @@ def _update_latest() -> int:
                 INNER JOIN (
                     SELECT well_id, MAX(measured_at) as max_ts
                     FROM pressure_readings
-                    WHERE p_tube IS NOT NULL OR p_line IS NOT NULL
+                    WHERE (p_tube IS NOT NULL OR p_line IS NOT NULL)
+                    {sub_filter}
                     GROUP BY well_id
                 ) latest ON pr.well_id = latest.well_id
                 WHERE pr.measured_at >= datetime(latest.max_ts, '-3 minutes')
                   AND (pr.p_tube IS NOT NULL OR pr.p_line IS NOT NULL)
+                  {well_filter}
                 GROUP BY pr.well_id
             """)
         ).fetchall()
@@ -202,6 +236,9 @@ def _execute_pg_batch(sql, params_list: list, retries: int = 3):
     Выполняет batch SQL-запросов к PostgreSQL с retry.
     Каждый вызов — новый engine + connection (Render.com timeout-safe).
     """
+    if not params_list:
+        return
+
     for attempt in range(retries):
         engine = _make_pg_engine()
         try:

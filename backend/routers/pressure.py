@@ -606,24 +606,37 @@ def admin_overview(current_user: str = Depends(get_current_user)):
             text("SELECT COUNT(*) FROM pressure_hourly")
         ).scalar() or 0
 
-        active_channels = conn.execute(
-            text("SELECT COUNT(*) FROM well_channels WHERE ended_at IS NULL")
+        active_sensors = conn.execute(
+            text("""
+                SELECT COUNT(DISTINCT ls.id)
+                FROM lora_sensors ls
+                JOIN equipment e ON e.serial_number = ls.serial_number
+                JOIN equipment_installation ei ON ei.equipment_id = e.id AND ei.removed_at IS NULL
+            """)
         ).scalar() or 0
 
         rows = conn.execute(
             text("""
                 SELECT pl.well_id, w.name, w.number,
                        pl.p_tube, pl.p_line, pl.measured_at,
-                       wc.channel
+                       sub.csv_group, sub.csv_channel
                 FROM pressure_latest pl
                 JOIN wells w ON w.id = pl.well_id
-                LEFT JOIN well_channels wc ON wc.well_id = pl.well_id AND wc.ended_at IS NULL
+                LEFT JOIN LATERAL (
+                    SELECT DISTINCT ls.csv_group, ls.csv_channel
+                    FROM equipment_installation ei
+                    JOIN equipment e ON e.id = ei.equipment_id
+                    JOIN lora_sensors ls ON ls.serial_number = e.serial_number
+                    WHERE ei.well_id = pl.well_id AND ei.removed_at IS NULL
+                    LIMIT 1
+                ) sub ON true
                 ORDER BY w.number
             """)
         ).fetchall()
 
     wells = []
     for r in rows:
+        ch_label = f"Гр{r[6]}/К{r[7]}" if r[6] and r[7] else None
         wells.append({
             "well_id": r[0],
             "well_name": r[1],
@@ -631,7 +644,7 @@ def admin_overview(current_user: str = Depends(get_current_user)):
             "p_tube": _r(r[3]),
             "p_line": _r(r[4]),
             "measured_at": r[5].isoformat() if r[5] else None,
-            "channel": r[6],
+            "channel": ch_label,
         })
 
     return {
@@ -639,35 +652,41 @@ def admin_overview(current_user: str = Depends(get_current_user)):
         "total_readings": total_readings,
         "total_hourly": total_hourly,
         "csv_files_imported": csv_count,
-        "active_channels": active_channels,
+        "active_sensors": active_sensors,
         "wells": wells,
     }
 
 
 @router.get("/admin/channels")
 def admin_channels(current_user: str = Depends(get_current_user)):
-    """Все записи well_channels с именами скважин."""
+    """Привязка датчиков к скважинам через equipment_installation."""
     with pg_engine.connect() as conn:
         rows = conn.execute(
             text("""
-                SELECT wc.id, wc.channel, wc.well_id, w.name, w.number,
-                       wc.started_at, wc.ended_at, wc.note
-                FROM well_channels wc
-                JOIN wells w ON w.id = wc.well_id
-                ORDER BY wc.channel, wc.started_at
+                SELECT ei.id, ls.csv_group, ls.csv_channel, ls.csv_column,
+                       ls.serial_number, ei.well_id, w.name, w.number,
+                       ei.installed_at, ei.removed_at, ei.notes
+                FROM equipment_installation ei
+                JOIN equipment e ON e.id = ei.equipment_id
+                JOIN lora_sensors ls ON ls.serial_number = e.serial_number
+                JOIN wells w ON w.id = ei.well_id
+                ORDER BY ls.csv_group, ls.csv_channel, ei.installed_at
             """)
         ).fetchall()
 
     return [
         {
             "id": r[0],
-            "channel": r[1],
-            "well_id": r[2],
-            "well_name": r[3],
-            "well_number": r[4],
-            "started_at": r[5].isoformat() if r[5] else None,
-            "ended_at": r[6].isoformat() if r[6] else None,
-            "note": r[7],
+            "csv_group": r[1],
+            "csv_channel": r[2],
+            "csv_column": r[3],
+            "serial_number": r[4],
+            "well_id": r[5],
+            "well_name": r[6],
+            "well_number": r[7],
+            "installed_at": r[8].isoformat() if r[8] else None,
+            "removed_at": r[9].isoformat() if r[9] else None,
+            "note": r[10],
         }
         for r in rows
     ]
@@ -789,55 +808,21 @@ def admin_csv_log(current_user: str = Depends(get_current_user)):
     ]
 
 
-@router.get("/admin/tracing_state")
-def admin_tracing_state(current_user: str = Depends(get_current_user)):
-    """Состояние импорта Tracing SQLite."""
-    from backend.db_pressure import PressureSessionLocal, init_pressure_db
-    init_pressure_db()
-
-    sqlite_db = PressureSessionLocal()
-    try:
-        rows = sqlite_db.execute(
-            text(
-                "SELECT trend_name, last_ts, rows_imported_total, updated_at "
-                "FROM tracing_import_state ORDER BY trend_name"
-            )
-        ).fetchall()
-    finally:
-        sqlite_db.close()
-
-    result = []
-    for r in rows:
-        last_ts = r[1] or 0
-        # Конвертируем μs → datetime
-        try:
-            last_ts_dt = datetime.utcfromtimestamp(last_ts / 1_000_000).isoformat() if last_ts > 0 else None
-        except (OSError, OverflowError):
-            last_ts_dt = None
-
-        result.append({
-            "trend_name": r[0],
-            "last_ts": last_ts,
-            "last_ts_dt": last_ts_dt,
-            "rows_imported_total": r[2],
-            "updated_at": r[3],
-        })
-
-    return result
-
-
 @router.get("/admin/sensors")
 def admin_sensors(current_user: str = Depends(get_current_user)):
-    """Все LoRa-датчики с привязкой к каналам и текущей скважине."""
+    """Все LoRa-датчики с привязкой через equipment_installation."""
     with pg_engine.connect() as conn:
         rows = conn.execute(
             text("""
-                SELECT ls.id, ls.serial_number, ls.channel, ls.position, ls.label, ls.note,
-                       wc.well_id, w.name AS well_name, w.number AS well_number
+                SELECT ls.id, ls.serial_number, ls.csv_group, ls.csv_channel,
+                       ls.csv_column, ls.label, ls.note,
+                       ei.well_id, w.name AS well_name, w.number AS well_number
                 FROM lora_sensors ls
-                LEFT JOIN well_channels wc ON wc.channel = ls.channel AND wc.ended_at IS NULL
-                LEFT JOIN wells w ON w.id = wc.well_id
-                ORDER BY ls.channel, ls.position DESC
+                LEFT JOIN equipment e ON e.serial_number = ls.serial_number
+                LEFT JOIN equipment_installation ei
+                    ON ei.equipment_id = e.id AND ei.removed_at IS NULL
+                LEFT JOIN wells w ON w.id = ei.well_id
+                ORDER BY ls.csv_group, ls.csv_channel, ls.csv_column
             """)
         ).fetchall()
 
@@ -845,14 +830,16 @@ def admin_sensors(current_user: str = Depends(get_current_user)):
         {
             "id": r[0],
             "serial_number": r[1],
-            "channel": r[2],
-            "position": r[3],
-            "position_ru": "устье" if r[3] == "tube" else "шлейф",
-            "label": r[4],
-            "note": r[5],
-            "well_id": r[6],
-            "well_name": r[7],
-            "well_number": r[8],
+            "csv_group": r[2],
+            "csv_channel": r[3],
+            "csv_column": r[4],
+            "position": "tube" if r[4] == "Ptr" else "line",
+            "position_ru": "устье" if r[4] == "Ptr" else "шлейф",
+            "label": r[5],
+            "note": r[6],
+            "well_id": r[7],
+            "well_name": r[8],
+            "well_number": r[9],
         }
         for r in rows
     ]

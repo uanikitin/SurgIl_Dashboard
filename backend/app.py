@@ -345,6 +345,36 @@ def create_master_admin():
         db.close()
 
 
+@app.on_event("startup")
+def ensure_pressure_raw_table():
+    """
+    Создаёт таблицу pressure_raw если её нет.
+    Безопасно: CREATE TABLE IF NOT EXISTS не трогает существующие таблицы.
+    Нужна для графиков давлений на Render (где нет локального SQLite).
+    """
+    from backend.db import engine as pg_engine
+    try:
+        with pg_engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS pressure_raw (
+                    id BIGSERIAL PRIMARY KEY,
+                    well_id INTEGER NOT NULL,
+                    measured_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+                    p_tube DOUBLE PRECISION,
+                    p_line DOUBLE PRECISION,
+                    CONSTRAINT uq_pressure_raw_well_time
+                        UNIQUE (well_id, measured_at)
+                )
+            """))
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_pressure_raw_well_measured
+                ON pressure_raw (well_id, measured_at)
+            """))
+        print(">>> pressure_raw таблица проверена/создана")
+    except Exception as e:
+        print(f">>> pressure_raw: ошибка при создании: {e}")
+
+
 @app.get("/", include_in_schema=False)
 async def root(current_user: str = Depends(get_current_user)):
     return RedirectResponse("/visual")

@@ -158,9 +158,15 @@ def get_pressure_chart(
 
     # Проверяем наличие локальной SQLite с реальными данными
     if not _sqlite_available():
-        return _chart_from_pg(well_id, days, interval)
+        return _chart_from_pg(
+            well_id, days, interval,
+            filter_zeros=filter_zeros,
+            filter_spikes=filter_spikes,
+            fill_mode=fill_mode,
+            max_gap=max_gap,
+        )
 
-    # SQLite доступна — используем локальные данные (быстрее, поддержка фильтров)
+    # SQLite доступна — используем локальные данные (быстрее)
     try:
         return _chart_from_sqlite(
             well_id, days, interval,
@@ -171,7 +177,13 @@ def get_pressure_chart(
         )
     except Exception:
         # Любая ошибка SQLite → fallback на PostgreSQL
-        return _chart_from_pg(well_id, days, interval)
+        return _chart_from_pg(
+            well_id, days, interval,
+            filter_zeros=filter_zeros,
+            filter_spikes=filter_spikes,
+            fill_mode=fill_mode,
+            max_gap=max_gap,
+        )
 
 
 def _chart_from_sqlite(
@@ -313,20 +325,90 @@ def _chart_from_sqlite(
     return result
 
 
-def _chart_from_pg(well_id: int, days: int, interval: int = 5) -> dict:
+def _chart_from_pg(
+    well_id: int, days: int, interval: int = 5,
+    filter_zeros: bool = False, filter_spikes: bool = False,
+    fill_mode: str = "none", max_gap: int = 10,
+) -> dict:
     """
     График из PostgreSQL pressure_raw.
     Используется на Render (где нет локального SQLite).
-    Поддерживает произвольный интервал агрегации.
 
-    Если таблица pressure_raw не существует (миграция ещё не прошла),
-    падает в fallback на pressure_hourly.
+    Если фильтры включены — загружает сырые строки, применяет Python-фильтры,
+    агрегирует в pandas. Если фильтры выключены — SQL-агрегация (быстрее).
     """
     import math
     from sqlalchemy.exc import ProgrammingError
 
     dt_end = datetime.utcnow()
     dt_start = dt_end - timedelta(days=days)
+
+    filters_active = any([filter_zeros, filter_spikes, fill_mode != "none"])
+
+    if filters_active:
+        # ── Путь с фильтрацией: сырые данные → Python-фильтры → pandas-агрегация ──
+        try:
+            with pg_engine.connect() as conn:
+                raw_rows = conn.execute(
+                    text("""
+                        SELECT measured_at, p_tube, p_line
+                        FROM pressure_raw
+                        WHERE well_id = :well_id
+                            AND measured_at >= :start
+                            AND measured_at <= :end
+                        ORDER BY measured_at
+                    """),
+                    {"well_id": well_id, "start": dt_start, "end": dt_end},
+                ).fetchall()
+        except ProgrammingError:
+            return _chart_from_hourly(well_id, days)
+
+        if not raw_rows:
+            return {
+                "well_id": well_id, "interval_min": interval,
+                "points": [], "count": 0, "tz": "UTC+5", "source": "raw_pg",
+            }
+
+        from backend.services.pressure_filter_service import (
+            filter_pressure_pair,
+            aggregate_filtered,
+        )
+
+        filtered = filter_pressure_pair(
+            p_tube=[r[1] for r in raw_rows],
+            p_line=[r[2] for r in raw_rows],
+            timestamps=[r[0].strftime("%Y-%m-%d %H:%M:%S") for r in raw_rows],
+            filter_zeros=filter_zeros,
+            filter_spikes=filter_spikes,
+            fill_mode=fill_mode,
+            max_gap_min=max_gap,
+        )
+
+        aggregated = aggregate_filtered(
+            p_tube=filtered["p_tube"],
+            p_line=filtered["p_line"],
+            timestamps=filtered["timestamps"],
+            interval_min=interval,
+        )
+
+        data = []
+        for point in aggregated:
+            try:
+                dt_utc = datetime.fromisoformat(point["t"])
+                point["t"] = (dt_utc + KUNKRAD_OFFSET).strftime("%Y-%m-%dT%H:%M:%S")
+            except (ValueError, TypeError):
+                continue
+            data.append(point)
+
+        result = {
+            "well_id": well_id, "interval_min": interval,
+            "points": data, "count": len(data),
+            "tz": "UTC+5", "source": "raw_pg",
+        }
+        result["filter_stats"] = filtered["stats"]
+        return result
+
+    # ── Стандартный путь: SQL-агрегация (без фильтров) ──
     interval_sec = interval * 60
 
     try:
@@ -360,7 +442,6 @@ def _chart_from_pg(well_id: int, days: int, interval: int = 5) -> dict:
                 },
             ).fetchall()
     except ProgrammingError:
-        # pressure_raw ещё не создана — fallback на hourly
         return _chart_from_hourly(well_id, days)
 
     def _safe(v):

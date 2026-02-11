@@ -103,11 +103,13 @@ def get_pressure_chart(
 ):
     """
     Агрегированные давления с настраиваемым интервалом.
-    Данные из SQLite (pressure_readings) — агрегация на лету.
+
+    Локально: данные из SQLite (pressure_readings) — агрегация на лету.
+    На сервере (Render): fallback на PostgreSQL (pressure_hourly, 60 мин).
 
     ?days=7&interval=15  — последние 7 дней, интервал 15 минут
 
-    Фильтрация (опционально):
+    Фильтрация (опционально, только при наличии SQLite):
     ?filter_zeros=true   — убрать 0.0
     ?filter_spikes=true  — Hampel-фильтр для спайков
     ?fill_mode=ffill     — заполнить пропуски (ffill/interpolate)
@@ -123,14 +125,15 @@ def get_pressure_chart(
     if fill_mode not in allowed_fill_modes:
         raise HTTPException(400, f"fill_mode must be one of: {sorted(allowed_fill_modes)}")
 
-    from backend.db_pressure import PressureSessionLocal, init_pressure_db
+    # Проверяем наличие локальной SQLite
+    db_path = Path(__file__).resolve().parent.parent.parent / "data" / "pressure.db"
+    if not db_path.exists():
+        # Fallback: PostgreSQL pressure_hourly (Render / сервер без SQLite)
+        return _chart_from_pg(well_id, days)
+
     import sqlite3
     import math
 
-    init_pressure_db()
-
-    # Используем raw sqlite3 чтобы избежать проблем с SQLAlchemy bind parameters
-    db_path = Path(__file__).resolve().parent.parent.parent / "data" / "pressure.db"
     conn = sqlite3.connect(str(db_path))
 
     filters_active = any([filter_zeros, filter_spikes, fill_mode != "none"])
@@ -269,6 +272,53 @@ def get_pressure_chart(
     return result
 
 
+def _chart_from_pg(well_id: int, days: int) -> dict:
+    """
+    Fallback: график из PostgreSQL pressure_hourly.
+    Используется на Render (где нет локального SQLite).
+    Интервал всегда 60 мин (часовые агрегаты).
+    """
+    dt_end = datetime.utcnow()
+    dt_start = dt_end - timedelta(days=days)
+
+    with pg_engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT hour_start, p_tube_avg, p_tube_min, p_tube_max,
+                       p_line_avg, p_line_min, p_line_max, reading_count
+                FROM pressure_hourly
+                WHERE well_id = :well_id
+                    AND hour_start >= :start
+                    AND hour_start <= :end
+                ORDER BY hour_start
+            """),
+            {"well_id": well_id, "start": dt_start, "end": dt_end},
+        ).fetchall()
+
+    data = []
+    for r in rows:
+        t_kungrad = (r[0] + KUNKRAD_OFFSET).strftime("%Y-%m-%dT%H:%M:%S") if r[0] else None
+        data.append({
+            "t": t_kungrad,
+            "p_tube_avg": _r(r[1]),
+            "p_tube_min": _r(r[2]),
+            "p_tube_max": _r(r[3]),
+            "p_line_avg": _r(r[4]),
+            "p_line_min": _r(r[5]),
+            "p_line_max": _r(r[6]),
+            "count": r[7],
+        })
+
+    return {
+        "well_id": well_id,
+        "interval_min": 60,
+        "points": data,
+        "count": len(data),
+        "tz": "UTC+5",
+        "source": "hourly",
+    }
+
+
 @router.get("/raw_nearby/{well_id}")
 def get_pressure_raw_nearby(
     well_id: int,
@@ -281,8 +331,9 @@ def get_pressure_raw_nearby(
 
     Ответ: { well_id, center, rows: [{measured_at, p_tube, p_line}, ...] }
     Время в ответе — UTC+5.
+
+    Требует локальный SQLite. На Render возвращает пустой массив.
     """
-    from pathlib import Path
     import sqlite3
 
     # Парсим входное время (UTC+5) и конвертируем в UTC
@@ -295,6 +346,9 @@ def get_pressure_raw_nearby(
     center_utc_str = dt_utc.strftime("%Y-%m-%d %H:%M:%S")
 
     db_path = Path(__file__).resolve().parent.parent.parent / "data" / "pressure.db"
+    if not db_path.exists():
+        return {"well_id": well_id, "center": t, "rows": [], "source": "no_sqlite"}
+
     conn = sqlite3.connect(str(db_path))
 
     try:
@@ -587,18 +641,23 @@ def admin_overview(current_user: str = Depends(get_current_user)):
     from backend.db_pressure import PressureSessionLocal, init_pressure_db
     init_pressure_db()
 
-    # Из локального SQLite
-    sqlite_db = PressureSessionLocal()
-    try:
-        total_readings = sqlite_db.execute(
-            text("SELECT COUNT(*) FROM pressure_readings")
-        ).scalar() or 0
+    # Из локального SQLite (если есть)
+    db_path = Path(__file__).resolve().parent.parent.parent / "data" / "pressure.db"
+    if db_path.exists():
+        sqlite_db = PressureSessionLocal()
+        try:
+            total_readings = sqlite_db.execute(
+                text("SELECT COUNT(*) FROM pressure_readings")
+            ).scalar() or 0
 
-        csv_count = sqlite_db.execute(
-            text("SELECT COUNT(*) FROM csv_import_log WHERE status = 'imported'")
-        ).scalar() or 0
-    finally:
-        sqlite_db.close()
+            csv_count = sqlite_db.execute(
+                text("SELECT COUNT(*) FROM csv_import_log WHERE status = 'imported'")
+            ).scalar() or 0
+        finally:
+            sqlite_db.close()
+    else:
+        total_readings = 0
+        csv_count = 0
 
     # Из PostgreSQL
     with pg_engine.connect() as conn:
@@ -726,7 +785,11 @@ def admin_readings(
     limit: int = Query(100, ge=1, le=5000),
     current_user: str = Depends(get_current_user),
 ):
-    """Сырые записи из pressure.db (локальный SQLite)."""
+    """Сырые записи из pressure.db (локальный SQLite). На Render — пусто."""
+    db_path = Path(__file__).resolve().parent.parent.parent / "data" / "pressure.db"
+    if not db_path.exists():
+        return {"total": 0, "rows": [], "source": "no_sqlite"}
+
     from backend.db_pressure import PressureSessionLocal, init_pressure_db
     init_pressure_db()
 
@@ -779,7 +842,11 @@ def admin_readings(
 
 @router.get("/admin/csv_log")
 def admin_csv_log(current_user: str = Depends(get_current_user)):
-    """Журнал импорта CSV."""
+    """Журнал импорта CSV. На Render — пусто."""
+    db_path = Path(__file__).resolve().parent.parent.parent / "data" / "pressure.db"
+    if not db_path.exists():
+        return []
+
     from backend.db_pressure import PressureSessionLocal, init_pressure_db
     init_pressure_db()
 

@@ -29,6 +29,14 @@ _templates = Jinja2Templates(directory="backend/templates")
 # Часовой пояс Кунграда (Каракалпакстан) — UTC+5
 KUNKRAD_OFFSET = timedelta(hours=5)
 
+# Путь к локальному SQLite
+_SQLITE_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "pressure.db"
+
+
+def _sqlite_available() -> bool:
+    """True если локальный pressure.db существует и содержит данные (>4 KB)."""
+    return _SQLITE_PATH.exists() and _SQLITE_PATH.stat().st_size > 4096
+
 # Путь к конфигу расписания
 SCHEDULE_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "scripts" / "schedule_config.json"
 
@@ -125,16 +133,14 @@ def get_pressure_chart(
     if fill_mode not in allowed_fill_modes:
         raise HTTPException(400, f"fill_mode must be one of: {sorted(allowed_fill_modes)}")
 
-    # Проверяем наличие локальной SQLite
-    db_path = Path(__file__).resolve().parent.parent.parent / "data" / "pressure.db"
-    if not db_path.exists():
-        # Fallback: PostgreSQL pressure_raw (Render / сервер без SQLite)
+    # Проверяем наличие локальной SQLite (>4KB = реальные данные)
+    if not _sqlite_available():
         return _chart_from_pg(well_id, days, interval)
 
     import sqlite3
     import math
 
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(_SQLITE_PATH))
 
     filters_active = any([filter_zeros, filter_spikes, fill_mode != "none"])
     filter_stats = None
@@ -277,42 +283,50 @@ def _chart_from_pg(well_id: int, days: int, interval: int = 5) -> dict:
     График из PostgreSQL pressure_raw.
     Используется на Render (где нет локального SQLite).
     Поддерживает произвольный интервал агрегации.
+
+    Если таблица pressure_raw не существует (миграция ещё не прошла),
+    падает в fallback на pressure_hourly.
     """
     import math
+    from sqlalchemy.exc import ProgrammingError
 
     dt_end = datetime.utcnow()
     dt_start = dt_end - timedelta(days=days)
     interval_sec = interval * 60
 
-    with pg_engine.connect() as conn:
-        rows = conn.execute(
-            text("""
-                SELECT
-                    to_timestamp(
-                        floor(extract(epoch FROM measured_at) / :isec) * :isec
-                    ) AS bucket,
-                    AVG(p_tube) AS p_tube_avg,
-                    MIN(p_tube) AS p_tube_min,
-                    MAX(p_tube) AS p_tube_max,
-                    AVG(p_line) AS p_line_avg,
-                    MIN(p_line) AS p_line_min,
-                    MAX(p_line) AS p_line_max,
-                    COUNT(*) AS cnt
-                FROM pressure_raw
-                WHERE well_id = :well_id
-                    AND measured_at >= :start
-                    AND measured_at <= :end
-                    AND (p_tube IS NOT NULL OR p_line IS NOT NULL)
-                GROUP BY bucket
-                ORDER BY bucket
-            """),
-            {
-                "well_id": well_id,
-                "start": dt_start,
-                "end": dt_end,
-                "isec": interval_sec,
-            },
-        ).fetchall()
+    try:
+        with pg_engine.connect() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT
+                        to_timestamp(
+                            floor(extract(epoch FROM measured_at) / :isec) * :isec
+                        ) AS bucket,
+                        AVG(p_tube) AS p_tube_avg,
+                        MIN(p_tube) AS p_tube_min,
+                        MAX(p_tube) AS p_tube_max,
+                        AVG(p_line) AS p_line_avg,
+                        MIN(p_line) AS p_line_min,
+                        MAX(p_line) AS p_line_max,
+                        COUNT(*) AS cnt
+                    FROM pressure_raw
+                    WHERE well_id = :well_id
+                        AND measured_at >= :start
+                        AND measured_at <= :end
+                        AND (p_tube IS NOT NULL OR p_line IS NOT NULL)
+                    GROUP BY bucket
+                    ORDER BY bucket
+                """),
+                {
+                    "well_id": well_id,
+                    "start": dt_start,
+                    "end": dt_end,
+                    "isec": interval_sec,
+                },
+            ).fetchall()
+    except ProgrammingError:
+        # pressure_raw ещё не создана — fallback на hourly
+        return _chart_from_hourly(well_id, days)
 
     def _safe(v):
         if v is None:
@@ -346,6 +360,51 @@ def _chart_from_pg(well_id: int, days: int, interval: int = 5) -> dict:
     }
 
 
+def _chart_from_hourly(well_id: int, days: int) -> dict:
+    """
+    Fallback на pressure_hourly (если pressure_raw ещё не создана).
+    """
+    dt_end = datetime.utcnow()
+    dt_start = dt_end - timedelta(days=days)
+
+    with pg_engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT hour_start, p_tube_avg, p_tube_min, p_tube_max,
+                       p_line_avg, p_line_min, p_line_max, reading_count
+                FROM pressure_hourly
+                WHERE well_id = :well_id
+                    AND hour_start >= :start
+                    AND hour_start <= :end
+                ORDER BY hour_start
+            """),
+            {"well_id": well_id, "start": dt_start, "end": dt_end},
+        ).fetchall()
+
+    data = []
+    for r in rows:
+        t_k = (r[0] + KUNKRAD_OFFSET).strftime("%Y-%m-%dT%H:%M:%S") if r[0] else None
+        data.append({
+            "t": t_k,
+            "p_tube_avg": _r(r[1]),
+            "p_tube_min": _r(r[2]),
+            "p_tube_max": _r(r[3]),
+            "p_line_avg": _r(r[4]),
+            "p_line_min": _r(r[5]),
+            "p_line_max": _r(r[6]),
+            "count": r[7],
+        })
+
+    return {
+        "well_id": well_id,
+        "interval_min": 60,
+        "points": data,
+        "count": len(data),
+        "tz": "UTC+5",
+        "source": "hourly",
+    }
+
+
 @router.get("/raw_nearby/{well_id}")
 def get_pressure_raw_nearby(
     well_id: int,
@@ -372,11 +431,10 @@ def get_pressure_raw_nearby(
     dt_utc = dt_local - KUNKRAD_OFFSET
     center_utc_str = dt_utc.strftime("%Y-%m-%d %H:%M:%S")
 
-    db_path = Path(__file__).resolve().parent.parent.parent / "data" / "pressure.db"
-    if not db_path.exists():
+    if not _sqlite_available():
         return {"well_id": well_id, "center": t, "rows": [], "source": "no_sqlite"}
 
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(_SQLITE_PATH))
 
     try:
         # N+1 строк до (включая центральную) + N строк после
@@ -669,8 +727,7 @@ def admin_overview(current_user: str = Depends(get_current_user)):
     init_pressure_db()
 
     # Из локального SQLite (если есть)
-    db_path = Path(__file__).resolve().parent.parent.parent / "data" / "pressure.db"
-    if db_path.exists():
+    if _sqlite_available():
         sqlite_db = PressureSessionLocal()
         try:
             total_readings = sqlite_db.execute(
@@ -813,8 +870,7 @@ def admin_readings(
     current_user: str = Depends(get_current_user),
 ):
     """Сырые записи из pressure.db (локальный SQLite). На Render — пусто."""
-    db_path = Path(__file__).resolve().parent.parent.parent / "data" / "pressure.db"
-    if not db_path.exists():
+    if not _sqlite_available():
         return {"total": 0, "rows": [], "source": "no_sqlite"}
 
     from backend.db_pressure import PressureSessionLocal, init_pressure_db
@@ -870,8 +926,7 @@ def admin_readings(
 @router.get("/admin/csv_log")
 def admin_csv_log(current_user: str = Depends(get_current_user)):
     """Журнал импорта CSV. На Render — пусто."""
-    db_path = Path(__file__).resolve().parent.parent.parent / "data" / "pressure.db"
-    if not db_path.exists():
+    if not _sqlite_available():
         return []
 
     from backend.db_pressure import PressureSessionLocal, init_pressure_db

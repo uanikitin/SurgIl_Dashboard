@@ -156,21 +156,38 @@ def get_pressure_chart(
     if fill_mode not in allowed_fill_modes:
         raise HTTPException(400, f"fill_mode must be one of: {sorted(allowed_fill_modes)}")
 
-    # Проверяем наличие локальной SQLite (>4KB = реальные данные)
+    # Проверяем наличие локальной SQLite с реальными данными
     if not _sqlite_available():
         return _chart_from_pg(well_id, days, interval)
 
+    # SQLite доступна — используем локальные данные (быстрее, поддержка фильтров)
+    try:
+        return _chart_from_sqlite(
+            well_id, days, interval,
+            filter_zeros=filter_zeros,
+            filter_spikes=filter_spikes,
+            fill_mode=fill_mode,
+            max_gap=max_gap,
+        )
+    except Exception:
+        # Любая ошибка SQLite → fallback на PostgreSQL
+        return _chart_from_pg(well_id, days, interval)
+
+
+def _chart_from_sqlite(
+    well_id: int, days: int, interval: int,
+    filter_zeros: bool, filter_spikes: bool, fill_mode: str, max_gap: int,
+) -> dict:
+    """График из локального SQLite (быстро, поддержка фильтров)."""
     import sqlite3
     import math
 
     conn = sqlite3.connect(str(_SQLITE_PATH))
-
     filters_active = any([filter_zeros, filter_spikes, fill_mode != "none"])
     filter_stats = None
 
     try:
         if filters_active:
-            # ── Путь с фильтрацией: сырые данные → Python-фильтры → pandas-агрегация ──
             raw_query = """
                 SELECT measured_at, p_tube, p_line
                 FROM pressure_readings
@@ -194,7 +211,6 @@ def get_pressure_chart(
                 aggregate_filtered,
             )
 
-            # Фильтрация
             filtered = filter_pressure_pair(
                 p_tube=[r[1] for r in raw_rows],
                 p_line=[r[2] for r in raw_rows],
@@ -206,7 +222,6 @@ def get_pressure_chart(
             )
             filter_stats = filtered["stats"]
 
-            # Агрегация в pandas
             aggregated = aggregate_filtered(
                 p_tube=filtered["p_tube"],
                 p_line=filtered["p_line"],
@@ -214,7 +229,6 @@ def get_pressure_chart(
                 interval_min=interval,
             )
 
-            # Время из pandas в UTC, конвертируем в Кунградское (+5ч)
             data = []
             for point in aggregated:
                 try:
@@ -226,7 +240,6 @@ def get_pressure_chart(
                 data.append(point)
 
         else:
-            # ── Стандартный путь: SQL-агрегация (без фильтров, обратная совместимость) ──
             if interval == 60:
                 bucket_expr = "strftime('%Y-%m-%d %H:00:00', measured_at)"
             else:
@@ -267,11 +280,10 @@ def get_pressure_chart(
             for r in rows:
                 if not r[0]:
                     continue
-                # Время в базе UTC, конвертируем в Кунградское (+5ч) для API
                 try:
                     dt_utc = datetime.strptime(r[0], "%Y-%m-%d %H:%M:%S")
                     dt_kungrad = dt_utc + KUNKRAD_OFFSET
-                    t_kungrad = dt_kungrad.strftime("%Y-%m-%dT%H:%M:%S")  # Без timezone суффикса
+                    t_kungrad = dt_kungrad.strftime("%Y-%m-%dT%H:%M:%S")
                 except ValueError:
                     continue
                 data.append({

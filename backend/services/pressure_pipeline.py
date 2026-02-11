@@ -82,9 +82,15 @@ def run_pipeline(skip_sync: bool = False) -> dict:
                 well_ids=affected_wells,
                 since=min_timestamp,
             )
+            # === Шаг 4: Синхронизация сырых данных → PostgreSQL ===
+            results["steps"]["sync_raw"] = _step_sync_raw(
+                well_ids=affected_wells,
+                since=min_timestamp,
+            )
         else:
-            log.info("Шаг 3 пропущен (нет новых данных)")
+            log.info("Шаги 3-4 пропущены (нет новых данных)")
             results["steps"]["aggregate"] = {"skipped": True, "reason": "no new data"}
+            results["steps"]["sync_raw"] = {"skipped": True, "reason": "no new data"}
 
     except Exception as e:
         log.error(f"Пайплайн упал: {e}", exc_info=True)
@@ -167,6 +173,22 @@ def _step_aggregate(
         return result
     except Exception as e:
         log.error(f"Aggregate ошибка: {e}")
+        return {"error": str(e)}
+
+
+def _step_sync_raw(
+    well_ids: set[int] = None,
+    since: datetime = None,
+) -> dict:
+    """Шаг 4: Синхронизация сырых данных pressure.db → PostgreSQL pressure_raw."""
+    log.info("=== Шаг 4: Синхронизация сырых данных → PostgreSQL ===")
+    try:
+        from backend.services.pressure_aggregate_service import sync_raw_to_pg
+        result = sync_raw_to_pg(since=since, well_ids=well_ids)
+        log.info(f"Raw sync: {result.get('rows_synced', 0)} записей")
+        return result
+    except Exception as e:
+        log.error(f"Raw sync ошибка: {e}")
         return {"error": str(e)}
 
 

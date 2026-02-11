@@ -128,8 +128,8 @@ def get_pressure_chart(
     # Проверяем наличие локальной SQLite
     db_path = Path(__file__).resolve().parent.parent.parent / "data" / "pressure.db"
     if not db_path.exists():
-        # Fallback: PostgreSQL pressure_hourly (Render / сервер без SQLite)
-        return _chart_from_pg(well_id, days)
+        # Fallback: PostgreSQL pressure_raw (Render / сервер без SQLite)
+        return _chart_from_pg(well_id, days, interval)
 
     import sqlite3
     import math
@@ -272,50 +272,77 @@ def get_pressure_chart(
     return result
 
 
-def _chart_from_pg(well_id: int, days: int) -> dict:
+def _chart_from_pg(well_id: int, days: int, interval: int = 5) -> dict:
     """
-    Fallback: график из PostgreSQL pressure_hourly.
+    График из PostgreSQL pressure_raw.
     Используется на Render (где нет локального SQLite).
-    Интервал всегда 60 мин (часовые агрегаты).
+    Поддерживает произвольный интервал агрегации.
     """
+    import math
+
     dt_end = datetime.utcnow()
     dt_start = dt_end - timedelta(days=days)
+    interval_sec = interval * 60
 
     with pg_engine.connect() as conn:
         rows = conn.execute(
             text("""
-                SELECT hour_start, p_tube_avg, p_tube_min, p_tube_max,
-                       p_line_avg, p_line_min, p_line_max, reading_count
-                FROM pressure_hourly
+                SELECT
+                    to_timestamp(
+                        floor(extract(epoch FROM measured_at) / :isec) * :isec
+                    ) AS bucket,
+                    AVG(p_tube) AS p_tube_avg,
+                    MIN(p_tube) AS p_tube_min,
+                    MAX(p_tube) AS p_tube_max,
+                    AVG(p_line) AS p_line_avg,
+                    MIN(p_line) AS p_line_min,
+                    MAX(p_line) AS p_line_max,
+                    COUNT(*) AS cnt
+                FROM pressure_raw
                 WHERE well_id = :well_id
-                    AND hour_start >= :start
-                    AND hour_start <= :end
-                ORDER BY hour_start
+                    AND measured_at >= :start
+                    AND measured_at <= :end
+                    AND (p_tube IS NOT NULL OR p_line IS NOT NULL)
+                GROUP BY bucket
+                ORDER BY bucket
             """),
-            {"well_id": well_id, "start": dt_start, "end": dt_end},
+            {
+                "well_id": well_id,
+                "start": dt_start,
+                "end": dt_end,
+                "isec": interval_sec,
+            },
         ).fetchall()
+
+    def _safe(v):
+        if v is None:
+            return None
+        f = float(v)
+        if math.isnan(f) or math.isinf(f):
+            return None
+        return round(f, 2)
 
     data = []
     for r in rows:
         t_kungrad = (r[0] + KUNKRAD_OFFSET).strftime("%Y-%m-%dT%H:%M:%S") if r[0] else None
         data.append({
             "t": t_kungrad,
-            "p_tube_avg": _r(r[1]),
-            "p_tube_min": _r(r[2]),
-            "p_tube_max": _r(r[3]),
-            "p_line_avg": _r(r[4]),
-            "p_line_min": _r(r[5]),
-            "p_line_max": _r(r[6]),
+            "p_tube_avg": _safe(r[1]),
+            "p_tube_min": _safe(r[2]),
+            "p_tube_max": _safe(r[3]),
+            "p_line_avg": _safe(r[4]),
+            "p_line_min": _safe(r[5]),
+            "p_line_max": _safe(r[6]),
             "count": r[7],
         })
 
     return {
         "well_id": well_id,
-        "interval_min": 60,
+        "interval_min": interval,
         "points": data,
         "count": len(data),
         "tz": "UTC+5",
-        "source": "hourly",
+        "source": "raw_pg",
     }
 
 

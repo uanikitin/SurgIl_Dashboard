@@ -270,6 +270,101 @@ def _round(val, decimals=2):
     return round(f, decimals)
 
 
+def sync_raw_to_pg(
+    since: Optional[datetime] = None,
+    well_ids: Optional[set[int]] = None,
+    batch_size: int = 5000,
+) -> dict:
+    """
+    Копирует сырые замеры из pressure.db → pressure_raw (PostgreSQL).
+    Нужно чтобы графики работали на Render (где нет SQLite).
+
+    Использует executemany для быстрой вставки.
+
+    Args:
+        since: Начало периода (UTC). По умолчанию — last 48h.
+        well_ids: Если задано, синхронизирует только эти скважины.
+        batch_size: Размер пакета для commit.
+
+    Returns: {"rows_synced": N}
+    """
+    init_pressure_db()
+
+    if since is None:
+        since = datetime.utcnow() - timedelta(hours=48)
+
+    where_parts = ["measured_at >= :since"]
+    params = {"since": since}
+
+    if well_ids:
+        well_id_csv = ",".join(str(int(w)) for w in well_ids)
+        where_parts.append(f"well_id IN ({well_id_csv})")
+        log.info("Syncing raw readings: %d wells since %s", len(well_ids), since)
+    else:
+        log.info("Syncing raw readings: ALL wells since %s", since)
+
+    where_sql = " AND ".join(where_parts)
+
+    sqlite_db = PressureSessionLocal()
+    try:
+        rows = sqlite_db.execute(
+            text(f"""
+                SELECT well_id, measured_at, p_tube, p_line
+                FROM pressure_readings
+                WHERE {where_sql}
+                  AND (p_tube IS NOT NULL OR p_line IS NOT NULL)
+                ORDER BY measured_at
+            """),
+            params,
+        ).fetchall()
+    finally:
+        sqlite_db.close()
+
+    if not rows:
+        log.info("No raw readings to sync")
+        return {"rows_synced": 0}
+
+    log.info("Found %d raw readings to sync to PostgreSQL", len(rows))
+
+    upsert_sql = text("""
+        INSERT INTO pressure_raw (well_id, measured_at, p_tube, p_line)
+        VALUES (:well_id, :measured_at, :p_tube, :p_line)
+        ON CONFLICT (well_id, measured_at) DO UPDATE SET
+            p_tube = EXCLUDED.p_tube,
+            p_line = EXCLUDED.p_line
+    """)
+
+    rows_synced = 0
+    engine = _make_pg_engine()
+    try:
+        for batch_start in range(0, len(rows), batch_size):
+            batch = rows[batch_start:batch_start + batch_size]
+            params_list = [
+                {
+                    "well_id": r[0],
+                    "measured_at": r[1],
+                    "p_tube": _round(r[2]),
+                    "p_line": _round(r[3]),
+                }
+                for r in batch
+            ]
+            with engine.begin() as conn:
+                conn.execute(upsert_sql, params_list)
+            rows_synced += len(batch)
+            if rows_synced % 50000 == 0:
+                log.info("  synced %d / %d raw readings", rows_synced, len(rows))
+    finally:
+        engine.dispose()
+
+    log.info("Raw sync complete: %d readings synced", rows_synced)
+    return {"rows_synced": rows_synced}
+
+
+def sync_raw_full_history() -> dict:
+    """Синхронизирует все сырые данные (полная реплика)."""
+    return sync_raw_to_pg(since=datetime(2020, 1, 1))
+
+
 def get_wells_pressure_stats(
     db,
     well_ids: list[int],

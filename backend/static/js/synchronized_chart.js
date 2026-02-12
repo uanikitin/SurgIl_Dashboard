@@ -1672,11 +1672,35 @@
     updateCursorModeUI();
   });
 
-  // Любой клик ЛКМ на canvas → возврат в нормальный режим
+  // ЛКМ на canvas:
+  //  - В не-normal режиме → сброс курсора
+  //  - В normal режиме → показать popup с ±10 сырыми замерами из БД
   canvas.addEventListener('click', function (e) {
     if (cursorMode !== 'normal') {
       resetCursorMode();
+      return;
     }
+
+    // Получаем время клика по X-оси графика
+    if (!syncChart) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const xScale = syncChart.scales.x;
+    if (!xScale) return;
+
+    const xValue = xScale.getValueForPixel(x);
+    if (!xValue) return;
+
+    // xValue уже в UTC+5 (так данные загружены в chart)
+    const clickDate = new Date(xValue);
+    const isoStr = clickDate.getFullYear() + '-'
+      + String(clickDate.getMonth() + 1).padStart(2, '0') + '-'
+      + String(clickDate.getDate()).padStart(2, '0') + 'T'
+      + String(clickDate.getHours()).padStart(2, '0') + ':'
+      + String(clickDate.getMinutes()).padStart(2, '0') + ':'
+      + String(clickDate.getSeconds()).padStart(2, '0');
+
+    showRawNearbyPopup(wellId, isoStr, e.clientX, e.clientY);
   });
 
   // Также сбрасываем при Escape
@@ -2122,5 +2146,92 @@ Pshl (шлейф): ${pshlStats.count} точек
       window.eventsChartReload();
     }
   };
+
+  // ══════════════════ Popup сырых данных (ЛКМ) ══════════════════
+
+  let rawPopup = null;
+
+  function removeRawPopup() {
+    if (rawPopup) { rawPopup.remove(); rawPopup = null; }
+  }
+
+  // Закрытие popup при клике вне него или Escape
+  document.addEventListener('mousedown', function (e) {
+    if (rawPopup && !rawPopup.contains(e.target) && e.target !== canvas) {
+      removeRawPopup();
+    }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') removeRawPopup();
+  });
+
+  /**
+   * Загружает ±10 сырых замеров из pressure_readings вокруг указанного времени
+   * и показывает popup рядом с позицией клика.
+   */
+  async function showRawNearbyPopup(wId, isoTimeUtc5, mouseX, mouseY) {
+    removeRawPopup();
+
+    rawPopup = document.createElement('div');
+    rawPopup.className = 'raw-nearby-popup';
+    rawPopup.innerHTML = '<div class="raw-nearby-popup__loading">Загрузка...</div>';
+    rawPopup.style.left = mouseX + 'px';
+    rawPopup.style.top = mouseY + 'px';
+    document.body.appendChild(rawPopup);
+
+    try {
+      const res = await fetch(`/api/pressure/raw_nearby/${wId}?t=${encodeURIComponent(isoTimeUtc5)}&n=10`);
+      const data = await res.json();
+
+      if (!rawPopup) return;  // popup already closed
+
+      if (!data.rows || data.rows.length === 0) {
+        rawPopup.innerHTML = '<div class="raw-nearby-popup__loading">Нет данных</div>';
+        return;
+      }
+
+      // Найдём строку ближайшую к центру для подсветки
+      const centerTime = isoTimeUtc5.replace('T', ' ');
+      let closestIdx = 0;
+      let closestDiff = Infinity;
+      data.rows.forEach(function (r, i) {
+        const diff = Math.abs(new Date(r.measured_at).getTime() - new Date(centerTime).getTime());
+        if (diff < closestDiff) { closestDiff = diff; closestIdx = i; }
+      });
+
+      let html = '<div class="raw-nearby-popup__title">Сырые замеры ±10 (UTC+5)</div>';
+      html += '<table><tr><th>Время</th><th>Ptr</th><th>Pshl</th></tr>';
+      data.rows.forEach(function (r, i) {
+        const isCenter = (i === closestIdx);
+        const rowCls = isCenter ? ' class="raw-center"' : '';
+        const timeShort = r.measured_at.slice(11, 19);  // HH:MM:SS
+
+        const tubeVal = r.p_tube !== null ? r.p_tube.toFixed(2) : '—';
+        const lineVal = r.p_line !== null ? r.p_line.toFixed(2) : '—';
+        const tubeCls = r.p_tube !== null
+          ? (r.p_tube === 0 ? 'val-zero' : 'val-ok')
+          : 'val-null';
+        const lineCls = r.p_line !== null
+          ? (r.p_line === 0 ? 'val-zero' : 'val-line')
+          : 'val-null';
+
+        html += '<tr' + rowCls + '>'
+          + '<td>' + timeShort + '</td>'
+          + '<td class="' + tubeCls + '">' + tubeVal + '</td>'
+          + '<td class="' + lineCls + '">' + lineVal + '</td>'
+          + '</tr>';
+      });
+      html += '</table>';
+      rawPopup.innerHTML = html;
+
+      // Подправляем позицию если выходит за экран
+      const rect = rawPopup.getBoundingClientRect();
+      if (rect.right > window.innerWidth) rawPopup.style.left = Math.max(4, mouseX - rect.width) + 'px';
+      if (rect.bottom > window.innerHeight) rawPopup.style.top = Math.max(4, mouseY - rect.height) + 'px';
+
+    } catch (err) {
+      if (rawPopup) rawPopup.innerHTML = '<div class="raw-nearby-popup__loading">Ошибка: ' + err.message + '</div>';
+    }
+  }
 
 })();

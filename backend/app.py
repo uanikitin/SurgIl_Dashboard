@@ -672,9 +672,9 @@ app.include_router(
 def _now_db() -> datetime:
     """
     Единый источник времени для записи в БД.
-    Возвращает NAIVE datetime, без tzinfo.
+    Возвращает NAIVE datetime в Кунградском времени (UTC+5).
     """
-    return datetime.now()
+    return datetime.utcnow() + timedelta(hours=5)
 
 
 # === Наша первая страница дашборда ===
@@ -1132,7 +1132,7 @@ def visual_page(
         tiles,
         key=lambda w: status_order.get(getattr(w, "current_status_css", None), 99),
     )
-    updated_at = datetime.now()
+    updated_at = datetime.utcnow() + timedelta(hours=5)  # Кунград UTC+5
     is_admin = bool(request.session.get("is_admin", False))
 
     # ========== ДАВЛЕНИЯ ДЛЯ ПЛИТОК ==========
@@ -2984,6 +2984,11 @@ def well_page(
         ).mappings().first()
         if pl_row:
             pressure_latest = dict(pl_row)
+            # Safety: treat 0.0 as None (sensor artifact, not real pressure)
+            if pressure_latest.get("p_tube") == 0.0:
+                pressure_latest["p_tube"] = None
+            if pressure_latest.get("p_line") == 0.0:
+                pressure_latest["p_line"] = None
             # Добавляем время Кунграда (UTC+5)
             if pressure_latest.get("measured_at"):
                 pressure_latest["measured_at_local"] = (

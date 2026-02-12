@@ -11,8 +11,11 @@ pressure_reassign_service — пересчёт well_id и заполнение s
 
 import logging
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
+
+# UTC+5 (Кунград) — для конвертации measured_at (UTC) в локальное время
+_TZ_OFFSET = timedelta(hours=5)
 
 from sqlalchemy import text
 
@@ -55,12 +58,18 @@ def _load_installation_cache() -> dict:
 
 
 def _find_installation(sensor_id, measured_at, cache):
-    """Находит (well_id, position) для датчика на момент измерения."""
+    """
+    Находит (well_id, position) для датчика на момент измерения.
+    measured_at в UTC, installed_at/removed_at в локальном (Кунград UTC+5).
+    """
     intervals = cache.get(sensor_id, [])
+    if not intervals:
+        return None
+    measured_local = measured_at + _TZ_OFFSET  # UTC → Кунград
     for installed_at, removed_at, well_id, position in reversed(intervals):
-        if installed_at and measured_at < installed_at:
+        if installed_at and measured_local < installed_at:
             continue
-        if removed_at and measured_at > removed_at:
+        if removed_at and measured_local > removed_at:
             continue
         return (well_id, position)
     return None
@@ -89,12 +98,18 @@ def _build_reverse_cache(installation_cache):
 
 
 def _find_sensor_reverse(well_id, position, measured_at, reverse_cache):
-    """Обратный поиск: по (well_id, position, time) → sensor_id."""
+    """
+    Обратный поиск: по (well_id, position, time) → sensor_id.
+    measured_at в UTC, installed_at/removed_at в локальном (Кунград UTC+5).
+    """
     intervals = reverse_cache.get((well_id, position), [])
+    if not intervals:
+        return None
+    measured_local = measured_at + _TZ_OFFSET  # UTC → Кунград
     for installed_at, removed_at, sensor_id in reversed(intervals):
-        if installed_at and measured_at < installed_at:
+        if installed_at and measured_local < installed_at:
             continue
-        if removed_at and measured_at > removed_at:
+        if removed_at and measured_local > removed_at:
             continue
         return sensor_id
     return None

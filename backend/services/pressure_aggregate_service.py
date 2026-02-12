@@ -73,12 +73,12 @@ def aggregate_to_hourly(
                 SELECT
                     well_id,
                     strftime('%Y-%m-%d %H:00:00', measured_at) as hour_start,
-                    AVG(p_tube) as p_tube_avg,
-                    MIN(p_tube) as p_tube_min,
-                    MAX(p_tube) as p_tube_max,
-                    AVG(p_line) as p_line_avg,
-                    MIN(p_line) as p_line_min,
-                    MAX(p_line) as p_line_max,
+                    AVG(NULLIF(p_tube, 0.0)) as p_tube_avg,
+                    MIN(NULLIF(p_tube, 0.0)) as p_tube_min,
+                    MAX(NULLIF(p_tube, 0.0)) as p_tube_max,
+                    AVG(NULLIF(p_line, 0.0)) as p_line_avg,
+                    MIN(NULLIF(p_line, 0.0)) as p_line_min,
+                    MAX(NULLIF(p_line, 0.0)) as p_line_max,
                     COUNT(*) as reading_count
                 FROM pressure_readings
                 WHERE {where_sql}
@@ -182,18 +182,18 @@ def _update_latest(well_ids: Optional[set[int]] = None) -> int:
                 SELECT
                     pr.well_id,
                     MAX(pr.measured_at) as measured_at,
-                    AVG(pr.p_tube) as p_tube,
-                    AVG(pr.p_line) as p_line
+                    AVG(NULLIF(pr.p_tube, 0.0)) as p_tube,
+                    AVG(NULLIF(pr.p_line, 0.0)) as p_line
                 FROM pressure_readings pr
                 INNER JOIN (
                     SELECT well_id, MAX(measured_at) as max_ts
                     FROM pressure_readings
-                    WHERE (p_tube IS NOT NULL OR p_line IS NOT NULL)
+                    WHERE (NULLIF(p_tube, 0.0) IS NOT NULL OR NULLIF(p_line, 0.0) IS NOT NULL)
                     {sub_filter}
                     GROUP BY well_id
                 ) latest ON pr.well_id = latest.well_id
                 WHERE pr.measured_at >= datetime(latest.max_ts, '-3 minutes')
-                  AND (pr.p_tube IS NOT NULL OR pr.p_line IS NOT NULL)
+                  AND (NULLIF(pr.p_tube, 0.0) IS NOT NULL OR NULLIF(pr.p_line, 0.0) IS NOT NULL)
                   {well_filter}
                 GROUP BY pr.well_id
             """)
@@ -422,8 +422,9 @@ def get_wells_pressure_stats(
 
         result = {}
         for row in rows:
-            p_tube = row.p_tube
-            p_line = row.p_line
+            # Safety: treat 0.0 as None (sensor artifact, not real pressure)
+            p_tube = row.p_tube if row.p_tube and row.p_tube != 0.0 else None
+            p_line = row.p_line if row.p_line and row.p_line != 0.0 else None
             p_diff = None
             if p_tube is not None and p_line is not None:
                 p_diff = round(p_tube - p_line, 2)
@@ -460,8 +461,9 @@ def get_wells_pressure_stats(
 
         result = {}
         for row in rows:
-            p_tube = row.p_tube_avg
-            p_line = row.p_line_avg
+            # Safety: treat 0.0 as None (sensor artifact)
+            p_tube = row.p_tube_avg if row.p_tube_avg and row.p_tube_avg != 0.0 else None
+            p_line = row.p_line_avg if row.p_line_avg and row.p_line_avg != 0.0 else None
             p_diff = None
             if p_tube is not None and p_line is not None:
                 p_diff = round(p_tube - p_line, 2)

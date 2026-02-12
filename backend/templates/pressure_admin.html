@@ -403,7 +403,14 @@ function v(val) {
 }
 function fmtDt(s) {
   if (!s) return '<span class="val-null">—</span>';
-  return s.replace('T', ' ').substring(0, 19);
+  // Конвертируем UTC → Кунград (UTC+5)
+  try {
+    const d = new Date(s + 'Z');
+    const kungrad = new Date(d.getTime() + 5 * 3600000);
+    return kungrad.toISOString().replace('T', ' ').substring(0, 19);
+  } catch(e) {
+    return s.replace('T', ' ').substring(0, 19);
+  }
 }
 function ageStr(isoStr) {
   if (!isoStr) return '';

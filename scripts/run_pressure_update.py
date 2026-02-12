@@ -15,8 +15,11 @@ import json
 import os
 import sys
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+# Кунград (Каракалпакстан) — UTC+5
+TZ_KUNGRAD = timezone(timedelta(hours=5))
 
 # Пути
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -75,7 +78,7 @@ def main():
     if not config.get("enabled", True):
         return  # Тихо выходим
 
-    now = datetime.now()
+    now = datetime.now(TZ_KUNGRAD)  # Время Кунграда (UTC+5)
     current_minutes = now.hour * 60 + now.minute
 
     # 2. День или ночь?
@@ -97,7 +100,8 @@ def main():
     if last_run_str:
         try:
             last_run = datetime.fromisoformat(last_run_str)
-            elapsed_min = (now - last_run).total_seconds() / 60
+            # now — aware (UTC+5), last_run — naive (тоже Кунградское)
+            elapsed_min = (now.replace(tzinfo=None) - last_run).total_seconds() / 60
             if elapsed_min < interval:
                 return  # Ещё рано
         except (ValueError, TypeError):
@@ -122,8 +126,8 @@ def main():
     except Exception as e:
         log.error(f"=== Pipeline EXCEPTION: {e} ===")
 
-    # 5. Обновляем last_run
-    config["last_run"] = datetime.now().isoformat()
+    # 5. Обновляем last_run (в Кунградском времени для консистентности)
+    config["last_run"] = datetime.now(TZ_KUNGRAD).replace(tzinfo=None).isoformat()
     save_config(config)
 
 

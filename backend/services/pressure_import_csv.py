@@ -147,15 +147,25 @@ def _find_installation(
     """
     Находит установку датчика на момент измерения.
     При перекрытии интервалов побеждает ПОСЛЕДНЯЯ установка (с наибольшим installed_at).
+
+    ВАЖНО: measured_at хранится в UTC, а installed_at/removed_at в БД хранятся
+    в локальном времени (Кунград UTC+5, из форм или datetime.now()).
+    Конвертируем measured_at из UTC → UTC+5 для корректного сравнения.
+
     Возвращает (well_id, position) или None.
     """
     intervals = installation_cache.get(sensor_id, [])
+    if not intervals:
+        return None
+
+    # Конвертируем UTC → Кунградское время (UTC+5) для сравнения с installed_at
+    measured_local = measured_at + TZ_OFFSET
 
     # Обратный порядок: последняя установка проверяется первой
     for installed_at, removed_at, well_id, position in reversed(intervals):
-        if installed_at and measured_at < installed_at:
+        if installed_at and measured_local < installed_at:
             continue
-        if removed_at and measured_at > removed_at:
+        if removed_at and measured_local > removed_at:
             continue
         return (well_id, position)
 

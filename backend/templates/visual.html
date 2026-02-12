@@ -1068,15 +1068,15 @@
     <div class="well-pressure-block">
         <div class="pressure-tiles">
             <div class="pressure-tile pressure-tile--tube">
-                <div class="pressure-tile__value">{{ "%.2f"|format(w.pressure_tube or 0) }}</div>
+                <div class="pressure-tile__value">{% if w.pressure_tube is not none %}{{ "%.2f"|format(w.pressure_tube) }}{% else %}&mdash;{% endif %}</div>
                 <div class="pressure-tile__label">Ptr <span class="pressure-tile__unit">атм</span></div>
             </div>
             <div class="pressure-tile pressure-tile--line">
-                <div class="pressure-tile__value">{{ "%.2f"|format(w.pressure_line or 0) }}</div>
+                <div class="pressure-tile__value">{% if w.pressure_line is not none %}{{ "%.2f"|format(w.pressure_line) }}{% else %}&mdash;{% endif %}</div>
                 <div class="pressure-tile__label">Pshl <span class="pressure-tile__unit">атм</span></div>
             </div>
             <div class="pressure-tile pressure-tile--diff">
-                <div class="pressure-tile__value">{{ "%.2f"|format(w.pressure_diff or 0) }}</div>
+                <div class="pressure-tile__value">{% if w.pressure_diff is not none %}{{ "%.2f"|format(w.pressure_diff) }}{% else %}&mdash;{% endif %}</div>
                 <div class="pressure-tile__label">ΔP <span class="pressure-tile__unit">атм</span></div>
             </div>
         </div>

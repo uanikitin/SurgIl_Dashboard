@@ -263,17 +263,17 @@ def _chart_from_sqlite(
             query = f"""
                 SELECT
                     {bucket_expr} as bucket,
-                    AVG(p_tube) as p_tube_avg,
-                    MIN(p_tube) as p_tube_min,
-                    MAX(p_tube) as p_tube_max,
-                    AVG(p_line) as p_line_avg,
-                    MIN(p_line) as p_line_min,
-                    MAX(p_line) as p_line_max,
+                    AVG(NULLIF(p_tube, 0.0)) as p_tube_avg,
+                    MIN(NULLIF(p_tube, 0.0)) as p_tube_min,
+                    MAX(NULLIF(p_tube, 0.0)) as p_tube_max,
+                    AVG(NULLIF(p_line, 0.0)) as p_line_avg,
+                    MIN(NULLIF(p_line, 0.0)) as p_line_min,
+                    MAX(NULLIF(p_line, 0.0)) as p_line_max,
                     COUNT(*) as cnt
                 FROM pressure_readings
                 WHERE well_id = ?
                   AND measured_at >= datetime('now', ?)
-                  AND (p_tube IS NOT NULL OR p_line IS NOT NULL)
+                  AND (NULLIF(p_tube, 0.0) IS NOT NULL OR NULLIF(p_line, 0.0) IS NOT NULL)
                 GROUP BY bucket
                 ORDER BY bucket
             """
@@ -419,18 +419,18 @@ def _chart_from_pg(
                         to_timestamp(
                             floor(extract(epoch FROM measured_at) / :isec) * :isec
                         ) AS bucket,
-                        AVG(p_tube) AS p_tube_avg,
-                        MIN(p_tube) AS p_tube_min,
-                        MAX(p_tube) AS p_tube_max,
-                        AVG(p_line) AS p_line_avg,
-                        MIN(p_line) AS p_line_min,
-                        MAX(p_line) AS p_line_max,
+                        AVG(NULLIF(p_tube, 0.0)) AS p_tube_avg,
+                        MIN(NULLIF(p_tube, 0.0)) AS p_tube_min,
+                        MAX(NULLIF(p_tube, 0.0)) AS p_tube_max,
+                        AVG(NULLIF(p_line, 0.0)) AS p_line_avg,
+                        MIN(NULLIF(p_line, 0.0)) AS p_line_min,
+                        MAX(NULLIF(p_line, 0.0)) AS p_line_max,
                         COUNT(*) AS cnt
                     FROM pressure_raw
                     WHERE well_id = :well_id
                         AND measured_at >= :start
                         AND measured_at <= :end
-                        AND (p_tube IS NOT NULL OR p_line IS NOT NULL)
+                        AND (NULLIF(p_tube, 0.0) IS NOT NULL OR NULLIF(p_line, 0.0) IS NOT NULL)
                     GROUP BY bucket
                     ORDER BY bucket
                 """),

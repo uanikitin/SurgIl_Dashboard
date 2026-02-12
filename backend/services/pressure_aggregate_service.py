@@ -160,19 +160,20 @@ def aggregate_full_history() -> dict:
 def _update_latest(well_ids: Optional[set[int]] = None) -> int:
     """
     Обновляет pressure_latest из pressure.db.
-    Берёт среднее за последние 3 минуты (по каждой скважине),
-    чтобы сгладить кратковременные скачки давления.
+
+    Каждый канал (tube / line) обрабатывается НЕЗАВИСИМО:
+    - Находит последний НЕНУЛЕВОЙ замер канала
+    - Берёт AVG за 3 минуты от этого момента
+    Это решает проблему когда один канал теряет пакеты (NULL-серия)
+    дольше чем другой — раньше оба попадали в один общий window.
 
     Args:
         well_ids: Если задано, обновляет только эти скважины.
     """
-    # Фильтр по скважинам
     if well_ids:
         well_id_csv = ",".join(str(int(w)) for w in well_ids)
-        well_filter = f"AND pr.well_id IN ({well_id_csv})"
         sub_filter = f"AND well_id IN ({well_id_csv})"
     else:
-        well_filter = ""
         sub_filter = ""
 
     sqlite_db = PressureSessionLocal()
@@ -180,22 +181,48 @@ def _update_latest(well_ids: Optional[set[int]] = None) -> int:
         rows = sqlite_db.execute(
             text(f"""
                 SELECT
-                    pr.well_id,
-                    MAX(pr.measured_at) as measured_at,
-                    AVG(NULLIF(pr.p_tube, 0.0)) as p_tube,
-                    AVG(NULLIF(pr.p_line, 0.0)) as p_line
-                FROM pressure_readings pr
-                INNER JOIN (
-                    SELECT well_id, MAX(measured_at) as max_ts
+                    w.well_id,
+                    -- Tube: независимое окно 3 мин от последнего ненулевого tube
+                    (SELECT AVG(r.p_tube)
+                     FROM pressure_readings r
+                     WHERE r.well_id = w.well_id
+                       AND r.p_tube IS NOT NULL AND r.p_tube != 0.0
+                       AND r.measured_at >= datetime(
+                           (SELECT MAX(r2.measured_at)
+                            FROM pressure_readings r2
+                            WHERE r2.well_id = w.well_id
+                              AND r2.p_tube IS NOT NULL AND r2.p_tube != 0.0),
+                           '-3 minutes')
+                    ) AS p_tube,
+                    -- Line: независимое окно 3 мин от последнего ненулевого line
+                    (SELECT AVG(r.p_line)
+                     FROM pressure_readings r
+                     WHERE r.well_id = w.well_id
+                       AND r.p_line IS NOT NULL AND r.p_line != 0.0
+                       AND r.measured_at >= datetime(
+                           (SELECT MAX(r2.measured_at)
+                            FROM pressure_readings r2
+                            WHERE r2.well_id = w.well_id
+                              AND r2.p_line IS NOT NULL AND r2.p_line != 0.0),
+                           '-3 minutes')
+                    ) AS p_line,
+                    -- Timestamps: последний ненулевой замер каждого канала
+                    (SELECT MAX(r.measured_at)
+                     FROM pressure_readings r
+                     WHERE r.well_id = w.well_id
+                       AND r.p_tube IS NOT NULL AND r.p_tube != 0.0
+                    ) AS tube_ts,
+                    (SELECT MAX(r.measured_at)
+                     FROM pressure_readings r
+                     WHERE r.well_id = w.well_id
+                       AND r.p_line IS NOT NULL AND r.p_line != 0.0
+                    ) AS line_ts
+                FROM (
+                    SELECT DISTINCT well_id
                     FROM pressure_readings
-                    WHERE (NULLIF(p_tube, 0.0) IS NOT NULL OR NULLIF(p_line, 0.0) IS NOT NULL)
+                    WHERE measured_at >= datetime('now', '-1 hour')
                     {sub_filter}
-                    GROUP BY well_id
-                ) latest ON pr.well_id = latest.well_id
-                WHERE pr.measured_at >= datetime(latest.max_ts, '-3 minutes')
-                  AND (NULLIF(pr.p_tube, 0.0) IS NOT NULL OR NULLIF(pr.p_line, 0.0) IS NOT NULL)
-                  {well_filter}
-                GROUP BY pr.well_id
+                ) w
             """)
         ).fetchall()
     finally:
@@ -211,16 +238,19 @@ def _update_latest(well_ids: Optional[set[int]] = None) -> int:
             p_line = EXCLUDED.p_line,
             updated_at = EXCLUDED.updated_at
     """)
-    params_list = [
-        {
+    params_list = []
+    for well_id, p_tube, p_line, tube_ts, line_ts in rows:
+        # measured_at = наиболее свежий из двух каналов
+        measured_at = max(filter(None, [tube_ts, line_ts]), default=None)
+        if measured_at is None:
+            continue
+        params_list.append({
             "well_id": well_id,
             "measured_at": measured_at,
             "p_tube": _round(p_tube),
             "p_line": _round(p_line),
             "updated_at": now,
-        }
-        for well_id, measured_at, p_tube, p_line in rows
-    ]
+        })
 
     _execute_pg_batch(upsert_sql, params_list)
     return len(params_list)

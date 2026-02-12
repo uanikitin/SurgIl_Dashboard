@@ -604,6 +604,54 @@ def get_pressure_raw_nearby(
     }
 
 
+@router.get("/raw_last/{well_id}")
+def get_pressure_raw_last(
+    well_id: int,
+    n: int = Query(15, ge=1, le=50, description="Количество последних строк"),
+):
+    """
+    Последние N сырых замеров давления для скважины.
+    Используется для popup при правом клике на плитку давления.
+    Время в ответе — UTC+5 (Кунград).
+    """
+    import sqlite3
+
+    if not _sqlite_available():
+        return {"well_id": well_id, "rows": [], "source": "no_sqlite"}
+
+    conn = sqlite3.connect(str(_SQLITE_PATH))
+    try:
+        rows = conn.execute(
+            """
+            SELECT measured_at, p_tube, p_line
+            FROM pressure_readings
+            WHERE well_id = ?
+            ORDER BY measured_at DESC
+            LIMIT ?
+            """,
+            (well_id, n),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    result_rows = []
+    for r in rows:
+        try:
+            dt = datetime.strptime(r[0][:19], "%Y-%m-%d %H:%M:%S")
+        except (ValueError, TypeError):
+            continue
+        t_local = dt + KUNKRAD_OFFSET
+        p_tube = round(float(r[1]), 2) if r[1] is not None else None
+        p_line = round(float(r[2]), 2) if r[2] is not None else None
+        result_rows.append({
+            "t": t_local.strftime("%H:%M:%S"),
+            "p_tube": p_tube if p_tube != 0.0 else None,
+            "p_line": p_line if p_line != 0.0 else None,
+        })
+
+    return {"well_id": well_id, "rows": result_rows}
+
+
 @router.get("/latest")
 def get_pressure_latest():
     """

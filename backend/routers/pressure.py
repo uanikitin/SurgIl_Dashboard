@@ -528,16 +528,12 @@ def get_pressure_raw_nearby(
     n: int = Query(5, ge=1, le=20, description="Количество строк до и после"),
 ):
     """
-    Возвращает ±N сырых строк из pressure_readings вокруг указанного момента.
+    Возвращает ±N сырых строк из pressure_raw (PostgreSQL) вокруг указанного момента.
     Время на входе — UTC+5 (от графика), конвертируется в UTC для запроса.
 
     Ответ: { well_id, center, rows: [{measured_at, p_tube, p_line}, ...] }
     Время в ответе — UTC+5.
-
-    Требует локальный SQLite. На Render возвращает пустой массив.
     """
-    import sqlite3
-
     # Парсим входное время (UTC+5) и конвертируем в UTC
     try:
         dt_local = datetime.fromisoformat(t)
@@ -545,52 +541,31 @@ def get_pressure_raw_nearby(
         raise HTTPException(400, f"Invalid datetime format: {t}")
 
     dt_utc = dt_local - KUNKRAD_OFFSET
-    center_utc_str = dt_utc.strftime("%Y-%m-%d %H:%M:%S")
 
-    if not _sqlite_available():
-        return {"well_id": well_id, "center": t, "rows": [], "source": "no_sqlite"}
-
-    conn = sqlite3.connect(str(_SQLITE_PATH))
-
-    try:
+    with pg_engine.connect() as conn:
         # N+1 строк до (включая центральную) + N строк после
-        query = """
-            SELECT measured_at, p_tube, p_line FROM (
-                SELECT measured_at, p_tube, p_line
-                FROM pressure_readings
-                WHERE well_id = ? AND measured_at <= ?
-                ORDER BY measured_at DESC
-                LIMIT ?
-            )
-            UNION ALL
-            SELECT measured_at, p_tube, p_line FROM (
-                SELECT measured_at, p_tube, p_line
-                FROM pressure_readings
-                WHERE well_id = ? AND measured_at > ?
-                ORDER BY measured_at ASC
-                LIMIT ?
-            )
-            ORDER BY measured_at
-        """
-        rows = conn.execute(query, (
-            well_id, center_utc_str, n + 1,
-            well_id, center_utc_str, n,
-        )).fetchall()
-    finally:
-        conn.close()
+        rows = conn.execute(
+            text("""
+                (SELECT measured_at, p_tube, p_line
+                 FROM pressure_raw
+                 WHERE well_id = :wid AND measured_at <= :center
+                 ORDER BY measured_at DESC
+                 LIMIT :before_n)
+                UNION ALL
+                (SELECT measured_at, p_tube, p_line
+                 FROM pressure_raw
+                 WHERE well_id = :wid AND measured_at > :center
+                 ORDER BY measured_at ASC
+                 LIMIT :after_n)
+                ORDER BY measured_at
+            """),
+            {"wid": well_id, "center": dt_utc, "before_n": n + 1, "after_n": n},
+        ).fetchall()
 
     # Конвертируем UTC → UTC+5 для ответа
     result_rows = []
     for r in rows:
-        try:
-            dt = datetime.strptime(r[0], "%Y-%m-%d %H:%M:%S")
-        except ValueError:
-            # Может быть формат с микросекундами
-            try:
-                dt = datetime.strptime(r[0][:19], "%Y-%m-%d %H:%M:%S")
-            except ValueError:
-                continue
-        t_local = dt + KUNKRAD_OFFSET
+        t_local = r[0] + KUNKRAD_OFFSET
         result_rows.append({
             "measured_at": t_local.strftime("%Y-%m-%d %H:%M:%S"),
             "p_tube": round(float(r[1]), 3) if r[1] is not None else None,
@@ -610,37 +585,25 @@ def get_pressure_raw_last(
     n: int = Query(15, ge=1, le=50, description="Количество последних строк"),
 ):
     """
-    Последние N сырых замеров давления для скважины.
+    Последние N сырых замеров давления из pressure_raw (PostgreSQL).
     Используется для popup при правом клике на плитку давления.
     Время в ответе — UTC+5 (Кунград).
     """
-    import sqlite3
-
-    if not _sqlite_available():
-        return {"well_id": well_id, "rows": [], "source": "no_sqlite"}
-
-    conn = sqlite3.connect(str(_SQLITE_PATH))
-    try:
+    with pg_engine.connect() as conn:
         rows = conn.execute(
-            """
-            SELECT measured_at, p_tube, p_line
-            FROM pressure_readings
-            WHERE well_id = ?
-            ORDER BY measured_at DESC
-            LIMIT ?
-            """,
-            (well_id, n),
+            text("""
+                SELECT measured_at, p_tube, p_line
+                FROM pressure_raw
+                WHERE well_id = :wid
+                ORDER BY measured_at DESC
+                LIMIT :n
+            """),
+            {"wid": well_id, "n": n},
         ).fetchall()
-    finally:
-        conn.close()
 
     result_rows = []
     for r in rows:
-        try:
-            dt = datetime.strptime(r[0][:19], "%Y-%m-%d %H:%M:%S")
-        except (ValueError, TypeError):
-            continue
-        t_local = dt + KUNKRAD_OFFSET
+        t_local = r[0] + KUNKRAD_OFFSET
         p_tube = round(float(r[1]), 2) if r[1] is not None else None
         p_line = round(float(r[2]), 2) if r[2] is not None else None
         result_rows.append({

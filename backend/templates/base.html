@@ -61,5 +61,594 @@
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin=""
 ></script>
+
+{% if is_admin %}
+<link rel="stylesheet" href="{{ url_for('static', path='/css/chat_drawer.css') }}?v={{ time() }}">
+
+<!-- Telegram Chat Toggle -->
+<button id="tgChatToggle" class="tg-chat-toggle" title="Telegram">
+    <svg viewBox="0 0 24 24"><path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.33 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z"/></svg>
+</button>
+
+<!-- Backdrop -->
+<div id="tgChatBackdrop" class="tg-chat-backdrop"></div>
+
+<!-- Drawer -->
+<div id="tgChatDrawer" class="tg-chat-drawer">
+    <!-- Header -->
+    <div class="tg-chat-header">
+        <div class="tg-chat-header-title">
+            <svg viewBox="0 0 24 24"><path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.33 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z"/></svg>
+            Telegram
+        </div>
+        <button id="tgChatClose" class="tg-chat-close">&times;</button>
+    </div>
+
+    <!-- Warning (bot not configured) -->
+    <div id="tgChatWarning" class="tg-chat-warning" style="display:none">
+        Bot token не настроен. Отправка невозможна.
+    </div>
+
+    <!-- Recipients -->
+    <div id="tgChatRecipients" class="tg-chat-recipients"></div>
+
+    <!-- Compose -->
+    <div class="tg-chat-compose">
+        <textarea id="tgChatText" placeholder="Сообщение..." maxlength="4096"></textarea>
+        <div class="tg-chat-hint">Ctrl + Enter — отправить</div>
+        <div class="tg-chat-footer">
+            <span id="tgChatCharCount" class="tg-chat-char-count">0 / 4096</span>
+            <button id="tgChatSendBtn" class="tg-chat-send-btn" disabled>Отправить</button>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="tgChatToast" class="tg-chat-toast" style="display:none"></div>
+
+    <!-- History -->
+    <details class="tg-chat-history-section">
+        <summary>История сообщений</summary>
+        <div id="tgChatHistory" class="tg-chat-history"></div>
+    </details>
+</div>
+
+<script>
+(function(){
+    'use strict';
+
+    /* --- DOM refs --- */
+    var toggle    = document.getElementById('tgChatToggle');
+    var backdrop  = document.getElementById('tgChatBackdrop');
+    var drawer    = document.getElementById('tgChatDrawer');
+    var closeBtn  = document.getElementById('tgChatClose');
+    var warning   = document.getElementById('tgChatWarning');
+    var recipBox  = document.getElementById('tgChatRecipients');
+    var textarea  = document.getElementById('tgChatText');
+    var charCount = document.getElementById('tgChatCharCount');
+    var sendBtn   = document.getElementById('tgChatSendBtn');
+    var toast     = document.getElementById('tgChatToast');
+    var historyEl = document.getElementById('tgChatHistory');
+
+    var recipientsLoaded = false;
+    var botConfigured    = false;
+    /* cached data for editor */
+    var cachedUsers = [];
+    var cachedGroups = [];
+    var cachedSubgroups = [];
+
+    /* --- Open / Close --- */
+    function openDrawer() {
+        drawer.classList.add('open');
+        backdrop.classList.add('open');
+        if (!recipientsLoaded) loadRecipients();
+    }
+    function closeDrawer() {
+        drawer.classList.remove('open');
+        backdrop.classList.remove('open');
+    }
+
+    toggle.addEventListener('click', openDrawer);
+    closeBtn.addEventListener('click', closeDrawer);
+    backdrop.addEventListener('click', closeDrawer);
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && drawer.classList.contains('open')) closeDrawer();
+    });
+
+    /* --- Load Recipients --- */
+    async function loadRecipients() {
+        recipBox.innerHTML = '<div class="tg-chat-empty">Загрузка...</div>';
+        try {
+            var resp = await fetch('/api/chat/recipients');
+            if (!resp.ok) throw new Error(resp.statusText);
+            var data = await resp.json();
+
+            botConfigured = data.bot_configured;
+            warning.style.display = botConfigured ? 'none' : 'block';
+
+            cachedUsers = data.users || [];
+            cachedGroups = data.groups || [];
+            cachedSubgroups = data.subgroups || [];
+
+            renderRecipients(cachedUsers, cachedGroups, cachedSubgroups);
+            recipientsLoaded = true;
+            loadHistory();
+        } catch (err) {
+            recipBox.innerHTML = '<div class="tg-chat-empty">Ошибка загрузки</div>';
+        }
+    }
+
+    /* --- Render user checkbox --- */
+    function userCheckboxHtml(u, tag) {
+        return '<label class="tg-chat-item">'
+            + '<input type="checkbox" name="tg-rcpt" value="' + u.chat_id + '" data-group="user" data-sg-tag="' + tag + '">'
+            + '<span class="tg-chat-item-name">' + escHtml(u.full_name || u.username || 'ID ' + u.chat_id) + '</span>'
+            + (u.username ? '<span class="tg-chat-item-username">@' + escHtml(u.username) + '</span>' : '')
+            + '</label>';
+    }
+
+    /* --- Build a subgroup card (collapsible, color-coded) --- */
+    function sgCardHtml(sgId, name, members, colorIdx, isMuted) {
+        var extraCls = isMuted ? ' tg-chat-sg-unassigned' : '';
+        var h = '<div class="tg-chat-sg-card' + extraCls + '" data-sg-ci="' + (colorIdx % 6) + '" data-sg-id="' + sgId + '">';
+        h += '<div class="tg-chat-subgroup-header" data-sg-toggle="' + sgId + '">';
+        h += '<input type="checkbox" class="tg-chat-sg-checkbox" data-sg-check="' + sgId + '">';
+        h += '<span class="tg-chat-sg-chevron">&#9660;</span>';
+        h += '<span class="tg-chat-subgroup-name' + (isMuted ? ' tg-chat-text-muted' : '') + '">' + escHtml(name) + '</span>';
+        h += '<span class="tg-chat-sg-count">' + members.length + '</span>';
+        h += '</div>';
+        h += '<div class="tg-chat-sg-members">';
+        members.forEach(function(u) {
+            h += userCheckboxHtml(u, 'sg-' + sgId);
+        });
+        h += '</div></div>';
+        return h;
+    }
+
+    /* --- Render Recipients (with subgroups) --- */
+    function renderRecipients(users, groups, subgroups) {
+        var html = '';
+        var userMap = {};
+        users.forEach(function(u) { userMap[u.chat_id] = u; });
+
+        var assignedIds = new Set();
+        (subgroups || []).forEach(function(sg) {
+            (sg.user_ids || []).forEach(function(uid) { assignedIds.add(uid); });
+        });
+
+        // --- Users section header ---
+        html += '<div class="tg-chat-section-label">Пользователи';
+        html += '<span class="tg-chat-manage-subgroups" id="tgManageSg" title="Подгруппы">&#9881;</span>';
+        if (users.length) html += '<span class="tg-chat-select-all" data-group="user">все</span>';
+        html += '</div>';
+
+        if (!users.length) {
+            html += '<div class="tg-chat-empty">Нет пользователей</div>';
+        } else if (subgroups && subgroups.length) {
+            subgroups.forEach(function(sg, idx) {
+                var members = (sg.user_ids || []).map(function(uid) { return userMap[uid]; }).filter(Boolean);
+                if (!members.length) return;
+                html += sgCardHtml(sg.id, sg.name, members, idx, false);
+            });
+            var unassigned = users.filter(function(u) { return !assignedIds.has(u.chat_id); });
+            if (unassigned.length) {
+                html += sgCardHtml('other', 'Остальные', unassigned, 99, true);
+            }
+        } else {
+            users.forEach(function(u) {
+                html += userCheckboxHtml(u, 'all');
+            });
+        }
+
+        // --- Groups section ---
+        html += '<div class="tg-chat-section-label">Группы';
+        if (groups.length) html += '<span class="tg-chat-select-all" data-group="group">все</span>';
+        html += '</div>';
+        if (groups.length) {
+            groups.forEach(function(g) {
+                html += '<label class="tg-chat-item">'
+                    + '<input type="checkbox" name="tg-rcpt" value="' + g.chat_id + '" data-group="group">'
+                    + '<span class="tg-chat-item-name">' + escHtml(g.title || 'Группа ' + g.chat_id) + '</span>'
+                    + '</label>';
+            });
+        } else {
+            html += '<div class="tg-chat-empty">Нет групп</div>';
+        }
+
+        // Add group button
+        html += '<button id="tgAddGroupBtn" class="tg-chat-add-group-btn">+ Добавить группу</button>';
+        html += '<div id="tgAddGroupForm" class="tg-chat-add-group-form" style="display:none">'
+            + '<input id="tgGroupId" type="number" placeholder="Chat ID (напр. -100...)">'
+            + '<input id="tgGroupTitle" type="text" placeholder="Название">'
+            + '<button class="btn-save" id="tgGroupSave">OK</button>'
+            + '<button class="btn-cancel" id="tgGroupCancel">&times;</button>'
+            + '</div>';
+
+        recipBox.innerHTML = html;
+        bindRecipientEvents();
+    }
+
+    /* --- Bind events after render --- */
+    function bindRecipientEvents() {
+        // Select-all by data-group (top-level "все")
+        recipBox.querySelectorAll('.tg-chat-select-all[data-group]').forEach(function(span) {
+            span.addEventListener('click', function() {
+                var group = this.dataset.group;
+                var boxes = recipBox.querySelectorAll('input[data-group="' + group + '"]');
+                var allChecked = Array.from(boxes).every(function(b) { return b.checked; });
+                boxes.forEach(function(b) { b.checked = !allChecked; syncCheckbox(b); });
+                syncAllSgHeaders();
+                updateSendState();
+            });
+        });
+
+        // Subgroup header checkbox: toggle all members
+        recipBox.querySelectorAll('.tg-chat-sg-checkbox').forEach(function(cb) {
+            cb.addEventListener('click', function(e) { e.stopPropagation(); });
+            cb.addEventListener('change', function() {
+                var sgId = this.dataset.sgCheck;
+                var card = this.closest('.tg-chat-sg-card');
+                var boxes = card.querySelectorAll('input[name="tg-rcpt"]');
+                var checked = this.checked;
+                boxes.forEach(function(b) { b.checked = checked; syncCheckbox(b); });
+                updateSendState();
+            });
+        });
+
+        // Collapse/expand: click on header (but not on checkbox)
+        recipBox.querySelectorAll('.tg-chat-subgroup-header').forEach(function(hdr) {
+            hdr.addEventListener('click', function(e) {
+                if (e.target.classList.contains('tg-chat-sg-checkbox')) return;
+                var card = this.closest('.tg-chat-sg-card');
+                card.classList.toggle('collapsed');
+            });
+        });
+
+        // Individual checkbox change: sync duplicates + update header state
+        recipBox.addEventListener('change', function(e) {
+            if (e.target.name === 'tg-rcpt') {
+                syncCheckbox(e.target);
+                syncAllSgHeaders();
+            }
+            updateSendState();
+        });
+
+        // Add group handlers
+        var addBtn = document.getElementById('tgAddGroupBtn');
+        var addForm = document.getElementById('tgAddGroupForm');
+        if (addBtn) addBtn.addEventListener('click', function() {
+            addBtn.style.display = 'none';
+            addForm.style.display = 'flex';
+        });
+        var cancelBtn = document.getElementById('tgGroupCancel');
+        if (cancelBtn) cancelBtn.addEventListener('click', function() {
+            addForm.style.display = 'none';
+            addBtn.style.display = 'block';
+        });
+        var saveBtn = document.getElementById('tgGroupSave');
+        if (saveBtn) saveBtn.addEventListener('click', addGroup);
+
+        // Manage subgroups button
+        var mgBtn = document.getElementById('tgManageSg');
+        if (mgBtn) mgBtn.addEventListener('click', function() {
+            renderSubgroupEditor();
+        });
+    }
+
+    /* --- Sync header checkbox with its members --- */
+    function syncAllSgHeaders() {
+        recipBox.querySelectorAll('.tg-chat-sg-card').forEach(function(card) {
+            var headerCb = card.querySelector('.tg-chat-sg-checkbox');
+            if (!headerCb) return;
+            var boxes = card.querySelectorAll('input[name="tg-rcpt"]');
+            if (!boxes.length) { headerCb.checked = false; headerCb.indeterminate = false; return; }
+            var checkedCount = Array.from(boxes).filter(function(b) { return b.checked; }).length;
+            headerCb.checked = checkedCount === boxes.length;
+            headerCb.indeterminate = checkedCount > 0 && checkedCount < boxes.length;
+        });
+    }
+
+    /* --- Sync duplicate checkboxes (user in multiple subgroups) --- */
+    function syncCheckbox(cb) {
+        var val = cb.value;
+        var checked = cb.checked;
+        recipBox.querySelectorAll('input[name="tg-rcpt"][value="' + val + '"]').forEach(function(other) {
+            other.checked = checked;
+        });
+    }
+
+    /* ============================================================
+       SUBGROUP EDITOR
+       ============================================================ */
+    function renderSubgroupEditor() {
+        var html = '<div class="tg-chat-sg-editor">';
+        html += '<div class="tg-chat-section-label">Управление подгруппами</div>';
+
+        // Existing subgroups
+        cachedSubgroups.forEach(function(sg, idx) {
+            html += '<div class="tg-chat-sg-editor-row" data-sg-idx="' + idx + '">'
+                + '<input type="text" class="sg-name-input" value="' + escAttr(sg.name) + '" placeholder="Название">'
+                + '<button class="tg-chat-sg-delete" data-sg-id="' + sg.id + '" title="Удалить">&times;</button>'
+                + '</div>';
+            html += '<div class="tg-chat-sg-editor-members" data-sg-idx="' + idx + '">';
+            cachedUsers.forEach(function(u) {
+                var isMember = (sg.user_ids || []).indexOf(u.chat_id) !== -1;
+                html += '<label><input type="checkbox" data-uid="' + u.chat_id + '"'
+                    + (isMember ? ' checked' : '') + '> '
+                    + escHtml(u.full_name || u.username || 'ID ' + u.chat_id)
+                    + '</label>';
+            });
+            html += '</div>';
+        });
+
+        // "New subgroup" placeholder area
+        html += '<div id="tgSgNewRows"></div>';
+
+        html += '<button class="tg-chat-sg-add-btn" id="tgSgAddNew">+ Новая подгруппа</button>';
+
+        html += '<div class="tg-chat-sg-toolbar">'
+            + '<button class="btn-cancel" id="tgSgCancel">Отмена</button>'
+            + '<button class="btn-save" id="tgSgSave">Сохранить</button>'
+            + '</div>';
+        html += '</div>';
+
+        recipBox.innerHTML = html;
+
+        // Event: cancel
+        document.getElementById('tgSgCancel').addEventListener('click', function() {
+            renderRecipients(cachedUsers, cachedGroups, cachedSubgroups);
+        });
+
+        // Event: add new subgroup row
+        var newIdx = 0;
+        document.getElementById('tgSgAddNew').addEventListener('click', function() {
+            var container = document.getElementById('tgSgNewRows');
+            var div = document.createElement('div');
+            div.innerHTML = '<div class="tg-chat-sg-editor-row" data-new-idx="' + newIdx + '">'
+                + '<input type="text" class="sg-name-input" placeholder="Название новой подгруппы">'
+                + '<button class="tg-chat-sg-delete sg-remove-new">&times;</button>'
+                + '</div>'
+                + '<div class="tg-chat-sg-editor-members" data-new-idx="' + newIdx + '">'
+                + cachedUsers.map(function(u) {
+                    return '<label><input type="checkbox" data-uid="' + u.chat_id + '"> '
+                        + escHtml(u.full_name || u.username || 'ID ' + u.chat_id)
+                        + '</label>';
+                }).join('')
+                + '</div>';
+            container.appendChild(div);
+            div.querySelector('.sg-remove-new').addEventListener('click', function() {
+                container.removeChild(div);
+            });
+            newIdx++;
+        });
+
+        // Event: delete existing subgroup
+        recipBox.querySelectorAll('.tg-chat-sg-delete[data-sg-id]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var sgId = parseInt(this.dataset.sgId, 10);
+                var row = this.closest('.tg-chat-sg-editor-row');
+                var idx = row.dataset.sgIdx;
+                var members = recipBox.querySelector('.tg-chat-sg-editor-members[data-sg-idx="' + idx + '"]');
+                row.remove();
+                if (members) members.remove();
+                // Mark for deletion
+                if (!recipBox._deletedSgIds) recipBox._deletedSgIds = [];
+                recipBox._deletedSgIds.push(sgId);
+            });
+        });
+
+        // Event: save all
+        document.getElementById('tgSgSave').addEventListener('click', saveSubgroups);
+    }
+
+    async function saveSubgroups() {
+        var saveBtn = document.getElementById('tgSgSave');
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Сохранение...';
+
+        try {
+            // 1. Delete removed subgroups
+            var deleted = recipBox._deletedSgIds || [];
+            for (var i = 0; i < deleted.length; i++) {
+                await fetch('/api/chat/subgroups/' + deleted[i], {method: 'DELETE'});
+            }
+
+            // 2. Update existing subgroups
+            var existingRows = recipBox.querySelectorAll('.tg-chat-sg-editor-row[data-sg-idx]');
+            for (var j = 0; j < existingRows.length; j++) {
+                var idx = existingRows[j].dataset.sgIdx;
+                var sg = cachedSubgroups[parseInt(idx, 10)];
+                var name = existingRows[j].querySelector('.sg-name-input').value.trim();
+                var membersDiv = recipBox.querySelector('.tg-chat-sg-editor-members[data-sg-idx="' + idx + '"]');
+                var userIds = [];
+                if (membersDiv) {
+                    membersDiv.querySelectorAll('input[data-uid]:checked').forEach(function(cb) {
+                        userIds.push(parseInt(cb.dataset.uid, 10));
+                    });
+                }
+                await fetch('/api/chat/subgroups/' + sg.id, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name: name, user_ids: userIds})
+                });
+            }
+
+            // 3. Create new subgroups
+            var newRows = recipBox.querySelectorAll('.tg-chat-sg-editor-row[data-new-idx]');
+            for (var k = 0; k < newRows.length; k++) {
+                var newIdx = newRows[k].dataset.newIdx;
+                var newName = newRows[k].querySelector('.sg-name-input').value.trim();
+                if (!newName) continue;
+                var newMembersDiv = recipBox.querySelector('.tg-chat-sg-editor-members[data-new-idx="' + newIdx + '"]');
+                var newUserIds = [];
+                if (newMembersDiv) {
+                    newMembersDiv.querySelectorAll('input[data-uid]:checked').forEach(function(cb) {
+                        newUserIds.push(parseInt(cb.dataset.uid, 10));
+                    });
+                }
+                await fetch('/api/chat/subgroups', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name: newName, user_ids: newUserIds})
+                });
+            }
+
+            // Reload
+            recipientsLoaded = false;
+            await loadRecipients();
+        } catch (err) {
+            alert('Ошибка сохранения: ' + err.message);
+        }
+    }
+
+    /* --- Add Telegram Group --- */
+    async function addGroup() {
+        var chatId = parseInt(document.getElementById('tgGroupId').value, 10);
+        var title  = document.getElementById('tgGroupTitle').value.trim();
+        if (!chatId) return;
+        try {
+            var resp = await fetch('/api/chat/groups', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({action: 'add', chat_id: chatId, title: title || 'Группа ' + chatId})
+            });
+            if (!resp.ok) { var d = await resp.json(); alert(d.detail || 'Ошибка'); return; }
+            recipientsLoaded = false;
+            loadRecipients();
+        } catch (err) {
+            alert('Сетевая ошибка');
+        }
+    }
+
+    /* --- Send State --- */
+    function updateSendState() {
+        var anyChecked = recipBox.querySelector('input[name="tg-rcpt"]:checked');
+        var hasText    = textarea.value.trim().length > 0;
+        sendBtn.disabled = !(anyChecked && hasText && botConfigured);
+    }
+
+    /* --- Char Counter --- */
+    textarea.addEventListener('input', function() {
+        var len = textarea.value.length;
+        charCount.textContent = len + ' / 4096';
+        charCount.classList.toggle('over', len > 4096);
+        updateSendState();
+    });
+
+    /* --- Ctrl+Enter --- */
+    textarea.addEventListener('keydown', function(e) {
+        if (e.ctrlKey && e.key === 'Enter' && !sendBtn.disabled) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+
+    /* --- Send (dedup chat_ids via Set) --- */
+    sendBtn.addEventListener('click', sendMessage);
+
+    async function sendMessage() {
+        var chatIds = [].concat(Array.from(new Set(
+            Array.from(recipBox.querySelectorAll('input[name="tg-rcpt"]:checked'))
+                .map(function(cb) { return parseInt(cb.value, 10); })
+        )));
+        var text = textarea.value.trim();
+        if (!chatIds.length || !text) return;
+
+        sendBtn.classList.add('sending');
+        sendBtn.disabled = true;
+        sendBtn.textContent = 'Отправка...';
+        showToast('', '');
+
+        try {
+            var resp = await fetch('/api/chat/send', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({chat_ids: chatIds, text: text})
+            });
+            var data = await resp.json();
+            if (!resp.ok) { showToast(data.detail || 'Ошибка', 'error'); return; }
+
+            var ok = data.results.filter(function(r) { return r.status === 'sent'; }).length;
+            var fail = data.results.filter(function(r) { return r.status === 'failed'; }).length;
+
+            if (fail === 0) {
+                showToast('Отправлено: ' + ok, 'success');
+                textarea.value = '';
+                charCount.textContent = '0 / 4096';
+            } else if (ok > 0) {
+                showToast('Отправлено: ' + ok + ', ошибки: ' + fail, 'error');
+            } else {
+                showToast('Не удалось отправить (' + fail + ')', 'error');
+            }
+            loadHistory();
+        } catch (err) {
+            showToast('Сетевая ошибка', 'error');
+        } finally {
+            sendBtn.classList.remove('sending');
+            sendBtn.textContent = 'Отправить';
+            updateSendState();
+        }
+    }
+
+    /* --- Toast --- */
+    function showToast(msg, cls) {
+        if (!msg) { toast.style.display = 'none'; return; }
+        toast.textContent = msg;
+        toast.className = 'tg-chat-toast ' + cls;
+        toast.style.display = 'block';
+        setTimeout(function() { toast.style.display = 'none'; }, 5000);
+    }
+
+    /* --- History --- */
+    async function loadHistory() {
+        historyEl.innerHTML = '<div class="tg-chat-history-empty">Загрузка...</div>';
+        try {
+            var resp = await fetch('/api/chat/history?limit=30');
+            if (!resp.ok) throw new Error();
+            var data = await resp.json();
+            if (!data.length) {
+                historyEl.innerHTML = '<div class="tg-chat-history-empty">Нет сообщений</div>';
+                return;
+            }
+            var html = '';
+            data.forEach(function(m) {
+                var dt = m.sent_at || m.created_at || '';
+                if (dt) {
+                    var d = new Date(dt);
+                    dt = d.toLocaleDateString('ru') + ' ' + d.toLocaleTimeString('ru', {hour:'2-digit', minute:'2-digit'});
+                }
+                var statusCls = m.status === 'sent' ? 'sent' : 'failed';
+                html += '<div class="tg-chat-history-item">'
+                    + '<div class="tg-chat-history-meta">'
+                    +   '<span class="status-dot ' + statusCls + '"></span>'
+                    +   '<span>' + escHtml(m.chat_title || 'ID ' + m.chat_id) + '</span>'
+                    +   '<span> &middot; ' + escHtml(dt) + '</span>'
+                    + '</div>'
+                    + '<div class="tg-chat-history-text">' + escHtml(truncate(m.message_text, 120)) + '</div>'
+                    + '</div>';
+            });
+            historyEl.innerHTML = html;
+        } catch (err) {
+            historyEl.innerHTML = '<div class="tg-chat-history-empty">Ошибка загрузки</div>';
+        }
+    }
+
+    /* --- Helpers --- */
+    function escHtml(s) {
+        if (!s) return '';
+        var d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+    function escAttr(s) {
+        return (s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+    }
+    function truncate(s, n) {
+        if (!s) return '';
+        return s.length > n ? s.substring(0, n) + '…' : s;
+    }
+})();
+</script>
+{% endif %}
+
 </body>
 </html>

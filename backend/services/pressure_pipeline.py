@@ -4,17 +4,19 @@
 Запускает полную цепочку:
   1. Синхронизация CSV с Raspberry Pi
   2. Импорт CSV → pressure.db (SQLite)
-  3. Агрегация pressure.db → PostgreSQL (hourly + latest)
+  3. Агрегация pressure.db → PostgreSQL (hourly)
+  4. Синхронизация сырых данных → PostgreSQL (pressure_raw)
+  5. Обновление pressure_latest из pressure_raw (PostgreSQL)
 
 Оптимизации:
   - Шаг 2 возвращает affected_well_ids и min_timestamp
-  - Шаг 3 агрегирует только затронутые скважины и период
-  - Если ничего не изменилось — шаг 3 пропускается
+  - Шаги 3-5 обрабатывают только затронутые скважины и период
+  - Если ничего не изменилось — шаги 3-5 пропускаются
 
 Может запускаться:
   - Вручную: python -m backend.services.pressure_pipeline
   - Из API: POST /api/pressure/refresh
-  - По расписанию (launchd → scripts/run_pressure_update.py)
+  - По расписанию (cron → scripts/run_pressure_update.py)
 """
 
 from __future__ import annotations
@@ -73,24 +75,42 @@ def run_pipeline(skip_sync: bool = False) -> dict:
             if k not in ("affected_well_ids", "min_timestamp")
         }
 
-        # === Шаг 3: Агрегация → PostgreSQL ===
+        # === Шаги 3-5: только если есть новые данные ===
         affected_wells = import_result.get("affected_well_ids", set())
         min_timestamp = import_result.get("min_timestamp")
 
         if affected_wells:
-            results["steps"]["aggregate"] = _step_aggregate(
+            # === Шаг 3: Агрегация hourly → PostgreSQL ===
+            agg_result = _step_aggregate(
                 well_ids=affected_wells,
                 since=min_timestamp,
             )
+            results["steps"]["aggregate"] = agg_result
+            if agg_result.get("error"):
+                results["success"] = False
+                results["error"] = f"aggregate: {agg_result['error']}"
+
             # === Шаг 4: Синхронизация сырых данных → PostgreSQL ===
-            results["steps"]["sync_raw"] = _step_sync_raw(
+            sync_result = _step_sync_raw(
                 well_ids=affected_wells,
                 since=min_timestamp,
             )
+            results["steps"]["sync_raw"] = sync_result
+            if sync_result.get("error"):
+                results["success"] = False
+                results["error"] = f"sync_raw: {sync_result['error']}"
+
+            # === Шаг 5: Обновление pressure_latest из pressure_raw (PG) ===
+            latest_result = _step_update_latest(well_ids=affected_wells)
+            results["steps"]["update_latest"] = latest_result
+            if latest_result.get("error"):
+                results["success"] = False
+                results["error"] = f"update_latest: {latest_result['error']}"
         else:
-            log.info("Шаги 3-4 пропущены (нет новых данных)")
+            log.info("Шаги 3-5 пропущены (нет новых данных)")
             results["steps"]["aggregate"] = {"skipped": True, "reason": "no new data"}
             results["steps"]["sync_raw"] = {"skipped": True, "reason": "no new data"}
+            results["steps"]["update_latest"] = {"skipped": True, "reason": "no new data"}
 
     except Exception as e:
         log.error(f"Пайплайн упал: {e}", exc_info=True)
@@ -158,17 +178,15 @@ def _step_aggregate(
     well_ids: set[int] = None,
     since: datetime = None,
 ) -> dict:
-    """Шаг 3: Агрегация pressure.db → PostgreSQL hourly + latest."""
-    log.info("=== Шаг 3: Агрегация → PostgreSQL ===")
+    """Шаг 3: Агрегация pressure.db → PostgreSQL hourly."""
+    log.info("=== Шаг 3: Агрегация hourly → PostgreSQL ===")
     try:
         from backend.services.pressure_aggregate_service import (
             aggregate_to_hourly,
         )
         result = aggregate_to_hourly(since=since, well_ids=well_ids)
         log.info(
-            f"Aggregate: {result.get('hours_upserted', 0)} "
-            f"часовых групп, "
-            f"{result.get('wells_updated', 0)} скважин"
+            f"Aggregate: {result.get('hours_upserted', 0)} часовых групп"
         )
         return result
     except Exception as e:
@@ -189,6 +207,19 @@ def _step_sync_raw(
         return result
     except Exception as e:
         log.error(f"Raw sync ошибка: {e}")
+        return {"error": str(e)}
+
+
+def _step_update_latest(well_ids: set[int] = None) -> dict:
+    """Шаг 5: Обновление pressure_latest из pressure_raw (PostgreSQL)."""
+    log.info("=== Шаг 5: Обновление pressure_latest (PG → PG) ===")
+    try:
+        from backend.services.pressure_aggregate_service import update_latest
+        wells_updated = update_latest(well_ids=well_ids)
+        log.info(f"Latest update: {wells_updated} скважин")
+        return {"wells_updated": wells_updated}
+    except Exception as e:
+        log.error(f"Latest update ошибка: {e}")
         return {"error": str(e)}
 
 

@@ -1,11 +1,11 @@
 """
-pressure_aggregate_service — агрегация pressure.db → PostgreSQL
+pressure_aggregate_service — агрегация и обновление давлений
 
-1. Читает сырые данные из pressure.db (SQLite)
-2. Группирует по (well_id, hour_start)
-3. Считает AVG/MIN/MAX для p_tube и p_line
-4. UPSERT в pressure_hourly (PostgreSQL)
-5. Обновляет pressure_latest (последние давления по каждой скважине)
+Функции:
+  - aggregate_to_hourly: pressure.db (SQLite) → pressure_hourly (PostgreSQL)
+  - sync_raw_to_pg: pressure.db (SQLite) → pressure_raw (PostgreSQL)
+  - update_latest: pressure_raw (PostgreSQL) → pressure_latest (PostgreSQL)
+  - get_wells_pressure_stats: чтение из pressure_latest / pressure_hourly
 
 Использует raw SQL для PostgreSQL чтобы избежать зависимости
 от всех ORM-моделей (Equipment и т.д.).
@@ -41,7 +41,7 @@ def aggregate_to_hourly(
         well_ids: Если задано, агрегирует только эти скважины.
         batch_size: Размер пакета для commit.
 
-    Returns: {"hours_upserted": N, "wells_updated": N}
+    Returns: {"hours_upserted": N}
     """
     init_pressure_db()
 
@@ -142,14 +142,8 @@ def aggregate_to_hourly(
         hours_upserted += len(batch)
         log.info("  upserted %d / %d", hours_upserted, len(rows))
 
-    # 3. Обновляем pressure_latest
-    wells_updated = _update_latest(well_ids=well_ids)
-
-    log.info(
-        "Aggregation complete: %d hours upserted, %d wells updated",
-        hours_upserted, wells_updated,
-    )
-    return {"hours_upserted": hours_upserted, "wells_updated": wells_updated}
+    log.info("Aggregation complete: %d hours upserted", hours_upserted)
+    return {"hours_upserted": hours_upserted}
 
 
 def aggregate_full_history() -> dict:
@@ -157,9 +151,9 @@ def aggregate_full_history() -> dict:
     return aggregate_to_hourly(since=datetime(2020, 1, 1))
 
 
-def _update_latest(well_ids: Optional[set[int]] = None) -> int:
+def update_latest(well_ids: Optional[set[int]] = None) -> int:
     """
-    Обновляет pressure_latest из pressure.db.
+    Обновляет pressure_latest из pressure_raw (PostgreSQL).
 
     Каждый канал (tube / line) обрабатывается НЕЗАВИСИМО:
     - Находит последний НЕНУЛЕВОЙ замер канала
@@ -176,57 +170,58 @@ def _update_latest(well_ids: Optional[set[int]] = None) -> int:
     else:
         sub_filter = ""
 
-    sqlite_db = PressureSessionLocal()
+    engine = _make_pg_engine()
     try:
-        rows = sqlite_db.execute(
-            text(f"""
-                SELECT
-                    w.well_id,
-                    -- Tube: независимое окно 3 мин от последнего ненулевого tube
-                    (SELECT AVG(r.p_tube)
-                     FROM pressure_readings r
-                     WHERE r.well_id = w.well_id
-                       AND r.p_tube IS NOT NULL AND r.p_tube != 0.0
-                       AND r.measured_at >= datetime(
-                           (SELECT MAX(r2.measured_at)
-                            FROM pressure_readings r2
-                            WHERE r2.well_id = w.well_id
-                              AND r2.p_tube IS NOT NULL AND r2.p_tube != 0.0),
-                           '-3 minutes')
-                    ) AS p_tube,
-                    -- Line: независимое окно 3 мин от последнего ненулевого line
-                    (SELECT AVG(r.p_line)
-                     FROM pressure_readings r
-                     WHERE r.well_id = w.well_id
-                       AND r.p_line IS NOT NULL AND r.p_line != 0.0
-                       AND r.measured_at >= datetime(
-                           (SELECT MAX(r2.measured_at)
-                            FROM pressure_readings r2
-                            WHERE r2.well_id = w.well_id
-                              AND r2.p_line IS NOT NULL AND r2.p_line != 0.0),
-                           '-3 minutes')
-                    ) AS p_line,
-                    -- Timestamps: последний ненулевой замер каждого канала
-                    (SELECT MAX(r.measured_at)
-                     FROM pressure_readings r
-                     WHERE r.well_id = w.well_id
-                       AND r.p_tube IS NOT NULL AND r.p_tube != 0.0
-                    ) AS tube_ts,
-                    (SELECT MAX(r.measured_at)
-                     FROM pressure_readings r
-                     WHERE r.well_id = w.well_id
-                       AND r.p_line IS NOT NULL AND r.p_line != 0.0
-                    ) AS line_ts
-                FROM (
-                    SELECT DISTINCT well_id
-                    FROM pressure_readings
-                    WHERE measured_at >= datetime('now', '-1 hour')
-                    {sub_filter}
-                ) w
-            """)
-        ).fetchall()
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(f"""
+                    SELECT
+                        w.well_id,
+                        -- Tube: независимое окно 3 мин от последнего ненулевого tube
+                        (SELECT AVG(r.p_tube)
+                         FROM pressure_raw r
+                         WHERE r.well_id = w.well_id
+                           AND r.p_tube IS NOT NULL AND r.p_tube != 0.0
+                           AND r.measured_at >= (
+                               (SELECT MAX(r2.measured_at)
+                                FROM pressure_raw r2
+                                WHERE r2.well_id = w.well_id
+                                  AND r2.p_tube IS NOT NULL AND r2.p_tube != 0.0)
+                               - INTERVAL '3 minutes')
+                        ) AS p_tube,
+                        -- Line: независимое окно 3 мин от последнего ненулевого line
+                        (SELECT AVG(r.p_line)
+                         FROM pressure_raw r
+                         WHERE r.well_id = w.well_id
+                           AND r.p_line IS NOT NULL AND r.p_line != 0.0
+                           AND r.measured_at >= (
+                               (SELECT MAX(r2.measured_at)
+                                FROM pressure_raw r2
+                                WHERE r2.well_id = w.well_id
+                                  AND r2.p_line IS NOT NULL AND r2.p_line != 0.0)
+                               - INTERVAL '3 minutes')
+                        ) AS p_line,
+                        -- Timestamps: последний ненулевой замер каждого канала
+                        (SELECT MAX(r.measured_at)
+                         FROM pressure_raw r
+                         WHERE r.well_id = w.well_id
+                           AND r.p_tube IS NOT NULL AND r.p_tube != 0.0
+                        ) AS tube_ts,
+                        (SELECT MAX(r.measured_at)
+                         FROM pressure_raw r
+                         WHERE r.well_id = w.well_id
+                           AND r.p_line IS NOT NULL AND r.p_line != 0.0
+                        ) AS line_ts
+                    FROM (
+                        SELECT DISTINCT well_id
+                        FROM pressure_raw
+                        WHERE measured_at >= NOW() - INTERVAL '1 hour'
+                        {sub_filter}
+                    ) w
+                """)
+            ).fetchall()
     finally:
-        sqlite_db.close()
+        engine.dispose()
 
     now = datetime.utcnow()
     upsert_sql = text("""

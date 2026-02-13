@@ -126,6 +126,10 @@ app.include_router(well_equipment_router)
 from backend.routers.lora_sensors import router as lora_sensors_router
 app.include_router(lora_sensors_router)
 
+# Telegram chat (отправка сообщений из дашборда)
+from backend.routers.chat import router as chat_router
+app.include_router(chat_router)
+
 # ------------------------------------------------------------
 # 1) SAFE helpers: FormData -> string
 # ------------------------------------------------------------

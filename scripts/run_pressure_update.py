@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Обёртка для pressure_pipeline.py.
-Вызывается launchd каждую минуту, но сам решает — пора ли запускать.
+Вызывается cron каждую минуту, но сам решает — пора ли запускать.
 
 Логика:
   1. Читает schedule_config.json
@@ -11,6 +11,7 @@
   5. Если да → запускает pipeline, обновляет last_run
 """
 
+import fcntl
 import json
 import os
 import sys
@@ -27,6 +28,7 @@ PROJECT_DIR = SCRIPT_DIR.parent
 CONFIG_PATH = SCRIPT_DIR / "schedule_config.json"
 LOG_DIR = PROJECT_DIR / "logs"
 LOG_FILE = LOG_DIR / "pressure_update.log"
+LOCK_FILE = LOG_DIR / "pressure_update.lock"
 
 # Убедимся что каталог логов существует
 LOG_DIR.mkdir(exist_ok=True)
@@ -72,6 +74,21 @@ def time_to_minutes(t: str) -> int:
 
 
 def main():
+    # Lock file — prevents concurrent pipeline runs from overlapping cron triggers
+    lock_fp = open(LOCK_FILE, "w")
+    try:
+        fcntl.flock(lock_fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return  # Another instance is already running
+
+    try:
+        _run()
+    finally:
+        fcntl.flock(lock_fp, fcntl.LOCK_UN)
+        lock_fp.close()
+
+
+def _run():
     config = load_config()
 
     # 1. Проверяем enabled
@@ -122,6 +139,7 @@ def main():
             log.info(f"=== Pipeline OK ({result.get('duration_sec', '?')}s) ===")
         else:
             log.error(f"=== Pipeline FAILED: {result.get('error')} ===")
+            sys.exit(1)
 
     except Exception as e:
         log.error(f"=== Pipeline EXCEPTION: {e} ===")

@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/Users/volodymyrnikitin/Documents/PythonFiles/SurgIl_Dashboard"
+      ]
+    },
+    "postgres": {
+      "command": "/bin/bash",
+      "args": [
+        "/Users/volodymyrnikitin/Documents/PythonFiles/SurgIl_Dashboard/scripts/mcp_postgres_ro.sh"
+      ]
+    }
+  }
+}

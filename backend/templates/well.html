@@ -1305,6 +1305,193 @@
 </div>
 {% endif %}
 
+{# ═══════════════ ГРАФИК ДЕБИТА ГАЗА (расчёт по давлениям) ═══════════════ #}
+{% if well_construction and well_construction["choke_diam_mm"] is not none and well_construction["choke_diam_mm"] == well_construction["choke_diam_mm"] %}
+<div class="card" style="width:100%; margin-bottom:20px;">
+  <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+    <div>
+      <h2 style="margin:0;">⛽ Дебит газа (расчёт по давлениям)</h2>
+      <small style="color: #6c757d;">
+        Расчёт по формуле Пирвердяна • Штуцер: {{ well_construction["choke_diam_mm"] }} мм
+      </small>
+    </div>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <label style="font-size:12px; color:#6b7280; font-weight:500; display:flex; align-items:center; gap:4px;">
+        М:
+        <input id="flow-multiplier-input" type="number" step="0.1" min="0.1" max="20" value="4.1"
+          style="width:65px; padding:4px 6px; border:1px solid #dee2e6; border-radius:4px; font-size:12px; text-align:center;"
+          title="Калибровочный множитель">
+      </label>
+      <button id="flow-reset-zoom" type="button" style="
+        padding:5px 12px; border:1px solid #dee2e6; border-radius:6px;
+        background:#f8f9fa; color:#666; font-size:12px; cursor:pointer;
+        display:inline-flex; align-items:center; gap:4px;
+      " title="Сбросить масштаб">🔍 Сброс</button>
+    </div>
+  </div>
+
+  <div class="card-body">
+
+    {# ── Индикатор загрузки статистики ── #}
+    <div id="flow-stats-loading" style="text-align:center; padding:15px; color:#999; font-size:13px;">
+      ⏳ Загрузка данных дебита...
+    </div>
+
+    {# ── Панель статистики ── #}
+    <div id="flow-stats-panel" style="display:none;">
+      <div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap;">
+
+        {# Медиана дебита #}
+        <div style="
+          flex:1; min-width:140px; padding:12px 14px;
+          background:linear-gradient(135deg, #fff8e1, #fff);
+          border:1px solid #ffe0b2; border-radius:8px;
+          border-left:4px solid #ff9800;
+        ">
+          <div style="font-size:11px; color:#999; margin-bottom:3px;">Медиана дебита</div>
+          <div style="font-size:22px; font-weight:700; color:#e65100;" id="flow-stat-median">—</div>
+          <div style="font-size:10px; color:#bbb;">тыс. м³/сут</div>
+        </div>
+
+        {# Средний дебит #}
+        <div style="
+          flex:1; min-width:140px; padding:12px 14px;
+          background:linear-gradient(135deg, #fff3e0, #fff);
+          border:1px solid #ffe0b2; border-radius:8px;
+          border-left:4px solid #fb8c00;
+        ">
+          <div style="font-size:11px; color:#999; margin-bottom:3px;">Средний дебит</div>
+          <div style="font-size:22px; font-weight:700; color:#ef6c00;" id="flow-stat-mean">—</div>
+          <div style="font-size:10px; color:#bbb;">тыс. м³/сут</div>
+        </div>
+
+        {# Накопленный #}
+        <div style="
+          flex:1; min-width:140px; padding:12px 14px;
+          background:linear-gradient(135deg, #e3f2fd, #fff);
+          border:1px solid #bbdefb; border-radius:8px;
+          border-left:4px solid #1565c0;
+        ">
+          <div style="font-size:11px; color:#999; margin-bottom:3px;">Накопленный</div>
+          <div style="font-size:22px; font-weight:700; color:#1565c0;" id="flow-stat-cumulative">—</div>
+          <div style="font-size:10px; color:#bbb;">тыс. м³</div>
+        </div>
+
+        {# Эффективный дебит #}
+        <div style="
+          flex:1; min-width:140px; padding:12px 14px;
+          background:linear-gradient(135deg, #e8f5e9, #fff);
+          border:1px solid #c8e6c9; border-radius:8px;
+          border-left:4px solid #2e7d32;
+        ">
+          <div style="font-size:11px; color:#999; margin-bottom:3px;">Эффективный дебит</div>
+          <div style="font-size:22px; font-weight:700; color:#2e7d32;" id="flow-stat-effective">—</div>
+          <div style="font-size:10px; color:#bbb;">тыс. м³/сут</div>
+        </div>
+
+      </div>
+
+      <div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap;">
+
+        {# Продувки #}
+        <div style="
+          flex:1; min-width:140px; padding:12px 14px;
+          background:linear-gradient(135deg, #ffebee, #fff);
+          border:1px solid #ffcdd2; border-radius:8px;
+          border-left:4px solid #e53935;
+        ">
+          <div style="font-size:11px; color:#999; margin-bottom:3px;">Продувок</div>
+          <div style="font-size:22px; font-weight:700; color:#c62828;" id="flow-stat-blowout-count">—</div>
+          <div style="font-size:10px; color:#bbb;">за период</div>
+        </div>
+
+        {# Потери/сут #}
+        <div style="
+          flex:1; min-width:140px; padding:12px 14px;
+          background:linear-gradient(135deg, #fce4ec, #fff);
+          border:1px solid #f8bbd0; border-radius:8px;
+          border-left:4px solid #ad1457;
+        ">
+          <div style="font-size:11px; color:#999; margin-bottom:3px;">Потери/сут</div>
+          <div style="font-size:22px; font-weight:700; color:#ad1457;" id="flow-stat-total-loss">—</div>
+          <div style="font-size:10px; color:#bbb;">тыс. м³/сут</div>
+        </div>
+
+        {# Коэфф. потерь #}
+        <div style="
+          flex:1; min-width:140px; padding:12px 14px;
+          background:linear-gradient(135deg, #f3e5f5, #fff);
+          border:1px solid #e1bee7; border-radius:8px;
+          border-left:4px solid #7b1fa2;
+        ">
+          <div style="font-size:11px; color:#999; margin-bottom:3px;">Коэфф. потерь</div>
+          <div style="font-size:22px; font-weight:700; color:#7b1fa2;" id="flow-stat-loss-pct">—</div>
+          <div style="font-size:10px; color:#bbb;">%</div>
+        </div>
+
+        {# Простои #}
+        <div style="
+          flex:1; min-width:140px; padding:12px 14px;
+          background:linear-gradient(135deg, #efebe9, #fff);
+          border:1px solid #d7ccc8; border-radius:8px;
+          border-left:4px solid #795548;
+        ">
+          <div style="font-size:11px; color:#999; margin-bottom:3px;">Простои</div>
+          <div style="font-size:22px; font-weight:700; color:#795548;" id="flow-stat-downtime-hours">—</div>
+          <div style="font-size:10px; color:#bbb;">часов</div>
+        </div>
+
+      </div>
+    </div>{# /flow-stats-panel #}
+
+    {# ── График ── #}
+    <div style="position:relative; height:400px;">
+      {# Индикатор загрузки графика #}
+      <div id="flow-chart-loading" style="
+        display:none; position:absolute; top:0; left:0; right:0; bottom:0;
+        background:rgba(255,255,255,0.85); z-index:10;
+        align-items:center; justify-content:center;
+        font-size:14px; color:#999; border-radius:8px;
+      ">
+        <div style="text-align:center;">
+          <div style="font-size:24px; margin-bottom:6px;">⏳</div>
+          <div>Расчёт дебита...</div>
+        </div>
+      </div>
+      <canvas id="chart_flow_rate" data-well-id="{{ well.id }}"></canvas>
+    </div>
+
+    {# ── Таблица простоев ── #}
+    <div id="flow-downtime-section" style="display:none; margin-top:16px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <div style="font-size:13px; font-weight:600; color:#374151;">
+          📋 Периоды простоев и продувок
+          <span id="flow-downtime-count" style="font-weight:400; color:#999; margin-left:6px;">0</span>
+        </div>
+      </div>
+      <div style="max-height:250px; overflow-y:auto; border:1px solid #f0f0f0; border-radius:6px;">
+        <table id="flow-downtime-table" style="width:100%; border-collapse:collapse; font-size:12px;">
+          <thead>
+            <tr style="background:#f8f9fa; position:sticky; top:0;">
+              <th style="padding:6px 8px; text-align:left; font-weight:600; color:#666; font-size:11px;">#</th>
+              <th style="padding:6px 8px; text-align:left; font-weight:600; color:#666; font-size:11px;">Начало</th>
+              <th style="padding:6px 8px; text-align:left; font-weight:600; color:#666; font-size:11px;">Конец</th>
+              <th style="padding:6px 8px; text-align:right; font-weight:600; color:#666; font-size:11px;">Длительность</th>
+              <th style="padding:6px 8px; text-align:center; font-weight:600; color:#666; font-size:11px;">Тип</th>
+            </tr>
+          </thead>
+          <tbody id="flow-downtime-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="margin-top:10px; font-size:11px; color:#999; text-align:center;">
+      Расчёт дебита по формуле Пирвердяна (модиф. Гилберта) • Выделите область мышкой для увеличения по времени • Период синхронизирован с графиком давлений
+    </div>
+  </div>{# /card-body #}
+</div>{# /card #}
+{% endif %}
+
 {# ========== ГРАФИК СОБЫТИЙ (отключаемый) ========== #}
 {% if timeline_injections or timeline_events %}
 <div class="card" id="events-chart-section" style="display:none; width:100%; margin-top:20px; margin-bottom:20px;">
@@ -2676,6 +2863,9 @@
 
 <!-- Скрипт для графика ΔP (разница давлений) — синхронизирован с основным -->
 <script src="/static/js/delta_pressure_chart.js?v=14"></script>
+
+<!-- Скрипт для графика дебита газа — синхронизирован с основным -->
+<script src="/static/js/flow_rate_chart.js?v=1"></script>
 
 <!-- Скрипт обновления давлений -->
 <script>

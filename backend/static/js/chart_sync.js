@@ -168,6 +168,10 @@
       window.eventsChartReload();
     }
 
+    if (window.flowRateChartReload) {
+      window.flowRateChartReload(currentDays);
+    }
+
     // 5) Синхронизация подсветки кнопок
     syncButtonHighlights(currentDays, currentInterval);
   };

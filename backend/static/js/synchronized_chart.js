@@ -2145,6 +2145,11 @@ Pshl (шлейф): ${pshlStats.count} точек
     if (window.eventsChartReload) {
       window.eventsChartReload();
     }
+
+    // Обновляем график дебита если есть
+    if (window.flowRateChartReload) {
+      window.flowRateChartReload(days);
+    }
   };
 
   // ══════════════════ Popup сырых данных (ЛКМ) ══════════════════

@@ -130,6 +130,10 @@ app.include_router(lora_sensors_router)
 from backend.routers.chat import router as chat_router
 app.include_router(chat_router)
 
+# Расчёт дебита газа по данным давления
+from backend.routers.flow_rate import router as flow_rate_router
+app.include_router(flow_rate_router)
+
 # ------------------------------------------------------------
 # 1) SAFE helpers: FormData -> string
 # ------------------------------------------------------------

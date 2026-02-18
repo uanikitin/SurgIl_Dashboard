@@ -91,13 +91,8 @@ async def install_equipment_on_well(
     else:
         install_dt = datetime.now()
 
-    # Получаем ID текущего пользователя
-    # current_admin может быть строкой с ID или username
-    user_id_str = current_admin
-    if hasattr(current_admin, 'id'):
-        user_id_str = str(current_admin.id)
-    elif hasattr(current_admin, '__str__'):
-        user_id_str = str(current_admin)
+    # current_admin — строка (username)
+    user_id_str = str(current_admin)
 
     # Створюємо запис установки
     installation = EquipmentInstallation(
@@ -415,7 +410,7 @@ async def update_maintenance_record(
         except:
             maintenance.cost = 0.0
 
-    maintenance.performed_by = performed_by or f"User {current_admin.id}"
+    maintenance.performed_by = performed_by or str(current_admin)
 
     # Обновляем дату
     if maintenance_date:

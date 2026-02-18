@@ -1,0 +1,166 @@
+\documentclass[12pt]{article}
+\usepackage{fontspec}
+\setmainfont{Times New Roman}
+\usepackage[russian]{babel}
+\usepackage{geometry}
+\geometry{a4paper, margin=2cm}
+
+\usepackage{longtable, array, booktabs, tabularx}
+\usepackage{ragged2e}
+\usepackage{graphicx}
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+
+\newcolumntype{P}[1]{>{\RaggedRight\arraybackslash\fontsize{10pt}{12pt}\selectfont}m{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash\fontsize{10pt}{12pt}\selectfont}m{#1}}
+\newcolumntype{R}[1]{>{\RaggedLeft\arraybackslash\fontsize{10pt}{12pt}\selectfont}m{#1}}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{Анализ дебита · Скважина №\VAR{well_number}}
+\fancyhead[R]{\thepage\ / \pageref{LastPage}}
+\fancyfoot[C]{\footnotesize Отчёт сформирован \VAR{generated_at}}
+
+\begin{document}
+\thispagestyle{empty}
+
+% ═══════ ТИТУЛЬНАЯ СТРАНИЦА ═══════
+\begin{center}
+\vspace*{3cm}
+
+{\LARGE\bfseries Анализ дебита газа}\\[0.5em]
+{\large Скважина №\VAR{well_number}\BLOCK{ if well_name } — \VAR{well_name}\BLOCK{ endif }}\\[1em]
+
+{\large Сценарий: \VAR{scenario_name}}\\[0.3em]
+\BLOCK{ if scenario_description }
+{\normalsize \VAR{scenario_description}}\\[0.3em]
+\BLOCK{ endif }
+
+\vspace{1em}
+{\large Период: \VAR{period_start} — \VAR{period_end}}\\[0.3em]
+Статус: \VAR{status}
+\BLOCK{ if is_baseline } · \textbf{БАЗОВЫЙ}\BLOCK{ endif }
+
+\vspace{3cm}
+{\normalsize Сформировано: \VAR{generated_at}}
+
+\end{center}
+
+\newpage
+
+% ═══════ СВОДНАЯ ТАБЛИЦА ═══════
+\section*{1. Основные показатели}
+
+\begin{tabularx}{\textwidth}{|P{8cm}|R{7cm}|}
+\hline
+\textbf{Показатель} & \textbf{Значение} \\
+\hline
+Период наблюдения, сут                   & \VAR{observation_days} \\
+\hline
+Диаметр штуцера, мм                      & \VAR{choke_mm} \\
+\hline
+Медианный дебит, тыс.м$^3$/сут           & \VAR{median_flow_rate} \\
+\hline
+Средний дебит, тыс.м$^3$/сут             & \VAR{mean_flow_rate} \\
+\hline
+Эффективный дебит, тыс.м$^3$/сут         & \VAR{effective_flow_rate} \\
+\hline
+Накопленная добыча, тыс.м$^3$            & \VAR{cumulative_flow} \\
+\hline
+Давление трубное (медиана), кгс/см$^2$   & \VAR{median_p_tube} \\
+\hline
+Давление сборное (медиана), кгс/см$^2$   & \VAR{median_p_line} \\
+\hline
+Депрессия $\Delta P$, кгс/см$^2$         & \VAR{median_dp} \\
+\hline
+Простои, часов                            & \VAR{downtime_total_hours} \\
+\hline
+Потери при стравливании, тыс.м$^3$        & \VAR{purge_loss_total} \\
+\hline
+Коэффициент потерь, \%                    & \VAR{loss_coefficient_pct} \\
+\hline
+Количество продувок                       & \VAR{purge_venting_count} \\
+\hline
+\end{tabularx}
+
+\vspace{1em}
+
+% ═══════ ГРАФИК ═══════
+\BLOCK{ if chart_path }
+\section*{2. График дебита и давления}
+
+\begin{center}
+\includegraphics[width=\textwidth]{\VAR{chart_path}}
+\end{center}
+\BLOCK{ endif }
+
+% ═══════ СРАВНЕНИЕ С БАЗОВЫМ ═══════
+\BLOCK{ if comparison_rows }
+\section*{3. Сравнение с базовым сценарием}
+
+\begin{longtable}{|P{3cm}|R{2.5cm}|R{2.5cm}|R{2.5cm}|R{2.5cm}|}
+\hline
+\textbf{Период} & \textbf{Текущий Q} & \textbf{Базовый Q} & \textbf{$\Delta$ Q} & \textbf{$\Delta$, \%} \\
+\hline
+\endhead
+%% for row in comparison_rows
+\VAR{row.period} & \VAR{row.current} & \VAR{row.baseline} & \VAR{row.delta} & \VAR{row.delta_pct} \\
+\hline
+%% endfor
+\end{longtable}
+\BLOCK{ endif }
+
+% ═══════ СУТОЧНАЯ ТАБЛИЦА ═══════
+\section*{\BLOCK{ if comparison_rows }4\BLOCK{ else }3\BLOCK{ endif }. Суточные результаты}
+
+\begin{longtable}{|C{2cm}|R{2cm}|R{1.5cm}|R{1.5cm}|R{2cm}|R{1.5cm}|R{1.5cm}|}
+\hline
+\textbf{Дата} & \textbf{Q ср.} & \textbf{Q мин.} & \textbf{Q макс.} & \textbf{Q нак.} & \textbf{P тр.} & \textbf{P сбл.} \\
+\hline
+\endhead
+%% for r in daily_results
+\VAR{r.result_date} & \VAR{r.avg_flow_rate} & \VAR{r.min_flow_rate} & \VAR{r.max_flow_rate} & \VAR{r.cumulative_flow} & \VAR{r.avg_p_tube} & \VAR{r.avg_p_line} \\
+\hline
+%% endfor
+\end{longtable}
+
+% ═══════ КОРРЕКЦИИ ═══════
+\BLOCK{ if corrections }
+\section*{Журнал коррекций}
+
+\begin{longtable}{|C{2.5cm}|C{3.5cm}|C{3.5cm}|P{5.5cm}|}
+\hline
+\textbf{Тип} & \textbf{Начало} & \textbf{Конец} & \textbf{Причина} \\
+\hline
+\endhead
+%% for c in corrections
+\VAR{c.correction_type} & \VAR{c.dt_start} & \VAR{c.dt_end} & \VAR{c.reason|default('-', true)} \\
+\hline
+%% endfor
+\end{longtable}
+\BLOCK{ endif }
+
+% ═══════ ПАРАМЕТРЫ РАСЧЁТА ═══════
+\section*{Параметры расчёта}
+
+\begin{tabularx}{\textwidth}{|P{7cm}|R{8cm}|}
+\hline
+\textbf{Параметр} & \textbf{Значение} \\
+\hline
+Множитель $M$                    & \VAR{multiplier} \\
+\hline
+Коэффициент $C_1$                & \VAR{c1} \\
+\hline
+Коэффициент $C_2$                & \VAR{c2} \\
+\hline
+Коэффициент $C_3$                & \VAR{c3} \\
+\hline
+Критическое отношение давлений   & \VAR{critical_ratio} \\
+\hline
+Сглаживание                      & \VAR{smooth_label} \\
+\hline
+Исключённые продувки             & \VAR{exclude_purge_ids|default('нет', true)} \\
+\hline
+\end{tabularx}
+
+\end{document}

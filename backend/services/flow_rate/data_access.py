@@ -97,6 +97,49 @@ def get_well_info(well_id: int) -> Optional[dict]:
     }
 
 
+def get_purge_events(
+    well_id: int,
+    start: str | None = None,
+    end: str | None = None,
+) -> pd.DataFrame:
+    """
+    Маркеры продувок из таблицы events (PostgreSQL).
+
+    Читает events с event_type='purge' для скважины well_id.
+    JOIN wells для маппинга well_id → well_number → events.well.
+
+    Returns
+    -------
+    DataFrame: event_time, purge_phase ('start'/'press'/'stop'), p_tube, p_line, description
+    Отсортирован по event_time. Пустой если маркеров нет.
+    """
+    time_filter = ""
+    params: dict = {"well_id": well_id}
+    if start and end:
+        time_filter = "AND e.event_time BETWEEN :start AND :end"
+        params["start"] = start
+        params["end"] = end
+
+    query = text(f"""
+        SELECT e.event_time, e.purge_phase, e.p_tube, e.p_line, e.description
+        FROM events e
+        JOIN wells w ON e.well = w.number::text
+        WHERE w.id = :well_id
+          AND e.event_type = 'purge'
+          {time_filter}
+        ORDER BY e.event_time
+    """)
+    with pg_engine.connect() as conn:
+        df = pd.read_sql(query, conn, params=params, parse_dates=["event_time"])
+
+    log.info(
+        "purge_events: well_id=%d → %d markers%s",
+        well_id, len(df),
+        f" ({start}..{end})" if start else "",
+    )
+    return df
+
+
 def list_wells_with_pressure(days: int = 7) -> list[dict]:
     """
     Скважины, у которых есть данные в pressure_raw за последние N дней.

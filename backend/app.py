@@ -134,6 +134,12 @@ app.include_router(chat_router)
 from backend.routers.flow_rate import router as flow_rate_router
 app.include_router(flow_rate_router)
 
+# Анализ дебита (сценарии, коррекции, результаты)
+from backend.routers.flow_analysis import router as flow_analysis_router
+from backend.routers.flow_analysis import pages_router as flow_analysis_pages_router
+app.include_router(flow_analysis_router)
+app.include_router(flow_analysis_pages_router)
+
 # ------------------------------------------------------------
 # 1) SAFE helpers: FormData -> string
 # ------------------------------------------------------------
@@ -370,6 +376,8 @@ def ensure_pressure_raw_table():
                     measured_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
                     p_tube DOUBLE PRECISION,
                     p_line DOUBLE PRECISION,
+                    sensor_id_tube INTEGER,
+                    sensor_id_line INTEGER,
                     CONSTRAINT uq_pressure_raw_well_time
                         UNIQUE (well_id, measured_at)
                 )
@@ -378,6 +386,14 @@ def ensure_pressure_raw_table():
                 CREATE INDEX IF NOT EXISTS ix_pressure_raw_well_measured
                 ON pressure_raw (well_id, measured_at)
             """))
+            # Добавить колонки если таблица уже существует без них
+            for col in ("sensor_id_tube", "sensor_id_line"):
+                try:
+                    conn.execute(text(
+                        f"ALTER TABLE pressure_raw ADD COLUMN IF NOT EXISTS {col} INTEGER"
+                    ))
+                except Exception:
+                    pass
         print(">>> pressure_raw таблица проверена/создана")
     except Exception as e:
         print(f">>> pressure_raw: ошибка при создании: {e}")
@@ -683,6 +699,113 @@ def _now_db() -> datetime:
     Возвращает NAIVE datetime в Кунградском времени (UTC+5).
     """
     return datetime.utcnow() + timedelta(hours=5)
+
+
+# ── Дебит для карточек дашборда ─────────────────────────────
+import math as _math
+
+def _calc_daily_flow_for_tiles(
+    well_ids: list[int],
+) -> tuple[dict[int, float | None], dict[int, float | None]]:
+    """
+    Средний суточный дебит за сегодня и вчера для списка скважин.
+
+    Использует pressure_hourly (уже агрегированные средние за час),
+    формулу истечения газа через штуцер (та же, что в flow_rate/calculator.py),
+    и choke_diam_mm из well_construction.
+
+    Returns: (flow_today, flow_yesterday) — dict[well_id] → float | None
+    """
+    from backend.db import engine as pg_engine
+
+    if not well_ids:
+        return {}, {}
+
+    # Кунград UTC+5: «сегодня» = 00:00 .. now по UTC+5
+    now_kungrad = datetime.utcnow() + timedelta(hours=5)
+    today_start_utc = (
+        now_kungrad.replace(hour=0, minute=0, second=0, microsecond=0)
+        - timedelta(hours=5)
+    )
+    yesterday_start_utc = today_start_utc - timedelta(days=1)
+
+    well_id_csv = ",".join(str(int(w)) for w in well_ids)
+
+    # 1) Медианные давления за сегодня и вчера (из pressure_hourly)
+    # Медиана вместо AVG — защита от ложных скачков датчиков (tube=1.7 вместо 17)
+    sql_pressure = text(f"""
+        SELECT
+            well_id,
+            CASE WHEN hour_start >= :today THEN 'today' ELSE 'yesterday' END AS day,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY NULLIF(p_tube_avg, 0.0)) AS p_tube,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY NULLIF(p_line_avg, 0.0)) AS p_line
+        FROM pressure_hourly
+        WHERE well_id IN ({well_id_csv})
+          AND hour_start >= :yesterday
+        GROUP BY well_id, day
+    """)
+
+    # 2) Штуцеры для всех скважин (batch)
+    sql_choke = text(f"""
+        SELECT DISTINCT ON (w.id)
+            w.id AS well_id,
+            wc.choke_diam_mm
+        FROM wells w
+        JOIN well_construction wc ON w.number::text = wc.well_no
+        WHERE w.id IN ({well_id_csv})
+          AND wc.choke_diam_mm IS NOT NULL
+        ORDER BY w.id, wc.data_as_of DESC NULLS LAST
+    """)
+
+    flow_today: dict[int, float | None] = {}
+    flow_yesterday: dict[int, float | None] = {}
+
+    try:
+        with pg_engine.connect() as conn:
+            # Давления
+            pressure_rows = conn.execute(
+                sql_pressure,
+                {"today": today_start_utc, "yesterday": yesterday_start_utc},
+            ).fetchall()
+
+            # Штуцеры
+            choke_rows = conn.execute(sql_choke).fetchall()
+    except Exception:
+        return {}, {}
+
+    choke_map: dict[int, float] = {r[0]: float(r[1]) for r in choke_rows}
+
+    # Формула (идентична calculator.py DEFAULT_FLOW)
+    C1 = 2.919
+    C2 = 4.654
+    C3 = 286.95
+    multiplier = 4.1
+    crit_ratio = 0.5
+
+    def _q(p_tube: float, p_line: float, choke_mm: float) -> float:
+        if p_tube <= p_line or p_tube <= 0:
+            return 0.0
+        r = (p_tube - p_line) / p_tube
+        choke_sq = (choke_mm / C2) ** 2
+        if r < crit_ratio:
+            q = C1 * choke_sq * p_tube * (1.0 - r / 1.5) * _math.sqrt(max(r / C3, 0.0))
+        else:
+            q = 0.667 * C1 * choke_sq * p_tube * _math.sqrt(0.5 / C3)
+        return max(q * multiplier, 0.0)
+
+    for row in pressure_rows:
+        wid, day_label, pt, pl = row[0], row[1], row[2], row[3]
+        choke = choke_map.get(wid)
+        if pt is None or pl is None or choke is None:
+            val = None
+        else:
+            val = round(_q(float(pt), float(pl), choke), 2)
+        if day_label == "today":
+            flow_today[wid] = val
+        else:
+            flow_yesterday[wid] = val
+
+    return flow_today, flow_yesterday
 
 
 # === Наша первая страница дашборда ===
@@ -1170,6 +1293,22 @@ def visual_page(
             w.pressure_diff = None
             w.pressure_updated = None
             w.has_pressure = False
+
+    # ========== ДЕБИТ НА КАРТОЧКАХ ==========
+    # Средний суточный дебит за сегодня и вчера (Кунград UTC+5)
+    _flow_today: dict[int, float | None] = {}
+    _flow_yesterday: dict[int, float | None] = {}
+    if tiles_sorted:
+        try:
+            _flow_today, _flow_yesterday = _calc_daily_flow_for_tiles(
+                [w.id for w in tiles_sorted]
+            )
+        except Exception as e:
+            print(f"[visual_page] Ошибка расчёта дебита: {e}")
+
+    for w in tiles_sorted:
+        w.flow_today = _flow_today.get(w.id)
+        w.flow_yesterday = _flow_yesterday.get(w.id)
 
     # ========== ТАЙМЛАЙН: ЗАВАНТАЖЕННЯ ДАНИХ ==========
 

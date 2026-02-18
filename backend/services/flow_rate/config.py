@@ -30,12 +30,18 @@ class PurgeLossConfig:
 
 
 @dataclass(frozen=True)
-class DowntimeConfig:
-    """Параметры детекции простоев."""
-    min_blowout_minutes: int = 30  # минимальная длительность «продувки»
+class PurgeDetectionConfig:
+    """Параметры детекции продувок (venting-циклов)."""
+    min_decline_minutes: int = 20       # мин. длительность падения давления
+    min_decline_rate: float = 0.1       # мин. скорость падения кгс/см²/мин
+    recovery_threshold: float = 0.8     # порог восстановления (доля от исходного)
+    marker_time_tolerance_min: int = 15 # допуск привязки маркеров к кривой, мин
+    min_confidence: float = 0.3         # мин. уверенность для включения
+    max_venting_minutes: int = 120      # макс. время стравливания, мин
+    max_buildup_hours: int = 24         # макс. время набора давления, ч
 
 
 # Экземпляры по умолчанию
 DEFAULT_FLOW = FlowRateConfig()
 DEFAULT_PURGE = PurgeLossConfig()
-DEFAULT_DOWNTIME = DowntimeConfig()
+DEFAULT_PURGE_DETECTION = PurgeDetectionConfig()

@@ -411,7 +411,7 @@ async def move_equipment(
                 )
             # Автозакриття старої установки (дата = дата нової установки)
             active_installation.removed_at = datetime.now()
-            active_installation.removed_by = str(current_admin.id)
+            active_installation.removed_by = str(current_admin)
             active_installation.notes = (
                 (active_installation.notes or "")
                 + f"\nАвтозакриття: обладнання встановлено на іншу свердловину"
@@ -434,7 +434,7 @@ async def move_equipment(
             removed_at=None,
             tube_pressure_install=None,
             line_pressure_install=None,
-            installed_by=str(current_admin.id),
+            installed_by=str(current_admin),
             installation_location=installation_location,
             document_id=None,
             no_document_confirmed=no_document_confirmed,
@@ -468,7 +468,7 @@ async def move_equipment(
 
         # Закриваємо установку
         active_installation.removed_at = datetime.now()
-        active_installation.removed_by = current_admin.id
+        active_installation.removed_by = str(current_admin)
         if notes:
             active_installation.notes = (active_installation.notes or "") + f"\nДемонтаж: {notes}"
 
@@ -498,6 +498,7 @@ async def transfer_equipment(
     equipment_id: int,
     target_well_id: int = Form(...),
     transfer_at: Optional[str] = Form(None),
+    installation_location: Optional[str] = Form(None),
     notes: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current_admin=Depends(get_current_admin),
@@ -536,7 +537,7 @@ async def transfer_equipment(
 
     # Атомарна операція: закриваємо стару + відкриваємо нову
     active_installation.removed_at = dt_transfer
-    active_installation.removed_by = str(current_admin.id)
+    active_installation.removed_by = str(current_admin)
     if notes:
         active_installation.notes = (
             (active_installation.notes or "")
@@ -548,13 +549,14 @@ async def transfer_equipment(
         well_id=target_well_id,
         installed_at=dt_transfer,
         removed_at=None,
-        installed_by=str(current_admin.id),
-        installation_location=active_installation.installation_location,
+        installed_by=str(current_admin),
+        installation_location=installation_location or active_installation.installation_location,
         notes=f"Перевод зі свердловини {active_installation.well_id}. {notes or ''}".strip(),
     )
     db.add(new_installation)
 
     # Оновлюємо обладнання
+    equipment.well_id = target_well_id
     equipment.current_location = f"Свердловина {target_well.number}"
 
     db.commit()
@@ -623,7 +625,7 @@ async def update_equipment_status(
 
         if active_installation:
             active_installation.removed_at = datetime.now()
-            active_installation.removed_by = current_admin if isinstance(current_admin, str) else str(current_admin.id)
+            active_installation.removed_by = current_admin if isinstance(current_admin, str) else str(current_admin)
             if notes:
                 active_installation.notes = (active_installation.notes or "") + f"\nЗміна статусу: {notes}"
 
@@ -679,7 +681,7 @@ async def add_maintenance(
         maintenance_date=maint_dt,
         maintenance_type=maintenance_type,
         description=description,
-        performed_by=performed_by or f"User {current_admin.id}",
+        performed_by=performed_by or str(current_admin),
         cost=cost,
         created_at=datetime.now(),
     )

@@ -1312,16 +1312,20 @@
     <div>
       <h2 style="margin:0;">⛽ Дебит газа (расчёт по давлениям)</h2>
       <small style="color: #6c757d;">
-        Расчёт по формуле Пирвердяна • Штуцер: {{ well_construction["choke_diam_mm"] }} мм
+        Модифицированная формула Гилберта-Пирвердяна • Штуцер: {{ well_construction["choke_diam_mm"] }} мм
       </small>
     </div>
     <div style="display:flex; gap:8px; align-items:center;">
-      <label style="font-size:12px; color:#6b7280; font-weight:500; display:flex; align-items:center; gap:4px;">
-        М:
-        <input id="flow-multiplier-input" type="number" step="0.1" min="0.1" max="20" value="4.1"
-          style="width:65px; padding:4px 6px; border:1px solid #dee2e6; border-radius:4px; font-size:12px; text-align:center;"
-          title="Калибровочный множитель">
-      </label>
+      <button id="flow-toggle-info" type="button" style="
+        padding:5px 12px; border:1px solid #dee2e6; border-radius:6px;
+        background:#f8f9fa; color:#666; font-size:12px; cursor:pointer;
+        display:inline-flex; align-items:center; gap:4px;
+      " title="Показать/скрыть описание формулы">📖 Формула</button>
+      <button id="flow-toggle-coeffs" type="button" style="
+        padding:5px 12px; border:1px solid #dee2e6; border-radius:6px;
+        background:#f8f9fa; color:#666; font-size:12px; cursor:pointer;
+        display:inline-flex; align-items:center; gap:4px;
+      " title="Настройка коэффициентов">⚙ Коэфф.</button>
       <button id="flow-reset-zoom" type="button" style="
         padding:5px 12px; border:1px solid #dee2e6; border-radius:6px;
         background:#f8f9fa; color:#666; font-size:12px; cursor:pointer;
@@ -1332,162 +1336,328 @@
 
   <div class="card-body">
 
+    {# ═══ Блок описания формулы (скрыт по умолчанию) ═══ #}
+    <div id="flow-info-block" style="display:none; margin-bottom:16px; padding:16px; background:linear-gradient(135deg, #f5f5f5, #fafafa); border:1px solid #e0e0e0; border-radius:8px; font-size:13px; line-height:1.6; color:#333;">
+      <div style="font-weight:700; font-size:14px; color:#212529; margin-bottom:10px;">Описание расчёта</div>
+
+      <div style="margin-bottom:10px;">
+        Расчётный дебит газа определяется по модифицированной формуле <b>Гилберта-Пирвердяна</b>,
+        связывающей перепад давлений через штуцер (P<sub>тр</sub> и P<sub>шл</sub>) с расходом газа.
+      </div>
+
+      <div style="background:white; border:1px solid #e0e0e0; border-radius:6px; padding:12px 16px; margin-bottom:10px; font-family:'JetBrains Mono',monospace; font-size:12px;">
+        <div style="font-weight:600; color:#666; margin-bottom:6px; font-family:inherit; font-size:11px;">ФОРМУЛА (докритический режим, r &lt; 0.5):</div>
+        <div style="color:#1565c0;">Q = M &middot; (C₁ &middot; P<sub>тр</sub> &minus; C₂ &middot; P<sub>шл</sub>) &middot; d<sup>2</sup> / C₃</div>
+        <div style="margin-top:8px; font-weight:600; color:#666; font-family:inherit; font-size:11px;">ФОРМУЛА (критический режим, r &ge; 0.5):</div>
+        <div style="color:#c62828;">Q = M &middot; C₁ &middot; P<sub>тр</sub> &middot; (1 &minus; r) &middot; d<sup>2</sup> / C₃</div>
+        <div style="margin-top:8px; font-size:11px; color:#888;">где r = P<sub>шл</sub> / P<sub>тр</sub> — отношение давлений</div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:12px;">
+        <div><b>Q</b> — дебит газа, тыс. м³/сут</div>
+        <div><b>M</b> — калибровочный множитель (по умолчанию 4.1)</div>
+        <div><b>P<sub>тр</sub></b> — давление устья (трубное), кгс/см²</div>
+        <div><b>P<sub>шл</sub></b> — давление шлейфа, кгс/см²</div>
+        <div><b>d</b> — диаметр штуцера, мм</div>
+        <div><b>C₁, C₂, C₃</b> — эмпирические константы</div>
+      </div>
+
+      <div style="margin-top:10px; border-top:1px solid #e0e0e0; padding-top:10px;">
+        <div style="font-weight:700; font-size:13px; color:#212529; margin-bottom:6px;">Алгоритм</div>
+        <ol style="margin:0; padding-left:20px; font-size:12px; color:#555;">
+          <li>Чтение данных давления из PostgreSQL (таблица <code>pressure_raw</code>)</li>
+          <li>Очистка: отрицательные и нулевые значения → NaN, интерполяция (ffill/bfill)</li>
+          <li>Сглаживание: фильтр Савицкого-Голея (окно 17, полином 3, 2 прохода)</li>
+          <li>Расчёт дебита по формуле для каждой минутной записи (numpy-векторизация)</li>
+          <li>Детекция продувок по маркерам в БД (start→press→stop) и алгоритмически по кривой давления</li>
+          <li>Потери при стравливании: по уравнению Бернулли через штуцер (только фаза venting)</li>
+          <li>Простои: все периоды P<sub>тр</sub> &le; P<sub>шл</sub> (дебит = 0, потерь нет)</li>
+          <li>Накопленный дебит: интеграция трапециями (Δt = 1/1440 суток)</li>
+        </ol>
+      </div>
+
+      <div style="margin-top:10px; border-top:1px solid #e0e0e0; padding-top:10px;">
+        <div style="font-weight:700; font-size:13px; color:#c62828; margin-bottom:6px;">Продувка vs Простой</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; font-size:12px;">
+          <div style="background:#ffebee; padding:8px; border-radius:6px; border-left:3px solid #e53935;">
+            <div style="font-weight:700; color:#c62828; margin-bottom:4px;">🔥 Продувка (стравливание)</div>
+            <div style="color:#555;">Задвижка открыта, газ стравливается в атмосферу.</div>
+            <div style="color:#555; margin-top:4px;"><b>Потери</b> считаются через штуцер (Бернулли).</div>
+            <div style="color:#555; margin-top:2px;">Определяется по маркерам (start→press) или алгоритмически.</div>
+          </div>
+          <div style="background:#fff8e1; padding:8px; border-radius:6px; border-left:3px solid #ffa000;">
+            <div style="font-weight:700; color:#e65100; margin-bottom:4px;">⏱ Простой (P<sub>тр</sub> &le; P<sub>шл</sub>)</div>
+            <div style="color:#555;">Газ не поступает в шлейф. Дебит = 0.</div>
+            <div style="color:#555; margin-top:4px;">Включает: набор давления (press→stop), тех. остановки.</div>
+            <div style="color:#555; margin-top:2px;"><b>Потерь нет</b> — газ не стравливается.</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:10px; border-top:1px solid #e0e0e0; padding-top:10px;">
+        <div style="font-weight:700; font-size:13px; color:#212529; margin-bottom:6px;">Формула потерь при стравливании</div>
+        <div style="background:white; border:1px solid #e0e0e0; border-radius:6px; padding:10px 14px; font-family:'JetBrains Mono',monospace; font-size:12px;">
+          <div style="color:#c62828;">Q<sub>loss</sub> = C<sub>d</sub> &middot; A &middot; &radic;(2&middot;ΔP / &rho;)</div>
+          <div style="margin-top:6px; font-size:11px; color:#888;">
+            C<sub>d</sub> = 0.9 (коэфф. расхода),
+            A = &pi;&middot;d²/4 (сечение штуцера продувки),
+            ΔP = P<sub>уст</sub> &minus; P<sub>атм</sub>,
+            &rho; — плотность газа при P<sub>уст</sub>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {# ═══ Блок настройки коэффициентов (скрыт по умолчанию) ═══ #}
+    <div id="flow-coeffs-block" style="display:none; margin-bottom:16px; padding:16px; background:linear-gradient(135deg, #fff8e1, #fffde7); border:1px solid #ffe0b2; border-radius:8px;">
+      <div style="font-weight:700; font-size:14px; color:#e65100; margin-bottom:12px;">⚙ Настройка коэффициентов формулы</div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:12px;">
+
+        <div>
+          <label style="font-size:11px; color:#666; font-weight:600; display:block; margin-bottom:3px;">
+            M — множитель
+          </label>
+          <input id="flow-coeff-M" type="number" step="0.1" min="0.1" max="50" value="4.1"
+            style="width:100%; padding:6px 8px; border:1px solid #ffe0b2; border-radius:4px; font-size:13px; text-align:center; font-weight:600; background:white;">
+          <div style="font-size:10px; color:#999; margin-top:2px;">калибровка (по умолч. 4.1)</div>
+        </div>
+
+        <div>
+          <label style="font-size:11px; color:#666; font-weight:600; display:block; margin-bottom:3px;">
+            C₁
+          </label>
+          <input id="flow-coeff-C1" type="number" step="0.001" min="0" max="100" value="2.919"
+            style="width:100%; padding:6px 8px; border:1px solid #ffe0b2; border-radius:4px; font-size:13px; text-align:center; background:white;">
+          <div style="font-size:10px; color:#999; margin-top:2px;">по умолч. 2.919</div>
+        </div>
+
+        <div>
+          <label style="font-size:11px; color:#666; font-weight:600; display:block; margin-bottom:3px;">
+            C₂
+          </label>
+          <input id="flow-coeff-C2" type="number" step="0.001" min="0" max="100" value="4.654"
+            style="width:100%; padding:6px 8px; border:1px solid #ffe0b2; border-radius:4px; font-size:13px; text-align:center; background:white;">
+          <div style="font-size:10px; color:#999; margin-top:2px;">по умолч. 4.654</div>
+        </div>
+
+        <div>
+          <label style="font-size:11px; color:#666; font-weight:600; display:block; margin-bottom:3px;">
+            C₃
+          </label>
+          <input id="flow-coeff-C3" type="number" step="0.01" min="0" max="1000" value="286.95"
+            style="width:100%; padding:6px 8px; border:1px solid #ffe0b2; border-radius:4px; font-size:13px; text-align:center; background:white;">
+          <div style="font-size:10px; color:#999; margin-top:2px;">по умолч. 286.95</div>
+        </div>
+
+        <div>
+          <label style="font-size:11px; color:#666; font-weight:600; display:block; margin-bottom:3px;">
+            r<sub>крит</sub> — критическое отношение
+          </label>
+          <input id="flow-coeff-Rcrit" type="number" step="0.01" min="0" max="1" value="0.5"
+            style="width:100%; padding:6px 8px; border:1px solid #ffe0b2; border-radius:4px; font-size:13px; text-align:center; background:white;">
+          <div style="font-size:10px; color:#999; margin-top:2px;">граница режимов (по умолч. 0.5)</div>
+        </div>
+
+        <div style="display:flex; align-items:flex-end;">
+          <button id="flow-apply-coeffs" type="button" style="
+            width:100%; padding:8px 12px; border:none; border-radius:6px;
+            background:#ff9800; color:white; font-size:13px; font-weight:600;
+            cursor:pointer; display:flex; align-items:center; justify-content:center; gap:4px;
+          ">▶ Пересчитать</button>
+        </div>
+      </div>
+      <div style="margin-top:8px; font-size:11px; color:#999;">
+        Изменение коэффициентов пересчитает дебит на сервере. Значения <b>не сохраняются</b> между сессиями.
+      </div>
+    </div>
+
     {# ── Индикатор загрузки статистики ── #}
     <div id="flow-stats-loading" style="text-align:center; padding:15px; color:#999; font-size:13px;">
       ⏳ Загрузка данных дебита...
     </div>
 
-    {# ── Панель статистики ── #}
-    <div id="flow-stats-panel" style="display:none;">
-      <div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap;">
+    {# ═══ График + правая панель статистики (как у давления / ΔP) ═══ #}
+    <div id="flow-main-content" style="display:none;">
+      <div style="display:flex; gap:8px;">
 
-        {# Медиана дебита #}
-        <div style="
-          flex:1; min-width:140px; padding:12px 14px;
-          background:linear-gradient(135deg, #fff8e1, #fff);
-          border:1px solid #ffe0b2; border-radius:8px;
-          border-left:4px solid #ff9800;
-        ">
-          <div style="font-size:11px; color:#999; margin-bottom:3px;">Медиана дебита</div>
-          <div style="font-size:22px; font-weight:700; color:#e65100;" id="flow-stat-median">—</div>
-          <div style="font-size:10px; color:#bbb;">тыс. м³/сут</div>
+        {# Canvas графика #}
+        <div style="flex:1; height:400px; background:white; border-radius:6px; padding:15px; border:1px solid #e9ecef; position:relative;">
+          {# Индикатор загрузки графика #}
+          <div id="flow-chart-loading" style="
+            display:none; position:absolute; top:0; left:0; right:0; bottom:0;
+            background:rgba(255,255,255,0.85); z-index:10;
+            align-items:center; justify-content:center;
+            font-size:14px; color:#999; border-radius:8px;
+          ">
+            <div style="text-align:center;">
+              <div style="font-size:24px; margin-bottom:6px;">⏳</div>
+              <div>Расчёт дебита...</div>
+            </div>
+          </div>
+          <canvas id="chart_flow_rate" data-well-id="{{ well.id }}"></canvas>
         </div>
 
-        {# Средний дебит #}
-        <div style="
-          flex:1; min-width:140px; padding:12px 14px;
-          background:linear-gradient(135deg, #fff3e0, #fff);
-          border:1px solid #ffe0b2; border-radius:8px;
-          border-left:4px solid #fb8c00;
+        {# ═══ Панель статистики (справа) — как у ΔP ═══ #}
+        <div id="flow-stats-panel" style="
+          width:240px; min-width:240px;
+          background:#f8f9fa;
+          border:1px solid #dee2e6;
+          border-radius:8px;
+          padding:12px;
+          display:flex; flex-direction:column; gap:6px;
+          color:#333;
+          font-size:12px;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.08);
         ">
-          <div style="font-size:11px; color:#999; margin-bottom:3px;">Средний дебит</div>
-          <div style="font-size:22px; font-weight:700; color:#ef6c00;" id="flow-stat-mean">—</div>
-          <div style="font-size:10px; color:#bbb;">тыс. м³/сут</div>
-        </div>
+          {# Курсор: время и значение #}
+          <div style="text-align:center; border-bottom:1px solid #dee2e6; padding-bottom:8px;">
+            <div style="font-size:11px; color:#6c757d; text-transform:uppercase; letter-spacing:0.05em;">Курсор</div>
+            <div id="flow-cursor-time" style="font-size:14px; font-weight:700; color:#212529;">—</div>
+            <div id="flow-cursor-value" style="font-size:16px; font-weight:700; color:#ff9800;">—</div>
+          </div>
 
-        {# Накопленный #}
-        <div style="
-          flex:1; min-width:140px; padding:12px 14px;
-          background:linear-gradient(135deg, #e3f2fd, #fff);
-          border:1px solid #bbdefb; border-radius:8px;
-          border-left:4px solid #1565c0;
-        ">
-          <div style="font-size:11px; color:#999; margin-bottom:3px;">Накопленный</div>
-          <div style="font-size:22px; font-weight:700; color:#1565c0;" id="flow-stat-cumulative">—</div>
-          <div style="font-size:10px; color:#bbb;">тыс. м³</div>
-        </div>
+          {# Заголовок статистики #}
+          <div style="text-align:center; padding-bottom:4px;">
+            <div style="font-size:10px; color:#6c757d; text-transform:uppercase; letter-spacing:0.05em;">Статистика за период</div>
+          </div>
 
-        {# Эффективный дебит #}
-        <div style="
-          flex:1; min-width:140px; padding:12px 14px;
-          background:linear-gradient(135deg, #e8f5e9, #fff);
-          border:1px solid #c8e6c9; border-radius:8px;
-          border-left:4px solid #2e7d32;
-        ">
-          <div style="font-size:11px; color:#999; margin-bottom:3px;">Эффективный дебит</div>
-          <div style="font-size:22px; font-weight:700; color:#2e7d32;" id="flow-stat-effective">—</div>
-          <div style="font-size:10px; color:#bbb;">тыс. м³/сут</div>
-        </div>
+          {# Медиана #}
+          <div style="display:flex; justify-content:space-between; align-items:center; background:#fff8e1; padding:6px 8px; border-radius:4px;">
+            <span style="color:#e65100; font-weight:600;">Медиана</span>
+            <span id="flow-stat-median" style="font-family:monospace; font-size:13px; font-weight:700; color:#e65100;">—</span>
+          </div>
 
+          {# Среднее #}
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="color:#666;">Среднее</span>
+            <span id="flow-stat-mean" style="font-family:monospace; color:#333;">—</span>
+          </div>
+
+          {# Эффективный #}
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="color:#666;">Эффективный</span>
+            <span id="flow-stat-effective" style="font-family:monospace; color:#2e7d32;">—</span>
+          </div>
+
+          {# Накопленный #}
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="color:#666;">Накопленный</span>
+            <span id="flow-stat-cumulative" style="font-family:monospace; color:#1565c0;">—</span>
+          </div>
+
+          {# Разделитель: Продувки #}
+          <div style="border-top:1px solid #dee2e6; margin:4px 0;"></div>
+          <div style="text-align:center; padding-bottom:2px;">
+            <div style="font-size:10px; color:#c62828; text-transform:uppercase; letter-spacing:0.05em; font-weight:600;">Продувки</div>
+          </div>
+
+          {# Стравливание #}
+          <div style="display:flex; justify-content:space-between; align-items:center; background:#ffebee; padding:4px 8px; border-radius:4px;">
+            <span style="color:#c62828; font-size:11px;">🔥 Стравл.</span>
+            <span id="flow-stat-venting-count" style="font-family:monospace; font-size:11px; font-weight:600; color:#c62828;">—</span>
+          </div>
+
+          {# Время стравливания #}
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="color:#666; font-size:11px;">Время стравл.</span>
+            <span id="flow-stat-venting-hours" style="font-family:monospace; font-size:11px; color:#c62828;">—</span>
+          </div>
+
+          {# Потери при стравливании #}
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="color:#666; font-size:11px;">Потери</span>
+            <span id="flow-stat-purge-loss" style="font-family:monospace; font-size:11px; color:#ad1457;">—</span>
+          </div>
+
+          {# Набор давления #}
+          <div style="display:flex; justify-content:space-between; align-items:center; background:#fff8e1; padding:4px 8px; border-radius:4px;">
+            <span style="color:#e65100; font-size:11px;">⏱ Набор</span>
+            <span id="flow-stat-buildup-hours" style="font-family:monospace; font-size:11px; font-weight:600; color:#e65100;">—</span>
+          </div>
+
+          {# Источники #}
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="color:#666; font-size:11px;">Источник</span>
+            <span id="flow-stat-purge-source" style="font-family:monospace; font-size:10px; color:#666;">—</span>
+          </div>
+
+          {# Разделитель: Потери/простои #}
+          <div style="border-top:1px solid #dee2e6; margin:4px 0;"></div>
+
+          {# Потери/сут #}
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="color:#666; font-size:11px;">Потери/сут</span>
+            <span id="flow-stat-total-loss" style="font-family:monospace; font-size:11px; color:#ad1457;">—</span>
+          </div>
+
+          {# Коэфф. потерь #}
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="color:#666; font-size:11px;">Коэфф. потерь</span>
+            <span id="flow-stat-loss-pct" style="font-family:monospace; font-size:11px; color:#7b1fa2;">—</span>
+          </div>
+
+          {# Простои #}
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="color:#666; font-size:11px;">Простои</span>
+            <span id="flow-stat-downtime-hours" style="font-family:monospace; font-size:11px; color:#795548;">—</span>
+          </div>
+
+          {# Кол-во периодов простоев #}
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="color:#666; font-size:11px;">Периодов простоев</span>
+            <span id="flow-stat-downtime-count" style="font-family:monospace; font-size:11px; color:#666;">—</span>
+          </div>
+
+          {# Разделитель #}
+          <div style="border-top:1px solid #dee2e6; margin:4px 0;"></div>
+
+          {# Наблюдение #}
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="color:#666; font-size:11px;">Наблюдение</span>
+            <span id="flow-stat-obs-days" style="font-family:monospace; font-size:11px; color:#666;">—</span>
+          </div>
+
+          {# Штуцер #}
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="color:#666; font-size:11px;">Штуцер</span>
+            <span id="flow-stat-choke" style="font-family:monospace; font-size:11px; color:#666;">—</span>
+          </div>
+        </div>
       </div>
 
-      <div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap;">
-
-        {# Продувки #}
-        <div style="
-          flex:1; min-width:140px; padding:12px 14px;
-          background:linear-gradient(135deg, #ffebee, #fff);
-          border:1px solid #ffcdd2; border-radius:8px;
-          border-left:4px solid #e53935;
-        ">
-          <div style="font-size:11px; color:#999; margin-bottom:3px;">Продувок</div>
-          <div style="font-size:22px; font-weight:700; color:#c62828;" id="flow-stat-blowout-count">—</div>
-          <div style="font-size:10px; color:#bbb;">за период</div>
+      {# ── Таблица простоев ── #}
+      <div id="flow-downtime-section" style="display:none; margin-top:16px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <div style="font-size:13px; font-weight:600; color:#374151;">
+            📋 Продувки и простои
+            <span id="flow-downtime-count" style="font-weight:400; color:#999; margin-left:6px;">0</span>
+          </div>
         </div>
-
-        {# Потери/сут #}
-        <div style="
-          flex:1; min-width:140px; padding:12px 14px;
-          background:linear-gradient(135deg, #fce4ec, #fff);
-          border:1px solid #f8bbd0; border-radius:8px;
-          border-left:4px solid #ad1457;
-        ">
-          <div style="font-size:11px; color:#999; margin-bottom:3px;">Потери/сут</div>
-          <div style="font-size:22px; font-weight:700; color:#ad1457;" id="flow-stat-total-loss">—</div>
-          <div style="font-size:10px; color:#bbb;">тыс. м³/сут</div>
-        </div>
-
-        {# Коэфф. потерь #}
-        <div style="
-          flex:1; min-width:140px; padding:12px 14px;
-          background:linear-gradient(135deg, #f3e5f5, #fff);
-          border:1px solid #e1bee7; border-radius:8px;
-          border-left:4px solid #7b1fa2;
-        ">
-          <div style="font-size:11px; color:#999; margin-bottom:3px;">Коэфф. потерь</div>
-          <div style="font-size:22px; font-weight:700; color:#7b1fa2;" id="flow-stat-loss-pct">—</div>
-          <div style="font-size:10px; color:#bbb;">%</div>
-        </div>
-
-        {# Простои #}
-        <div style="
-          flex:1; min-width:140px; padding:12px 14px;
-          background:linear-gradient(135deg, #efebe9, #fff);
-          border:1px solid #d7ccc8; border-radius:8px;
-          border-left:4px solid #795548;
-        ">
-          <div style="font-size:11px; color:#999; margin-bottom:3px;">Простои</div>
-          <div style="font-size:22px; font-weight:700; color:#795548;" id="flow-stat-downtime-hours">—</div>
-          <div style="font-size:10px; color:#bbb;">часов</div>
-        </div>
-
-      </div>
-    </div>{# /flow-stats-panel #}
-
-    {# ── График ── #}
-    <div style="position:relative; height:400px;">
-      {# Индикатор загрузки графика #}
-      <div id="flow-chart-loading" style="
-        display:none; position:absolute; top:0; left:0; right:0; bottom:0;
-        background:rgba(255,255,255,0.85); z-index:10;
-        align-items:center; justify-content:center;
-        font-size:14px; color:#999; border-radius:8px;
-      ">
-        <div style="text-align:center;">
-          <div style="font-size:24px; margin-bottom:6px;">⏳</div>
-          <div>Расчёт дебита...</div>
+        <div style="max-height:300px; overflow-y:auto; border:1px solid #f0f0f0; border-radius:6px;">
+          <table id="flow-downtime-table" style="width:100%; border-collapse:collapse; font-size:12px;">
+            <thead>
+              <tr style="background:#f8f9fa; position:sticky; top:0; z-index:1;">
+                <th style="padding:5px 6px; text-align:left; font-weight:600; color:#666; font-size:10px;">#</th>
+                <th style="padding:5px 6px; text-align:center; font-weight:600; color:#666; font-size:10px;">Тип</th>
+                <th style="padding:5px 6px; text-align:left; font-weight:600; color:#666; font-size:10px;">Начало</th>
+                <th style="padding:5px 6px; text-align:left; font-weight:600; color:#666; font-size:10px;">Конец</th>
+                <th style="padding:5px 6px; text-align:right; font-weight:600; color:#666; font-size:10px;">Стравл.</th>
+                <th style="padding:5px 6px; text-align:right; font-weight:600; color:#666; font-size:10px;">Набор</th>
+                <th style="padding:5px 6px; text-align:center; font-weight:600; color:#666; font-size:10px;">Источн.</th>
+                <th style="padding:5px 6px; text-align:center; font-weight:600; color:#666; font-size:10px;">Уверен.</th>
+                <th style="padding:5px 6px; text-align:center; font-weight:600; color:#666; font-size:10px;">Действие</th>
+              </tr>
+            </thead>
+            <tbody id="flow-downtime-tbody"></tbody>
+          </table>
         </div>
       </div>
-      <canvas id="chart_flow_rate" data-well-id="{{ well.id }}"></canvas>
-    </div>
 
-    {# ── Таблица простоев ── #}
-    <div id="flow-downtime-section" style="display:none; margin-top:16px;">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-        <div style="font-size:13px; font-weight:600; color:#374151;">
-          📋 Периоды простоев и продувок
-          <span id="flow-downtime-count" style="font-weight:400; color:#999; margin-left:6px;">0</span>
-        </div>
+      <div style="margin-top:10px; font-size:11px; color:#999; text-align:center;">
+        Выделите область мышкой для увеличения по времени • Период синхронизирован с графиком давлений
       </div>
-      <div style="max-height:250px; overflow-y:auto; border:1px solid #f0f0f0; border-radius:6px;">
-        <table id="flow-downtime-table" style="width:100%; border-collapse:collapse; font-size:12px;">
-          <thead>
-            <tr style="background:#f8f9fa; position:sticky; top:0;">
-              <th style="padding:6px 8px; text-align:left; font-weight:600; color:#666; font-size:11px;">#</th>
-              <th style="padding:6px 8px; text-align:left; font-weight:600; color:#666; font-size:11px;">Начало</th>
-              <th style="padding:6px 8px; text-align:left; font-weight:600; color:#666; font-size:11px;">Конец</th>
-              <th style="padding:6px 8px; text-align:right; font-weight:600; color:#666; font-size:11px;">Длительность</th>
-              <th style="padding:6px 8px; text-align:center; font-weight:600; color:#666; font-size:11px;">Тип</th>
-            </tr>
-          </thead>
-          <tbody id="flow-downtime-tbody"></tbody>
-        </table>
-      </div>
-    </div>
+    </div>{# /flow-main-content #}
 
-    <div style="margin-top:10px; font-size:11px; color:#999; text-align:center;">
-      Расчёт дебита по формуле Пирвердяна (модиф. Гилберта) • Выделите область мышкой для увеличения по времени • Период синхронизирован с графиком давлений
-    </div>
   </div>{# /card-body #}
 </div>{# /card #}
 {% endif %}
@@ -2859,13 +3029,13 @@
 <!-- well_events_chart.js загружается динамически через настройки страницы -->
 
 <!-- Скрипт синхронизированного графика: Давление LoRa + События Telegram -->
-<script src="/static/js/synchronized_chart.js?v=24"></script>
+<script src="/static/js/synchronized_chart.js?v=25"></script>
 
 <!-- Скрипт для графика ΔP (разница давлений) — синхронизирован с основным -->
 <script src="/static/js/delta_pressure_chart.js?v=14"></script>
 
 <!-- Скрипт для графика дебита газа — синхронизирован с основным -->
-<script src="/static/js/flow_rate_chart.js?v=1"></script>
+<script src="/static/js/flow_rate_chart.js?v=5"></script>
 
 <!-- Скрипт обновления давлений -->
 <script>
@@ -3082,6 +3252,16 @@ async function refreshPressureData() {
             <option value="{{ w.id }}">{{ w.number }} — {{ w.name or '' }}</option>
             {% endif %}
           {% endfor %}
+        </select>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="font-size:12px; font-weight:600; color:#374151; display:block; margin-bottom:4px;">Место установки</label>
+        <select id="transfer-location" style="width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px;">
+          <option value="">— Не менять —</option>
+          <option value="Устье">Устье</option>
+          <option value="Шлейф">Шлейф</option>
+          <option value="НКТ">НКТ</option>
+          <option value="Затруб">Затруб</option>
         </select>
       </div>
       <div style="margin-bottom:12px;">
@@ -3306,6 +3486,7 @@ function openTransferModal(equipmentId, equipmentName) {
   document.getElementById('transfer-datetime').value = now.toISOString().slice(0, 16);
   document.getElementById('transfer-notes').value = '';
   document.getElementById('transfer-target-well').value = '';
+  document.getElementById('transfer-location').value = '';
   document.getElementById('transfer-equipment-modal').style.display = 'flex';
 }
 
@@ -3326,10 +3507,13 @@ async function submitTransfer(event) {
   btn.disabled = true;
   btn.textContent = 'Переводим...';
 
+  var installLocation = document.getElementById('transfer-location').value;
+
   var formData = new FormData();
   formData.append('target_well_id', targetWellId);
   if (transferAt) formData.append('transfer_at', transferAt);
   if (notes) formData.append('notes', notes);
+  if (installLocation) formData.append('installation_location', installLocation);
 
   try {
     var resp = await fetch('/api/equipment/' + equipmentId + '/transfer', { method: 'POST', body: formData });

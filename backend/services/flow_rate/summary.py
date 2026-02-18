@@ -3,7 +3,12 @@
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pandas as pd
+
+if TYPE_CHECKING:
+    from .purge_detector import PurgeCycle
 
 
 def build_summary(
@@ -11,6 +16,7 @@ def build_summary(
     downtime_periods: pd.DataFrame,
     well_id: int,
     choke_mm: float,
+    purge_cycles: list[PurgeCycle] | None = None,
 ) -> dict:
     """
     Сводные показатели за один расчётный период.
@@ -79,13 +85,28 @@ def build_summary(
     median_dp = max(median_p_tube - median_p_line, 0.0)
 
     # Статистика простоев
-    blowout_count = 0
     total_periods = 0
+    downtime_total_hours = 0.0
     if not downtime_periods.empty:
-        blowout_count = int(downtime_periods["is_blowout"].sum())
         total_periods = len(downtime_periods)
+        downtime_total_hours = float(downtime_periods["duration_min"].sum() / 60.0)
 
-    return {
+    # ═══════ Метрики по продувкам ═══════
+    purge_venting_count = 0
+    purge_venting_hours = 0.0
+    purge_buildup_hours = 0.0
+    purge_marker_count = 0
+    purge_algorithm_count = 0
+
+    if purge_cycles:
+        active_cycles = [c for c in purge_cycles if not c.excluded]
+        purge_venting_count = len(active_cycles)
+        purge_venting_hours = sum(c.venting_duration_min for c in active_cycles) / 60.0
+        purge_buildup_hours = sum(c.buildup_duration_min for c in active_cycles) / 60.0
+        purge_marker_count = sum(1 for c in active_cycles if c.source == "marker")
+        purge_algorithm_count = sum(1 for c in active_cycles if c.source == "algorithm")
+
+    result = {
         "well_id": well_id,
         "observation_days": round(T_obs, 2),
         "choke_mm": choke_mm,
@@ -96,11 +117,12 @@ def build_summary(
         "q3_flow_rate": round(q3_flow, 3),
         "cumulative_flow": round(cum_flow, 3),
         "actual_avg_flow": round(actual_avg, 3),
-        # Простои
+        # Простои (p_tube < p_line)
+        "downtime_total_hours": round(downtime_total_hours, 2),
         "downtime_minutes": dt_min,
         "downtime_hours": round(dt_hours, 2),
         "downtime_days": round(dt_days, 3),
-        # Потери при продувках
+        # Потери при продувках (стравливание)
         "purge_time_hours": round(dt_hours, 2),
         "purge_loss_total": round(purge_total, 4),
         "purge_loss_daily_avg": round(purge_daily, 4),
@@ -116,7 +138,14 @@ def build_summary(
         "median_p_tube": round(median_p_tube, 2),
         "median_p_line": round(median_p_line, 2),
         "median_dp": round(median_dp, 2),
-        # Продувки
-        "blowout_count": blowout_count,
+        # Простои
         "total_downtime_periods": total_periods,
+        # Продувки (детекция)
+        "purge_venting_count": purge_venting_count,
+        "purge_venting_hours": round(purge_venting_hours, 2),
+        "purge_buildup_hours": round(purge_buildup_hours, 2),
+        "purge_marker_count": purge_marker_count,
+        "purge_algorithm_count": purge_algorithm_count,
     }
+
+    return result

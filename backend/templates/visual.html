@@ -257,6 +257,37 @@
     font-weight: 600;
     color: #3b82f6;
 }
+.flow-rate-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-top: 6px;
+}
+.flow-rate-cell {
+    background: linear-gradient(180deg, #fff 0%, #fffbeb 100%);
+    border-radius: 8px;
+    padding: 6px 4px;
+    text-align: center;
+    border-left: 3px solid #f59e0b;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.flow-rate-cell__value {
+    font-size: 18px;
+    font-weight: 800;
+    color: #b45309;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+}
+.flow-rate-cell__label {
+    font-size: 9px;
+    font-weight: 600;
+    color: #92400e;
+    margin-top: 1px;
+}
+.flow-rate-cell__unit {
+    font-weight: 400;
+    color: #d97706;
+}
 
 /* ===== PRESSURE RAW POPUP ===== */
 .pressure-raw-popup {
@@ -1135,6 +1166,18 @@
                 <div class="pressure-tile__label">ΔP <span class="pressure-tile__unit">атм</span></div>
             </div>
         </div>
+        {% if w.flow_today is not none or w.flow_yesterday is not none %}
+        <div class="flow-rate-row">
+            <div class="flow-rate-cell">
+                <div class="flow-rate-cell__value">{% if w.flow_today is not none %}{{ "%.1f"|format(w.flow_today) }}{% else %}&mdash;{% endif %}</div>
+                <div class="flow-rate-cell__label">Q сегодня <span class="flow-rate-cell__unit">тыс.м³/сут</span></div>
+            </div>
+            <div class="flow-rate-cell">
+                <div class="flow-rate-cell__value">{% if w.flow_yesterday is not none %}{{ "%.1f"|format(w.flow_yesterday) }}{% else %}&mdash;{% endif %}</div>
+                <div class="flow-rate-cell__label">Q вчера <span class="flow-rate-cell__unit">тыс.м³/сут</span></div>
+            </div>
+        </div>
+        {% endif %}
         <div class="pressure-meta">
             {% if w.pressure_updated %}
             обн. {{ (w.pressure_updated|to_kungrad).strftime("%d.%m %H:%M") }} <small style="color:#94a3b8;">(+5)</small>
@@ -1955,6 +1998,16 @@ async function refreshPressureDashboard() {
         {% endfor %}
       </select>
     </div>
+    <div style="margin-bottom:12px;">
+      <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Место установки</label>
+      <select id="vis-transfer-location" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+        <option value="">— Не менять —</option>
+        <option value="Устье">Устье</option>
+        <option value="Шлейф">Шлейф</option>
+        <option value="НКТ">НКТ</option>
+        <option value="Затруб">Затруб</option>
+      </select>
+    </div>
     <div style="margin-bottom:16px;">
       <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Дата/время</label>
       <input type="datetime-local" id="vis-transfer-dt" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;box-sizing:border-box;">
@@ -2070,9 +2123,12 @@ async function submitVisTransfer() {
   btn.disabled = true;
   btn.textContent = 'Переводим...';
 
+  var installLocation = document.getElementById('vis-transfer-location').value;
+
   var formData = new FormData();
   formData.append('target_well_id', targetWellId);
   if (transferAt) formData.append('transfer_at', transferAt);
+  if (installLocation) formData.append('installation_location', installLocation);
 
   try {
     var resp = await fetch('/api/equipment/' + equipmentId + '/transfer', { method: 'POST', body: formData });

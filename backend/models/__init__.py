@@ -30,3 +30,4 @@ from .lora_sensor import LoRaSensor, SensorInstallation
 from .well_sub_status import WellSubStatus
 from .chat_message_log import ChatMessageLog
 from .chat_subgroup import ChatSubgroup, chat_subgroup_member
+from .flow_analysis import FlowScenario, FlowCorrection, FlowResult

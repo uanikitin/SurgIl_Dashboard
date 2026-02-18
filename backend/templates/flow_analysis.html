@@ -1,0 +1,356 @@
+{% extends "base.html" %}
+
+{% block title %}СУРГИЛ · Анализ дебита{% endblock %}
+
+{% block extra_head %}
+<style>
+/* ═══════ Layout ═══════ */
+.fa-page { display:flex; flex-direction:column; gap:10px; padding:10px 0; }
+
+.fa-toolbar {
+    display:flex; flex-wrap:wrap; align-items:center; gap:8px;
+    background:#fff; border:1px solid #e5e7eb; border-radius:8px;
+    padding:10px 14px;
+}
+.fa-toolbar select, .fa-toolbar input[type="date"], .fa-toolbar input[type="text"] {
+    padding:6px 10px; border:1px solid #d1d5db; border-radius:6px;
+    font-size:13px; background:#fff;
+}
+.fa-toolbar select { min-width:160px; }
+.fa-toolbar .btn { padding:6px 14px; border:none; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; }
+.fa-toolbar .btn-primary { background:#3b82f6; color:#fff; }
+.fa-toolbar .btn-primary:hover { background:#2563eb; }
+.fa-toolbar .btn-success { background:#16a34a; color:#fff; }
+.fa-toolbar .btn-danger  { background:#dc2626; color:#fff; }
+.fa-toolbar .btn-outline { background:#fff; color:#374151; border:1px solid #d1d5db; }
+.fa-toolbar .btn-outline:hover { background:#f3f4f6; }
+.fa-toolbar .sep { width:1px; height:24px; background:#d1d5db; margin:0 4px; }
+
+.fa-body { display:flex; gap:10px; min-height:600px; }
+
+/* Left panel */
+.fa-left {
+    width:260px; min-width:260px;
+    display:flex; flex-direction:column; gap:8px;
+}
+.fa-panel {
+    background:#fff; border:1px solid #e5e7eb; border-radius:8px;
+    padding:12px; font-size:12px;
+}
+.fa-panel h3 {
+    font-size:12px; text-transform:uppercase; letter-spacing:0.05em;
+    color:#6b7280; margin:0 0 8px 0; padding-bottom:6px; border-bottom:1px solid #e5e7eb;
+}
+.fa-field { display:flex; flex-direction:column; gap:2px; margin-bottom:6px; }
+.fa-field label { font-size:11px; color:#6b7280; font-weight:600; }
+.fa-field input, .fa-field select {
+    padding:4px 8px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;
+}
+.fa-field input[type="number"] { width:80px; }
+
+/* Center: chart */
+.fa-center { flex:1; display:flex; flex-direction:column; gap:8px; }
+.fa-chart-wrap {
+    flex:1; position:relative; background:#fff;
+    border:1px solid #e5e7eb; border-radius:8px; padding:12px;
+    min-height:400px;
+}
+.fa-chart-wrap canvas { width:100% !important; height:100% !important; }
+.fa-loading {
+    display:none; position:absolute; top:0; left:0; right:0; bottom:0;
+    background:rgba(255,255,255,0.85); z-index:10;
+    align-items:center; justify-content:center; font-size:14px; color:#999;
+    border-radius:8px;
+}
+.fa-loading.show { display:flex; }
+.fa-no-data { text-align:center; padding:40px; color:#999; }
+
+/* Right panel */
+.fa-right {
+    width:280px; min-width:280px;
+    display:flex; flex-direction:column; gap:8px;
+}
+.fa-stat-row {
+    display:flex; justify-content:space-between; align-items:center; padding:3px 0;
+}
+.fa-stat-label { color:#6b7280; font-size:11px; }
+.fa-stat-value { font-family:monospace; font-size:13px; font-weight:700; color:#1f2937; }
+.fa-stat-highlight {
+    background:#fff8e1; padding:5px 8px; border-radius:4px; margin:2px 0;
+}
+.fa-stat-highlight .fa-stat-value { color:#e65100; }
+
+/* Corrections list */
+.fa-corr-item {
+    display:flex; align-items:center; gap:6px;
+    padding:5px 8px; border-radius:4px; margin:2px 0;
+    font-size:11px; cursor:pointer;
+    border-left:3px solid transparent;
+}
+.fa-corr-item:hover { background:#f3f4f6; }
+.fa-corr-item[data-type="exclude"]       { border-left-color:#ef4444; }
+.fa-corr-item[data-type="interpolate"]   { border-left-color:#3b82f6; }
+.fa-corr-item[data-type="manual_value"]  { border-left-color:#16a34a; }
+.fa-corr-item[data-type="clamp"]         { border-left-color:#f59e0b; }
+.fa-corr-type { font-weight:600; min-width:60px; }
+.fa-corr-range { color:#6b7280; flex:1; }
+.fa-corr-del { cursor:pointer; color:#dc2626; font-weight:700; padding:0 4px; }
+
+/* Daily results table */
+.fa-results-table { width:100%; border-collapse:collapse; font-size:11px; }
+.fa-results-table th {
+    background:#f3f4f6; padding:4px 6px; text-align:left;
+    font-weight:600; color:#374151; border-bottom:1px solid #e5e7eb;
+    position:sticky; top:0;
+}
+.fa-results-table td { padding:3px 6px; border-bottom:1px solid #f3f4f6; }
+.fa-results-table tr:hover td { background:#f0f9ff; }
+.fa-results-wrap { max-height:300px; overflow-y:auto; }
+
+/* Comparison table */
+.fa-compare-row { display:flex; gap:6px; margin:4px 0; font-size:11px; }
+.fa-compare-period { width:80px; font-weight:600; color:#374151; }
+.fa-compare-val { flex:1; text-align:right; font-family:monospace; }
+.fa-delta-pos { color:#16a34a; font-weight:600; }
+.fa-delta-neg { color:#dc2626; font-weight:600; }
+
+/* Correction modal */
+.fa-modal-overlay {
+    display:none; position:fixed; top:0; left:0; right:0; bottom:0;
+    background:rgba(0,0,0,0.4); z-index:100; align-items:center; justify-content:center;
+}
+.fa-modal-overlay.show { display:flex; }
+.fa-modal {
+    background:#fff; border-radius:10px; padding:20px; width:400px; max-width:90vw;
+    box-shadow:0 10px 40px rgba(0,0,0,0.2);
+}
+.fa-modal h3 { margin:0 0 12px 0; font-size:16px; }
+.fa-modal .fa-field { margin-bottom:10px; }
+.fa-modal .fa-field label { font-size:12px; }
+.fa-modal .fa-field input, .fa-modal .fa-field select {
+    width:100%; padding:6px 10px; font-size:13px;
+}
+.fa-modal-footer { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; }
+
+/* Selection mode */
+.fa-select-btn-active { background:#3b82f6 !important; color:#fff !important; border-color:#3b82f6 !important; }
+.fa-selection-stats {
+    background:#fff; border:1px solid #e5e7eb; border-radius:8px;
+    padding:12px; font-size:12px;
+}
+.fa-selection-stats h3 {
+    font-size:12px; text-transform:uppercase; letter-spacing:0.05em;
+    color:#6b7280; margin:0 0 8px 0; padding-bottom:6px; border-bottom:1px solid #e5e7eb;
+    display:flex; justify-content:space-between; align-items:center;
+}
+.fa-sel-actions { margin-top:8px; display:flex; gap:6px; }
+.fa-sel-grid { display:grid; grid-template-columns:1fr 1fr; gap:2px 12px; }
+.fa-sel-section { margin-top:6px; padding-top:4px; border-top:1px solid #f3f4f6; }
+.fa-sel-section-title { font-size:10px; text-transform:uppercase; color:#9ca3af; font-weight:600; margin-bottom:2px; }
+
+.badge-draft { background:#fef3c7; color:#92400e; padding:2px 8px; border-radius:10px; font-size:11px; }
+.badge-calculated { background:#d1fae5; color:#065f46; padding:2px 8px; border-radius:10px; font-size:11px; }
+.badge-locked { background:#e5e7eb; color:#374151; padding:2px 8px; border-radius:10px; font-size:11px; }
+.badge-baseline { background:#dbeafe; color:#1e40af; padding:2px 8px; border-radius:10px; font-size:11px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="fa-page">
+
+    <!-- ═══════ TOOLBAR ═══════ -->
+    <div class="fa-toolbar">
+        <select id="faWellSelect"><option value="">-- Скважина --</option></select>
+        <input type="date" id="faPeriodStart">
+        <span>—</span>
+        <input type="date" id="faPeriodEnd">
+        <div class="sep"></div>
+        <select id="faScenarioSelect"><option value="">-- Сценарий --</option></select>
+        <span id="faScenarioStatus"></span>
+        <button class="btn btn-outline" id="faNewScenario">+ Новый</button>
+        <button class="btn btn-primary" id="faSaveScenario" disabled>Сохранить</button>
+        <button class="btn btn-danger"  id="faDeleteScenario" disabled>Удалить</button>
+        <div class="sep"></div>
+        <button class="btn btn-success" id="faCalculate" disabled>Рассчитать</button>
+        <button class="btn btn-outline" id="faPreview" disabled>Предпросмотр</button>
+        <button class="btn btn-outline" id="faSetBaseline" disabled>Базовый</button>
+        <div class="sep"></div>
+        <button class="btn btn-outline" id="faSelectMode" title="Выбор участка для анализа">Выбор участка</button>
+        <button class="btn btn-outline" id="faResetZoom" title="Сбросить масштаб">&#8634; Zoom</button>
+    </div>
+
+    <!-- ═══════ BODY ═══════ -->
+    <div class="fa-body">
+
+        <!-- LEFT: Parameters + Corrections -->
+        <div class="fa-left">
+            <div class="fa-panel" id="faParamsPanel">
+                <h3>Параметры расчёта</h3>
+                <div class="fa-field">
+                    <label>Множитель M</label>
+                    <input type="number" id="faMult" value="4.1" step="0.1" min="0">
+                </div>
+                <div class="fa-field">
+                    <label>C1</label>
+                    <input type="number" id="faC1" value="2.919" step="0.001">
+                </div>
+                <div class="fa-field">
+                    <label>C2</label>
+                    <input type="number" id="faC2" value="4.654" step="0.001">
+                </div>
+                <div class="fa-field">
+                    <label>C3</label>
+                    <input type="number" id="faC3" value="286.95" step="0.01">
+                </div>
+                <div class="fa-field">
+                    <label>Крит. отношение</label>
+                    <input type="number" id="faCritRatio" value="0.5" step="0.05" min="0" max="1">
+                </div>
+                <div class="fa-field">
+                    <label>Штуцер, мм (пусто = авто)</label>
+                    <input type="number" id="faChoke" value="" step="0.5" min="0" placeholder="авто">
+                </div>
+                <div class="fa-field">
+                    <label>
+                        <input type="checkbox" id="faSmooth" checked> Сглаживание
+                    </label>
+                </div>
+            </div>
+
+            <div class="fa-panel">
+                <h3>Коррекции <button class="btn btn-outline" style="float:right;padding:2px 8px;font-size:11px;" id="faAddCorrection">+ Добавить</button></h3>
+                <div id="faCorrectionsList"></div>
+            </div>
+        </div>
+
+        <!-- CENTER: Chart -->
+        <div class="fa-center">
+            <div class="fa-chart-wrap">
+                <div class="fa-loading" id="faLoading">
+                    <div style="text-align:center;">
+                        <div style="font-size:24px; margin-bottom:6px;">&#9203;</div>
+                        <div>Загрузка данных...</div>
+                    </div>
+                </div>
+                <div class="fa-no-data" id="faNoData">
+                    Выберите скважину и период для начала анализа
+                </div>
+                <canvas id="faChart" style="display:none;"></canvas>
+            </div>
+            <!-- Selection statistics panel -->
+            <div class="fa-selection-stats" id="faSelectionStats" style="display:none;">
+                <h3>Статистика участка <button class="btn btn-outline" style="padding:1px 8px;font-size:11px;" id="faSelClose">&times;</button></h3>
+                <div id="faSelContent"></div>
+                <div class="fa-sel-actions">
+                    <button class="btn btn-outline" id="faSelCorr">Создать коррекцию</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT: Summary + Comparison + Daily table -->
+        <div class="fa-right">
+            <div class="fa-panel" id="faSummaryPanel">
+                <h3>Сводка</h3>
+                <div id="faSummaryContent">
+                    <div style="color:#999; text-align:center; padding:20px;">Нет данных</div>
+                </div>
+            </div>
+
+            <div class="fa-panel" id="faComparePanel" style="display:none;">
+                <h3>Сравнение с базовым</h3>
+                <div class="fa-field">
+                    <select id="faCompareGranularity">
+                        <option value="daily">По дням</option>
+                        <option value="weekly">По неделям</option>
+                        <option value="monthly">По месяцам</option>
+                    </select>
+                </div>
+                <div id="faCompareContent"></div>
+            </div>
+
+            <div class="fa-panel">
+                <h3>Суточные результаты</h3>
+                <div class="fa-results-wrap">
+                    <table class="fa-results-table" id="faResultsTable">
+                        <thead>
+                            <tr>
+                                <th>Дата</th>
+                                <th>Qср</th>
+                                <th>Qнак</th>
+                                <th>Ptr</th>
+                                <th>Pсбл</th>
+                            </tr>
+                        </thead>
+                        <tbody id="faResultsBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════ CORRECTION MODAL ═══════ -->
+<div class="fa-modal-overlay" id="faCorrModal">
+    <div class="fa-modal">
+        <h3 id="faCorrModalTitle">Добавить коррекцию</h3>
+        <div class="fa-field">
+            <label>Тип</label>
+            <select id="faCorrType">
+                <option value="exclude">Исключить</option>
+                <option value="interpolate">Интерполировать</option>
+                <option value="manual_value">Ручное значение</option>
+                <option value="clamp">Ограничить (clamp)</option>
+            </select>
+        </div>
+        <div class="fa-field">
+            <label>Начало</label>
+            <input type="datetime-local" id="faCorrStart" step="60">
+        </div>
+        <div class="fa-field">
+            <label>Конец</label>
+            <input type="datetime-local" id="faCorrEnd" step="60">
+        </div>
+        <div id="faCorrExtraFields"></div>
+        <div class="fa-field">
+            <label>Причина</label>
+            <input type="text" id="faCorrReason" placeholder="Описание коррекции">
+        </div>
+        <div class="fa-modal-footer">
+            <button class="btn btn-outline" id="faCorrCancel">Отмена</button>
+            <button class="btn btn-primary" id="faCorrSave">Сохранить</button>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════ NEW SCENARIO MODAL ═══════ -->
+<div class="fa-modal-overlay" id="faNewModal">
+    <div class="fa-modal">
+        <h3>Новый сценарий</h3>
+        <div class="fa-field">
+            <label>Название</label>
+            <input type="text" id="faNewName" placeholder="Базовый январь 2026">
+        </div>
+        <div class="fa-field">
+            <label>Описание</label>
+            <input type="text" id="faNewDesc" placeholder="(необязательно)">
+        </div>
+        <div class="fa-modal-footer">
+            <button class="btn btn-outline" id="faNewCancel">Отмена</button>
+            <button class="btn btn-primary" id="faNewSave">Создать</button>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<!-- Chart.js stack -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1"></script>
+<script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
+
+<script src="{{ url_for('static', path='/js/flow_analysis.js') }}?v=2"></script>
+{% endblock %}

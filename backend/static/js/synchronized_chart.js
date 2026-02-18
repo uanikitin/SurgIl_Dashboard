@@ -1460,14 +1460,20 @@
     todayListEl.innerHTML = todayHtml || '<span style="color:#999; font-size:11px;">Нет событий сегодня</span>';
   }
 
-  // ══════════════════ Sync Zoom с Delta Chart ══════════════════
+  // ══════════════════ Sync Zoom со всеми графиками ══════════════════
 
-  /** Синхронизирует текущий zoom/pan с графиком ΔP */
+  /** Синхронизирует текущий zoom/pan с графиками ΔP и дебита */
   function syncZoomToDelta(chart) {
-    if (!window.deltaChart || !window.deltaChart.syncZoom) return;
     const xScale = chart.scales.x;
     if (!xScale) return;
-    window.deltaChart.syncZoom(xScale.min, xScale.max);
+    // Синхронизация с ΔP
+    if (window.deltaChart && window.deltaChart.syncZoom) {
+      window.deltaChart.syncZoom(xScale.min, xScale.max);
+    }
+    // Синхронизация с графиком дебита
+    if (window.flowRateChart && window.flowRateChart.syncZoom) {
+      window.flowRateChart.syncZoom(xScale.min, xScale.max);
+    }
   }
 
   // ══════════════════ Zoom: назад + сброс ══════════════════
@@ -1482,6 +1488,9 @@
     syncChart.update('none');
     if (window.deltaChart && window.deltaChart.syncZoom) {
       window.deltaChart.syncZoom(prev.xMin, prev.xMax);
+    }
+    if (window.flowRateChart && window.flowRateChart.syncZoom) {
+      window.flowRateChart.syncZoom(prev.xMin, prev.xMax);
     }
   }
 
@@ -2147,6 +2156,7 @@ Pshl (шлейф): ${pshlStats.count} точек
     }
 
     // Обновляем график дебита если есть
+    console.log('[coordinator] flowRateChartReload exists:', !!window.flowRateChartReload, 'days:', days);
     if (window.flowRateChartReload) {
       window.flowRateChartReload(days);
     }

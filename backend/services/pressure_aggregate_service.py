@@ -178,15 +178,18 @@ def update_latest(well_ids: Optional[set[int]] = None) -> int:
                     SELECT
                         w.well_id,
                         -- Tube: независимое окно 3 мин от последнего ненулевого tube
+                        -- Ограничено 2 часами: если датчик не передаёт >2ч — NULL
                         (SELECT AVG(r.p_tube)
                          FROM pressure_raw r
                          WHERE r.well_id = w.well_id
                            AND r.p_tube IS NOT NULL AND r.p_tube != 0.0
+                           AND r.measured_at >= NOW() - INTERVAL '2 hours'
                            AND r.measured_at >= (
                                (SELECT MAX(r2.measured_at)
                                 FROM pressure_raw r2
                                 WHERE r2.well_id = w.well_id
-                                  AND r2.p_tube IS NOT NULL AND r2.p_tube != 0.0)
+                                  AND r2.p_tube IS NOT NULL AND r2.p_tube != 0.0
+                                  AND r2.measured_at >= NOW() - INTERVAL '2 hours')
                                - INTERVAL '3 minutes')
                         ) AS p_tube,
                         -- Line: независимое окно 3 мин от последнего ненулевого line
@@ -194,23 +197,27 @@ def update_latest(well_ids: Optional[set[int]] = None) -> int:
                          FROM pressure_raw r
                          WHERE r.well_id = w.well_id
                            AND r.p_line IS NOT NULL AND r.p_line != 0.0
+                           AND r.measured_at >= NOW() - INTERVAL '2 hours'
                            AND r.measured_at >= (
                                (SELECT MAX(r2.measured_at)
                                 FROM pressure_raw r2
                                 WHERE r2.well_id = w.well_id
-                                  AND r2.p_line IS NOT NULL AND r2.p_line != 0.0)
+                                  AND r2.p_line IS NOT NULL AND r2.p_line != 0.0
+                                  AND r2.measured_at >= NOW() - INTERVAL '2 hours')
                                - INTERVAL '3 minutes')
                         ) AS p_line,
-                        -- Timestamps: последний ненулевой замер каждого канала
+                        -- Timestamps: последний ненулевой замер каждого канала (за 2ч)
                         (SELECT MAX(r.measured_at)
                          FROM pressure_raw r
                          WHERE r.well_id = w.well_id
                            AND r.p_tube IS NOT NULL AND r.p_tube != 0.0
+                           AND r.measured_at >= NOW() - INTERVAL '2 hours'
                         ) AS tube_ts,
                         (SELECT MAX(r.measured_at)
                          FROM pressure_raw r
                          WHERE r.well_id = w.well_id
                            AND r.p_line IS NOT NULL AND r.p_line != 0.0
+                           AND r.measured_at >= NOW() - INTERVAL '2 hours'
                         ) AS line_ts
                     FROM (
                         SELECT DISTINCT well_id

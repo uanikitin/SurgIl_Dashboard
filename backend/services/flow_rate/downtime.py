@@ -1,26 +1,25 @@
 """
-Детекция периодов простоя и продувок.
+Детекция периодов простоя скважины.
 
-Простой = непрерывный интервал, где p_tube < p_line.
-Продувка (blowout) = простой длительностью > 30 минут.
+Простой = непрерывный интервал, где p_tube < p_line (газ не поступает в шлейф).
+Дебит = 0, потерь нет.
+
+Продувки детектируются отдельно в purge_detector.py.
 """
 from __future__ import annotations
 
 import pandas as pd
 
-from .config import DowntimeConfig, DEFAULT_DOWNTIME
-
 
 def detect_downtime_periods(
     df: pd.DataFrame,
-    cfg: DowntimeConfig = DEFAULT_DOWNTIME,
 ) -> pd.DataFrame:
     """
     Группировка непрерывных периодов, где p_tube < p_line.
 
     Returns
     -------
-    DataFrame: start, end, duration_min, duration_hours, is_blowout, interval_hours
+    DataFrame: start, end, duration_min, duration_hours, interval_hours
     Пустой DataFrame если простоев нет.
     """
     mask = df["p_tube"] < df["p_line"]
@@ -38,7 +37,6 @@ def detect_downtime_periods(
                 "start": start,
                 "end": end,
                 "duration_min": round(dur, 1),
-                "is_blowout": dur > cfg.min_blowout_minutes,
             })
             start = None
 
@@ -50,7 +48,6 @@ def detect_downtime_periods(
             "start": start,
             "end": end,
             "duration_min": round(dur, 1),
-            "is_blowout": dur > cfg.min_blowout_minutes,
         })
 
     result = pd.DataFrame(periods)

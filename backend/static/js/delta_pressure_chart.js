@@ -567,10 +567,16 @@
    * @param {Chart} chart - экземпляр графика delta
    */
   function syncZoomToMain(chart) {
-    if (!window.syncChart || !window.syncChart.syncZoom) return;
     const xScale = chart.scales.x;
     if (!xScale) return;
-    window.syncChart.syncZoom(xScale.min, xScale.max);
+    // Синхронизация с графиком давлений
+    if (window.syncChart && window.syncChart.syncZoom) {
+      window.syncChart.syncZoom(xScale.min, xScale.max);
+    }
+    // Синхронизация с графиком дебита
+    if (window.flowRateChart && window.flowRateChart.syncZoom) {
+      window.flowRateChart.syncZoom(xScale.min, xScale.max);
+    }
   }
 
   /**

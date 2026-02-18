@@ -29,6 +29,9 @@ _templates = Jinja2Templates(directory="backend/templates")
 # Часовой пояс Кунграда (Каракалпакстан) — UTC+5
 KUNKRAD_OFFSET = timedelta(hours=5)
 
+import logging
+log = logging.getLogger(__name__)
+
 # Путь к локальному SQLite
 _SQLITE_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "pressure.db"
 
@@ -156,34 +159,21 @@ def get_pressure_chart(
     if fill_mode not in allowed_fill_modes:
         raise HTTPException(400, f"fill_mode must be one of: {sorted(allowed_fill_modes)}")
 
-    # Проверяем наличие локальной SQLite с реальными данными
-    if not _sqlite_available():
-        return _chart_from_pg(
-            well_id, days, interval,
-            filter_zeros=filter_zeros,
-            filter_spikes=filter_spikes,
-            fill_mode=fill_mode,
-            max_gap=max_gap,
-        )
-
-    # SQLite доступна — используем локальные данные (быстрее)
-    try:
-        return _chart_from_sqlite(
-            well_id, days, interval,
-            filter_zeros=filter_zeros,
-            filter_spikes=filter_spikes,
-            fill_mode=fill_mode,
-            max_gap=max_gap,
-        )
-    except Exception:
-        # Любая ошибка SQLite → fallback на PostgreSQL
-        return _chart_from_pg(
-            well_id, days, interval,
-            filter_zeros=filter_zeros,
-            filter_spikes=filter_spikes,
-            fill_mode=fill_mode,
-            max_gap=max_gap,
-        )
+    # Единый источник: PostgreSQL pressure_raw (совпадает с flow-rate и pressure_latest)
+    log.info("[chart/%d] source=PostgreSQL days=%d interval=%d", well_id, days, interval)
+    result = _chart_from_pg(
+        well_id, days, interval,
+        filter_zeros=filter_zeros,
+        filter_spikes=filter_spikes,
+        fill_mode=fill_mode,
+        max_gap=max_gap,
+    )
+    log.info(
+        "[chart/%d] result: source=%s points=%d last=%s",
+        well_id, result.get("source"), result.get("count", 0),
+        result["points"][-1]["t"] if result.get("points") else "none",
+    )
+    return result
 
 
 def _chart_from_sqlite(
@@ -360,7 +350,8 @@ def _chart_from_pg(
                     """),
                     {"well_id": well_id, "start": dt_start, "end": dt_end},
                 ).fetchall()
-        except ProgrammingError:
+        except ProgrammingError as e:
+            log.warning("[_chart_from_pg] ProgrammingError (filters), fallback hourly: %s", e)
             return _chart_from_hourly(well_id, days)
 
         if not raw_rows:
@@ -441,8 +432,11 @@ def _chart_from_pg(
                     "isec": interval_sec,
                 },
             ).fetchall()
-    except ProgrammingError:
+    except ProgrammingError as e:
+        log.warning("[_chart_from_pg] ProgrammingError (standard), fallback hourly: %s", e)
         return _chart_from_hourly(well_id, days)
+
+    log.info("[_chart_from_pg] well=%d raw_pg rows=%d range=%s..%s", well_id, len(rows), dt_start, dt_end)
 
     def _safe(v):
         if v is None:

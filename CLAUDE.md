@@ -99,6 +99,7 @@ LaTeX templates in `templates/latex/`:
 - `well_handover.tex` - Well handover acts
 - `equipment_act.tex`, `equipment_install.tex`, `equipment_removal.tex` - Equipment documents
 - `reagent_expense.tex`, `reagent_expense_split.tex` - Reagent expense acts
+- `flow_analysis_report.tex` - Flow rate analysis report (scenario results, comparison, corrections log)
 
 **Equipment Management:**
 Split across multiple routers: `equipment_management.py`, `equipment_documents.py`, `equipment_admin.py`, and `well_equipment_integration.py`
@@ -122,6 +123,26 @@ Schedule config (`scripts/schedule_config.json`):
 
 - Day (07:00-22:00): 5-minute intervals
 - Night: 30-minute intervals
+
+**Flow Rate Analysis (Анализ дебита):**
+Scenario-based gas flow rate calculation with corrections, comparison, and PDF reporting. Raw pressure data (`pressure_raw`) is never modified — corrections are applied in-memory during calculation.
+
+Architecture: `pressure_raw` → `FlowScenario` (params) + `FlowCorrection` (edits) → pipeline → `FlowResult` (daily aggregates) → LaTeX PDF
+
+- `models/flow_analysis.py` - ORM: FlowScenario, FlowCorrection, FlowResult
+- `services/flow_rate/scenario_service.py` - Calculation pipeline with corrections + daily aggregation + scenario comparison
+- `services/flow_rate/chart_renderer.py` - matplotlib → PNG for LaTeX reports
+- `services/flow_rate/report_service.py` - LaTeX PDF generation (xelatex)
+- `routers/flow_analysis.py` - 15 API endpoints (`/api/flow-analysis/*`) + HTML page route (`/flow-analysis`)
+- `templates/flow_analysis.html` + `static/js/flow_analysis.js` - Analysis page UI
+- `templates/latex/flow_analysis_report.tex` - LaTeX report template
+
+Pipeline (reuses all existing `flow_rate/` modules without modification):
+`get_pressure_data` → `clean_pressure` → **apply_corrections** → `smooth_pressure` → `calculate_flow_rate` → `calculate_purge_loss` → `PurgeDetector` → `recalculate_purge_loss` → `calculate_cumulative` → `detect_downtime` → `build_summary` → `aggregate_to_daily`
+
+Correction types: `exclude` (NaN+ffill), `interpolate` (linear/nearest/spline), `manual_value` (fixed P), `clamp` (clip to range)
+
+DB tables: `flow_scenario`, `flow_correction`, `flow_result` (migration: `5031002768e7`)
 
 **Background Jobs API:**
 `routers/jobs_api.py` provides endpoints for automated tasks:
@@ -187,6 +208,7 @@ Environment variables (`.env`):
 - `DashboardUser` / `DashboardLoginLog` - User accounts and audit trail
 - `PressureReading` / `PressureHourly` / `PressureLatest` - LoRa sensor pressure data (raw, aggregated, current)
 - `LoraSensor` - LoRa sensor registry linked to wells
+- `FlowScenario` / `FlowCorrection` / `FlowResult` - Flow rate analysis scenarios, corrections, and daily results
 
 ## Route Documentation
 

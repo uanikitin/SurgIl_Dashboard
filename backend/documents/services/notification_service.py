@@ -42,6 +42,7 @@ def send_document_telegram(
     *,
     triggered_by: str = "manual",
     triggered_by_user_id: Optional[int] = None,
+    comment: Optional[str] = None,
 ) -> SendResult:
     """
     Отправить PDF документа в Telegram.
@@ -116,6 +117,8 @@ def send_document_telegram(
     if well_info:
         caption += f"🛢 {well_info}{period_info}\n"
     caption += f"\n📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+    if comment:
+        caption += f"\n\n💬 {comment}"
 
     # Отправляем
     try:
@@ -139,17 +142,20 @@ def send_document_telegram(
             # Успех
             send_log.status = "sent"
             send_log.sent_at = datetime.now()
-            send_log.response_data = {
+            resp_data = {
                 "message_id": result_data.get("result", {}).get("message_id"),
                 "chat_id": target_chat_id,
             }
+            if comment:
+                resp_data["comment"] = comment
+            send_log.response_data = resp_data
             db.commit()
 
             return SendResult(
                 success=True,
                 channel="telegram",
                 recipient=target_chat_id,
-                response_data=send_log.response_data,
+                response_data=resp_data,
             )
         else:
             # Ошибка от Telegram API
@@ -191,6 +197,7 @@ def send_document_email(
     body: Optional[str] = None,
     triggered_by: str = "manual",
     triggered_by_user_id: Optional[int] = None,
+    comment: Optional[str] = None,
 ) -> SendResult:
     """
     Отправить PDF документа на Email.
@@ -269,6 +276,7 @@ def send_document_email(
             subject += f" ({well_info}{period_info})"
 
     if not body:
+        comment_html = f"<p><em>{comment}</em></p>" if comment else ""
         body = f"""
 <html>
 <body>
@@ -279,6 +287,7 @@ def send_document_email(
     {"<li>Скважина: " + well_info + "</li>" if well_info else ""}
     {"<li>Период: " + period_info.strip() + "</li>" if period_info else ""}
 </ul>
+{comment_html}
 <p>С уважением,<br>Система СУРГИЛ</p>
 </body>
 </html>
@@ -319,18 +328,21 @@ def send_document_email(
         # Успех
         send_log.status = "sent"
         send_log.sent_at = datetime.now()
-        send_log.response_data = {
+        resp_data = {
             "to": to_email,
             "cc": cc_email,
             "subject": subject,
         }
+        if comment:
+            resp_data["comment"] = comment
+        send_log.response_data = resp_data
         db.commit()
 
         return SendResult(
             success=True,
             channel="email",
             recipient=to_email,
-            response_data=send_log.response_data,
+            response_data=resp_data,
         )
 
     except Exception as e:

@@ -88,7 +88,7 @@
     <div class="kpi-card">
       <div class="kpi-icon" style="background:#fef3c7; color:#d97706;">📦</div>
       <div class="kpi-data">
-        <div class="kpi-value">{{ board.get('archived', [])|length }}</div>
+        <div class="kpi-value">{{ archive_total }}</div>
         <div class="kpi-label">В архиве</div>
       </div>
     </div>
@@ -103,20 +103,57 @@
       <h2>Канбан документов</h2>
     </div>
 
-    <div style="display:grid; grid-template-columns: repeat(6, 1fr); gap:12px; overflow:auto;">
-      {% for s in ["draft","generated","signed","sent","archived","cancelled"] %}
-      <div style="min-width:220px; border:1px solid #ddd; border-radius:8px; padding:10px;">
-        <div style="font-weight:600; margin-bottom:8px;">
+    <div class="kanban-grid">
+      {# ── Active columns: draft, generated, signed, sent ── #}
+      {% for s in ["draft","generated","signed","sent"] %}
+      {% set col_docs = board.get(s, []) %}
+      <div class="kanban-col" data-status="{{ s }}"
+           ondragover="kanbanDragOver(event)" ondrop="kanbanDrop(event)"
+           ondragleave="kanbanDragLeave(event)">
+
+        <div class="kanban-col-header">
+          <span>
           {% if s == 'draft' %}📝 Черновик
           {% elif s == 'generated' %}📄 Создан
           {% elif s == 'signed' %}✅ Подписан
           {% elif s == 'sent' %}📧 Отправлен
-          {% elif s == 'archived' %}📦 Архив
-          {% elif s == 'cancelled' %}❌ Отменён
-          {% else %}{{ s }}{% endif %}
+          {% endif %}
+          </span>
+          {% if col_docs %}
+            <span class="kanban-count">({{ col_docs|length }})</span>
+          {% endif %}
+          {% if s in ('generated', 'signed', 'sent') %}
+            <label style="margin-left:auto; cursor:pointer; font-size:11px; font-weight:400; display:flex; align-items:center; gap:3px;" title="Выбрать все">
+              <input type="checkbox" class="col-select-all" data-col="{{ s }}" onchange="toggleColumnAll('{{ s }}', this.checked)">
+              все
+            </label>
+          {% endif %}
         </div>
 
-        {% for d in board.get(s, []) %}
+        {# ── Summary: doc types + wells ── #}
+        {% if col_docs %}
+        <div class="kanban-summary">
+          {%- set ns = namespace(types={}, wells=[]) -%}
+          {%- for d in col_docs -%}
+            {%- set tname = d.doc_type.name_ru if d.doc_type else "Другое" -%}
+            {%- if ns.types.update({tname: ns.types.get(tname, 0) + 1}) -%}{%- endif -%}
+            {%- if d.well and d.well.number|string not in ns.wells -%}
+              {%- if ns.wells.append(d.well.number|string) -%}{%- endif -%}
+            {%- endif -%}
+          {%- endfor -%}
+          <span>
+          {%- for tname, cnt in ns.types.items() -%}
+            {{ tname }}{% if cnt > 1 %}&nbsp;({{ cnt }}){% endif %}{% if not loop.last %}, {% endif %}
+          {%- endfor -%}
+          </span>
+          {% if ns.wells %}
+          <br><span>Скв: {{ ns.wells[:6]|join(", ") }}{% if ns.wells|length > 6 %} +{{ ns.wells|length - 6 }}{% endif %}</span>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        {# ── Cards ── #}
+        {% for d in col_docs %}
           {% set is_handover = d.doc_type and d.doc_type.code in ["well_acceptance", "well_transfer", "well_stage_accept", "well_stage_return"] %}
           {% set is_equipment = d.doc_type and d.doc_type.code in ["equipment_install", "equipment_remove"] %}
           {% if is_handover %}
@@ -127,7 +164,16 @@
             {% set detail_url = "/documents/" ~ d.id %}
           {% endif %}
 
-          <div style="border:1px solid #eee; border-radius:8px; padding:8px; margin-bottom:8px;">
+          <div class="kanban-card{% if loop.index > 3 %} kanban-card-hidden{% endif %}"
+               draggable="true" data-doc-id="{{ d.id }}" data-status="{{ s }}"
+               ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)"
+               data-kanban-col="{{ s }}">
+            {% if d.pdf_filename %}
+              <input type="checkbox" class="doc-select-cb" data-doc-id="{{ d.id }}"
+                     data-doc-label="{{ d.doc_number or d.id }}"
+                     onchange="updateBatchBar()"
+                     style="position:absolute; top:8px; right:8px; cursor:pointer;">
+            {% endif %}
             <div><strong>{{ d.doc_number or "—" }}</strong></div>
 
             <div style="font-size:12px; opacity:0.8;">
@@ -142,7 +188,7 @@
             </div>
 
             <div style="margin-top:6px; display:flex; gap:10px; align-items:center;">
-              <a href="{{ detail_url }}" class="admin-link">Открыть</a>
+              <a href="{{ detail_url }}" class="admin-link" draggable="false">Открыть</a>
 
               {% if d.status == "draft" %}
                 {% if is_equipment %}
@@ -163,13 +209,116 @@
           </div>
         {% endfor %}
 
-        {% if board.get(s, [])|length == 0 %}
+        {% if col_docs|length > 3 %}
+          <button class="kanban-expand-btn" data-expanded="0"
+                  onclick="toggleColumnExpand(this, '{{ s }}')">
+            +{{ col_docs|length - 3 }} ещё
+          </button>
+        {% endif %}
+
+        {% if col_docs|length == 0 %}
           <div style="opacity:0.4; font-size:12px; text-align:center; padding:8px;">пусто</div>
         {% endif %}
       </div>
       {% endfor %}
+
+      {# ── Archive column: accordion by well, AJAX-loaded ── #}
+      <div class="kanban-col kanban-col-terminal" data-status="archived"
+           ondragover="kanbanDragOver(event)" ondrop="kanbanDrop(event)"
+           ondragleave="kanbanDragLeave(event)">
+
+        <div class="kanban-col-header">
+          <span>📦 Архив</span>
+          {% if archive_total %}
+            <span class="kanban-count">({{ archive_total }})</span>
+          {% endif %}
+        </div>
+
+        {% if archive_summary %}
+        <div id="archiveAccordion">
+          {% for row in archive_summary %}
+          <details class="archive-well-group" data-well-id="{{ row.well_id }}">
+            <summary class="archive-well-header">
+              <span class="archive-arrow">►</span>
+              Скв {{ row.well_number or '—' }}
+              <span class="archive-count">{{ row.cnt }}</span>
+            </summary>
+            <div class="archive-well-docs" id="archiveDocs-{{ row.well_id }}">
+              <div style="padding:8px; color:#9ca3af; font-size:12px;">Загрузка...</div>
+            </div>
+          </details>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div style="opacity:0.4; font-size:12px; text-align:center; padding:8px;">пусто</div>
+        {% endif %}
+      </div>
+
+      {# ── Cancelled column: compact list ── #}
+      <div class="kanban-col kanban-col-terminal" data-status="cancelled"
+           ondragover="kanbanDragOver(event)" ondrop="kanbanDrop(event)"
+           ondragleave="kanbanDragLeave(event)">
+
+        <div class="kanban-col-header">
+          <span>❌ Отменён</span>
+          {% if cancelled_docs %}
+            <span class="kanban-count">({{ cancelled_docs|length }})</span>
+          {% endif %}
+        </div>
+
+        {% for cd in cancelled_docs[:5] %}
+        <div class="cancelled-row">
+          <a href="/documents/{{ cd.id }}">{{ cd.doc_number or '—' }}</a>
+          <span>{{ cd.type_name or '' }}</span>
+          {% if cd.well_number %}<span>Скв {{ cd.well_number }}</span>{% endif %}
+        </div>
+        {% endfor %}
+        {% if cancelled_docs|length > 5 %}
+          <button class="kanban-expand-btn" data-expanded="0"
+                  onclick="toggleCancelledExpand(this)">
+            +{{ cancelled_docs|length - 5 }} ещё
+          </button>
+          {% for cd in cancelled_docs[5:] %}
+          <div class="cancelled-row cancelled-row-hidden" style="display:none;">
+            <a href="/documents/{{ cd.id }}">{{ cd.doc_number or '—' }}</a>
+            <span>{{ cd.type_name or '' }}</span>
+            {% if cd.well_number %}<span>Скв {{ cd.well_number }}</span>{% endif %}
+          </div>
+          {% endfor %}
+        {% endif %}
+        {% if cancelled_docs|length == 0 %}
+          <div style="opacity:0.4; font-size:12px; text-align:center; padding:8px;">пусто</div>
+        {% endif %}
+      </div>
     </div>
   </section>
+
+  {# ============================================================
+     BATCH ACTION BAR (sticky, appears when documents selected)
+     ============================================================ #}
+  <div id="batchBar" style="
+    display:none; position:sticky; bottom:16px; z-index:50;
+    background:#1e293b; color:#fff; border-radius:10px; padding:10px 20px;
+    align-items:center; gap:12px;
+    box-shadow:0 4px 16px rgba(0,0,0,0.2); margin:8px 0;">
+    <span id="batchCount" style="font-weight:600; font-size:14px;">0 выбрано</span>
+    <div style="flex:1;"></div>
+    <button onclick="openBatchSendModal('telegram')" style="
+      background:#0088cc; color:#fff; border:none; border-radius:6px;
+      padding:6px 14px; font-size:13px; font-weight:600; cursor:pointer;">
+      Telegram
+    </button>
+    <button onclick="openBatchSendModal('email')" style="
+      background:#059669; color:#fff; border:none; border-radius:6px;
+      padding:6px 14px; font-size:13px; font-weight:600; cursor:pointer;">
+      Email
+    </button>
+    <button onclick="clearDocSelection()" style="
+      background:transparent; color:#94a3b8; border:1px solid #475569; border-radius:6px;
+      padding:6px 14px; font-size:13px; cursor:pointer;">
+      Сбросить
+    </button>
+  </div>
 
   <!-- REAGENT EXPENSE SECTION -->
   <section class="analytics-card">
@@ -601,7 +750,229 @@
   </div>
 </div>
 
+{# ============================================================
+   МОДАЛЬНОЕ ОКНО ПАКЕТНОЙ ОТПРАВКИ
+   ============================================================ #}
+<div id="batchSendModal" class="modal-overlay" style="display:none;">
+  <div class="modal-content" style="max-width:520px;">
+    <div class="modal-header">
+      <h3 style="margin:0;" id="batchSendTitle">Отправить документы</h3>
+      <button type="button" onclick="closeBatchSendModal()" class="modal-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      {# Список выбранных документов #}
+      <div id="batchDocsList" style="margin-bottom:12px; max-height:120px; overflow:auto;
+           background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:8px; font-size:12px;">
+      </div>
+
+      {# Переключатель канала (при перетаскивании) #}
+      <div id="batchChannelPicker" style="display:none; margin-bottom:12px;">
+        <div style="font-weight:600; font-size:13px; margin-bottom:6px;">Способ отправки:</div>
+        <div style="display:flex; gap:8px;">
+          <button type="button" class="channel-btn" data-ch="telegram"
+                  onclick="switchBatchChannel('telegram')"
+                  style="flex:1; padding:8px; border:2px solid #0088cc; border-radius:8px; background:#e0f2fe;
+                         font-size:13px; font-weight:600; cursor:pointer; color:#0369a1;">
+            Telegram
+          </button>
+          <button type="button" class="channel-btn" data-ch="email"
+                  onclick="switchBatchChannel('email')"
+                  style="flex:1; padding:8px; border:2px solid #d1d5db; border-radius:8px; background:#fff;
+                         font-size:13px; font-weight:600; cursor:pointer; color:#6b7280;">
+            Email
+          </button>
+        </div>
+      </div>
+
+      {# Telegram: выбор получателя #}
+      <div id="batchTgSection" style="display:none;">
+        <div style="font-weight:600; font-size:13px; margin-bottom:6px;">Получатель Telegram:</div>
+        <div id="batchTgLoading" style="text-align:center; padding:12px; color:#6b7280;">Загрузка...</div>
+        <div id="batchTgList" style="max-height:220px; overflow:auto; border:1px solid #e5e7eb; border-radius:6px;"></div>
+      </div>
+
+      {# Email: ввод адресов #}
+      <div id="batchEmailSection" style="display:none;">
+        <div style="font-weight:600; font-size:13px; margin-bottom:6px;">Email получателей:</div>
+        <input type="text" id="batchEmailInput" placeholder="name@example.com, other@example.com"
+               style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; box-sizing:border-box;">
+        <div style="font-size:11px; color:#9ca3af; margin-top:4px;">Несколько адресов через запятую</div>
+      </div>
+
+      {# Комментарий к отправке #}
+      <div id="batchCommentSection" style="margin-top:12px;">
+        <div style="font-weight:600; font-size:13px; margin-bottom:6px;">Комментарий:</div>
+        <textarea id="batchCommentInput" rows="3" placeholder="Текст сообщения (необязательно)"
+                  style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px;
+                         font-size:13px; resize:vertical; box-sizing:border-box; font-family:inherit;"></textarea>
+      </div>
+
+      {# Прогресс / результаты #}
+      <div id="batchSendProgress" style="display:none; text-align:center; padding:16px;">
+        <div style="font-size:24px; animation:spin 1s linear infinite;">⏳</div>
+        <div style="margin-top:8px; color:#6b7280;">Отправка документов...</div>
+      </div>
+      <div id="batchSendResults" style="display:none; margin-top:12px;"></div>
+    </div>
+    <div class="modal-footer" id="batchSendFooter">
+      <button type="button" class="btn-secondary" onclick="closeBatchSendModal()">Отмена</button>
+      <button type="button" class="btn-apply" id="batchSendBtn" onclick="executeBatchSend()">Отправить</button>
+    </div>
+  </div>
+</div>
+
 <style>
+/* Kanban grid & columns */
+.kanban-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px;
+  overflow: auto;
+}
+.kanban-col {
+  min-width: 220px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 10px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.kanban-col-header {
+  font-weight: 600;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.kanban-count {
+  font-size: 12px;
+  font-weight: 400;
+  color: #6b7280;
+}
+.kanban-summary {
+  font-size: 11px;
+  color: #6b7280;
+  margin-bottom: 8px;
+  padding: 4px 6px;
+  background: #f9fafb;
+  border-radius: 4px;
+  line-height: 1.5;
+}
+
+/* Kanban cards */
+.kanban-card {
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 8px;
+  margin-bottom: 8px;
+  position: relative;
+  cursor: grab;
+  transition: opacity 0.15s, box-shadow 0.15s;
+  background: #fff;
+}
+.kanban-card:active { cursor: grabbing; }
+.kanban-card.kanban-dragging {
+  opacity: 0.35;
+  box-shadow: none;
+}
+
+/* Drag-over highlight */
+.kanban-col.kanban-col-over {
+  background: #e0f2fe;
+  border-color: #38bdf8;
+}
+
+/* Collapsed cards */
+.kanban-card-hidden { display: none; }
+.kanban-expand-btn {
+  width: 100%;
+  border: 1px dashed #cbd5e1;
+  background: #f8fafc;
+  border-radius: 6px;
+  padding: 6px;
+  font-size: 12px;
+  color: #64748b;
+  cursor: pointer;
+  margin-top: 4px;
+}
+.kanban-expand-btn:hover { background: #f1f5f9; }
+
+/* Terminal columns (archive, cancelled) */
+.kanban-col-terminal { background: #fafafa; }
+
+/* Archive accordion */
+.archive-well-group { border-bottom: 1px solid #f0f0f0; }
+.archive-well-header {
+  list-style: none;
+  cursor: pointer;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.archive-well-header::-webkit-details-marker { display: none; }
+.archive-well-header:hover { background: #f3f4f6; }
+.archive-arrow {
+  font-size: 9px;
+  color: #9ca3af;
+  transition: transform 0.2s;
+}
+.archive-well-group[open] .archive-arrow { transform: rotate(90deg); }
+.archive-count {
+  margin-left: auto;
+  background: #e5e7eb;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 400;
+  color: #6b7280;
+}
+.archive-doc-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 8px 4px 24px;
+  border-bottom: 1px solid #f8f8f8;
+  font-size: 12px;
+}
+.archive-doc-row:hover { background: #f0f9ff; }
+.archive-doc-row a { font-weight: 600; text-decoration: none; color: #1d4ed8; }
+
+/* Cancelled compact rows */
+.cancelled-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 4px 8px;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 12px;
+}
+.cancelled-row a { font-weight: 600; text-decoration: none; color: #6b7280; }
+.cancelled-row span { color: #9ca3af; font-size: 11px; }
+
+/* Toast */
+.kanban-toast {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e293b;
+  color: #fff;
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-size: 13px;
+  z-index: 200;
+  animation: toastIn 0.3s ease;
+  pointer-events: none;
+}
+.kanban-toast.error { background: #991b1b; }
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
@@ -972,6 +1343,464 @@ async function runAutoCreate() {
 // Закрытие модала по клику вне его
 document.getElementById('autoCreateModal')?.addEventListener('click', function(e) {
   if (e.target === this) closeAutoCreateModal();
+});
+
+// ========== Kanban drag-and-drop ==========
+
+var dragDocId = null;
+var dragSourceStatus = null;
+
+function kanbanDragStart(e) {
+  var card = e.target.closest('.kanban-card');
+  if (!card) return;
+  dragDocId = card.dataset.docId;
+  dragSourceStatus = card.dataset.status;
+  card.classList.add('kanban-dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', dragDocId);
+}
+
+function kanbanDragEnd(e) {
+  var card = e.target.closest('.kanban-card');
+  if (card) card.classList.remove('kanban-dragging');
+}
+
+function kanbanDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  var col = e.currentTarget;
+  if (!col.classList.contains('kanban-col-over')) {
+    col.classList.add('kanban-col-over');
+  }
+}
+
+function kanbanDragLeave(e) {
+  var col = e.currentTarget;
+  // Only remove highlight if leaving the column entirely
+  if (!col.contains(e.relatedTarget)) {
+    col.classList.remove('kanban-col-over');
+  }
+}
+
+async function kanbanDrop(e) {
+  e.preventDefault();
+  var col = e.currentTarget;
+  col.classList.remove('kanban-col-over');
+
+  var newStatus = col.dataset.status;
+  if (!dragDocId || newStatus === dragSourceStatus) return;
+
+  // «Отправлен» — только через реальную отправку (Telegram/Email)
+  if (newStatus === 'sent') {
+    // Собираем все выбранные чекбоксами + перетаскиваемый
+    var docsList = [];
+    var seenIds = {};
+    document.querySelectorAll('.doc-select-cb:checked').forEach(function(cb) {
+      var did = parseInt(cb.dataset.docId);
+      if (!seenIds[did]) {
+        seenIds[did] = true;
+        docsList.push({id: did, label: cb.dataset.docLabel || String(did)});
+      }
+    });
+    // Добавляем перетаскиваемый, если ещё не в списке
+    var dragId = parseInt(dragDocId);
+    if (!seenIds[dragId]) {
+      var card = document.querySelector('.kanban-card[data-doc-id="' + dragDocId + '"]');
+      var label = card ? (card.querySelector('strong')?.textContent || dragDocId) : dragDocId;
+      docsList.push({id: dragId, label: label});
+    }
+    openBatchSendModal('telegram', docsList);
+    return;
+  }
+
+  try {
+    var resp = await fetch('/api/documents/' + dragDocId + '/status', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({status: newStatus}),
+    });
+    var data = await resp.json();
+    if (data.ok) {
+      location.reload();
+    } else {
+      showKanbanToast(data.error || 'Нельзя переместить', 'error');
+    }
+  } catch (err) {
+    showKanbanToast('Ошибка сети', 'error');
+  }
+}
+
+// ========== Kanban collapse/expand ==========
+
+function toggleColumnExpand(btn, status) {
+  var col = document.querySelector('.kanban-col[data-status="' + status + '"]');
+  var hidden = col.querySelectorAll('.kanban-card-hidden');
+  var isExpanded = btn.dataset.expanded === '1';
+  hidden.forEach(function(card) {
+    card.style.display = isExpanded ? 'none' : 'block';
+  });
+  btn.dataset.expanded = isExpanded ? '0' : '1';
+  btn.textContent = isExpanded ? ('+' + hidden.length + ' ещё') : 'Свернуть';
+}
+
+// ========== Toast ==========
+
+function showKanbanToast(msg, type) {
+  var toast = document.createElement('div');
+  toast.className = 'kanban-toast' + (type ? ' ' + type : '');
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(function() { toast.remove(); }, 3000);
+}
+
+// ========== Пакетная отправка документов ==========
+
+var batchChannel = '';
+var recipientsCache = null;
+var overrideDocIds = null;  // set by drag-to-sent
+
+function getSelectedDocIds() {
+  if (overrideDocIds) return overrideDocIds;
+  var ids = [];
+  document.querySelectorAll('.doc-select-cb:checked').forEach(function(cb) {
+    ids.push(parseInt(cb.dataset.docId));
+  });
+  return ids;
+}
+
+function updateBatchBar() {
+  var ids = getSelectedDocIds();
+  var bar = document.getElementById('batchBar');
+  if (ids.length > 0) {
+    bar.style.display = 'flex';
+    document.getElementById('batchCount').textContent = ids.length + ' выбрано';
+  } else {
+    bar.style.display = 'none';
+  }
+  // Sync column "select all" checkboxes
+  document.querySelectorAll('.col-select-all').forEach(function(colCb) {
+    var col = colCb.dataset.col;
+    var all = document.querySelectorAll('.doc-select-cb[data-doc-id]');
+    var colCbs = [];
+    all.forEach(function(cb) {
+      if (cb.closest('[data-kanban-col="' + col + '"]')) colCbs.push(cb);
+    });
+    if (colCbs.length === 0) { colCb.checked = false; return; }
+    colCb.checked = colCbs.every(function(cb) { return cb.checked; });
+  });
+}
+
+function clearDocSelection() {
+  document.querySelectorAll('.doc-select-cb').forEach(function(cb) { cb.checked = false; });
+  document.querySelectorAll('.col-select-all').forEach(function(cb) { cb.checked = false; });
+  updateBatchBar();
+}
+
+function toggleColumnAll(status, checked) {
+  document.querySelectorAll('[data-kanban-col="' + status + '"] .doc-select-cb').forEach(function(cb) {
+    cb.checked = checked;
+  });
+  updateBatchBar();
+}
+
+async function openBatchSendModal(channel, docsList) {
+  batchChannel = channel;
+
+  // docsList: optional [{id, label}] from drag-to-sent
+  if (docsList && docsList.length) {
+    overrideDocIds = docsList.map(function(d) { return d.id; });
+    var labels = docsList.map(function(d) { return d.label; });
+    var ids = overrideDocIds;
+  } else {
+    overrideDocIds = null;
+    var ids = getSelectedDocIds();
+    if (!ids.length) return;
+    var labels = [];
+    document.querySelectorAll('.doc-select-cb:checked').forEach(function(cb) {
+      labels.push(cb.dataset.docLabel || cb.dataset.docId);
+    });
+  }
+
+  // Show selected docs
+  document.getElementById('batchDocsList').innerHTML =
+    '<strong>' + ids.length + ' документ(ов):</strong> ' +
+    labels.map(function(l) { return '<span style="background:#e0e7ff; padding:2px 6px; border-radius:4px; margin:2px; display:inline-block;">' + l + '</span>'; }).join(' ');
+
+  // Reset state
+  document.getElementById('batchSendProgress').style.display = 'none';
+  document.getElementById('batchSendResults').style.display = 'none';
+  document.getElementById('batchSendResults').innerHTML = '';
+  document.getElementById('batchSendFooter').style.display = 'flex';
+  document.getElementById('batchSendBtn').disabled = false;
+
+  // Show channel picker when opened from drag (no pre-set channel)
+  var showPicker = !!docsList;
+  document.getElementById('batchChannelPicker').style.display = showPicker ? 'block' : 'none';
+
+  document.getElementById('batchSendTitle').textContent = 'Отправить документ';
+  _applyBatchChannel(channel);
+
+  document.getElementById('batchSendModal').style.display = 'flex';
+}
+
+function _applyBatchChannel(channel) {
+  batchChannel = channel;
+  // Update channel picker highlight
+  document.querySelectorAll('.channel-btn').forEach(function(btn) {
+    var active = btn.dataset.ch === channel;
+    btn.style.borderColor = active ? (channel === 'telegram' ? '#0088cc' : '#059669') : '#d1d5db';
+    btn.style.background = active ? (channel === 'telegram' ? '#e0f2fe' : '#d1fae5') : '#fff';
+    btn.style.color = active ? (channel === 'telegram' ? '#0369a1' : '#065f46') : '#6b7280';
+  });
+
+  if (channel === 'telegram') {
+    document.getElementById('batchTgSection').style.display = 'block';
+    document.getElementById('batchEmailSection').style.display = 'none';
+    loadRecipients();
+  } else {
+    document.getElementById('batchTgSection').style.display = 'none';
+    document.getElementById('batchEmailSection').style.display = 'block';
+    document.getElementById('batchEmailInput').value = '';
+  }
+}
+
+function switchBatchChannel(channel) {
+  _applyBatchChannel(channel);
+}
+
+function closeBatchSendModal() {
+  document.getElementById('batchSendModal').style.display = 'none';
+  document.getElementById('batchCommentInput').value = '';
+  overrideDocIds = null;
+}
+
+async function loadRecipients() {
+  var listEl = document.getElementById('batchTgList');
+  var loadingEl = document.getElementById('batchTgLoading');
+
+  if (recipientsCache) {
+    renderRecipients(recipientsCache);
+    return;
+  }
+
+  loadingEl.style.display = 'block';
+  listEl.innerHTML = '';
+
+  try {
+    var resp = await fetch('/api/chat/recipients');
+    var data = await resp.json();
+    recipientsCache = data;
+    loadingEl.style.display = 'none';
+    renderRecipients(data);
+  } catch (e) {
+    loadingEl.style.display = 'none';
+    listEl.innerHTML = '<div style="padding:8px; color:#991b1b;">Ошибка загрузки получателей</div>';
+  }
+}
+
+function renderRecipients(data) {
+  var listEl = document.getElementById('batchTgList');
+  var html = '';
+
+  if (data.subgroups && data.subgroups.length) {
+    html += '<div style="padding:6px 10px; font-size:11px; font-weight:600; color:#6b7280; background:#f3f4f6;">Подгруппы</div>';
+    data.subgroups.forEach(function(sg) {
+      var memberIds = (sg.user_ids || []).join(',');
+      html += '<label style="display:flex; align-items:center; gap:8px; padding:8px 10px; border-bottom:1px solid #f0f0f0; cursor:pointer;">' +
+        '<input type="checkbox" class="batch-recipient-cb" value="subgroup:' + memberIds + '" data-type="subgroup"> ' +
+        '<span style="font-size:13px;">' + sg.name + ' <span style="color:#9ca3af;">(' + (sg.user_ids || []).length + ')</span></span></label>';
+    });
+  }
+
+  if (data.groups && data.groups.length) {
+    html += '<div style="padding:6px 10px; font-size:11px; font-weight:600; color:#6b7280; background:#f3f4f6;">Группы</div>';
+    data.groups.forEach(function(g) {
+      html += '<label style="display:flex; align-items:center; gap:8px; padding:8px 10px; border-bottom:1px solid #f0f0f0; cursor:pointer;">' +
+        '<input type="checkbox" class="batch-recipient-cb" value="' + g.chat_id + '" data-type="group"> ' +
+        '<span style="font-size:13px;">' + (g.title || g.chat_id) + '</span></label>';
+    });
+  }
+
+  if (data.users && data.users.length) {
+    html += '<div style="padding:6px 10px; font-size:11px; font-weight:600; color:#6b7280; background:#f3f4f6;">Пользователи</div>';
+    data.users.forEach(function(u) {
+      html += '<label style="display:flex; align-items:center; gap:8px; padding:8px 10px; border-bottom:1px solid #f0f0f0; cursor:pointer;">' +
+        '<input type="checkbox" class="batch-recipient-cb" value="' + u.chat_id + '" data-type="user"> ' +
+        '<span style="font-size:13px;">' + (u.full_name || u.username || u.chat_id) + '</span></label>';
+    });
+  }
+
+  if (!html) {
+    html = '<div style="padding:12px; color:#6b7280; text-align:center;">Нет получателей. Добавьте пользователей или группы.</div>';
+  }
+
+  listEl.innerHTML = html;
+}
+
+function _collectRecipients() {
+  // Collect unique chat_ids from checked checkboxes (expand subgroups)
+  var chatIds = [];
+  var seen = {};
+  document.querySelectorAll('.batch-recipient-cb:checked').forEach(function(cb) {
+    if (cb.dataset.type === 'subgroup') {
+      // value = "subgroup:id1,id2,id3"
+      var memberStr = cb.value.replace('subgroup:', '');
+      if (memberStr) {
+        memberStr.split(',').forEach(function(id) {
+          if (id && !seen[id]) { seen[id] = true; chatIds.push(id); }
+        });
+      }
+    } else {
+      var v = cb.value;
+      if (v && !seen[v]) { seen[v] = true; chatIds.push(v); }
+    }
+  });
+  return chatIds;
+}
+
+async function executeBatchSend() {
+  var ids = getSelectedDocIds();
+  if (!ids.length) return;
+
+  var comment = document.getElementById('batchCommentInput').value.trim();
+  var recipients = [];
+
+  if (batchChannel === 'telegram') {
+    recipients = _collectRecipients();
+    if (!recipients.length) { alert('Выберите получателей'); return; }
+  } else {
+    var emailStr = document.getElementById('batchEmailInput').value.trim();
+    if (!emailStr) { alert('Введите email'); return; }
+    recipients = emailStr.split(/[,;\s]+/).filter(Boolean);
+  }
+
+  // Show progress
+  document.getElementById('batchSendBtn').disabled = true;
+  document.getElementById('batchSendProgress').style.display = 'block';
+
+  var totalSent = 0, totalFailed = 0, allResults = [];
+
+  try {
+    for (var i = 0; i < recipients.length; i++) {
+      var payload = { document_ids: ids, channel: batchChannel };
+      if (batchChannel === 'telegram') {
+        payload.chat_id = recipients[i];
+      } else {
+        payload.to_email = recipients[i];
+      }
+      if (comment) payload.comment = comment;
+
+      var resp = await fetch('/api/jobs/send/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      var data = await resp.json();
+      totalSent += data.sent || 0;
+      totalFailed += data.failed || 0;
+      if (data.results) allResults = allResults.concat(data.results);
+
+      // Small delay between recipients
+      if (recipients.length > 1 && i < recipients.length - 1) {
+        await new Promise(function(r) { setTimeout(r, 100); });
+      }
+    }
+
+    document.getElementById('batchSendProgress').style.display = 'none';
+
+    var resultsEl = document.getElementById('batchSendResults');
+    resultsEl.style.display = 'block';
+
+    var isOk = totalFailed === 0;
+    var bgColor = isOk ? '#d1fae5' : '#fef3c7';
+    var borderColor = isOk ? '#a7f3d0' : '#fcd34d';
+    var textColor = isOk ? '#065f46' : '#92400e';
+
+    var summary = 'отправлено ' + totalSent + ' из ' + (totalSent + totalFailed);
+    if (recipients.length > 1) summary += ' (получателей: ' + recipients.length + ')';
+
+    var html = '<div style="background:' + bgColor + '; border:1px solid ' + borderColor + '; color:' + textColor +
+      '; padding:12px; border-radius:8px; font-size:13px;">' +
+      '<strong>' + (isOk ? '✅' : '⚠️') + ' Результат:</strong> ' + summary + '</div>';
+
+    if (allResults.length) {
+      html += '<div style="margin-top:8px; max-height:150px; overflow:auto; font-size:12px;">';
+      allResults.forEach(function(r) {
+        var icon = r.status === 'sent' ? '✅' : '❌';
+        html += '<div style="padding:4px 0; border-bottom:1px solid #f0f0f0;">' +
+          icon + ' ' + (r.doc_number || r.document_id) +
+          (r.error ? ' — <span style="color:#991b1b;">' + r.error + '</span>' : '') + '</div>';
+      });
+      html += '</div>';
+    }
+
+    resultsEl.innerHTML = html;
+
+    document.getElementById('batchSendFooter').innerHTML =
+      '<button type="button" class="btn-secondary" onclick="closeBatchSendModal()">Закрыть</button>' +
+      '<button type="button" class="btn-apply" onclick="location.reload()">Обновить страницу</button>';
+
+  } catch (error) {
+    document.getElementById('batchSendProgress').style.display = 'none';
+    var resultsEl = document.getElementById('batchSendResults');
+    resultsEl.style.display = 'block';
+    resultsEl.innerHTML = '<div style="background:#fee2e2; border:1px solid #fca5a5; color:#991b1b; padding:12px; border-radius:8px;">' +
+      '<strong>❌ Ошибка:</strong> ' + (error.message || 'Не удалось выполнить запрос') + '</div>';
+    document.getElementById('batchSendFooter').innerHTML =
+      '<button type="button" class="btn-secondary" onclick="closeBatchSendModal()">Закрыть</button>';
+  }
+}
+
+// ========== Archive accordion: lazy-load docs per well ==========
+
+document.querySelectorAll('.archive-well-group').forEach(function(details) {
+  details.addEventListener('toggle', function() {
+    if (!details.open) return;
+    var wellId = details.dataset.wellId;
+    var container = document.getElementById('archiveDocs-' + wellId);
+    if (container.dataset.loaded === '1') return;
+
+    fetch('/api/documents/archive-well/' + wellId)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        container.dataset.loaded = '1';
+        if (!data.docs || !data.docs.length) {
+          container.innerHTML = '<div style="padding:8px; color:#9ca3af; font-size:12px;">Нет документов</div>';
+          return;
+        }
+        var html = '';
+        data.docs.forEach(function(d) {
+          html += '<div class="archive-doc-row">' +
+            '<a href="/documents/' + d.id + '">' + (d.doc_number || '—') + '</a> ' +
+            '<span style="color:#6b7280;">' + d.type_name + '</span> ' +
+            (d.period ? '<span style="color:#9ca3af;">' + d.period + '</span>' : '') +
+            (d.has_pdf ? ' <span style="font-size:10px;">📄</span>' : '') +
+            '</div>';
+        });
+        container.innerHTML = html;
+      })
+      .catch(function() {
+        container.innerHTML = '<div style="color:#991b1b; padding:8px; font-size:12px;">Ошибка загрузки</div>';
+      });
+  });
+});
+
+// ========== Cancelled column expand ==========
+
+function toggleCancelledExpand(btn) {
+  var col = btn.closest('.kanban-col');
+  var hidden = col.querySelectorAll('.cancelled-row-hidden');
+  var isExpanded = btn.dataset.expanded === '1';
+  hidden.forEach(function(row) {
+    row.style.display = isExpanded ? 'none' : 'flex';
+  });
+  btn.dataset.expanded = isExpanded ? '0' : '1';
+  btn.textContent = isExpanded ? ('+' + hidden.length + ' ещё') : 'Свернуть';
+}
+
+// Закрытие модала пакетной отправки по клику вне его
+document.getElementById('batchSendModal')?.addEventListener('click', function(e) {
+  if (e.target === this) closeBatchSendModal();
 });
 </script>
 

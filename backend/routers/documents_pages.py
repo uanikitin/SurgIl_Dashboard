@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Request, Depends, Form, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from starlette.responses import RedirectResponse
 
 import sqlalchemy as sa
@@ -90,15 +91,48 @@ def documents_index(
     statuses = list(board_titles.keys())
     board = {s: [] for s in statuses}
 
-    docs = (
+    # Active statuses — full ORM objects for card rendering
+    active_docs = (
         db.query(Document)
         .filter(Document.deleted_at.is_(None))
+        .filter(Document.status.in_(["draft", "generated", "signed", "sent"]))
         .order_by(Document.created_at.desc())
-        .limit(300)
         .all()
     )
-    for d in docs:
+    for d in active_docs:
         board.setdefault(d.status, []).append(d)
+
+    # Archive — grouped by well (count only, docs loaded via AJAX)
+    archive_summary = (
+        db.query(
+            Document.well_id,
+            Well.number.label("well_number"),
+            sa.func.count(Document.id).label("cnt"),
+        )
+        .outerjoin(Well, Document.well_id == Well.id)
+        .filter(Document.deleted_at.is_(None), Document.status == "archived")
+        .group_by(Document.well_id, Well.number)
+        .order_by(Well.number.asc())
+        .all()
+    )
+    archive_total = sum(r.cnt for r in archive_summary)
+
+    # Cancelled — compact list (no full ORM objects)
+    cancelled_docs = (
+        db.query(
+            Document.id,
+            Document.doc_number,
+            Document.created_at,
+            Well.number.label("well_number"),
+            DocumentType.name_ru.label("type_name"),
+        )
+        .outerjoin(Well, Document.well_id == Well.id)
+        .outerjoin(DocumentType, Document.doc_type_id == DocumentType.id)
+        .filter(Document.status == "cancelled")
+        .order_by(Document.created_at.desc())
+        .limit(50)
+        .all()
+    )
 
     # ========== Типы документов ==========
     doc_types = (
@@ -339,6 +373,10 @@ def documents_index(
             "reagent_expense_stats": reagent_expense_stats,
             "reagent_expense_docs": reagent_expense_docs,
             "reagent_expense_groups": reagent_expense_groups,
+            # Archive & cancelled (optimized)
+            "archive_summary": archive_summary,
+            "archive_total": archive_total,
+            "cancelled_docs": cancelled_docs,
             # Flash-сообщения
             "flash_msg": msg,
             "flash_msg_type": msg_type or "info",
@@ -1333,6 +1371,135 @@ def document_archive(
     db.add(doc)
     db.commit()
     return RedirectResponse(url=f"/documents/{doc_id}", status_code=303)
+
+
+# ── Kanban drag-and-drop status change ──
+
+_KANBAN_TRANSITIONS = {
+    "draft": {"cancelled"},
+    "generated": {"signed", "cancelled"},
+    "signed": {"archived", "cancelled"},
+    "sent": {"archived", "draft"},
+    "archived": set(),
+    "cancelled": set(),
+}
+
+_STATUS_LABELS = {
+    "draft": "Черновик",
+    "generated": "Создан",
+    "signed": "Подписан",
+    "sent": "Отправлен",
+    "archived": "Архив",
+    "cancelled": "Отменён",
+}
+
+
+@router.patch("/api/documents/{doc_id}/status")
+async def api_update_document_status(
+    doc_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Change document status via Kanban drag-and-drop."""
+    if "user_id" not in request.session:
+        return JSONResponse({"ok": False, "error": "Unauthorized"}, status_code=401)
+
+    body = await request.json()
+    new_status = body.get("status", "")
+
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        return JSONResponse({"ok": False, "error": "Документ не найден"}, status_code=404)
+
+    allowed = _KANBAN_TRANSITIONS.get(doc.status, set())
+    if new_status not in allowed:
+        from_label = _STATUS_LABELS.get(doc.status, doc.status)
+        to_label = _STATUS_LABELS.get(new_status, new_status)
+        return JSONResponse(
+            {"ok": False, "error": f"Переход «{from_label}» → «{to_label}» не разрешён"},
+            status_code=400,
+        )
+
+    # Track status history in meta JSONB
+    meta = doc.meta or {}
+    history = meta.get("status_history", [])
+    history.append({
+        "from": doc.status,
+        "to": new_status,
+        "at": datetime.utcnow().isoformat(timespec="seconds"),
+        "by": request.session.get("user_id"),
+    })
+    meta["status_history"] = history
+    doc.meta = meta
+    flag_modified(doc, "meta")
+
+    # Side effects depending on transition
+    from backend.models.users import DashboardUser
+
+    if new_status == "signed":
+        doc.signed_at = datetime.utcnow()
+        user = db.query(DashboardUser).filter(
+            DashboardUser.id == request.session["user_id"]
+        ).first()
+        if user:
+            full_name = " ".join(filter(None, [user.first_name, user.last_name]))
+            doc.signed_by_name = full_name or user.username
+
+    elif new_status == "cancelled":
+        doc.deleted_at = datetime.utcnow()
+
+    elif doc.status == "sent" and new_status == "draft":
+        # Revert to draft: keep doc_number, clear signing/send data
+        doc.signed_at = None
+        doc.signed_by_name = None
+        doc.signed_by_position = None
+        doc.pdf_filename = None  # force re-generation
+        meta.pop("sent_at", None)
+        meta.pop("sent_via", None)
+        meta.pop("sent_to", None)
+        meta.pop("send_comment", None)
+
+    doc.status = new_status
+    db.add(doc)
+    db.commit()
+
+    return {"ok": True, "status": new_status}
+
+
+# ── Archive AJAX endpoint ──
+
+@router.get("/api/documents/archive-well/{well_id}")
+def api_archive_well_docs(well_id: int, db: Session = Depends(get_db)):
+    """Return archived documents for a specific well (lazy-loaded in Kanban)."""
+    docs = (
+        db.query(Document)
+        .filter(
+            Document.well_id == well_id,
+            Document.status == "archived",
+            Document.deleted_at.is_(None),
+        )
+        .order_by(Document.created_at.desc())
+        .all()
+    )
+    return {
+        "well_id": well_id,
+        "docs": [
+            {
+                "id": d.id,
+                "doc_number": d.doc_number,
+                "type_name": d.doc_type.name_ru if d.doc_type else "",
+                "period": (
+                    f"{d.period_month:02d}.{d.period_year}"
+                    if d.period_month and d.period_year
+                    else ""
+                ),
+                "created_at": d.created_at.strftime("%d.%m.%Y") if d.created_at else "",
+                "has_pdf": bool(d.pdf_filename),
+            }
+            for d in docs
+        ],
+    }
+
 
 @router.post("/documents/items/{item_id}/update")
 def document_item_update(

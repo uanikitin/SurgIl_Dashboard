@@ -27,6 +27,7 @@ from backend.models.wells import Well
 from backend.models.equipment import Equipment, EquipmentInstallation
 from backend.documents.models import Document, DocumentType
 from backend.models.events import Event
+from backend.services.pressure_lookup import get_nearest_from_pressure_raw
 
 router = APIRouter(tags=["equipment-documents"])
 
@@ -86,7 +87,10 @@ def _to_float_or_none(x) -> Optional[float]:
         return None
 
 
-def _get_pressure_smart(db: Session, well_number: str, target_dt: datetime) -> dict:
+def _get_pressure_smart(
+    db: Session, well_number: str, target_dt: datetime,
+    *, well_id: int | None = None,
+) -> dict:
     """
     Умный поиск давлений:
     1. Сначала ищем event_type='equip' с давлениями
@@ -161,25 +165,56 @@ def _get_pressure_smart(db: Session, well_number: str, target_dt: datetime) -> d
     elif after_event:
         best_event = after_event
 
+    # Дельта события (если найдено)
+    event_delta = float('inf')
     if best_event:
+        event_delta = abs((target_dt - best_event.event_time).total_seconds())
         result["tube_pressure"] = best_event.p_tube
         result["line_pressure"] = best_event.p_line
         result["source_type"] = best_event.event_type
         result["source_time"] = best_event.event_time
+        result["source_desc"] = _format_source_desc(
+            best_event.event_type, best_event.event_time, target_dt,
+        )
 
-        # Вычисляем разницу во времени
-        delta = abs((target_dt - best_event.event_time).total_seconds())
-        if delta < 3600:
-            time_diff = f"{int(delta/60)} мин"
-        elif delta < 86400:
-            time_diff = f"{int(delta/3600)} ч"
-        else:
-            time_diff = f"{int(delta/86400)} дн"
+    # Проверяем pressure_raw (данные LoRa-датчиков)
+    _wid = well_id
+    if _wid is None:
+        w = db.query(Well).filter(
+            sa.cast(Well.number, sa.String) == str(well_number)
+        ).first()
+        _wid = w.id if w else None
 
-        direction = "до" if best_event.event_time < target_dt else "после"
-        result["source_desc"] = f"{best_event.event_type} от {best_event.event_time.strftime('%d.%m.%Y %H:%M')} ({time_diff} {direction})"
+    if _wid is not None:
+        raw = get_nearest_from_pressure_raw(_wid, target_dt)
+        if raw and raw["delta_seconds"] < event_delta:
+            result["tube_pressure"] = raw["p_tube"]
+            result["line_pressure"] = raw["p_line"]
+            result["source_type"] = "sensor"
+            result["source_time"] = raw["measured_at_local"]
+            result["source_desc"] = _format_source_desc(
+                "датчик", raw["measured_at_local"], target_dt,
+            )
 
     return result
+
+
+def _format_source_desc(
+    source_label: str, source_time: datetime, target_dt: datetime,
+) -> str:
+    delta = abs((target_dt - source_time).total_seconds())
+    if delta < 3600:
+        time_diff = f"{int(delta / 60)} мин"
+    elif delta < 86400:
+        time_diff = f"{int(delta / 3600)} ч"
+    else:
+        time_diff = f"{int(delta / 86400)} дн"
+    direction = "до" if source_time < target_dt else "после"
+    return (
+        f"{source_label} от "
+        f"{source_time.strftime('%d.%m.%Y %H:%M')} "
+        f"({time_diff} {direction})"
+    )
 
 
 def _next_doc_number(db: Session, doc_type_code: str, well_number: str) -> str:
@@ -266,7 +301,7 @@ def get_pressure_api(
         })
 
     # Умный поиск давлений
-    pressure_data = _get_pressure_smart(db, str(well.number), dt)
+    pressure_data = _get_pressure_smart(db, str(well.number), dt, well_id=well.id)
 
     return JSONResponse({
         "tube_pressure": pressure_data["tube_pressure"],
@@ -336,7 +371,7 @@ def equipment_doc_new(
             raise HTTPException(status_code=404, detail="Well not found")
 
         # Получаем давления
-        pressure_data = _get_pressure_smart(db, str(well.number), datetime.now())
+        pressure_data = _get_pressure_smart(db, str(well.number), datetime.now(), well_id=well.id)
 
         if kind == "install":
             # Для монтажа: ВСЁ оборудование

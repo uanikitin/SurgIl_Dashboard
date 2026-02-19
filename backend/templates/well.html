@@ -588,9 +588,24 @@
         </div>
 
         <div style="font-weight:600; color:#374151;">Диаметр штуцера, мм:</div>
-        <div>
-          {% set v = well_construction["choke_diam_mm"] %}
-          {% if v is not none and v == v %}{{ v }}{% else %}-{% endif %}
+        <div style="display:flex; align-items:center; gap:6px;">
+          {% set choke_val = well_construction["choke_diam_mm"] %}
+          <span id="chokeDisplay">
+            {% if choke_val is not none and choke_val == choke_val %}{{ choke_val }}{% else %}<span style="color:#ef4444; font-size:12px;">не указан</span>{% endif %}
+          </span>
+          <button id="chokeEditBtn" onclick="chokeStartEdit()"
+            style="border:none; background:none; cursor:pointer; color:#3b82f6; font-size:11px; padding:1px 3px;"
+            title="Изменить штуцер">&#9998;</button>
+          <span id="chokeEditor" style="display:none; align-items:center; gap:4px;">
+            <input type="number" id="chokeInput" step="0.5" min="0" max="50"
+              style="width:70px; padding:2px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:13px;"
+              value="{% if choke_val is not none and choke_val == choke_val %}{{ choke_val }}{% endif %}"
+              placeholder="мм">
+            <button onclick="chokeSave()"
+              style="border:none; background:#22c55e; color:#fff; border-radius:4px; padding:2px 8px; font-size:12px; cursor:pointer;">&#10003;</button>
+            <button onclick="chokeCancel()"
+              style="border:none; background:#e5e7eb; color:#374151; border-radius:4px; padding:2px 8px; font-size:12px; cursor:pointer;">&#10005;</button>
+          </span>
         </div>
 
         <div style="font-weight:600; color:#374151;">Дата актуализации:</div>
@@ -630,6 +645,22 @@
     {% else %}
       <div style="margin-top:8px; font-size:13px; color:#6b7280;">
         Конструкция скважины не заполнена.
+      </div>
+      <div style="margin-top:12px; display:flex; align-items:center; gap:8px; font-size:13px;">
+        <span style="font-weight:600; color:#374151;">Диаметр штуцера, мм:</span>
+        <span id="chokeDisplay"><span style="color:#ef4444; font-size:12px;">не указан</span></span>
+        <button id="chokeEditBtn" onclick="chokeStartEdit()"
+          style="border:none; background:none; cursor:pointer; color:#3b82f6; font-size:11px; padding:1px 3px;"
+          title="Установить штуцер">&#9998;</button>
+        <span id="chokeEditor" style="display:none; align-items:center; gap:4px;">
+          <input type="number" id="chokeInput" step="0.5" min="0" max="50"
+            style="width:70px; padding:2px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:13px;"
+            placeholder="мм">
+          <button onclick="chokeSave()"
+            style="border:none; background:#22c55e; color:#fff; border-radius:4px; padding:2px 8px; font-size:12px; cursor:pointer;">&#10003;</button>
+          <button onclick="chokeCancel()"
+            style="border:none; background:#e5e7eb; color:#374151; border-radius:4px; padding:2px 8px; font-size:12px; cursor:pointer;">&#10005;</button>
+        </span>
       </div>
     {% endif %}
   </div>
@@ -3842,5 +3873,51 @@ document.addEventListener('DOMContentLoaded', function() {
     wrap.addEventListener('wheel', function(e) { e.preventDefault(); }, { passive: false });
   }
 })();
+</script>
+
+<script>
+/* ── Inline-edit: диаметр штуцера ── */
+function chokeStartEdit() {
+  document.getElementById('chokeDisplay').style.display = 'none';
+  document.getElementById('chokeEditBtn').style.display = 'none';
+  var editor = document.getElementById('chokeEditor');
+  editor.style.display = 'inline-flex';
+  document.getElementById('chokeInput').focus();
+}
+function chokeCancel() {
+  document.getElementById('chokeDisplay').style.display = '';
+  document.getElementById('chokeEditBtn').style.display = '';
+  document.getElementById('chokeEditor').style.display = 'none';
+}
+function chokeSave() {
+  var val = document.getElementById('chokeInput').value.trim();
+  var choke = val ? parseFloat(val) : null;
+  fetch('/api/well/{{ well.id }}/choke', {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({choke_diam_mm: choke})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.ok) {
+      var display = document.getElementById('chokeDisplay');
+      if (data.choke_diam_mm != null) {
+        display.textContent = data.choke_diam_mm;
+        display.style.color = '';
+      } else {
+        display.innerHTML = '<span style="color:#ef4444; font-size:12px;">не указан</span>';
+      }
+      chokeCancel();
+    }
+  })
+  .catch(function(err) {
+    alert('Ошибка сохранения: ' + err.message);
+  });
+}
+/* Enter → сохранить */
+document.getElementById('chokeInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') { e.preventDefault(); chokeSave(); }
+  if (e.key === 'Escape') { e.preventDefault(); chokeCancel(); }
+});
 </script>
 {% endblock %}

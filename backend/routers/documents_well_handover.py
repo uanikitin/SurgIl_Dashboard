@@ -18,6 +18,7 @@ from backend.models.wells import Well
 from backend.documents.models import Document, DocumentType
 from backend.models.events import Event
 from backend.models.well_status import WellStatus, ALLOWED_STATUS
+from backend.services.pressure_lookup import get_nearest_from_pressure_raw
 
 router = APIRouter(tags=["documents-well-handover"])
 
@@ -84,6 +85,8 @@ def _get_pressure_smart(
         well_number: str,
         ref_dt: datetime,
         mode: str = "nearest",
+        *,
+        well_id: int | None = None,
 ) -> dict:
     """
     Умный поиск давлений из ЛЮБЫХ событий (не только pressure).
@@ -158,29 +161,57 @@ def _get_pressure_smart(
         else:
             best_event = before_event or after_event
 
+    # Дельта события (если найдено)
+    event_delta = float('inf')
     if best_event:
+        event_delta = abs((ref_dt - best_event.event_time).total_seconds())
         result["tube_pressure"] = best_event.p_tube
         result["line_pressure"] = best_event.p_line
         result["source_type"] = best_event.event_type
         result["source_time"] = best_event.event_time
-
-        # Формируем описание для UI
-        delta = abs((ref_dt - best_event.event_time).total_seconds())
-        if delta < 3600:
-            time_diff = f"{int(delta/60)} мин"
-        elif delta < 86400:
-            time_diff = f"{int(delta/3600)} ч"
-        else:
-            time_diff = f"{int(delta/86400)} дн"
-
-        direction = "до" if best_event.event_time < ref_dt else "после"
-        result["source_desc"] = (
-            f"{best_event.event_type} от "
-            f"{best_event.event_time.strftime('%d.%m.%Y %H:%M')} "
-            f"({time_diff} {direction})"
+        result["source_desc"] = _format_source_desc(
+            best_event.event_type, best_event.event_time, ref_dt,
         )
 
+    # Проверяем pressure_raw (данные LoRa-датчиков)
+    _wid = well_id
+    if _wid is None:
+        w = db.query(Well).filter(
+            sa.cast(Well.number, sa.String) == str(well_number)
+        ).first()
+        _wid = w.id if w else None
+
+    if _wid is not None:
+        raw_mode = "before" if mode in ("before", "last") else "nearest"
+        raw = get_nearest_from_pressure_raw(_wid, ref_dt, mode=raw_mode)
+        if raw and raw["delta_seconds"] < event_delta:
+            result["tube_pressure"] = raw["p_tube"]
+            result["line_pressure"] = raw["p_line"]
+            result["source_type"] = "sensor"
+            result["source_time"] = raw["measured_at_local"]
+            result["source_desc"] = _format_source_desc(
+                "датчик", raw["measured_at_local"], ref_dt,
+            )
+
     return result
+
+
+def _format_source_desc(
+    source_label: str, source_time: datetime, target_dt: datetime,
+) -> str:
+    delta = abs((target_dt - source_time).total_seconds())
+    if delta < 3600:
+        time_diff = f"{int(delta / 60)} мин"
+    elif delta < 86400:
+        time_diff = f"{int(delta / 3600)} ч"
+    else:
+        time_diff = f"{int(delta / 86400)} дн"
+    direction = "до" if source_time < target_dt else "после"
+    return (
+        f"{source_label} от "
+        f"{source_time.strftime('%d.%m.%Y %H:%M')} "
+        f"({time_diff} {direction})"
+    )
 
 
 def _get_pressure_first_last(
@@ -461,7 +492,7 @@ def well_handover_create(
     # Для приёма - ближайшее к дате, для возврата - последнее ДО даты
     is_accept = dt.code in ("well_acceptance", "well_stage_accept")
     pressure_mode = "nearest" if is_accept else "before"
-    pressure_data = _get_pressure_smart(db, str(well.number), ho_dt, pressure_mode)
+    pressure_data = _get_pressure_smart(db, str(well.number), ho_dt, pressure_mode, well_id=well.id)
 
     # Генерируем номер документа
     prefix = DOC_NUMBER_PREFIXES.get(dt.code, "АКТ")
@@ -658,7 +689,7 @@ def well_handover_rebuild_from_events(doc_id: int, db: Session = Depends(get_db)
     # Получаем давления с улучшенной логикой
     is_accept = doc.doc_type.code in ("well_acceptance", "well_stage_accept")
     pressure_mode = "nearest" if is_accept else "before"
-    pressure_data = _get_pressure_smart(db, str(doc.well.number), ref_dt, pressure_mode)
+    pressure_data = _get_pressure_smart(db, str(doc.well.number), ref_dt, pressure_mode, well_id=doc.well.id)
 
     # ВАЖНО: меняем ТОЛЬКО давления, НЕ трогаем даты!
     meta["tube_pressure"] = pressure_data["tube_pressure"]

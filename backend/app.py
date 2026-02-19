@@ -3458,6 +3458,57 @@ def update_well(
     )
 
 
+@app.put("/api/well/{well_id}/choke")
+async def api_update_choke(
+    well_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_admin),
+):
+    """
+    Обновить/установить диаметр штуцера (choke_diam_mm) для скважины.
+    Если well_construction строка существует — UPDATE, иначе INSERT.
+    """
+    body = await request.json()
+    choke = body.get("choke_diam_mm")
+
+    well = db.query(Well).filter(Well.id == well_id).first()
+    if not well:
+        raise HTTPException(status_code=404, detail="Скважина не найдена")
+    well_no = str(well.number).strip()
+
+    existing = db.execute(
+        text("""
+            SELECT id FROM well_construction
+            WHERE well_no = :wno
+            ORDER BY data_as_of DESC NULLS LAST, id DESC
+            LIMIT 1
+        """),
+        {"wno": well_no},
+    ).fetchone()
+
+    if existing:
+        db.execute(
+            text("""
+                UPDATE well_construction
+                SET choke_diam_mm = :choke, updated_at = NOW()
+                WHERE id = :cid
+            """),
+            {"choke": choke, "cid": existing[0]},
+        )
+    else:
+        db.execute(
+            text("""
+                INSERT INTO well_construction (well_no, choke_diam_mm, data_as_of)
+                VALUES (:wno, :choke, CURRENT_DATE)
+            """),
+            {"wno": well_no, "choke": choke},
+        )
+
+    db.commit()
+    return {"ok": True, "choke_diam_mm": choke}
+
+
 @app.post("/well/{well_id}/notes/save")
 def save_well_note(
         well_id: int,

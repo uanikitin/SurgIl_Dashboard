@@ -12,11 +12,15 @@ API для фоновых задач (автосоздание актов, и т
 - Для UI: авторизация пользователя
 """
 
+import time
+
 from fastapi import APIRouter, Depends, HTTPException, Header, Query, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy import desc
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 from backend.db import get_db
@@ -42,6 +46,22 @@ def verify_job_secret(x_job_secret: Optional[str] = Header(None)) -> bool:
     if not x_job_secret:
         return False
     return x_job_secret == settings.JOB_API_SECRET
+
+
+def _mark_document_sent(db: Session, doc: Document, channel: str, recipient: str,
+                        comment: str | None = None):
+    """Update document status to 'sent' and store delivery metadata."""
+    if doc.status in ("signed", "generated"):
+        meta = doc.meta or {}
+        meta["sent_at"] = datetime.utcnow().isoformat(timespec="seconds")
+        meta["sent_via"] = channel
+        meta["sent_to"] = recipient
+        if comment:
+            meta["send_comment"] = comment
+        doc.meta = meta
+        flag_modified(doc, "meta")
+        doc.status = "sent"
+        db.add(doc)
 
 
 def get_auth_context(
@@ -276,6 +296,8 @@ def api_send_telegram(
     )
 
     if result.success:
+        _mark_document_sent(db, document, "telegram", result.recipient)
+        db.commit()
         return {
             "status": "sent",
             "channel": "telegram",
@@ -332,6 +354,8 @@ def api_send_email(
     )
 
     if result.success:
+        _mark_document_sent(db, document, "email", result.recipient)
+        db.commit()
         return {
             "status": "sent",
             "channel": "email",
@@ -385,4 +409,100 @@ def api_send_history(
             }
             for log in logs
         ]
+    }
+
+
+# =============================================================================
+# POST /api/jobs/send/batch
+# =============================================================================
+
+class BatchSendRequest(BaseModel):
+    document_ids: list[int]
+    channel: str  # "telegram" or "email"
+    chat_id: str | None = None
+    to_email: str | None = None
+    comment: str | None = None
+
+
+@router.post("/send/batch")
+def api_send_batch(
+    body: BatchSendRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Отправить несколько документов в Telegram или Email.
+    Требует авторизации пользователя.
+    """
+    if "user_id" not in request.session:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_id = request.session["user_id"]
+
+    if body.channel not in ("telegram", "email"):
+        raise HTTPException(status_code=400, detail="channel must be 'telegram' or 'email'")
+
+    if not body.document_ids:
+        raise HTTPException(status_code=400, detail="document_ids must be non-empty")
+
+    if body.channel == "telegram" and not body.chat_id:
+        raise HTTPException(status_code=400, detail="chat_id is required for telegram")
+
+    if body.channel == "email" and not body.to_email:
+        raise HTTPException(status_code=400, detail="to_email is required for email")
+
+    documents = (
+        db.query(Document)
+        .filter(Document.id.in_(body.document_ids))
+        .all()
+    )
+
+    doc_map = {d.id: d for d in documents}
+
+    results = []
+    for doc_id in body.document_ids:
+        doc = doc_map.get(doc_id)
+        if not doc:
+            results.append({"document_id": doc_id, "status": "failed", "error": "Document not found"})
+            continue
+
+        if body.channel == "telegram":
+            r = send_document_telegram(
+                db, doc,
+                chat_id=body.chat_id,
+                triggered_by="batch",
+                triggered_by_user_id=user_id,
+                comment=body.comment,
+            )
+        else:
+            r = send_document_email(
+                db, doc,
+                to_email=body.to_email,
+                triggered_by="batch",
+                triggered_by_user_id=user_id,
+                comment=body.comment,
+            )
+
+        if r.success:
+            _mark_document_sent(db, doc, body.channel, r.recipient, comment=body.comment)
+            db.commit()
+
+        results.append({
+            "document_id": doc_id,
+            "doc_number": doc.doc_number,
+            "status": "sent" if r.success else "failed",
+            "error": r.error if not r.success else None,
+        })
+
+        if body.channel == "telegram" and len(body.document_ids) > 1:
+            time.sleep(0.05)
+
+    sent = sum(1 for r in results if r["status"] == "sent")
+    failed = sum(1 for r in results if r["status"] == "failed")
+
+    return {
+        "sent": sent,
+        "failed": failed,
+        "total": len(results),
+        "results": results,
     }

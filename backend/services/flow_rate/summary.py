@@ -73,8 +73,13 @@ def build_summary(
         if cum_flow > 0 else 0.0
     )
 
-    # Эффективный дебит
-    effective_flow = actual_avg - purge_daily
+    # Эффективный суточный дебит = календарный
+    # (cumulative уже НЕ содержит атмосферных потерь: Q=0 при p_tube < p_line)
+    effective_flow = actual_avg
+
+    # КИВ — коэффициент использования времени (% активной работы)
+    active_minutes = n - dt_min
+    utilization_pct = (active_minutes / n * 100.0) if n > 0 else 0.0
 
     # Прогноз прироста от ТППАВ
     forecast_gain = q3_flow - median_flow
@@ -133,6 +138,7 @@ def build_summary(
         "total_loss_daily": round(total_loss_daily, 4),
         "loss_coefficient_pct": round(loss_pct, 2),
         "effective_flow_rate": round(effective_flow, 3),
+        "utilization_pct": round(utilization_pct, 1),
         "forecast_gain_tppav": round(forecast_gain, 3),
         # Давление
         "median_p_tube": round(median_p_tube, 2),

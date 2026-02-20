@@ -24,7 +24,10 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from .config import PurgeDetectionConfig, DEFAULT_PURGE_DETECTION
+from .config import (
+    PurgeDetectionConfig, DEFAULT_PURGE_DETECTION,
+    PurgeLossConfig, DEFAULT_PURGE,
+)
 
 log = logging.getLogger(__name__)
 
@@ -633,50 +636,73 @@ class PurgeDetector:
 def recalculate_purge_loss_with_cycles(
     df: pd.DataFrame,
     cycles: list[PurgeCycle],
-    purge_loss_cfg=None,
+    purge_loss_cfg: PurgeLossConfig | None = None,
 ) -> pd.DataFrame:
     """
-    Пересчитываем potери при продувках: ТОЛЬКО в фазах venting.
+    Корректный учёт продувок: обнуление flow_rate + пересчёт потерь.
 
-    Если нет обнаруженных циклов — оставляем текущую логику
-    (потери при p_tube < p_line).
+    Для каждого обнаруженного цикла продувки:
+    1. flow_rate = 0 на весь цикл (venting_start → restart_time)
+       — скважина отключена от линии, газ не идёт в трубопровод
+    2. purge_loss пересчитывается на фазе venting (venting_start → venting_end)
+       по формуле истечения через штуцер, включая участок p_tube > p_line
+    3. purge_flag = 1 на весь цикл — скважина не работает
 
-    Parameters
-    ----------
-    df : DataFrame с колонками purge_loss_per_min, cumulative_purge_loss
-    cycles : список обнаруженных PurgeCycle (не исключённых)
-
-    Returns
-    -------
-    DataFrame с пересчитанными purge_loss_per_min и cumulative_purge_loss
+    Если нет обнаруженных циклов — оставляем текущую логику.
     """
     active_cycles = [c for c in cycles if not c.excluded]
 
     if not active_cycles:
-        # Нет обнаруженных продувок — оставляем как есть
         return df
 
     df = df.copy()
+    cfg = purge_loss_cfg or DEFAULT_PURGE
 
-    # Создаём маску: True только в фазах venting
+    # ── Маски ──
+    # venting_mask: venting_start → venting_end (газ уходит в атмосферу)
+    # full_cycle_mask: venting_start → restart_time (скважина не работает)
     venting_mask = np.zeros(len(df), dtype=bool)
+    full_cycle_mask = np.zeros(len(df), dtype=bool)
 
     for cycle in active_cycles:
         if cycle.venting_start and cycle.venting_end:
             mask = (df.index >= cycle.venting_start) & (df.index <= cycle.venting_end)
             venting_mask |= np.asarray(mask)
 
-    # Обнуляем потери вне фаз venting
+        cycle_end = cycle.restart_time or cycle.buildup_end or cycle.venting_end
+        if cycle.venting_start and cycle_end:
+            mask = (df.index >= cycle.venting_start) & (df.index <= cycle_end)
+            full_cycle_mask |= np.asarray(mask)
+
+    # ── 1. Обнулить flow_rate на весь цикл (A → C) ──
+    df["flow_rate"] = np.where(full_cycle_mask, 0.0, df["flow_rate"].values)
+
+    # ── 2. Пересчитать purge_loss на фазе venting (A → B) ──
+    # Формула истечения: Cd × A × √(2ΔP/ρ)
+    # ΔP = p_tube − p_atm (газ стравливается в атмосферу)
+    # Считаем для ВСЕХ точек venting, включая p_tube > p_line
+    wh = df["p_tube"].values.astype(float)
+    wh_mpa = wh * cfg.kgscm2_to_MPa
+    delta_p = np.maximum((wh_mpa - cfg.atm_pressure_MPa) * 1e6, 0.0)
+
+    area = np.pi * (cfg.choke_diameter_m / 2.0) ** 2
+    rho = np.maximum(
+        (wh_mpa * 1e6) * cfg.molar_mass
+        / (cfg.gas_constant * cfg.standard_temp_K),
+        1e-6,
+    )
+    q = cfg.discharge_coeff * area * np.sqrt(2.0 * delta_p / rho)
+    loss_per_min = q * 60.0 / 1000.0
+
+    # Потери только в фазе venting, ноль вне
     df["purge_loss_per_min"] = np.where(
-        venting_mask,
-        df["purge_loss_per_min"].values,
-        0.0,
+        venting_mask & (delta_p > 0), loss_per_min, 0.0,
     )
 
-    # Пересчитываем накопленные потери
+    # ── 3. Пересчитать cumulative_purge_loss ──
     df["cumulative_purge_loss"] = np.cumsum(df["purge_loss_per_min"].values)
 
-    # Обновляем purge_flag: 1 только в фазах venting
-    df["purge_flag"] = venting_mask.astype(int)
+    # ── 4. purge_flag = 1 на весь цикл (A → C) ──
+    df["purge_flag"] = full_cycle_mask.astype(int)
 
     return df

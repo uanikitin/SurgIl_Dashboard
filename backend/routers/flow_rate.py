@@ -224,3 +224,276 @@ def api_wells_with_pressure(
     """
     from backend.services.flow_rate.data_access import list_wells_with_pressure
     return list_wells_with_pressure(days)
+
+
+# ──────────────────── Segment Analysis ────────────────────
+
+
+def _linear_trend(values: list, duration_hours: float, threshold=None) -> dict | None:
+    """
+    Линейная регрессия Y(t) = a + b*t.
+
+    Returns: slope_per_day, intercept, r_squared, direction, hours_to_zero,
+             hours_to_threshold.
+    """
+    import numpy as np
+
+    valid = [(i, v) for i, v in enumerate(values) if v is not None]
+    if len(valid) < 10:
+        return None
+
+    idx = np.array([x[0] for x in valid], dtype=float)
+    vals = np.array([x[1] for x in valid])
+
+    n_total = len(values) if len(values) > 1 else 1
+    t_hours = idx * (duration_hours / n_total)
+
+    coeffs = np.polyfit(t_hours, vals, 1)
+    slope_h = float(coeffs[0])
+    intercept = float(coeffs[1])
+    slope_day = slope_h * 24.0
+
+    predicted = np.polyval(coeffs, t_hours)
+    ss_res = float(np.sum((vals - predicted) ** 2))
+    ss_tot = float(np.sum((vals - np.mean(vals)) ** 2))
+    r2 = 1.0 - ss_res / ss_tot if ss_tot > 1e-12 else 0.0
+
+    last_t = float(t_hours[-1])
+
+    # Прогноз к нулю
+    hours_to_zero = None
+    if slope_h < 0 and intercept > 0:
+        t_zero = -intercept / slope_h
+        if t_zero > last_t:
+            hours_to_zero = round(t_zero - last_t, 1)
+
+    # Прогноз к порогу
+    hours_to_threshold = None
+    if threshold is not None and abs(slope_h) > 1e-9:
+        t_thresh = (threshold - intercept) / slope_h
+        if t_thresh > last_t:
+            hours_to_threshold = round(t_thresh - last_t, 1)
+
+    direction = "up" if slope_day > 0.001 else "down" if slope_day < -0.001 else "flat"
+
+    return {
+        "slope_per_day": round(slope_day, 6),
+        "intercept": round(intercept, 4),
+        "r_squared": round(r2, 4),
+        "direction": direction,
+        "hours_to_zero": hours_to_zero,
+        "hours_to_threshold": hours_to_threshold,
+        "threshold": threshold,
+    }
+
+
+def _compute_segment_stats(
+    well_id: int, start: str, end: str,
+    threshold_flow=None, threshold_dp=None, threshold_p_tube=None,
+) -> dict:
+    """Расчёт статистики произвольного участка."""
+    import statistics
+
+    # Если timestamps naive (без TZ) → это Кунград (+5h), конвертируем в UTC
+    dt_s = datetime.fromisoformat(start)
+    dt_e = datetime.fromisoformat(end)
+    if dt_s.tzinfo is None:
+        dt_s = dt_s - timedelta(hours=5)
+        dt_e = dt_e - timedelta(hours=5)
+        start = dt_s.isoformat()
+        end = dt_e.isoformat()
+
+    result = _run_calculation(well_id, start, end)
+    chart = result["chart"]
+    summary = result["summary"]
+    purge_cycles = result.get("purge_cycles", [])
+    downtime_periods = result.get("downtime_periods", [])
+
+    flow_vals = [v for v in chart["flow_rate"] if v is not None]
+    p_tube_vals = [v for v in chart["p_tube"] if v is not None]
+    p_line_vals = [v for v in chart["p_line"] if v is not None]
+    dp_vals = [
+        t - l
+        for t, l in zip(chart["p_tube"], chart["p_line"])
+        if t is not None and l is not None
+    ]
+
+    def safe_stats(vals):
+        if not vals:
+            return {"mean": None, "median": None, "min": None, "max": None}
+        return {
+            "mean": round(sum(vals) / len(vals), 4),
+            "median": round(statistics.median(vals), 4),
+            "min": round(min(vals), 4),
+            "max": round(max(vals), 4),
+        }
+
+    flow_s = safe_stats(flow_vals)
+    dt_start = datetime.fromisoformat(start)
+    dt_end = datetime.fromisoformat(end)
+    duration_hours = (dt_end - dt_start).total_seconds() / 3600
+
+    downtime_hours = sum(d["duration_min"] for d in downtime_periods) / 60
+    purge_count = len([p for p in purge_cycles if not p.get("excluded")])
+
+    # Потери от простоев (условные) = downtime_hours * median_flow / 24
+    loss_vs_median = None
+    if flow_s["median"] and downtime_hours > 0:
+        loss_vs_median = round(downtime_hours * flow_s["median"] / 24, 4)
+
+    # Эффективный суточный дебит = cumulative / T_days
+    duration_days = duration_hours / 24.0
+    cum = summary.get("cumulative_flow")
+    effective_daily = round(cum / duration_days, 4) if cum and duration_days > 0 else None
+
+    # Тренд-анализ (линейная регрессия)
+    # Маска: только рабочие точки (Q > 0) — исключаем продувки и простои
+    flow_raw = chart["flow_rate"]
+    working = [v is not None and v > 0 for v in flow_raw]
+    flow_for_trend = [v if ok else None for v, ok in zip(flow_raw, working)]
+
+    trend_flow = _linear_trend(flow_for_trend, duration_hours, threshold_flow)
+    trend_dp = _linear_trend(
+        [(t - l) if (ok and t is not None and l is not None) else None
+         for t, l, ok in zip(chart["p_tube"], chart["p_line"], working)],
+        duration_hours, threshold_dp,
+    )
+    trend_p_tube = _linear_trend(
+        [v if (ok and v is not None) else None
+         for v, ok in zip(chart["p_tube"], working)],
+        duration_hours, threshold_p_tube,
+    )
+
+    return {
+        "mean_flow": flow_s["mean"],
+        "median_flow": flow_s["median"],
+        "min_flow": flow_s["min"],
+        "max_flow": flow_s["max"],
+        "effective_daily": effective_daily,
+        "mean_p_tube": safe_stats(p_tube_vals)["mean"],
+        "min_p_tube": safe_stats(p_tube_vals)["min"],
+        "max_p_tube": safe_stats(p_tube_vals)["max"],
+        "mean_p_line": safe_stats(p_line_vals)["mean"],
+        "min_p_line": safe_stats(p_line_vals)["min"],
+        "max_p_line": safe_stats(p_line_vals)["max"],
+        "mean_dp": safe_stats(dp_vals)["mean"],
+        "min_dp": safe_stats(dp_vals)["min"],
+        "max_dp": safe_stats(dp_vals)["max"],
+        "cumulative_flow": cum,
+        "duration_hours": round(duration_hours, 2),
+        "purge_count": purge_count,
+        "purge_loss_total": summary.get("purge_loss_total"),
+        "purge_loss_daily": summary.get("purge_loss_daily_avg"),
+        "utilization_pct": summary.get("utilization_pct"),
+        "downtime_count": len(downtime_periods),
+        "downtime_hours": round(downtime_hours, 2),
+        "loss_vs_median": loss_vs_median,
+        "data_points": result.get("data_points", 0),
+        "trend_flow": trend_flow,
+        "trend_dp": trend_dp,
+        "trend_p_tube": trend_p_tube,
+    }
+
+
+@router.post("/segment-stats")
+async def api_segment_stats(request_data: dict):
+    """Расчёт статистики участка без сохранения (preview)."""
+    well_id = request_data.get("well_id")
+    start = request_data.get("start")
+    end = request_data.get("end")
+    if not well_id or not start or not end:
+        raise HTTPException(400, "well_id, start, end required")
+    return _compute_segment_stats(
+        well_id, start, end,
+        threshold_flow=request_data.get("threshold_flow"),
+        threshold_dp=request_data.get("threshold_dp"),
+        threshold_p_tube=request_data.get("threshold_p_tube"),
+    )
+
+
+@router.post("/segments")
+async def api_create_segment(request_data: dict):
+    """Создать сегмент: расчёт статистики + сохранение в БД."""
+    from sqlalchemy.orm import Session
+    from backend.db import SessionLocal
+    from backend.models.flow_segment import FlowSegment
+
+    well_id = request_data.get("well_id")
+    name = request_data.get("name", "Участок")
+    start = request_data.get("start")
+    end = request_data.get("end")
+    if not well_id or not start or not end:
+        raise HTTPException(400, "well_id, start, end required")
+
+    stats = _compute_segment_stats(well_id, start, end)
+
+    db: Session = SessionLocal()
+    try:
+        seg = FlowSegment(
+            well_id=well_id,
+            name=name,
+            dt_start=datetime.fromisoformat(start),
+            dt_end=datetime.fromisoformat(end),
+            stats=stats,
+        )
+        db.add(seg)
+        db.commit()
+        db.refresh(seg)
+        return {
+            "id": seg.id,
+            "name": seg.name,
+            "dt_start": seg.dt_start.isoformat(),
+            "dt_end": seg.dt_end.isoformat(),
+            "stats": seg.stats,
+        }
+    finally:
+        db.close()
+
+
+@router.get("/segments")
+def api_list_segments(well_id: int = Query(...)):
+    """Список сохранённых сегментов для скважины."""
+    from sqlalchemy.orm import Session
+    from backend.db import SessionLocal
+    from backend.models.flow_segment import FlowSegment
+
+    db: Session = SessionLocal()
+    try:
+        rows = (
+            db.query(FlowSegment)
+            .filter(FlowSegment.well_id == well_id)
+            .order_by(FlowSegment.dt_start)
+            .all()
+        )
+        return [
+            {
+                "id": r.id,
+                "name": r.name,
+                "dt_start": r.dt_start.isoformat(),
+                "dt_end": r.dt_end.isoformat(),
+                "stats": r.stats,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
+    finally:
+        db.close()
+
+
+@router.delete("/segments/{segment_id}")
+def api_delete_segment(segment_id: int):
+    """Удалить сегмент."""
+    from sqlalchemy.orm import Session
+    from backend.db import SessionLocal
+    from backend.models.flow_segment import FlowSegment
+
+    db: Session = SessionLocal()
+    try:
+        seg = db.query(FlowSegment).filter(FlowSegment.id == segment_id).first()
+        if not seg:
+            raise HTTPException(404, "Segment not found")
+        db.delete(seg)
+        db.commit()
+        return {"ok": True}
+    finally:
+        db.close()

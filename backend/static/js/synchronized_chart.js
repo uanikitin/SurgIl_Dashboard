@@ -1978,9 +1978,9 @@ Pshl (шлейф): ${pshlStats.count} точек
 
   function setActiveBtn(prefix, activeBtn) {
     document.querySelectorAll(`[data-${prefix}]`).forEach(b => {
-      b.style.background = 'white';
+      b.style.background = '#f5f5f5';
       b.style.color = '#333';
-      b.style.borderColor = '#dee2e6';
+      b.style.borderColor = '#90a4ae';
     });
     activeBtn.style.background = '#1565c0';
     activeBtn.style.color = 'white';
@@ -2010,6 +2010,34 @@ Pshl (шлейф): ${pshlStats.count} точек
       }
     });
   });
+
+  // ── Ручной выбор периода по датам ──
+  const syncDateApply = document.getElementById('sync-date-apply');
+  if (syncDateApply) {
+    syncDateApply.addEventListener('click', function () {
+      const fromEl = document.getElementById('sync-date-from');
+      const toEl = document.getElementById('sync-date-to');
+      const from = fromEl ? fromEl.value : '';
+      const to = toEl ? toEl.value : '';
+      if (!from) return;
+      const dateFrom = new Date(from);
+      const dateTo = to ? new Date(to) : new Date();
+      const diffMs = dateTo.getTime() - dateFrom.getTime();
+      if (diffMs <= 0) return;
+      const days = Math.ceil(diffMs / 86400000);
+      // Сбрасываем активную кнопку периода
+      document.querySelectorAll('[data-sync-days]').forEach(b => {
+        b.style.background = '#f5f5f5';
+        b.style.color = '#333';
+        b.style.borderColor = '#90a4ae';
+      });
+      if (window.updateAllCharts) {
+        window.updateAllCharts(days, undefined);
+      } else {
+        loadChart(days, undefined);
+      }
+    });
+  }
 
   // ══════════════════ Обработчики собственных фильтров ══════════════════
 
@@ -2125,9 +2153,9 @@ Pshl (шлейф): ${pshlStats.count} точек
           b.style.color = 'white';
           b.style.borderColor = '#1565c0';
         } else {
-          b.style.background = 'white';
+          b.style.background = '#f5f5f5';
           b.style.color = '#333';
-          b.style.borderColor = '#dee2e6';
+          b.style.borderColor = '#90a4ae';
         }
       });
     }
@@ -2140,9 +2168,9 @@ Pshl (шлейф): ${pshlStats.count} точек
           b.style.color = 'white';
           b.style.borderColor = '#1565c0';
         } else {
-          b.style.background = 'white';
+          b.style.background = '#f5f5f5';
           b.style.color = '#333';
-          b.style.borderColor = '#dee2e6';
+          b.style.borderColor = '#90a4ae';
         }
       });
     }

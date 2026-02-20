@@ -57,6 +57,31 @@
     } catch (e) { /* ignore */ }
   }
 
+  // Базовый дебит — сохраняется в localStorage
+  var baselineStorageKey = 'flow_baseline_' + wellId;
+  var baselineValue = null;
+  var lastSummary = null;      // кэш summary для baseline-расчётов
+  var lastChartData = null;    // кэш chart data для «текущего» значения
+  try {
+    var bStored = localStorage.getItem(baselineStorageKey);
+    if (bStored) baselineValue = parseFloat(bStored);
+  } catch (e) { /* ignore */ }
+
+  // Точка отсчёта — сохраняется в localStorage
+  var refPointKey = 'flow_refpoint_' + wellId;
+  var refPointTime = null;  // ISO string or null
+  try {
+    var rpStored = localStorage.getItem(refPointKey);
+    if (rpStored) refPointTime = rpStored;
+  } catch (e) { /* ignore */ }
+
+  // Анализ участков — состояние
+  var segmentMode = false;
+  var segmentClickStart = null;  // ISO string, первый клик
+  var currentSegStart = null;    // ISO string, после второго клика
+  var currentSegEnd = null;      // ISO string, после второго клика
+  var savedSegments = [];        // загруженные из БД
+
   // Коэффициенты (из input-полей)
   function getCoeffs() {
     return {
@@ -201,6 +226,7 @@
 
       var json = await resp.json();
       lastPurgeCycles = json.purge_cycles || [];
+      lastChartData = json.chart;
 
       updateStatsPanel(json.summary);
       renderChart(json.chart, json.downtime_periods, json.purge_cycles);
@@ -266,6 +292,11 @@
       src += summary.purge_algorithm_count + ' алго.';
     }
     setText('flow-stat-purge-source', src || '\u2014');
+
+    // Кэшируем для baseline/refpoint-расчётов
+    lastSummary = summary;
+    updateBaselineStats();
+    updateRefPointStats();
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -502,6 +533,50 @@
       }
     }
 
+    // 3) Базовый дебит — горизонтальная линия
+    if (baselineValue != null && baselineValue > 0) {
+      annotations['baseline'] = {
+        type: 'line',
+        yMin: baselineValue,
+        yMax: baselineValue,
+        yScaleID: 'y',
+        borderColor: '#4caf50',
+        borderWidth: 2,
+        borderDash: [8, 4],
+        label: {
+          display: true,
+          content: 'Базовый: ' + baselineValue.toFixed(1),
+          position: 'start',
+          font: { size: 10, weight: 'bold' },
+          color: '#2e7d32',
+          backgroundColor: 'rgba(255,255,255,0.85)',
+          padding: 3,
+        },
+      };
+    }
+
+    // 4) Точка отсчёта — вертикальная линия
+    if (refPointTime) {
+      var rpVal = getFlowAtTime(chartData, refPointTime);
+      annotations['refpoint'] = {
+        type: 'line',
+        xMin: refPointTime,
+        xMax: refPointTime,
+        borderColor: '#1565c0',
+        borderWidth: 2,
+        borderDash: [6, 3],
+        label: {
+          display: true,
+          content: fmtRefPointLabel(refPointTime, rpVal),
+          position: 'start',
+          font: { size: 10, weight: 'bold' },
+          color: '#1565c0',
+          backgroundColor: 'rgba(255,255,255,0.9)',
+          padding: 3,
+        },
+      };
+    }
+
     var datasets = [
       {
         label: 'Дебит (тыс. м\u00B3/сут)',
@@ -644,6 +719,79 @@
     var clickX = event.native.clientX - rect.left;
     var xScale = chart.scales.x;
     var clickTime = xScale.getValueForPixel(clickX);
+
+    // Shift+Click → установить точку отсчёта
+    if (event.native.shiftKey) {
+      var isoTime = new Date(clickTime).toISOString();
+      setRefPoint(isoTime);
+      return;
+    }
+
+    // Segment mode — выделение участка кликами
+    if (segmentMode) {
+      // Используем ближайший timestamp из chart data (Кунград, без TZ)
+      // вместо toISOString() который зависит от часового пояса браузера
+      var clickISO;
+      if (lastChartData && lastChartData.timestamps && lastChartData.timestamps.length > 0) {
+        var bestIdx = 0, bestDist = Infinity;
+        for (var ci = 0; ci < lastChartData.timestamps.length; ci++) {
+          var d = Math.abs(new Date(lastChartData.timestamps[ci]).getTime() - clickTime);
+          if (d < bestDist) { bestDist = d; bestIdx = ci; }
+        }
+        clickISO = lastChartData.timestamps[bestIdx];
+      } else {
+        clickISO = new Date(clickTime).toISOString();
+      }
+      if (!segmentClickStart) {
+        // Первый клик — начало участка
+        segmentClickStart = clickISO;
+        anns['seg_start_line'] = {
+          type: 'line',
+          xMin: clickISO,
+          xMax: clickISO,
+          borderColor: '#9c27b0',
+          borderWidth: 2,
+          borderDash: [6, 3],
+          label: {
+            display: true,
+            content: 'Начало',
+            position: 'start',
+            font: { size: 10, weight: 'bold' },
+            color: '#9c27b0',
+            backgroundColor: 'rgba(255,255,255,0.9)',
+            padding: 3,
+          },
+        };
+        chart.update('none');
+      } else {
+        // Второй клик — конец участка
+        var startISO = segmentClickStart;
+        var endISO = clickISO;
+        // Гарантируем правильный порядок
+        if (new Date(endISO) < new Date(startISO)) {
+          var tmp = startISO; startISO = endISO; endISO = tmp;
+        }
+        currentSegStart = startISO;
+        currentSegEnd = endISO;
+        segmentClickStart = null;
+        // Убираем линию старта, ставим box
+        delete anns['seg_start_line'];
+        anns['seg_preview_box'] = {
+          type: 'box',
+          xMin: startISO,
+          xMax: endISO,
+          backgroundColor: 'rgba(156,39,176,0.1)',
+          borderColor: '#9c27b0',
+          borderWidth: 1.5,
+          borderDash: [4, 2],
+          drawTime: 'beforeDatasetsDraw',
+        };
+        chart.update('none');
+        // Запрос статистики
+        fetchSegmentStats(startISO, endISO);
+      }
+      return;
+    }
 
     for (var key in anns) {
       if (!anns.hasOwnProperty(key)) continue;
@@ -871,11 +1019,868 @@
     flowChart.update('none');
   }
 
+  // ══════════════════════════════════════════════════════════════
+  //                    Базовый дебит — обновление
+  // ══════════════════════════════════════════════════════════════
+  function updateBaselineOnChart() {
+    console.log('[flow_rate_chart] updateBaselineOnChart:', {
+      baselineValue: baselineValue, hasChart: !!flowChart,
+      lastSummary: !!lastSummary, lastChartData: !!lastChartData
+    });
+    if (!flowChart) return;
+    var anns = flowChart.options.plugins.annotation.annotations;
+    if (baselineValue != null && baselineValue > 0) {
+      anns['baseline'] = {
+        type: 'line',
+        yMin: baselineValue,
+        yMax: baselineValue,
+        yScaleID: 'y',
+        borderColor: '#4caf50',
+        borderWidth: 2,
+        borderDash: [8, 4],
+        label: {
+          display: true,
+          content: 'Базовый: ' + baselineValue.toFixed(1),
+          position: 'start',
+          font: { size: 10, weight: 'bold' },
+          color: '#2e7d32',
+          backgroundColor: 'rgba(255,255,255,0.85)',
+          padding: 3,
+        },
+      };
+    } else {
+      delete anns['baseline'];
+    }
+    flowChart.update('none');
+    updateBaselineStats();
+  }
+
+  function setDelta(id, result) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (result == null) { el.textContent = '\u2014'; el.style.color = '#333'; return; }
+    el.textContent = result.text || '\u2014';
+    el.style.color = result.color || '#333';
+  }
+
+  function fmtDelta(v) {
+    if (v == null) return null;
+    var sign = v >= 0 ? '+' : '';
+    var color = v >= 0 ? '#2e7d32' : '#c62828';
+    return { text: sign + v.toFixed(3), color: color };
+  }
+
+  function updateBaselineStats() {
+    var section = document.getElementById('flow-baseline-stats');
+    if (!section) return;
+
+    if (baselineValue == null || baselineValue <= 0 || !lastSummary) {
+      section.style.display = 'none';
+      return;
+    }
+    section.style.display = '';
+
+    var base = baselineValue;
+
+    // Δ текущий = последнее значение flow_rate - baseline
+    var currentQ = null;
+    if (lastChartData && lastChartData.flow_rate && lastChartData.flow_rate.length > 0) {
+      for (var i = lastChartData.flow_rate.length - 1; i >= 0; i--) {
+        if (lastChartData.flow_rate[i] != null) {
+          currentQ = lastChartData.flow_rate[i];
+          break;
+        }
+      }
+    }
+    var deltaCurrent = currentQ != null ? currentQ - base : null;
+
+    // Δ среднее = mean - baseline
+    var deltaMean = lastSummary.mean_flow_rate != null
+      ? lastSummary.mean_flow_rate - base : null;
+
+    // Δ медиана = median - baseline
+    var deltaMedian = lastSummary.median_flow_rate != null
+      ? lastSummary.median_flow_rate - base : null;
+
+    // Прирост/сут = effective - baseline
+    var dailyDelta = lastSummary.effective_flow_rate != null
+      ? lastSummary.effective_flow_rate - base : null;
+
+    setDelta('flow-base-delta-current', fmtDelta(deltaCurrent));
+    setDelta('flow-base-delta-mean', fmtDelta(deltaMean));
+    setDelta('flow-base-delta-median', fmtDelta(deltaMedian));
+    setDelta('flow-base-daily-delta', fmtDelta(dailyDelta));
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  //                    Точка отсчёта
+  // ══════════════════════════════════════════════════════════════
+  function getFlowAtTime(chartData, isoTime) {
+    if (!chartData || !chartData.timestamps) return null;
+    var target = new Date(isoTime).getTime();
+    var bestIdx = 0;
+    var bestDist = Infinity;
+    for (var i = 0; i < chartData.timestamps.length; i++) {
+      var dist = Math.abs(new Date(chartData.timestamps[i]).getTime() - target);
+      if (dist < bestDist) { bestDist = dist; bestIdx = i; }
+    }
+    return chartData.flow_rate[bestIdx];
+  }
+
+  function fmtRefPointLabel(isoTime, val) {
+    var d = new Date(isoTime);
+    var dd = String(d.getDate()).padStart(2, '0');
+    var mm = String(d.getMonth() + 1).padStart(2, '0');
+    var hh = String(d.getHours()).padStart(2, '0');
+    var mi = String(d.getMinutes()).padStart(2, '0');
+    var label = dd + '.' + mm + ' ' + hh + ':' + mi;
+    if (val != null) label += ' | ' + val.toFixed(2);
+    return label;
+  }
+
+  function isoToDatetimeLocal(iso) {
+    var d = new Date(iso);
+    var yyyy = d.getFullYear();
+    var mm = String(d.getMonth() + 1).padStart(2, '0');
+    var dd = String(d.getDate()).padStart(2, '0');
+    var hh = String(d.getHours()).padStart(2, '0');
+    var mi = String(d.getMinutes()).padStart(2, '0');
+    return yyyy + '-' + mm + '-' + dd + 'T' + hh + ':' + mi;
+  }
+
+  function setRefPoint(isoTime) {
+    refPointTime = isoTime;
+    localStorage.setItem(refPointKey, isoTime);
+    var inp = document.getElementById('flow-refpoint-input');
+    if (inp) inp.value = isoToDatetimeLocal(isoTime);
+    updateRefPointOnChart();
+  }
+
+  function clearRefPoint() {
+    refPointTime = null;
+    localStorage.removeItem(refPointKey);
+    var inp = document.getElementById('flow-refpoint-input');
+    if (inp) inp.value = '';
+    updateRefPointOnChart();
+  }
+
+  function updateRefPointOnChart() {
+    if (!flowChart) return;
+    var anns = flowChart.options.plugins.annotation.annotations;
+    if (refPointTime) {
+      var rpVal = getFlowAtTime(lastChartData, refPointTime);
+      anns['refpoint'] = {
+        type: 'line',
+        xMin: refPointTime,
+        xMax: refPointTime,
+        borderColor: '#1565c0',
+        borderWidth: 2,
+        borderDash: [6, 3],
+        label: {
+          display: true,
+          content: fmtRefPointLabel(refPointTime, rpVal),
+          position: 'start',
+          font: { size: 10, weight: 'bold' },
+          color: '#1565c0',
+          backgroundColor: 'rgba(255,255,255,0.9)',
+          padding: 3,
+        },
+      };
+    } else {
+      delete anns['refpoint'];
+    }
+    flowChart.update('none');
+    updateRefPointStats();
+  }
+
+  function updateRefPointStats() {
+    var section = document.getElementById('flow-refpoint-stats');
+    if (!section) return;
+
+    if (!refPointTime || !lastChartData || !lastChartData.timestamps) {
+      section.style.display = 'none';
+      return;
+    }
+
+    var refMs = new Date(refPointTime).getTime();
+    var vals = [];
+    for (var i = 0; i < lastChartData.timestamps.length; i++) {
+      if (new Date(lastChartData.timestamps[i]).getTime() >= refMs) {
+        if (lastChartData.flow_rate[i] != null) {
+          vals.push(lastChartData.flow_rate[i]);
+        }
+      }
+    }
+
+    if (vals.length === 0) {
+      section.style.display = 'none';
+      return;
+    }
+    section.style.display = '';
+
+    // Период
+    var lastTs = new Date(lastChartData.timestamps[lastChartData.timestamps.length - 1]).getTime();
+    var durationHours = (lastTs - refMs) / 3600000;
+    var durationText = durationHours >= 24
+      ? (durationHours / 24).toFixed(1) + ' дн'
+      : durationHours.toFixed(1) + ' ч';
+    setText('flow-ref-duration', durationText);
+
+    // Среднее
+    var sum = 0;
+    for (var j = 0; j < vals.length; j++) sum += vals[j];
+    var mean = sum / vals.length;
+    setText('flow-ref-mean', mean.toFixed(3));
+
+    // Медиана
+    var sorted = vals.slice().sort(function (a, b) { return a - b; });
+    var mid = Math.floor(sorted.length / 2);
+    var median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    setText('flow-ref-median', median.toFixed(3));
+
+    // Q старт
+    setText('flow-ref-q-start', vals[0].toFixed(3));
+
+    // Q текущий
+    setText('flow-ref-q-current', vals[vals.length - 1].toFixed(3));
+
+    // Δ от базового
+    var refBaseEl = document.getElementById('flow-ref-vs-baseline');
+    if (refBaseEl) {
+      if (baselineValue != null && baselineValue > 0) {
+        var delta = mean - baselineValue;
+        var fmt = fmtDelta(delta);
+        if (fmt) {
+          refBaseEl.textContent = fmt.text;
+          refBaseEl.style.color = fmt.color;
+        } else {
+          refBaseEl.textContent = '\u2014';
+          refBaseEl.style.color = '#999';
+        }
+      } else {
+        refBaseEl.textContent = '\u2014';
+        refBaseEl.style.color = '#999';
+      }
+    }
+  }
+
+  // ═══════════════════ Анализ участков — функции ═══════════════════
+
+  function toggleSegmentMode() {
+    segmentMode = !segmentMode;
+    segmentClickStart = null;
+    currentSegStart = null;
+    currentSegEnd = null;
+
+    var btn = document.getElementById('flow-segment-mode');
+    var panel = document.getElementById('flow-segment-panel');
+    if (!btn || !panel) return;
+
+    if (segmentMode) {
+      btn.style.background = '#f3e5f5';
+      btn.style.borderColor = '#ce93d8';
+      btn.style.color = '#7b1fa2';
+      panel.style.display = '';
+      // Отключаем drag-zoom
+      if (flowChart) {
+        flowChart.options.plugins.zoom.zoom.drag.enabled = false;
+        flowChart.update('none');
+      }
+      canvas.style.cursor = 'crosshair';
+      loadSavedSegments();
+    } else {
+      btn.style.background = '#f8f9fa';
+      btn.style.borderColor = '#dee2e6';
+      btn.style.color = '#666';
+      panel.style.display = 'none';
+      // Восстанавливаем drag-zoom
+      if (flowChart) {
+        flowChart.options.plugins.zoom.zoom.drag.enabled = true;
+        var anns = flowChart.options.plugins.annotation.annotations;
+        delete anns['seg_start_line'];
+        delete anns['seg_preview_box'];
+        delete anns['seg_trend_line'];
+        flowChart.update('none');
+      }
+      canvas.style.cursor = '';
+      // Скрываем preview
+      var preview = document.getElementById('flow-segment-preview');
+      if (preview) preview.style.display = 'none';
+    }
+  }
+
+  function fetchSegmentStats(startISO, endISO) {
+    var preview = document.getElementById('flow-segment-preview');
+    var rangeEl = document.getElementById('seg-preview-range');
+    if (rangeEl) {
+      rangeEl.textContent = formatSegDate(startISO) + ' \u2014 ' + formatSegDate(endISO);
+    }
+    if (preview) preview.style.display = '';
+
+    // Показываем загрузку
+    setSegPreviewLoading(true);
+
+    fetch('/api/flow-rate/segment-stats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ well_id: parseInt(wellId), start: startISO, end: endISO }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (stats) {
+        renderSegmentPreview(stats);
+      })
+      .catch(function (err) {
+        console.error('[segment] fetchSegmentStats error:', err);
+        setSegPreviewLoading(false);
+      });
+  }
+
+  function formatSegDate(iso) {
+    if (!iso) return '\u2014';
+    var d = new Date(iso);
+    var dd = String(d.getDate()).padStart(2, '0');
+    var mm = String(d.getMonth() + 1).padStart(2, '0');
+    var hh = String(d.getHours()).padStart(2, '0');
+    var mi = String(d.getMinutes()).padStart(2, '0');
+    return dd + '.' + mm + ' ' + hh + ':' + mi;
+  }
+
+  function setSegPreviewLoading(loading) {
+    var ids = [
+      'seg-p-mean-flow', 'seg-p-median-flow', 'seg-p-min-flow', 'seg-p-max-flow',
+      'seg-p-mean-ptube', 'seg-p-min-ptube', 'seg-p-max-ptube',
+      'seg-p-mean-pline', 'seg-p-min-pline', 'seg-p-max-pline',
+      'seg-p-mean-dp', 'seg-p-min-dp', 'seg-p-max-dp',
+      'seg-p-purge-count', 'seg-p-downtime-count', 'seg-p-downtime-hours', 'seg-p-loss',
+      'seg-p-cumulative', 'seg-p-duration', 'seg-p-data-points',
+    ];
+    for (var i = 0; i < ids.length; i++) {
+      var el = document.getElementById(ids[i]);
+      if (el) el.textContent = loading ? '...' : '\u2014';
+    }
+  }
+
+  function fmtV(v, digits) {
+    if (v == null) return '\u2014';
+    return Number(v).toFixed(digits != null ? digits : 2);
+  }
+
+  function renderSegmentPreview(stats) {
+    setSegPreviewLoading(false);
+    var s = function (id) { return document.getElementById(id); };
+    // Дебит
+    if (s('seg-p-mean-flow')) s('seg-p-mean-flow').textContent = fmtV(stats.mean_flow, 3);
+    if (s('seg-p-median-flow')) s('seg-p-median-flow').textContent = fmtV(stats.median_flow, 3);
+    if (s('seg-p-min-flow')) s('seg-p-min-flow').textContent = fmtV(stats.min_flow, 3);
+    if (s('seg-p-max-flow')) s('seg-p-max-flow').textContent = fmtV(stats.max_flow, 3);
+    if (s('seg-p-effective')) s('seg-p-effective').textContent = fmtV(stats.effective_daily, 3);
+    if (s('seg-p-utilization')) s('seg-p-utilization').textContent = fmtV(stats.utilization_pct, 1);
+    // P трубное
+    if (s('seg-p-mean-ptube')) s('seg-p-mean-ptube').textContent = fmtV(stats.mean_p_tube);
+    if (s('seg-p-min-ptube')) s('seg-p-min-ptube').textContent = fmtV(stats.min_p_tube);
+    if (s('seg-p-max-ptube')) s('seg-p-max-ptube').textContent = fmtV(stats.max_p_tube);
+    // P линейное
+    if (s('seg-p-mean-pline')) s('seg-p-mean-pline').textContent = fmtV(stats.mean_p_line);
+    if (s('seg-p-min-pline')) s('seg-p-min-pline').textContent = fmtV(stats.min_p_line);
+    if (s('seg-p-max-pline')) s('seg-p-max-pline').textContent = fmtV(stats.max_p_line);
+    // ΔP
+    if (s('seg-p-mean-dp')) s('seg-p-mean-dp').textContent = fmtV(stats.mean_dp);
+    if (s('seg-p-min-dp')) s('seg-p-min-dp').textContent = fmtV(stats.min_dp);
+    if (s('seg-p-max-dp')) s('seg-p-max-dp').textContent = fmtV(stats.max_dp);
+    // Продувки / простои
+    if (s('seg-p-purge-count')) s('seg-p-purge-count').textContent = stats.purge_count != null ? stats.purge_count : '\u2014';
+    if (s('seg-p-downtime-count')) s('seg-p-downtime-count').textContent = stats.downtime_count != null ? stats.downtime_count : '\u2014';
+    if (s('seg-p-downtime-hours')) s('seg-p-downtime-hours').textContent = fmtV(stats.downtime_hours, 1);
+    if (s('seg-p-loss')) s('seg-p-loss').textContent = stats.loss_vs_median != null ? fmtV(stats.loss_vs_median, 3) : '\u2014';
+    // Итого
+    if (s('seg-p-cumulative')) s('seg-p-cumulative').textContent = fmtV(stats.cumulative_flow, 3);
+    if (s('seg-p-duration')) s('seg-p-duration').textContent = fmtV(stats.duration_hours, 1);
+    if (s('seg-p-data-points')) s('seg-p-data-points').textContent = stats.data_points != null ? stats.data_points : '\u2014';
+    // Тренд
+    renderTrendBlock(stats, s);
+  }
+
+  /* ---------- Тренд-блок: значения + прогноз + тренд-линия ---------- */
+  function renderTrendValue(trend, digits) {
+    if (!trend) return { text: '\u2014', color: '#666' };
+    var arrow = trend.direction === 'up' ? '\u2191' : trend.direction === 'down' ? '\u2193' : '\u2192';
+    var color = trend.direction === 'up' ? '#2e7d32' : trend.direction === 'down' ? '#c62828' : '#666';
+    return { text: arrow + ' ' + fmtV(Math.abs(trend.slope_per_day), digits), color: color };
+  }
+
+  var lastTrendStats = null; // кэш тренд-данных для клиентского прогноза
+
+  function renderTrendBlock(stats, s) {
+    lastTrendStats = stats; // сохраняем для прогноза по порогам
+    // Q тренд
+    var tf = renderTrendValue(stats.trend_flow, 3);
+    if (s('seg-p-trend-flow')) { s('seg-p-trend-flow').textContent = tf.text; s('seg-p-trend-flow').style.color = tf.color; }
+    if (s('seg-p-trend-r2-flow')) s('seg-p-trend-r2-flow').textContent = stats.trend_flow ? fmtV(stats.trend_flow.r_squared, 3) : '\u2014';
+    // ΔP тренд
+    var td = renderTrendValue(stats.trend_dp, 3);
+    if (s('seg-p-trend-dp')) { s('seg-p-trend-dp').textContent = td.text; s('seg-p-trend-dp').style.color = td.color; }
+    if (s('seg-p-trend-r2-dp')) s('seg-p-trend-r2-dp').textContent = stats.trend_dp ? fmtV(stats.trend_dp.r_squared, 3) : '\u2014';
+    // P трубное тренд
+    var tp = renderTrendValue(stats.trend_p_tube, 3);
+    if (s('seg-p-trend-ptube')) { s('seg-p-trend-ptube').textContent = tp.text; s('seg-p-trend-ptube').style.color = tp.color; }
+    if (s('seg-p-trend-r2-ptube')) s('seg-p-trend-r2-ptube').textContent = stats.trend_p_tube ? fmtV(stats.trend_p_tube.r_squared, 3) : '\u2014';
+    // Прогноз Q → 0
+    if (s('seg-p-predict-zero-flow')) {
+      var h0 = stats.trend_flow ? stats.trend_flow.hours_to_zero : null;
+      s('seg-p-predict-zero-flow').textContent = h0 != null ? fmtV(h0 / 24, 1) + ' сут' : '\u2014';
+    }
+    // Прогнозы по порогам — обновляем из текущих полей ввода
+    updateThresholdPredictions();
+    // Тренд-линия на графике
+    drawTrendLine(stats);
+  }
+
+  /* Клиентский расчёт прогноза по порогу для одного тренда.
+     trend = { slope_per_day, intercept }, durH = длительность участка (часы)
+     threshold = число. Возвращает часы от конца участка или null. */
+  function predictHoursToThreshold(trend, durH, threshold) {
+    if (!trend || threshold == null || isNaN(threshold)) return null;
+    var slopeH = trend.slope_per_day / 24;
+    if (Math.abs(slopeH) < 1e-9) return null; // flat — никогда не достигнет
+    var tThresh = (threshold - trend.intercept) / slopeH; // часов от начала
+    var remaining = tThresh - durH;
+    if (remaining <= 0) return null; // уже достигнут или в прошлом
+    // Проверяем направление: тренд должен идти К порогу
+    var lastVal = trend.intercept + slopeH * durH;
+    if (trend.slope_per_day > 0 && threshold < lastVal) return null; // растёт, порог ниже
+    if (trend.slope_per_day < 0 && threshold > lastVal) return null; // падает, порог выше
+    return remaining;
+  }
+
+  /* Обновить прогнозы по порогам из полей ввода (без запроса к серверу) */
+  function updateThresholdPredictions() {
+    if (!lastTrendStats) return;
+    var durH = lastTrendStats.duration_hours || 0;
+    var s = function (id) { return document.getElementById(id); };
+
+    // Q → порог
+    var thF = parseFloat((s('seg-threshold-flow') || {}).value);
+    var hf = predictHoursToThreshold(lastTrendStats.trend_flow, durH, thF);
+    if (s('seg-p-predict-thresh-flow'))
+      s('seg-p-predict-thresh-flow').textContent = hf != null ? fmtV(hf / 24, 1) + ' сут' : '\u2014';
+
+    // ΔP → порог
+    var thD = parseFloat((s('seg-threshold-dp') || {}).value);
+    var hd = predictHoursToThreshold(lastTrendStats.trend_dp, durH, thD);
+    if (s('seg-p-predict-thresh-dp'))
+      s('seg-p-predict-thresh-dp').textContent = hd != null ? fmtV(hd / 24, 1) + ' сут' : '\u2014';
+
+    // P тр. → порог
+    var thP = parseFloat((s('seg-threshold-ptube') || {}).value);
+    var hp = predictHoursToThreshold(lastTrendStats.trend_p_tube, durH, thP);
+    if (s('seg-p-predict-thresh-ptube'))
+      s('seg-p-predict-thresh-ptube').textContent = hp != null ? fmtV(hp / 24, 1) + ' сут' : '\u2014';
+  }
+
+  /* ---------- Тренд-линия пунктиром на графике ---------- */
+  function drawTrendLine(stats) {
+    if (!flowChart || !flowChart.options.plugins.annotation) return;
+    var anns = flowChart.options.plugins.annotation.annotations;
+    // Удаляем старую
+    delete anns['seg_trend_line'];
+    if (!stats.trend_flow || !currentSegStart || !currentSegEnd) {
+      flowChart.update('none');
+      return;
+    }
+    var t = stats.trend_flow;
+    var startDate = new Date(currentSegStart);
+    var endDate = new Date(currentSegEnd);
+    var durH = (endDate - startDate) / 3600000;
+    var y1 = t.intercept;
+    // Экстраполяция на 50% вперёд
+    var extendH = durH * 0.5;
+    var extDate = new Date(endDate.getTime() + extendH * 3600000);
+    var y_ext = t.intercept + (t.slope_per_day / 24) * (durH + extendH);
+
+    anns['seg_trend_line'] = {
+      type: 'line',
+      xMin: currentSegStart,
+      xMax: extDate.toISOString(),
+      yMin: y1,
+      yMax: Math.max(y_ext, 0),
+      yScaleID: 'y',
+      borderColor: 'rgba(13, 71, 161, 0.6)',
+      borderWidth: 2,
+      borderDash: [8, 4],
+      label: {
+        display: true,
+        content: (t.direction === 'down' ? '\u2193' : t.direction === 'up' ? '\u2191' : '\u2192') +
+                 ' ' + Math.abs(t.slope_per_day).toFixed(2) + '/\u0441\u0443\u0442',
+        position: 'end',
+        font: { size: 10 },
+        backgroundColor: 'rgba(13, 71, 161, 0.8)',
+        color: '#fff',
+        padding: 3,
+      },
+    };
+    flowChart.update('none');
+  }
+
+  function saveSegment() {
+    if (!currentSegStart || !currentSegEnd) return;
+    var nameInput = document.getElementById('seg-name-input');
+    var name = (nameInput && nameInput.value.trim()) || '\u0423\u0447\u0430\u0441\u0442\u043e\u043a';
+    var msgEl = document.getElementById('seg-save-msg');
+
+    fetch('/api/flow-rate/segments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        well_id: parseInt(wellId),
+        name: name,
+        start: currentSegStart,
+        end: currentSegEnd,
+      }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.id) {
+          if (msgEl) {
+            msgEl.style.display = '';
+            clearTimeout(msgEl._timer);
+            msgEl._timer = setTimeout(function () { msgEl.style.display = 'none'; }, 2000);
+          }
+          if (nameInput) nameInput.value = '';
+          // Убираем preview box + тренд-линию
+          if (flowChart) {
+            delete flowChart.options.plugins.annotation.annotations['seg_preview_box'];
+            delete flowChart.options.plugins.annotation.annotations['seg_trend_line'];
+            flowChart.update('none');
+          }
+          var preview = document.getElementById('flow-segment-preview');
+          if (preview) preview.style.display = 'none';
+          currentSegStart = null;
+          currentSegEnd = null;
+          loadSavedSegments();
+        }
+      })
+      .catch(function (err) { console.error('[segment] save error:', err); });
+  }
+
+  function loadSavedSegments() {
+    fetch('/api/flow-rate/segments?well_id=' + wellId)
+      .then(function (r) { return r.json(); })
+      .then(function (segments) {
+        savedSegments = segments;
+        renderSegmentsTable(segments);
+      })
+      .catch(function (err) { console.error('[segment] load error:', err); });
+  }
+
+  function renderSegmentsTable(segments) {
+    var wrap = document.getElementById('flow-segments-table-wrap');
+    var tbody = document.getElementById('flow-segments-tbody');
+    var countEl = document.getElementById('seg-table-count');
+    if (!wrap || !tbody) return;
+
+    if (!segments || segments.length === 0) {
+      wrap.style.display = 'none';
+      return;
+    }
+    wrap.style.display = '';
+    if (countEl) countEl.textContent = segments.length;
+
+    tbody.innerHTML = '';
+    for (var i = 0; i < segments.length; i++) {
+      var seg = segments[i];
+      var st = seg.stats || {};
+      var tr = document.createElement('tr');
+      tr.style.cssText = 'border-bottom:1px solid #f0f0f0;';
+      tr.dataset.segId = seg.id;
+
+      tr.innerHTML =
+        '<td style="padding:5px 6px; text-align:center;"><input type="checkbox" class="seg-check" data-seg-idx="' + i + '"></td>' +
+        '<td style="padding:5px 6px; font-weight:600;">' + escHtml(seg.name) + '</td>' +
+        '<td style="padding:5px 6px; font-size:11px; color:#666;">' + formatSegDate(seg.dt_start) + ' \u2014 ' + formatSegDate(seg.dt_end) + '</td>' +
+        '<td style="padding:5px 6px; text-align:right; font-family:monospace;">' + fmtV(st.mean_flow, 3) + '</td>' +
+        '<td style="padding:5px 6px; text-align:right; font-family:monospace;">' + fmtV(st.median_flow, 3) + '</td>' +
+        '<td style="padding:5px 6px; text-align:right; font-family:monospace;">' + fmtV(st.cumulative_flow, 1) + '</td>' +
+        '<td style="padding:5px 6px; text-align:center;">' + (st.purge_count != null ? st.purge_count : '\u2014') + '</td>' +
+        '<td style="padding:5px 6px; text-align:center;">' + fmtV(st.downtime_hours, 1) + '</td>' +
+        '<td style="padding:5px 6px; text-align:center;">' +
+          '<button class="seg-delete-btn" data-seg-id="' + seg.id + '" title="\u0423\u0434\u0430\u043b\u0438\u0442\u044c" style="border:none; background:none; color:#c62828; cursor:pointer; font-size:14px;">&#128465;</button>' +
+        '</td>';
+
+      tbody.appendChild(tr);
+    }
+
+    // Event delegation для удаления и чекбоксов
+    tbody.onclick = function (e) {
+      var delBtn = e.target.closest('.seg-delete-btn');
+      if (delBtn) {
+        e.preventDefault();
+        deleteSegment(parseInt(delBtn.dataset.segId));
+        return;
+      }
+      updateCompareButton();
+    };
+
+    // Check-all
+    var checkAll = document.getElementById('seg-check-all');
+    if (checkAll) {
+      checkAll.checked = false;
+      checkAll.onchange = function () {
+        var boxes = tbody.querySelectorAll('.seg-check');
+        for (var j = 0; j < boxes.length; j++) boxes[j].checked = checkAll.checked;
+        updateCompareButton();
+      };
+    }
+  }
+
+  function escHtml(str) {
+    var div = document.createElement('div');
+    div.textContent = str || '';
+    return div.innerHTML;
+  }
+
+  function updateCompareButton() {
+    var btn = document.getElementById('seg-compare-btn');
+    if (!btn) return;
+    var checked = document.querySelectorAll('#flow-segments-tbody .seg-check:checked');
+    btn.disabled = checked.length < 2;
+    btn.style.opacity = checked.length < 2 ? '0.5' : '1';
+  }
+
+  function deleteSegment(segId) {
+    fetch('/api/flow-rate/segments/' + segId, { method: 'DELETE' })
+      .then(function (r) { return r.json(); })
+      .then(function () { loadSavedSegments(); })
+      .catch(function (err) { console.error('[segment] delete error:', err); });
+  }
+
+  function compareSegments() {
+    var checked = document.querySelectorAll('#flow-segments-tbody .seg-check:checked');
+    if (checked.length < 2) return;
+
+    var selected = [];
+    for (var i = 0; i < checked.length; i++) {
+      var idx = parseInt(checked[i].dataset.segIdx);
+      if (savedSegments[idx]) selected.push(savedSegments[idx]);
+    }
+
+    var wrap = document.getElementById('flow-segment-compare');
+    var table = document.getElementById('seg-compare-table');
+    if (!wrap || !table) return;
+
+    // Метрики для сравнения
+    var metrics = [
+      { key: 'mean_flow',    label: 'Q среднее (тыс.м³/сут)', digits: 3, hint: 'Среднее арифметическое дебита, включая нули при простоях и продувках' },
+      { key: 'median_flow',  label: 'Q медиана', digits: 3, hint: 'Типичный рабочий дебит. Нечувствителен к нулям — завышает при простоях' },
+      { key: 'effective_daily', label: 'Q эффект. (тыс.м³/сут)', digits: 3, hint: 'Реальная среднесуточная добыча = накопленный / дни. Учитывает все простои и продувки' },
+      { key: 'min_flow',     label: 'Q мин', digits: 3, hint: 'Минимальный мгновенный дебит за участок' },
+      { key: 'max_flow',     label: 'Q макс', digits: 3, hint: 'Максимальный мгновенный дебит за участок' },
+      { key: 'utilization_pct', label: 'КИВ (%)', digits: 1, hint: 'Коэффициент использования времени — % времени реальной работы скважины' },
+      { key: 'cumulative_flow', label: 'Накоплено (тыс.м³)', digits: 1, hint: 'Интеграл дебита (площадь под кривой). Только газ в трубопровод' },
+      { key: 'mean_p_tube',  label: 'P труб. ср (кгс/см²)', digits: 2, hint: 'Среднее давление на устье скважины' },
+      { key: 'mean_p_line',  label: 'P лин. ср', digits: 2, hint: 'Среднее давление в шлейфе (линейное)' },
+      { key: 'mean_dp',      label: '\u0394P ср', digits: 2, hint: 'Средний перепад давления (P трубное − P линейное). Движущая сила потока' },
+      { key: 'purge_count',  label: 'Продувок', digits: 0, hint: 'Количество обнаруженных циклов продувок (стравливание газа в атмосферу)' },
+      { key: 'downtime_hours', label: 'Простои (ч)', digits: 1, hint: 'Суммарное время простоев (P трубное ≤ P шлейфа, дебит = 0)' },
+      { key: 'duration_hours', label: 'Период (ч)', digits: 1, hint: 'Длительность выбранного участка' },
+      { key: 'data_points',  label: 'Точек', digits: 0, hint: 'Количество минутных измерений в участке' },
+      { key: 'trend_flow_slope', label: 'Тренд Q (/сут)', digits: 3,
+        hint: 'Скорость изменения дебита: отрицательный = падение, положительный = рост (тыс.м³/сут²)',
+        getter: function(st) { return st.trend_flow ? st.trend_flow.slope_per_day : null; } },
+      { key: 'trend_dp_slope', label: 'Тренд ΔP (/сут)', digits: 3,
+        hint: 'Скорость изменения перепада давления (кгс/см²/сут)',
+        getter: function(st) { return st.trend_dp ? st.trend_dp.slope_per_day : null; } },
+      { key: 'trend_ptube_slope', label: 'Тренд P тр. (/сут)', digits: 3,
+        hint: 'Скорость изменения трубного давления (кгс/см²/сут)',
+        getter: function(st) { return st.trend_p_tube ? st.trend_p_tube.slope_per_day : null; } },
+      { key: 'trend_r2', label: 'R² (Q)', digits: 3,
+        hint: 'Качество линейного тренда дебита. 1.0 = идеальная линия, <0.5 = слабый тренд',
+        getter: function(st) { return st.trend_flow ? st.trend_flow.r_squared : null; } },
+    ];
+
+    // Заголовок
+    var html = '<thead><tr style="background:#f8f9fa;"><th style="padding:5px 8px; text-align:left; font-size:11px; color:#666;">Метрика</th>';
+    for (var j = 0; j < selected.length; j++) {
+      html += '<th style="padding:5px 8px; text-align:right; font-size:11px; color:#7b1fa2;">' + escHtml(selected[j].name) + '</th>';
+    }
+    if (selected.length === 2) {
+      html += '<th style="padding:5px 8px; text-align:right; font-size:11px; color:#333;">\u0394</th>';
+    }
+    html += '</tr></thead><tbody>';
+
+    // Строки
+    for (var m = 0; m < metrics.length; m++) {
+      var met = metrics[m];
+      var titleAttr = met.hint ? ' title="' + met.hint + '"' : '';
+      html += '<tr style="border-bottom:1px solid #f0f0f0;"><td style="padding:4px 8px; font-weight:600; font-size:12px; cursor:help;"' + titleAttr + '>' + met.label + '</td>';
+      var vals = [];
+      for (var s = 0; s < selected.length; s++) {
+        var st = selected[s].stats || {};
+        var v = met.getter ? met.getter(st) : st[met.key];
+        vals.push(v);
+        html += '<td style="padding:4px 8px; text-align:right; font-family:monospace; font-size:12px;">' + fmtV(v, met.digits) + '</td>';
+      }
+      // Дельта для 2 участков
+      if (selected.length === 2 && vals[0] != null && vals[1] != null) {
+        var diff = vals[1] - vals[0];
+        var diffColor = diff > 0 ? '#2e7d32' : diff < 0 ? '#c62828' : '#666';
+        var sign = diff > 0 ? '+' : '';
+        html += '<td style="padding:4px 8px; text-align:right; font-family:monospace; font-size:12px; font-weight:700; color:' + diffColor + ';">' + sign + fmtV(diff, met.digits) + '</td>';
+      } else if (selected.length === 2) {
+        html += '<td style="padding:4px 8px; text-align:right; color:#999;">\u2014</td>';
+      }
+      html += '</tr>';
+    }
+    html += '</tbody>';
+    table.innerHTML = html;
+    wrap.style.display = '';
+  }
+
   // ═══════════════════ Сброс зума ═══════════════════
   var resetBtn = document.getElementById('flow-reset-zoom');
   if (resetBtn) {
     resetBtn.addEventListener('click', function () {
       if (flowChart) flowChart.resetZoom();
+    });
+  }
+
+  // ═══════════════════ Базовый дебит — input + save ═══════════════════
+  var baselineInput = document.getElementById('flow-baseline-input');
+  var baselineSaveBtn = document.getElementById('flow-baseline-save');
+  var baselineSavedMsg = document.getElementById('flow-baseline-saved-msg');
+  console.log('[flow_rate_chart] baseline DOM:', {
+    input: !!baselineInput, btn: !!baselineSaveBtn, msg: !!baselineSavedMsg,
+    storedValue: baselineValue
+  });
+
+  function applyBaseline() {
+    console.log('[flow_rate_chart] applyBaseline called, input value:', baselineInput ? baselineInput.value : 'no-input');
+    if (!baselineInput) return;
+    var val = baselineInput.value.trim();
+    baselineValue = val ? parseFloat(val) : null;
+    if (baselineValue != null && !isNaN(baselineValue)) {
+      localStorage.setItem(baselineStorageKey, String(baselineValue));
+    } else {
+      baselineValue = null;
+      localStorage.removeItem(baselineStorageKey);
+    }
+    console.log('[flow_rate_chart] baselineValue set to:', baselineValue, 'flowChart:', !!flowChart);
+    updateBaselineOnChart();
+    updateRefPointStats(); // пересчёт «Δ от базового» в refpoint
+    // «Сохранено» — 2 секунды
+    if (baselineSavedMsg) {
+      baselineSavedMsg.style.display = '';
+      clearTimeout(baselineSavedMsg._timer);
+      baselineSavedMsg._timer = setTimeout(function () {
+        baselineSavedMsg.style.display = 'none';
+      }, 2000);
+    }
+  }
+
+  if (baselineInput) {
+    if (baselineValue != null && !isNaN(baselineValue)) baselineInput.value = baselineValue;
+    baselineInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); applyBaseline(); }
+    });
+  }
+  if (baselineSaveBtn) {
+    baselineSaveBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      applyBaseline();
+    });
+  }
+
+  // ═══════════════════ Точка отсчёта — input ═══════════════════
+  var refPointInput = document.getElementById('flow-refpoint-input');
+  var refPointSetBtn = document.getElementById('flow-refpoint-set');
+  var refPointClearBtn = document.getElementById('flow-refpoint-clear');
+
+  if (refPointInput && refPointTime) {
+    refPointInput.value = isoToDatetimeLocal(refPointTime);
+  }
+
+  if (refPointSetBtn) {
+    refPointSetBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      if (!refPointInput || !refPointInput.value) return;
+      setRefPoint(new Date(refPointInput.value).toISOString());
+    });
+  }
+
+  if (refPointClearBtn) {
+    refPointClearBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      clearRefPoint();
+    });
+  }
+
+  // ═══════════════════ Анализ участков — listeners ═══════════════════
+  var segModeBtn = document.getElementById('flow-segment-mode');
+  if (segModeBtn) {
+    segModeBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      toggleSegmentMode();
+    });
+  }
+
+  var segSaveBtn = document.getElementById('seg-save-btn');
+  if (segSaveBtn) {
+    segSaveBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      saveSegment();
+    });
+  }
+
+  // Пороги: авто-обновление прогнозов при вводе (каждый независимо)
+  ['seg-threshold-flow', 'seg-threshold-dp', 'seg-threshold-ptube'].forEach(function (id) {
+    var inp = document.getElementById(id);
+    if (inp) inp.addEventListener('input', updateThresholdPredictions);
+  });
+  var segPredictBtn = document.getElementById('seg-predict-btn');
+  if (segPredictBtn) {
+    segPredictBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      updateThresholdPredictions();
+    });
+  }
+
+  var segCompareBtn = document.getElementById('seg-compare-btn');
+  if (segCompareBtn) {
+    segCompareBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      compareSegments();
+    });
+  }
+
+  var segPreviewClose = document.getElementById('seg-preview-close');
+  if (segPreviewClose) {
+    segPreviewClose.addEventListener('click', function (e) {
+      e.preventDefault();
+      var preview = document.getElementById('flow-segment-preview');
+      if (preview) preview.style.display = 'none';
+      if (flowChart) {
+        delete flowChart.options.plugins.annotation.annotations['seg_preview_box'];
+        delete flowChart.options.plugins.annotation.annotations['seg_trend_line'];
+        flowChart.update('none');
+      }
+      currentSegStart = null;
+      currentSegEnd = null;
+    });
+  }
+
+  var segCompareClose = document.getElementById('seg-compare-close');
+  if (segCompareClose) {
+    segCompareClose.addEventListener('click', function (e) {
+      e.preventDefault();
+      var wrap = document.getElementById('flow-segment-compare');
+      if (wrap) wrap.style.display = 'none';
+    });
+  }
+
+  // Segment name input — Enter to save
+  var segNameInput = document.getElementById('seg-name-input');
+  if (segNameInput) {
+    segNameInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); saveSegment(); }
     });
   }
 

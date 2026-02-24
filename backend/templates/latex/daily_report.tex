@@ -1,0 +1,352 @@
+\documentclass[10pt]{article}
+\usepackage{fontspec}
+\setmainfont{Times New Roman}
+\usepackage[russian]{babel}
+\usepackage{geometry}
+\geometry{a4paper, margin=1.5cm}
+
+\usepackage{longtable, array, booktabs, tabularx}
+\usepackage{ragged2e}
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+\usepackage{graphicx}
+\usepackage{pdflscape}
+
+\newcolumntype{P}[1]{>{\RaggedRight\arraybackslash\footnotesize}m{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash\footnotesize}m{#1}}
+\newcolumntype{R}[1]{>{\RaggedLeft\arraybackslash\footnotesize}m{#1}}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{2pt}
+\renewcommand{\arraystretch}{1.15}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\footnotesize Суточный отчёт \VAR{report_date} · №\VAR{doc_number}}
+\fancyhead[R]{\footnotesize \thepage\ / \pageref{LastPage}}
+\fancyfoot[C]{\scriptsize Сформировано \VAR{generated_at}}
+
+\begin{document}
+\thispagestyle{empty}
+
+% ═══════ ТИТУЛЬНАЯ СТРАНИЦА ═══════
+\begin{center}
+\vspace*{3cm}
+
+{\LARGE\bfseries Суточный отчёт}\\[0.5em]
+\BLOCK{ if is_summary }
+{\large Сводный отчёт по \VAR{total_wells} скважинам}\\[1em]
+\BLOCK{ else }
+{\large Скважина №\VAR{wells_data[0].well_number}\BLOCK{ if wells_data[0].well_name } --- \VAR{wells_data[0].well_name}\BLOCK{ endif }}\\[1em]
+\BLOCK{ endif }
+
+{\large Дата: \VAR{report_date}}\\[0.3em]
+Документ №\VAR{doc_number}
+
+\vspace{3cm}
+{\normalsize Сформировано: \VAR{generated_at}}
+
+\end{center}
+
+\newpage
+
+\BLOCK{ if is_summary }
+% ══════════════════════════════════════════════════════════
+%  СВОДНЫЙ РЕЖИМ — компактные таблицы без графиков
+% ══════════════════════════════════════════════════════════
+
+% ── Таблица 1: Давления и конструкция ──
+\section*{1. Давления и конструкция}
+
+\begin{landscape}
+{\scriptsize
+\begin{longtable}{|C{0.7cm}|P{1.2cm}|C{0.8cm}|R{0.7cm}|R{0.7cm}|R{0.7cm}|R{0.7cm}|R{0.7cm}|R{0.7cm}|R{0.7cm}|R{0.7cm}|R{0.7cm}|R{0.7cm}|R{0.7cm}|R{0.7cm}|P{1.5cm}|}
+\hline
+\textbf{Скв} & \textbf{Статус} & \textbf{Шт, мм}
+& \multicolumn{4}{c|}{\textbf{P труб, кгс/см\textsuperscript{2}}}
+& \multicolumn{4}{c|}{\textbf{P лин, кгс/см\textsuperscript{2}}}
+& \multicolumn{4}{c|}{\textbf{$\Delta$P}}
+& \textbf{Тренд $\Delta$P} \\
+\cline{4-15}
+& & & \textbf{мин} & \textbf{макс} & \textbf{ср} & \textbf{мед}
+& \textbf{мин} & \textbf{макс} & \textbf{ср} & \textbf{мед}
+& \textbf{мин} & \textbf{макс} & \textbf{ср} & \textbf{мед} & \\
+\hline
+\endhead
+%% for w in wells_data
+\VAR{w.well_number} & \VAR{w.status} & \VAR{w.choke_mm}
+\BLOCK{ if w.pressure_stats }
+& \VAR{w.pressure_stats.p_tube_min} & \VAR{w.pressure_stats.p_tube_max} & \VAR{w.pressure_stats.p_tube_avg} & \VAR{w.pressure_stats.p_tube_median}
+& \VAR{w.pressure_stats.p_line_min} & \VAR{w.pressure_stats.p_line_max} & \VAR{w.pressure_stats.p_line_avg} & \VAR{w.pressure_stats.p_line_median}
+& \VAR{w.pressure_stats.dp_min} & \VAR{w.pressure_stats.dp_max} & \VAR{w.pressure_stats.dp_avg} & \VAR{w.pressure_stats.dp_median}
+\BLOCK{ else }
+& --- & --- & --- & --- & --- & --- & --- & --- & --- & --- & --- & ---
+\BLOCK{ endif }
+& \BLOCK{ if w.dp_trend }\BLOCK{ if w.dp_trend.direction == "up" }$\uparrow$\VAR{w.dp_trend.slope_per_day}\BLOCK{ elif w.dp_trend.direction == "down" }$\downarrow$\VAR{w.dp_trend.slope_per_day}\BLOCK{ else }$\rightarrow$\BLOCK{ endif }\BLOCK{ else }---\BLOCK{ endif } \\
+\hline
+%% endfor
+\end{longtable}
+}
+\end{landscape}
+
+% ── Таблица 2: Дебит и потери ──
+\section*{2. Дебит и потери}
+
+{\scriptsize
+\begin{longtable}{|C{0.7cm}|R{1.3cm}|R{1.3cm}|R{1.3cm}|R{1.3cm}|R{1.3cm}|R{1cm}|R{1.3cm}|R{1.3cm}|R{1cm}|R{1cm}|R{1cm}|}
+\hline
+\textbf{Скв}
+& \textbf{Q ср}
+& \textbf{Q мед}
+& \textbf{Q мин}
+& \textbf{Q макс}
+& \textbf{Q эфф}
+& \textbf{КИВ}
+& \textbf{$\Sigma$Q}
+& \textbf{Потери}
+& \textbf{Прост}
+& \textbf{Прод}
+& \textbf{Реаг} \\
+\hline
+\endhead
+%% for w in wells_data
+\VAR{w.well_number}
+\BLOCK{ if w.flow_stats }
+& \VAR{w.flow_stats.avg_flow_rate}
+& \VAR{w.flow_stats.median_flow_rate}
+& \VAR{w.flow_stats.min_flow_rate}
+& \VAR{w.flow_stats.max_flow_rate}
+& \VAR{w.flow_stats.effective_flow_rate}
+& \VAR{w.flow_stats.utilization_pct}
+& \VAR{w.flow_stats.cumulative_flow}
+& \VAR{w.flow_stats.purge_loss}
+\BLOCK{ else }
+& --- & --- & --- & --- & --- & --- & --- & ---
+\BLOCK{ endif }
+& \VAR{w.downtime_total_min}
+& \VAR{w.purge_count}
+& \BLOCK{ if w.reagent_stats }\VAR{w.reagent_stats|length}\BLOCK{ else }0\BLOCK{ endif } \\
+\hline
+%% endfor
+\end{longtable}
+}
+
+% ── Таблица 3: События ──
+\section*{3. События}
+
+{\scriptsize
+\begin{longtable}{|C{0.7cm}|R{0.8cm}|P{10cm}|}
+\hline
+\textbf{Скв} & \textbf{Всего} & \textbf{Разбивка по типам} \\
+\hline
+\endhead
+%% for w in wells_data
+\VAR{w.well_number} & \VAR{w.events|length}
+& \BLOCK{ if w.event_type_stats }\BLOCK{ for s in w.event_type_stats }\VAR{s.type_label}: \VAR{s.count}\BLOCK{ if not loop.last }, \BLOCK{ endif }\BLOCK{ endfor }\BLOCK{ else }---\BLOCK{ endif } \\
+\hline
+%% endfor
+\end{longtable}
+}
+
+\BLOCK{ else }
+% ══════════════════════════════════════════════════════════
+%  ДЕТАЛЬНЫЙ РЕЖИМ — одна скважина, все секции
+% ══════════════════════════════════════════════════════════
+
+%% for w in wells_data
+
+% ═══════ СКВАЖИНА ═══════
+\section*{Скважина №\VAR{w.well_number}\BLOCK{ if w.well_name } --- \VAR{w.well_name}\BLOCK{ endif } \hfill \small \VAR{w.report_date}}
+
+% ── 1. Конструкция ──
+\begin{tabularx}{\textwidth}{|P{4.5cm}|R{3cm}|P{4.5cm}|R{4cm}|}
+\hline
+\textbf{Статус} & \VAR{w.status} & \textbf{Горизонт} & \VAR{w.horizon} \\
+\hline
+\textbf{Диам. штуцера, мм} & \VAR{w.choke_mm} & \textbf{Период данных} & \VAR{w.data_start_time} --- \VAR{w.data_end_time} (\VAR{w.data_points_count} зам.) \\
+\hline
+\end{tabularx}
+
+\vspace{0.4em}
+
+% ── 2. Давления ──
+\subsection*{1. Давления}
+
+\BLOCK{ if w.pressure_stats }
+\begin{tabularx}{\textwidth}{|P{4.5cm}|R{3cm}|R{3cm}|R{3cm}|R{3cm}|}
+\hline
+\textbf{Параметр} & \textbf{Мин} & \textbf{Макс} & \textbf{Среднее} & \textbf{Медиана} \\
+\hline
+P трубное, кгс/см\textsuperscript{2} & \VAR{w.pressure_stats.p_tube_min} & \VAR{w.pressure_stats.p_tube_max} & \VAR{w.pressure_stats.p_tube_avg} & \VAR{w.pressure_stats.p_tube_median} \\
+\hline
+P линейное, кгс/см\textsuperscript{2} & \VAR{w.pressure_stats.p_line_min} & \VAR{w.pressure_stats.p_line_max} & \VAR{w.pressure_stats.p_line_avg} & \VAR{w.pressure_stats.p_line_median} \\
+\hline
+$\Delta$P, кгс/см\textsuperscript{2} & \VAR{w.pressure_stats.dp_min} & \VAR{w.pressure_stats.dp_max} & \VAR{w.pressure_stats.dp_avg} & \VAR{w.pressure_stats.dp_median} \\
+\hline
+\end{tabularx}
+\BLOCK{ else }
+\textit{\footnotesize Данные по давлениям отсутствуют}
+\BLOCK{ endif }
+
+\BLOCK{ if w.dp_trend }
+\vspace{0.2em}
+{\footnotesize \textbf{Тренд $\Delta$P:}
+\BLOCK{ if w.dp_trend.direction == "up" }$\uparrow$ Рост
+\BLOCK{ elif w.dp_trend.direction == "down" }$\downarrow$ Снижение
+\BLOCK{ else }$\rightarrow$ Стабильно
+\BLOCK{ endif }
+\VAR{w.dp_trend.slope_per_day} кгс/см\textsuperscript{2}/сут (R\textsuperscript{2}=\VAR{w.dp_trend.r_squared})}
+\BLOCK{ endif }
+
+\vspace{0.4em}
+
+% ── 3. Продувки ──
+\subsection*{2. Продувки}
+
+\BLOCK{ if w.purge_cycles }
+\begin{tabularx}{\textwidth}{|C{0.8cm}|C{1.5cm}|R{2.5cm}|R{2.5cm}|R{2.5cm}|R{2.5cm}|R{2.5cm}|}
+\hline
+\textbf{№} & \textbf{Время} & \textbf{Стравл., мин} & \textbf{Набор, мин} & \textbf{P нач} & \textbf{P мин} & \textbf{P кон} \\
+\hline
+%% for c in w.purge_cycles
+\VAR{loop.index} & \VAR{c.start_time} & \VAR{c.venting_min} & \VAR{c.buildup_min} & \VAR{c.p_start} & \VAR{c.p_bottom} & \VAR{c.p_end} \\
+\hline
+%% endfor
+\end{tabularx}
+{\footnotesize Итого: \VAR{w.purge_count} продувок, стравливание \VAR{w.purge_total_venting_min} мин, набор \VAR{w.purge_total_buildup_min} мин}
+\BLOCK{ else }
+{\footnotesize Продувок: \VAR{w.purge_count}}
+\BLOCK{ endif }
+
+\vspace{0.4em}
+
+% ── 4. Простои ──
+\subsection*{3. Простои}
+
+\BLOCK{ if w.downtime_periods }
+\begin{tabularx}{\textwidth}{|C{0.8cm}|C{2.5cm}|C{2.5cm}|R{3cm}|}
+\hline
+\textbf{№} & \textbf{Начало} & \textbf{Конец} & \textbf{Длит., мин} \\
+\hline
+%% for d in w.downtime_periods
+\VAR{loop.index} & \VAR{d.start_time} & \VAR{d.end_time} & \VAR{d.duration_min} \\
+\hline
+%% endfor
+\end{tabularx}
+{\footnotesize Итого: \VAR{w.downtime_periods|length} периодов, суммарно \VAR{w.downtime_total_min} мин}
+\BLOCK{ else }
+{\footnotesize Простоев не зафиксировано}
+\BLOCK{ endif }
+
+\vspace{0.4em}
+
+% ── 5. Дебит ──
+\subsection*{4. Дебит}
+
+\BLOCK{ if w.flow_stats }
+\begin{tabularx}{\textwidth}{|P{6cm}|R{4cm}|P{3cm}|R{3cm}|}
+\hline
+\textbf{Показатель} & \textbf{Значение} & \textbf{Показатель} & \textbf{Значение} \\
+\hline
+Средний дебит, тыс.\,м\textsuperscript{3}/сут & \VAR{w.flow_stats.avg_flow_rate} & Мин. дебит & \VAR{w.flow_stats.min_flow_rate} \\
+\hline
+Медианный дебит & \VAR{w.flow_stats.median_flow_rate} & Макс. дебит & \VAR{w.flow_stats.max_flow_rate} \\
+\hline
+Эффективный дебит & \VAR{w.flow_stats.effective_flow_rate} & КИВ & \VAR{w.flow_stats.utilization_pct}\% \\
+\hline
+Суммарная добыча, тыс.\,м\textsuperscript{3} & \VAR{w.flow_stats.cumulative_flow} & Потери прод., тыс.\,м\textsuperscript{3} & \VAR{w.flow_stats.purge_loss} \\
+\hline
+Простой, мин & \VAR{w.flow_stats.downtime_minutes} & & \\
+\hline
+\end{tabularx}
+\BLOCK{ else }
+\textit{\footnotesize Данные по дебиту отсутствуют}
+\BLOCK{ endif }
+
+\vspace{0.4em}
+
+% ── 6. График давления ──
+\BLOCK{ if w.chart_path }
+\subsection*{5. График давления}
+\begin{center}
+\includegraphics[width=\textwidth]{\VAR{w.chart_path}}
+\end{center}
+\BLOCK{ endif }
+
+% ── 7. События ──
+\subsection*{\BLOCK{ if w.chart_path }6\BLOCK{ else }5\BLOCK{ endif }. События за сутки}
+
+\BLOCK{ if w.events }
+\begin{longtable}{|C{1.2cm}|P{3cm}|P{6.5cm}|R{2cm}|R{2cm}|}
+\hline
+\textbf{Время} & \textbf{Тип} & \textbf{Описание} & \textbf{P тр} & \textbf{P лин} \\
+\hline
+\endhead
+%% for e in w.events
+\VAR{e.time_str} & \VAR{e.type_label} & \VAR{e.description} & \VAR{e.p_tube} & \VAR{e.p_line} \\
+\hline
+%% endfor
+\end{longtable}
+
+\BLOCK{ if w.event_type_stats }
+{\footnotesize \textbf{Статистика:}
+%% for s in w.event_type_stats
+\VAR{s.type_label}: \VAR{s.count}\BLOCK{ if not loop.last }, \BLOCK{ endif }
+%% endfor
+}
+\BLOCK{ endif }
+\BLOCK{ else }
+\textit{\footnotesize События за сутки отсутствуют}
+\BLOCK{ endif }
+
+\vspace{0.4em}
+
+% ── 8. Реагенты ──
+\subsection*{\BLOCK{ if w.chart_path }7\BLOCK{ else }6\BLOCK{ endif }. Анализ реагентов}
+
+\BLOCK{ if w.reagent_stats }
+\begin{tabularx}{\textwidth}{|P{5cm}|R{2cm}|R{3cm}|}
+\hline
+\textbf{Реагент} & \textbf{Кол-во} & \textbf{Расход} \\
+\hline
+%% for r in w.reagent_stats
+\VAR{r.name} & \VAR{r.count} & \VAR{r.total_qty} \\
+\hline
+%% endfor
+\end{tabularx}
+
+\BLOCK{ if w.reagent_intervals }
+\vspace{0.2em}
+{\footnotesize \textbf{Интервалы между вбросами:}
+%% for ri in w.reagent_intervals
+\VAR{ri.reagent}: ср. \VAR{ri.interval_hours} ч\BLOCK{ if not loop.last }; \BLOCK{ endif }
+%% endfor
+}
+\BLOCK{ endif }
+
+\BLOCK{ if w.reagent_prev_day }
+\vspace{0.2em}
+{\footnotesize \textbf{Сравнение с предыдущими сутками:}}
+\begin{tabularx}{\textwidth}{|P{5cm}|R{2.5cm}|R{2.5cm}|R{2.5cm}|}
+\hline
+\textbf{Реагент} & \textbf{Сегодня} & \textbf{Вчера} & \textbf{$\Delta$} \\
+\hline
+%% for rp in w.reagent_prev_day
+\VAR{rp.reagent} & \VAR{rp.today_count} & \VAR{rp.yesterday_count} & \VAR{rp.diff} \\
+\hline
+%% endfor
+\end{tabularx}
+\BLOCK{ endif }
+\BLOCK{ else }
+\textit{\footnotesize Вброс реагентов не зафиксирован}
+\BLOCK{ endif }
+
+%% if not loop.last
+\newpage
+%% endif
+
+%% endfor
+
+\BLOCK{ endif }
+
+\end{document}

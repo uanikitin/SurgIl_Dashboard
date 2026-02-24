@@ -140,6 +140,15 @@ from backend.routers.flow_analysis import pages_router as flow_analysis_pages_ro
 app.include_router(flow_analysis_router)
 app.include_router(flow_analysis_pages_router)
 
+# Widget API (SwiftBar, etc.)
+from backend.routers.widget_api import router as widget_api_router
+app.include_router(widget_api_router)
+
+# Суточный отчёт
+from backend.routers.daily_report import router as daily_report_router, pages_router as daily_report_pages
+app.include_router(daily_report_router)
+app.include_router(daily_report_pages)
+
 # ------------------------------------------------------------
 # 1) SAFE helpers: FormData -> string
 # ------------------------------------------------------------

@@ -1017,6 +1017,15 @@ def document_generate_pdf(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
+    # daily_report — отдельный генератор
+    if doc.doc_type and doc.doc_type.code in ("daily_report_well", "daily_report_all"):
+        from backend.services.daily_report_service import generate_daily_report_pdf
+        pdf_rel = generate_daily_report_pdf(doc, db)
+        doc.pdf_filename = pdf_rel
+        doc.status = "generated"
+        db.commit()
+        return RedirectResponse(url=f"/documents/{doc_id}", status_code=303)
+
     # пока делаем только для reagent_expense
     if not doc.doc_type or doc.doc_type.code != "reagent_expense":
         raise HTTPException(status_code=400, detail="PDF generator is implemented only for reagent_expense for now")

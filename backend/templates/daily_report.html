@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+
+{% block title %}Суточный отчёт{% endblock %}
+
+{% block extra_head %}
+<style>
+  .dr-page { max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+  .dr-nav { margin-bottom: 1.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .dr-nav a {
+    padding: 0.4rem 0.8rem;
+    background: #f5f5f5;
+    border-radius: 6px;
+    text-decoration: none;
+    color: #333;
+    font-size: 0.9rem;
+  }
+  .dr-nav a:hover { background: #e0e0e0; }
+  .dr-nav a.active { background: #2196F3; color: #fff; }
+
+  .dr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  @media (max-width: 700px) { .dr-grid { grid-template-columns: 1fr; } }
+
+  .dr-card {
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    padding: 1.5rem;
+    background: #fff;
+  }
+  .dr-card h3 { margin: 0 0 1rem; font-size: 1.1rem; }
+
+  .dr-field { margin-bottom: 1rem; }
+  .dr-field label { display: block; font-size: 0.85rem; color: #666; margin-bottom: 0.3rem; }
+  .dr-field input, .dr-field select {
+    width: 100%;
+    padding: 0.5rem 0.7rem;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    box-sizing: border-box;
+  }
+  .dr-field select[multiple] {
+    height: auto;
+    min-height: 120px;
+  }
+
+  .dr-btn {
+    display: inline-block;
+    padding: 0.6rem 1.5rem;
+    background: #2196F3;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .dr-btn:hover { background: #1976D2; }
+  .dr-btn--secondary { background: #4CAF50; }
+  .dr-btn--secondary:hover { background: #388E3C; }
+
+  .dr-status-pills { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
+  .dr-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.3rem 0.7rem;
+    border-radius: 20px;
+    font-size: 0.82rem;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .dr-pill input { display: none; }
+  .dr-pill.checked { border-color: #333; font-weight: 600; }
+
+  .dr-well-list {
+    max-height: 250px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 0.3rem;
+  }
+  .dr-well-item {
+    display: flex;
+    align-items: center;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.9rem;
+    cursor: pointer;
+    border-radius: 4px;
+  }
+  .dr-well-item:hover { background: #f0f0f0; }
+  .dr-well-item input { margin-right: 0.5rem; }
+  .dr-well-item .well-status {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 0.4rem;
+  }
+  .dr-select-btns { display: flex; gap: 0.5rem; margin-bottom: 0.3rem; }
+  .dr-select-btns button {
+    background: none;
+    border: none;
+    color: #2196F3;
+    font-size: 0.8rem;
+    cursor: pointer;
+    padding: 0;
+  }
+  .dr-select-btns button:hover { text-decoration: underline; }
+  .dr-count { font-size: 0.8rem; color: #999; margin-left: 0.3rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dr-page">
+
+  <div class="dr-nav">
+    <a href="/visual">Дашборд</a>
+    <a href="/documents">Акты</a>
+    <a href="/daily-report" class="active">Суточный отчёт</a>
+  </div>
+
+  <h2>Суточный отчёт</h2>
+
+  <div class="dr-grid">
+
+    <!-- ── Карточка: Одна скважина ── -->
+    <div class="dr-card">
+      <h3>По одной скважине</h3>
+      <form method="post" action="/api/daily-report/create/single">
+        <div class="dr-field">
+          <label>Дата отчёта</label>
+          <input type="date" name="report_date" value="{{ default_date }}" max="{{ today }}" required>
+        </div>
+        <div class="dr-field">
+          <label>Скважина</label>
+          <select name="well_id" required>
+            {% for w in wells %}
+            <option value="{{ w.id }}">{{ w.number }} — {{ w.name or '' }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button type="submit" class="dr-btn">Создать отчёт</button>
+      </form>
+    </div>
+
+    <!-- ── Карточка: Сводный ── -->
+    <div class="dr-card">
+      <h3>Сводный отчёт</h3>
+      <form method="post" action="/api/daily-report/create/all" id="summaryForm">
+        <div class="dr-field">
+          <label>Дата отчёта</label>
+          <input type="date" name="report_date" value="{{ default_date }}" max="{{ today }}" required>
+        </div>
+
+        <div class="dr-field">
+          <label>Фильтр по статусу</label>
+          <div class="dr-status-pills" id="statusPills">
+            {% for st in statuses %}
+            <label class="dr-pill{% if st.label in default_statuses %} checked{% endif %}"
+                   style="background: {{ st.color }}22; color: {{ st.color }};">
+              <input type="checkbox" name="status" value="{{ st.label }}"
+                     {% if st.label in default_statuses %}checked{% endif %}
+                     onchange="filterWells(); this.parentElement.classList.toggle('checked', this.checked);">
+              {{ st.label }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="dr-field">
+          <label>Скважины <span class="dr-count" id="wellCount"></span></label>
+          <div class="dr-select-btns">
+            <button type="button" onclick="selectAllVisible()">Выбрать все</button>
+            <button type="button" onclick="deselectAll()">Снять все</button>
+          </div>
+          <div class="dr-well-list" id="wellList">
+            {% for w in wells %}
+            <label class="dr-well-item" data-status="{{ w.current_status or '' }}">
+              <input type="checkbox" name="well_ids" value="{{ w.id }}" checked>
+              <span class="well-status" style="background: {{ w.current_status_color or '#ccc' }};"></span>
+              {{ w.number }} — {{ w.name or '' }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+
+        <button type="submit" class="dr-btn dr-btn--secondary">Создать сводный отчёт</button>
+      </form>
+    </div>
+
+  </div>
+</div>
+
+<script>
+function filterWells() {
+  const checked = [...document.querySelectorAll('#statusPills input:checked')].map(cb => cb.value);
+  const items = document.querySelectorAll('#wellList .dr-well-item');
+  let count = 0;
+  items.forEach(item => {
+    const st = item.dataset.status;
+    const show = checked.length === 0 || checked.includes(st);
+    item.style.display = show ? '' : 'none';
+    const cb = item.querySelector('input');
+    cb.checked = show;
+    if (show) count++;
+  });
+  document.getElementById('wellCount').textContent = '(' + count + ')';
+}
+
+function selectAllVisible() {
+  document.querySelectorAll('#wellList .dr-well-item').forEach(item => {
+    if (item.style.display !== 'none') {
+      item.querySelector('input').checked = true;
+    }
+  });
+  updateCount();
+}
+
+function deselectAll() {
+  document.querySelectorAll('#wellList .dr-well-item input').forEach(cb => cb.checked = false);
+  updateCount();
+}
+
+function updateCount() {
+  const n = document.querySelectorAll('#wellList .dr-well-item input:checked').length;
+  document.getElementById('wellCount').textContent = '(' + n + ')';
+}
+
+// Init
+filterWells();
+</script>
+{% endblock %}

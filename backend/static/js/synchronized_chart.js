@@ -320,12 +320,15 @@
   function getFilterParams() {
     const zeros  = document.getElementById('sync-filter-zeros');
     const spikes = document.getElementById('sync-filter-spikes');
+    const spikeThreshold = document.getElementById('sync-filter-spike-threshold');
     const fill   = document.getElementById('sync-filter-fill-mode');
     const gap    = document.getElementById('sync-filter-max-gap');
 
     let s = '';
     if (zeros  && zeros.checked)  s += '&filter_zeros=true';
     if (spikes && spikes.checked) s += '&filter_spikes=true';
+    if (spikeThreshold && parseFloat(spikeThreshold.value) > 0)
+      s += `&spike_threshold=${spikeThreshold.value}`;
     if (fill   && fill.value !== 'none') s += `&fill_mode=${fill.value}`;
     if (gap)   s += `&max_gap=${gap.value}`;
     return s;
@@ -429,11 +432,12 @@
     }
 
     // ── 1) Кривая Ptr (устье) ──
+    // Включаем null-точки (gap-маркеры) чтобы Chart.js разрывал линию
     const tubeData = [];
     for (const p of points) {
-      if (p.p_tube_avg !== null && p.p_tube_avg !== undefined) {
-        tubeData.push({ x: p.t, y: p.p_tube_avg });
-      }
+      if (!p.t) continue;
+      const v = p.p_tube_avg;
+      tubeData.push({ x: p.t, y: (v !== null && v !== undefined) ? v : null });
     }
     ds.push({
       label: 'Ptr (устье)',
@@ -447,14 +451,15 @@
       fill: false,
       yAxisID: 'y',
       order: 1,
+      spanGaps: false,
     });
 
     // ── 2) Кривая Pshl (шлейф) ──
     const lineData = [];
     for (const p of points) {
-      if (p.p_line_avg !== null && p.p_line_avg !== undefined) {
-        lineData.push({ x: p.t, y: p.p_line_avg });
-      }
+      if (!p.t) continue;
+      const v = p.p_line_avg;
+      lineData.push({ x: p.t, y: (v !== null && v !== undefined) ? v : null });
     }
     ds.push({
       label: 'Pshl (шлейф)',
@@ -468,6 +473,7 @@
       fill: false,
       yAxisID: 'y',
       order: 2,
+      spanGaps: false,
     });
 
     // ── Диагностика: сравниваем диапазоны давления и событий ──

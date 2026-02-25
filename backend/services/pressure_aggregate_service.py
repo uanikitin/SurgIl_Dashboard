@@ -27,6 +27,15 @@ from backend.settings import settings
 
 log = logging.getLogger(__name__)
 
+# Физический диапазон давления: ≤0 — ложный нуль/сбой, >85 — сбой датчика.
+# Используется вместо NULLIF(p, 0.0) чтобы отсечь и отрицательные значения.
+_P_MAX = 85.0
+
+
+def _vp(col: str) -> str:
+    """SQL-выражение: valid pressure (NULL если вне 0..85 атм)."""
+    return f"CASE WHEN {col} > 0 AND {col} <= {_P_MAX} THEN {col} END"
+
 
 def aggregate_to_hourly(
     since: Optional[datetime] = None,
@@ -73,12 +82,12 @@ def aggregate_to_hourly(
                 SELECT
                     well_id,
                     strftime('%Y-%m-%d %H:00:00', measured_at) as hour_start,
-                    AVG(NULLIF(p_tube, 0.0)) as p_tube_avg,
-                    MIN(NULLIF(p_tube, 0.0)) as p_tube_min,
-                    MAX(NULLIF(p_tube, 0.0)) as p_tube_max,
-                    AVG(NULLIF(p_line, 0.0)) as p_line_avg,
-                    MIN(NULLIF(p_line, 0.0)) as p_line_min,
-                    MAX(NULLIF(p_line, 0.0)) as p_line_max,
+                    AVG({_vp('p_tube')}) as p_tube_avg,
+                    MIN({_vp('p_tube')}) as p_tube_min,
+                    MAX({_vp('p_tube')}) as p_tube_max,
+                    AVG({_vp('p_line')}) as p_line_avg,
+                    MIN({_vp('p_line')}) as p_line_min,
+                    MAX({_vp('p_line')}) as p_line_max,
                     COUNT(*) as reading_count
                 FROM pressure_readings
                 WHERE {where_sql}
@@ -182,13 +191,13 @@ def update_latest(well_ids: Optional[set[int]] = None) -> int:
                         (SELECT AVG(r.p_tube)
                          FROM pressure_raw r
                          WHERE r.well_id = w.well_id
-                           AND r.p_tube IS NOT NULL AND r.p_tube != 0.0
+                           AND r.p_tube > 0 AND r.p_tube <= 85
                            AND r.measured_at >= NOW() - INTERVAL '2 hours'
                            AND r.measured_at >= (
                                (SELECT MAX(r2.measured_at)
                                 FROM pressure_raw r2
                                 WHERE r2.well_id = w.well_id
-                                  AND r2.p_tube IS NOT NULL AND r2.p_tube != 0.0
+                                  AND r2.p_tube > 0 AND r2.p_tube <= 85
                                   AND r2.measured_at >= NOW() - INTERVAL '2 hours')
                                - INTERVAL '3 minutes')
                         ) AS p_tube,
@@ -196,13 +205,13 @@ def update_latest(well_ids: Optional[set[int]] = None) -> int:
                         (SELECT AVG(r.p_line)
                          FROM pressure_raw r
                          WHERE r.well_id = w.well_id
-                           AND r.p_line IS NOT NULL AND r.p_line != 0.0
+                           AND r.p_line > 0 AND r.p_line <= 85
                            AND r.measured_at >= NOW() - INTERVAL '2 hours'
                            AND r.measured_at >= (
                                (SELECT MAX(r2.measured_at)
                                 FROM pressure_raw r2
                                 WHERE r2.well_id = w.well_id
-                                  AND r2.p_line IS NOT NULL AND r2.p_line != 0.0
+                                  AND r2.p_line > 0 AND r2.p_line <= 85
                                   AND r2.measured_at >= NOW() - INTERVAL '2 hours')
                                - INTERVAL '3 minutes')
                         ) AS p_line,
@@ -210,13 +219,13 @@ def update_latest(well_ids: Optional[set[int]] = None) -> int:
                         (SELECT MAX(r.measured_at)
                          FROM pressure_raw r
                          WHERE r.well_id = w.well_id
-                           AND r.p_tube IS NOT NULL AND r.p_tube != 0.0
+                           AND r.p_tube > 0 AND r.p_tube <= 85
                            AND r.measured_at >= NOW() - INTERVAL '2 hours'
                         ) AS tube_ts,
                         (SELECT MAX(r.measured_at)
                          FROM pressure_raw r
                          WHERE r.well_id = w.well_id
-                           AND r.p_line IS NOT NULL AND r.p_line != 0.0
+                           AND r.p_line > 0 AND r.p_line <= 85
                            AND r.measured_at >= NOW() - INTERVAL '2 hours'
                         ) AS line_ts
                     FROM (

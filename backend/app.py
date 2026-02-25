@@ -746,8 +746,8 @@ def _calc_daily_flow_for_tiles(
         SELECT
             well_id,
             CASE WHEN hour_start >= :today THEN 'today' ELSE 'yesterday' END AS day,
-            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY NULLIF(p_tube_avg, 0.0)) AS p_tube,
-            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY NULLIF(p_line_avg, 0.0)) AS p_line
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CASE WHEN p_tube_avg > 0 AND p_tube_avg <= 85 THEN p_tube_avg END) AS p_tube,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CASE WHEN p_line_avg > 0 AND p_line_avg <= 85 THEN p_line_avg END) AS p_line
         FROM pressure_hourly
         WHERE well_id IN ({well_id_csv})
           AND hour_start >= :yesterday

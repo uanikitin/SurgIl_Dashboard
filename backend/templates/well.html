@@ -995,6 +995,13 @@
         <input type="checkbox" id="sync-filter-spikes" style="accent-color:#e65100;">
         Сгладить спайки
       </label>
+      <label style="font-size:12px; display:flex; align-items:center; gap:4px; color:#333;"
+        title="Мгновенные скачки |ΔP| > порога → заменяются средним соседей. 0 = выкл.">
+        Скачки &gt;
+        <input type="number" id="sync-filter-spike-threshold" value="0" min="0" max="50" step="1"
+          style="width:45px; padding:3px 6px; border:1px solid #dee2e6; border-radius:4px; font-size:12px; text-align:center; color:#333;">
+        <span style="font-size:11px; color:#666;">атм</span>
+      </label>
       <label style="font-size:12px; display:flex; align-items:center; gap:4px; color:#333;">
         Пропуски:
         <select id="sync-filter-fill-mode" style="padding:3px 6px; border:1px solid #dee2e6; border-radius:4px; font-size:12px; background:white; color:#333;">

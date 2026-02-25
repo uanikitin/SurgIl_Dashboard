@@ -124,17 +124,22 @@
     }
 
     // Вычисляем ΔP = Ptr_avg - Pshl_avg, clamped to >= 0
+    // Включаем null-точки (gap-маркеры) чтобы Chart.js разрывал линию
     const deltaData = [];
     for (const p of points) {
-      if (p.p_tube_avg !== null && p.p_line_avg !== null) {
+      if (!p.t) continue;
+      if (p.p_tube_avg != null && p.p_line_avg != null) {
         const dp = p.p_tube_avg - p.p_line_avg;
         deltaData.push({ x: p.t, y: Math.max(0, dp) });
+      } else {
+        deltaData.push({ x: p.t, y: null });
       }
     }
 
-    console.log('[delta_chart] deltaData computed:', deltaData.length, 'points');
+    const validDeltaCount = deltaData.filter(d => d.y !== null).length;
+    console.log('[delta_chart] deltaData computed:', deltaData.length, 'points,', validDeltaCount, 'valid');
 
-    if (deltaData.length === 0) {
+    if (validDeltaCount === 0) {
       console.log('[delta_chart] No valid delta data (both sensors required)');
       showNoData('Нет данных ΔP (требуются оба датчика)');
       updateStatsPanel(null);
@@ -177,6 +182,7 @@
         pointRadius: 0,
         pointHoverRadius: 4,
         tension: 0.3,
+        spanGaps: false,
         segment: {
           borderColor: segmentColor,
         },
@@ -312,8 +318,8 @@
       return;
     }
 
-    // Извлекаем значения ΔP
-    const values = deltaData.map(d => d.y);
+    // Извлекаем значения ΔP (пропускаем null gap-маркеры)
+    const values = deltaData.map(d => d.y).filter(v => v !== null && v !== undefined);
 
     // Основная статистика
     const min = Math.min(...values);

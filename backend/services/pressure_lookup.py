@@ -55,8 +55,8 @@ def get_nearest_from_pressure_raw(
             FROM pressure_raw
             WHERE well_id = :wid
               AND measured_at BETWEEN :cutoff AND :target
-              AND (NULLIF(p_tube, 0.0) IS NOT NULL
-                   OR NULLIF(p_line, 0.0) IS NOT NULL)
+              AND ((p_tube > 0 AND p_tube <= 85)
+                   OR (p_line > 0 AND p_line <= 85))
             ORDER BY measured_at DESC
             LIMIT 1
         """), {"wid": well_id, "target": target_utc,
@@ -96,8 +96,8 @@ def get_nearest_from_pressure_raw(
     p_line_raw = best[2]
 
     return {
-        "p_tube": p_tube_raw if p_tube_raw and p_tube_raw != 0.0 else None,
-        "p_line": p_line_raw if p_line_raw and p_line_raw != 0.0 else None,
+        "p_tube": p_tube_raw if p_tube_raw and 0 < p_tube_raw <= 85 else None,
+        "p_line": p_line_raw if p_line_raw and 0 < p_line_raw <= 85 else None,
         "measured_at_local": measured_utc + _KUNGRAD_OFFSET,
         "delta_seconds": abs((target_utc - measured_utc).total_seconds()),
     }

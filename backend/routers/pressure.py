@@ -132,22 +132,21 @@ def get_pressure_chart(
     # ── Параметры фильтрации сигнала ──
     filter_zeros: bool = Query(False, description="Убрать 0.0 как ложные нули"),
     filter_spikes: bool = Query(False, description="Hampel-фильтр для спайков"),
+    spike_threshold: float = Query(0.0, ge=0, le=50, description="Порог мгновенного скачка (атм), 0=выкл"),
     fill_mode: str = Query("none", description="Заполнение пропусков: none|ffill|interpolate"),
     max_gap: int = Query(10, ge=1, le=60, description="Макс. пропуск для заполнения (мин)"),
 ):
     """
     Агрегированные давления с настраиваемым интервалом.
 
-    Локально: данные из SQLite (pressure_readings) — агрегация на лету.
-    На сервере (Render): fallback на PostgreSQL (pressure_hourly, 60 мин).
-
     ?days=7&interval=15  — последние 7 дней, интервал 15 минут
 
-    Фильтрация (опционально, только при наличии SQLite):
-    ?filter_zeros=true   — убрать 0.0
-    ?filter_spikes=true  — Hampel-фильтр для спайков
-    ?fill_mode=ffill     — заполнить пропуски (ffill/interpolate)
-    ?max_gap=10          — макс. пропуск для заполнения (мин)
+    Фильтрация (опционально):
+    ?filter_zeros=true      — убрать 0.0
+    ?filter_spikes=true     — Hampel-фильтр для спайков
+    ?spike_threshold=5      — убрать мгновенные скачки > 5 атм
+    ?fill_mode=ffill        — заполнить пропуски (ffill/interpolate)
+    ?max_gap=10             — макс. пропуск для заполнения (мин)
     """
     # Валидация интервала
     allowed_intervals = {1, 2, 5, 10, 15, 30, 60}
@@ -165,6 +164,7 @@ def get_pressure_chart(
         well_id, days, interval,
         filter_zeros=filter_zeros,
         filter_spikes=filter_spikes,
+        spike_threshold=spike_threshold,
         fill_mode=fill_mode,
         max_gap=max_gap,
     )
@@ -179,13 +179,14 @@ def get_pressure_chart(
 def _chart_from_sqlite(
     well_id: int, days: int, interval: int,
     filter_zeros: bool, filter_spikes: bool, fill_mode: str, max_gap: int,
+    spike_threshold: float = 0.0,
 ) -> dict:
     """График из локального SQLite (быстро, поддержка фильтров)."""
     import sqlite3
     import math
 
     conn = sqlite3.connect(str(_SQLITE_PATH))
-    filters_active = any([filter_zeros, filter_spikes, fill_mode != "none"])
+    filters_active = any([filter_zeros, filter_spikes, spike_threshold > 0, fill_mode != "none"])
     filter_stats = None
 
     try:
@@ -221,6 +222,7 @@ def _chart_from_sqlite(
                 filter_spikes=filter_spikes,
                 fill_mode=fill_mode,
                 max_gap_min=max_gap,
+                spike_threshold=spike_threshold,
             )
             filter_stats = filtered["stats"]
 
@@ -253,17 +255,17 @@ def _chart_from_sqlite(
             query = f"""
                 SELECT
                     {bucket_expr} as bucket,
-                    AVG(NULLIF(p_tube, 0.0)) as p_tube_avg,
-                    MIN(NULLIF(p_tube, 0.0)) as p_tube_min,
-                    MAX(NULLIF(p_tube, 0.0)) as p_tube_max,
-                    AVG(NULLIF(p_line, 0.0)) as p_line_avg,
-                    MIN(NULLIF(p_line, 0.0)) as p_line_min,
-                    MAX(NULLIF(p_line, 0.0)) as p_line_max,
+                    AVG(CASE WHEN p_tube > 0 AND p_tube <= 85 THEN p_tube END) as p_tube_avg,
+                    MIN(CASE WHEN p_tube > 0 AND p_tube <= 85 THEN p_tube END) as p_tube_min,
+                    MAX(CASE WHEN p_tube > 0 AND p_tube <= 85 THEN p_tube END) as p_tube_max,
+                    AVG(CASE WHEN p_line > 0 AND p_line <= 85 THEN p_line END) as p_line_avg,
+                    MIN(CASE WHEN p_line > 0 AND p_line <= 85 THEN p_line END) as p_line_min,
+                    MAX(CASE WHEN p_line > 0 AND p_line <= 85 THEN p_line END) as p_line_max,
                     COUNT(*) as cnt
                 FROM pressure_readings
                 WHERE well_id = ?
                   AND measured_at >= datetime('now', ?)
-                  AND (NULLIF(p_tube, 0.0) IS NOT NULL OR NULLIF(p_line, 0.0) IS NOT NULL)
+                  AND ((p_tube > 0 AND p_tube <= 85) OR (p_line > 0 AND p_line <= 85))
                 GROUP BY bucket
                 ORDER BY bucket
             """
@@ -315,9 +317,69 @@ def _chart_from_sqlite(
     return result
 
 
+def _get_sensor_start(well_id: int) -> Optional[datetime]:
+    """
+    Возвращает самую раннюю дату установки датчика на скважину (UTC).
+    Если нет записей в sensor_installations — возвращает None.
+    """
+    try:
+        with pg_engine.connect() as conn:
+            row = conn.execute(
+                text("""
+                    SELECT MIN(installed_at)
+                    FROM sensor_installations
+                    WHERE well_id = :well_id
+                """),
+                {"well_id": well_id},
+            ).fetchone()
+        if row and row[0]:
+            # installed_at хранится в Кунградском времени (UTC+5),
+            # а pressure_raw.measured_at — в UTC. Конвертируем.
+            return row[0] - KUNKRAD_OFFSET
+    except Exception as e:
+        log.warning("[_get_sensor_start] Error for well %d: %s", well_id, e)
+    return None
+
+
+def _insert_gap_markers(data: list[dict], interval_min: int) -> list[dict]:
+    """
+    Вставляет null-маркеры в данные графика при обнаружении разрывов.
+
+    Если между двумя соседними точками прошло > 2× interval —
+    это разрыв (замена датчика, отсутствие связи, и т.д.).
+    Вставляем точку с null-значениями чтобы Chart.js разорвал линию.
+    """
+    if len(data) < 2:
+        return data
+
+    gap_threshold_sec = interval_min * 60 * 2.5  # 2.5× интервала
+    result = []
+
+    for i, point in enumerate(data):
+        result.append(point)
+        if i + 1 < len(data):
+            try:
+                t_cur = datetime.fromisoformat(point["t"])
+                t_next = datetime.fromisoformat(data[i + 1]["t"])
+                gap_sec = (t_next - t_cur).total_seconds()
+                if gap_sec > gap_threshold_sec:
+                    # Вставляем null-маркер через 1 секунду после текущей точки
+                    gap_t = (t_cur + timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%S")
+                    null_point = {"t": gap_t}
+                    for key in point:
+                        if key != "t":
+                            null_point[key] = None
+                    result.append(null_point)
+            except (ValueError, TypeError):
+                continue
+
+    return result
+
+
 def _chart_from_pg(
     well_id: int, days: int, interval: int = 5,
     filter_zeros: bool = False, filter_spikes: bool = False,
+    spike_threshold: float = 0.0,
     fill_mode: str = "none", max_gap: int = 10,
 ) -> dict:
     """
@@ -333,7 +395,16 @@ def _chart_from_pg(
     dt_end = datetime.utcnow()
     dt_start = dt_end - timedelta(days=days)
 
-    filters_active = any([filter_zeros, filter_spikes, fill_mode != "none"])
+    # ── Ограничение: не показывать данные до первой установки датчиков ──
+    sensor_start = _get_sensor_start(well_id)
+    if sensor_start and dt_start < sensor_start:
+        log.info(
+            "[_chart_from_pg] well=%d clipping dt_start from %s to sensor_start %s",
+            well_id, dt_start, sensor_start,
+        )
+        dt_start = sensor_start
+
+    filters_active = any([filter_zeros, filter_spikes, spike_threshold > 0, fill_mode != "none"])
 
     if filters_active:
         # ── Путь с фильтрацией: сырые данные → Python-фильтры → pandas-агрегация ──
@@ -373,6 +444,7 @@ def _chart_from_pg(
             filter_spikes=filter_spikes,
             fill_mode=fill_mode,
             max_gap_min=max_gap,
+            spike_threshold=spike_threshold,
         )
 
         aggregated = aggregate_filtered(
@@ -390,6 +462,8 @@ def _chart_from_pg(
             except (ValueError, TypeError):
                 continue
             data.append(point)
+
+        data = _insert_gap_markers(data, interval)
 
         result = {
             "well_id": well_id, "interval_min": interval,
@@ -410,18 +484,18 @@ def _chart_from_pg(
                         to_timestamp(
                             floor(extract(epoch FROM measured_at) / :isec) * :isec
                         ) AS bucket,
-                        AVG(NULLIF(p_tube, 0.0)) AS p_tube_avg,
-                        MIN(NULLIF(p_tube, 0.0)) AS p_tube_min,
-                        MAX(NULLIF(p_tube, 0.0)) AS p_tube_max,
-                        AVG(NULLIF(p_line, 0.0)) AS p_line_avg,
-                        MIN(NULLIF(p_line, 0.0)) AS p_line_min,
-                        MAX(NULLIF(p_line, 0.0)) AS p_line_max,
+                        AVG(CASE WHEN p_tube > 0 AND p_tube <= 85 THEN p_tube END) AS p_tube_avg,
+                        MIN(CASE WHEN p_tube > 0 AND p_tube <= 85 THEN p_tube END) AS p_tube_min,
+                        MAX(CASE WHEN p_tube > 0 AND p_tube <= 85 THEN p_tube END) AS p_tube_max,
+                        AVG(CASE WHEN p_line > 0 AND p_line <= 85 THEN p_line END) AS p_line_avg,
+                        MIN(CASE WHEN p_line > 0 AND p_line <= 85 THEN p_line END) AS p_line_min,
+                        MAX(CASE WHEN p_line > 0 AND p_line <= 85 THEN p_line END) AS p_line_max,
                         COUNT(*) AS cnt
                     FROM pressure_raw
                     WHERE well_id = :well_id
                         AND measured_at >= :start
                         AND measured_at <= :end
-                        AND (NULLIF(p_tube, 0.0) IS NOT NULL OR NULLIF(p_line, 0.0) IS NOT NULL)
+                        AND ((p_tube > 0 AND p_tube <= 85) OR (p_line > 0 AND p_line <= 85))
                     GROUP BY bucket
                     ORDER BY bucket
                 """),
@@ -459,6 +533,8 @@ def _chart_from_pg(
             "p_line_max": _safe(r[6]),
             "count": r[7],
         })
+
+    data = _insert_gap_markers(data, interval)
 
     return {
         "well_id": well_id,

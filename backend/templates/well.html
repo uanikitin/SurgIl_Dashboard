@@ -3945,8 +3945,27 @@ async function submitTransfer(event) {
     var resp = await fetch('/api/equipment/' + equipmentId + '/transfer', { method: 'POST', body: formData });
     var result = await resp.json();
     if (result.success) {
-      alert(result.message);
-      location.reload();
+      // Показываем результат с ссылками на акты
+      var modalContent = document.querySelector('#transfer-equipment-modal > div');
+      var linksHtml = '';
+      if (result.removal_doc_id || result.install_doc_id) {
+        linksHtml = '<div style="margin-top:16px; padding:12px; background:#d4edda; border-radius:8px; border-left:4px solid #28a745;">';
+        linksHtml += '<div style="font-weight:700; margin-bottom:8px;">Созданы черновики актов:</div>';
+        if (result.removal_doc_id) {
+          linksHtml += '<a href="/documents/equipment/' + result.removal_doc_id + '" target="_blank" style="display:block; padding:6px 0; color:#0066cc; text-decoration:none;">📄 Акт демонтажа (АДО) → Открыть</a>';
+        }
+        if (result.install_doc_id) {
+          linksHtml += '<a href="/documents/equipment/' + result.install_doc_id + '" target="_blank" style="display:block; padding:6px 0; color:#0066cc; text-decoration:none;">📄 Акт монтажа (АУО) → Открыть</a>';
+        }
+        linksHtml += '</div>';
+      }
+
+      modalContent.innerHTML = '<div style="text-align:center; padding:24px;">'
+        + '<div style="font-size:40px; margin-bottom:12px;">✅</div>'
+        + '<div style="font-size:16px; font-weight:700; margin-bottom:8px;">' + result.message + '</div>'
+        + linksHtml
+        + '<button onclick="location.reload()" style="margin-top:16px; padding:10px 24px; background:#3b82f6; color:white; border:none; border-radius:6px; cursor:pointer; font-size:14px; font-weight:600;">OK</button>'
+        + '</div>';
     } else {
       alert('Ошибка: ' + (result.detail || 'Неизвестная ошибка'));
       btn.disabled = false;

@@ -586,12 +586,75 @@ async def transfer_equipment(
                 "Auto-reassign pressure on transfer failed: %s", e
             )
 
+    # ── Автоматическое создание актов демонтажа/монтажа ──
+    removal_doc_id = None
+    install_doc_id = None
+    try:
+        from backend.routers.equipment_documents import _build_act_draft, _get_pressure_smart
+
+        source_well = db.query(Well).filter(Well.id == active_installation.well_id).first()
+
+        # Давления на старой скважине
+        src_pressure = _get_pressure_smart(
+            db, str(source_well.number), dt_transfer, well_id=source_well.id,
+        ) if source_well else {}
+
+        # Давления на новой скважине
+        tgt_pressure = _get_pressure_smart(
+            db, str(target_well.number), dt_transfer, well_id=target_well.id,
+        )
+
+        # Акт демонтажа (АДО) на старой скважине
+        if source_well:
+            removal_doc = _build_act_draft(
+                db,
+                kind="remove",
+                well=source_well,
+                equipment_ids=[equipment_id],
+                event_datetime=dt_transfer,
+                tube_p=src_pressure.get("tube_pressure"),
+                line_p=src_pressure.get("line_pressure"),
+                note=f"Авто-акт: перевод на скв. {target_well.number}",
+                skip_installation_changes=True,
+                created_by="system",
+            )
+            # Привязываем документ к закрытой installation
+            active_installation.document_id = removal_doc.id
+            removal_doc_id = removal_doc.id
+
+        # Акт монтажа (АУО) на новой скважине
+        install_doc = _build_act_draft(
+            db,
+            kind="install",
+            well=target_well,
+            equipment_ids=[equipment_id],
+            event_datetime=dt_transfer,
+            tube_p=tgt_pressure.get("tube_pressure"),
+            line_p=tgt_pressure.get("line_pressure"),
+            equipment_locations={equipment_id: installation_location or active_installation.installation_location},
+            note=f"Авто-акт: перевод со скв. {source_well.number}" if source_well else "Авто-акт",
+            skip_installation_changes=True,
+            created_by="system",
+        )
+        # Привязываем документ к новой installation
+        new_installation.document_id = install_doc.id
+        install_doc_id = install_doc.id
+
+        db.commit()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            "Auto-create acts on transfer failed: %s", e,
+        )
+
     return JSONResponse({
         "success": True,
         "message": f"Обладнання переведено на свердловину {target_well.number}",
         "old_installation_id": active_installation.id,
         "new_installation_id": new_installation.id,
         "pressure_reassign": reassign_result,
+        "removal_doc_id": removal_doc_id,
+        "install_doc_id": install_doc_id,
     })
 
 

@@ -217,6 +217,193 @@ def _format_source_desc(
     )
 
 
+def _ensure_doc_types(db: Session) -> tuple:
+    """Найти или создать DocumentType для install/remove. Возвращает (dt_install, dt_removal)."""
+    dt_install = db.query(DocumentType).filter(DocumentType.code == "equipment_install").first()
+    dt_removal = db.query(DocumentType).filter(DocumentType.code == "equipment_remove").first()
+
+    if not dt_install:
+        dt_install = DocumentType(
+            code="equipment_install",
+            name_ru="Акт монтажа оборудования",
+            category="operational",
+            is_periodic=False,
+        )
+        db.add(dt_install)
+        db.commit()
+        db.refresh(dt_install)
+
+    if not dt_removal:
+        dt_removal = DocumentType(
+            code="equipment_remove",
+            name_ru="Акт демонтажа оборудования",
+            category="operational",
+            is_periodic=False,
+        )
+        db.add(dt_removal)
+        db.commit()
+        db.refresh(dt_removal)
+
+    return dt_install, dt_removal
+
+
+def _build_act_draft(
+    db: Session,
+    *,
+    kind: str,
+    well: Well,
+    equipment_ids: list[int],
+    event_datetime: datetime,
+    tube_p: float | None = None,
+    line_p: float | None = None,
+    contract_number: str = "2/24-09 от 24.09.2024",
+    note: str | None = None,
+    equipment_locations: dict[int, str] | None = None,
+    equipment_condition: str = "working",
+    territory_state: str = "",
+    skip_installation_changes: bool = False,
+    created_by: str = "web",
+) -> Document:
+    """
+    Создание черновика акта монтажа/демонтажа.
+
+    Если skip_installation_changes=True — создаёт только документ,
+    НЕ меняет Equipment.status и НЕ трогает EquipmentInstallation.
+    Используется при авто-создании актов (перемещение уже выполнено)
+    и при ручном создании акта на оборудование с другой скважины.
+    """
+    dt_install, dt_removal = _ensure_doc_types(db)
+    doc_type = dt_install if kind == "install" else dt_removal
+    doc_number = _next_doc_number(db, doc_type.code, str(well.number))
+
+    if equipment_locations is None:
+        equipment_locations = {}
+
+    # Собираем equipment_items
+    equipment_items = []
+    for eq_id in equipment_ids:
+        eq = db.query(Equipment).filter(Equipment.id == eq_id).first()
+        if not eq:
+            continue
+
+        eq_install_location = None
+        active_install = (
+            db.query(EquipmentInstallation)
+            .filter(
+                EquipmentInstallation.equipment_id == eq.id,
+                EquipmentInstallation.well_id == well.id,
+                EquipmentInstallation.removed_at.is_(None)
+            )
+            .first()
+        )
+
+        if kind == "install":
+            eq_install_location = equipment_locations.get(eq_id)
+            if not eq_install_location and active_install:
+                eq_install_location = active_install.installation_location
+        else:
+            if active_install:
+                eq_install_location = active_install.installation_location
+
+        equipment_items.append({
+            "equipment_id": eq.id,
+            "name": eq.name,
+            "equipment_type": eq.equipment_type,
+            "serial_number": eq.serial_number,
+            "manufacturer": eq.manufacturer,
+            "installation_location": eq_install_location,
+            "quantity": 1,
+        })
+
+    meta = {
+        "act_date": event_datetime.strftime("%Y-%m-%d"),
+        "event_dt": event_datetime.isoformat(),
+        "contract_number": contract_number,
+        "territory_state": territory_state,
+        "tube_pressure": tube_p,
+        "line_pressure": line_p,
+        "note": note,
+        "equipment_items": equipment_items,
+        "kind": kind,
+        "equipment_condition": equipment_condition,
+    }
+    if skip_installation_changes:
+        meta["document_only"] = True
+
+    doc = Document(
+        doc_type_id=doc_type.id,
+        doc_number=doc_number,
+        well_id=well.id,
+        status="draft",
+        created_by_name=created_by,
+        meta=meta,
+    )
+    db.add(doc)
+    db.flush()  # получаем doc.id для привязки к installation
+
+    # Обновление статуса оборудования и installation (если не document-only)
+    if not skip_installation_changes:
+        for eq_id in equipment_ids:
+            eq = db.query(Equipment).filter(Equipment.id == eq_id).first()
+            if not eq:
+                continue
+
+            if kind == "install":
+                eq.status = "installed"
+                eq.current_location = f"Скважина {well.number}"
+
+                existing_install = (
+                    db.query(EquipmentInstallation)
+                    .filter(
+                        EquipmentInstallation.equipment_id == eq.id,
+                        EquipmentInstallation.well_id == well.id,
+                        EquipmentInstallation.removed_at.is_(None)
+                    )
+                    .first()
+                )
+
+                eq_location = equipment_locations.get(eq.id)
+
+                if existing_install:
+                    if not existing_install.document_id:
+                        existing_install.document_id = doc.id
+                    existing_install.tube_pressure_install = tube_p
+                    existing_install.line_pressure_install = line_p
+                    if eq_location:
+                        existing_install.installation_location = eq_location
+                else:
+                    new_installation = EquipmentInstallation(
+                        equipment_id=eq.id,
+                        well_id=well.id,
+                        document_id=doc.id,
+                        installed_at=event_datetime,
+                        tube_pressure_install=tube_p,
+                        line_pressure_install=line_p,
+                        installation_location=eq_location,
+                    )
+                    db.add(new_installation)
+            else:
+                # Демонтаж
+                eq.status = "available"
+                eq.current_location = "Склад"
+
+                installation = (
+                    db.query(EquipmentInstallation)
+                    .filter(
+                        EquipmentInstallation.equipment_id == eq.id,
+                        EquipmentInstallation.well_id == well.id,
+                        EquipmentInstallation.removed_at.is_(None)
+                    )
+                    .first()
+                )
+                if installation:
+                    installation.removed_at = event_datetime
+                    installation.tube_pressure_remove = tube_p
+                    installation.line_pressure_remove = line_p
+
+    return doc
+
+
 def _next_doc_number(db: Session, doc_type_code: str, well_number: str) -> str:
     """Генерация номера: АУО-51-202601-001 или АДО-51-202601-001"""
     prefix_map = {
@@ -326,31 +513,7 @@ def equipment_doc_new(
     """Форма создания акта"""
     wells = db.query(Well).order_by(Well.number.asc()).all()
 
-    dt_install = db.query(DocumentType).filter(DocumentType.code == "equipment_install").first()
-    dt_removal = db.query(DocumentType).filter(DocumentType.code == "equipment_remove").first()
-
-    # Автосоздание типов если нет
-    if not dt_install:
-        dt_install = DocumentType(
-            code="equipment_install",
-            name_ru="Акт монтажа оборудования",
-            category="operational",
-            is_periodic=False,
-        )
-        db.add(dt_install)
-        db.commit()
-        db.refresh(dt_install)
-
-    if not dt_removal:
-        dt_removal = DocumentType(
-            code="equipment_remove",
-            name_ru="Акт демонтажа оборудования",
-            category="operational",
-            is_periodic=False,
-        )
-        db.add(dt_removal)
-        db.commit()
-        db.refresh(dt_removal)
+    dt_install, dt_removal = _ensure_doc_types(db)
 
     # Если скважина выбрана, но kind не указан — ставим install по умолчанию
     if well_id and not kind:
@@ -388,10 +551,10 @@ def equipment_doc_new(
                 eq._installed_on_other_well = False
                 eq._installed_well_number = None
                 eq._has_existing_doc = False
-                eq._installation_location = None  # Место монтажа из installation
+                eq._installation_location = None
+                eq._installed_since_display = None
 
                 if eq.status == 'installed':
-                    # Ищем активную установку
                     active_install = (
                         db.query(EquipmentInstallation)
                         .filter(
@@ -401,21 +564,19 @@ def equipment_doc_new(
                         .first()
                     )
                     if active_install:
-                        # Сохраняем место монтажа
                         eq._installation_location = active_install.installation_location
 
                         if active_install.well_id == well_id:
-                            # Установлено на ТОЙ ЖЕ скважине
                             eq._installed_on_same_well = True
                             eq._installed_well_number = well.number
-                            # Проверяем, есть ли уже акт
                             if active_install.document_id:
                                 eq._has_existing_doc = True
                         else:
-                            # Установлено на ДРУГОЙ скважине
                             eq._installed_on_other_well = True
                             other_well = db.query(Well).filter(Well.id == active_install.well_id).first()
                             eq._installed_well_number = other_well.number if other_well else active_install.well_id
+                            if active_install.installed_at:
+                                eq._installed_since_display = active_install.installed_at.strftime("%d.%m.%Y")
         else:
             # ИСПРАВЛЕНО: Для демонтажа ищем по current_location
             # Ищем оборудование где current_location содержит номер скважины
@@ -444,6 +605,28 @@ def equipment_doc_new(
                 )
                 if active_install:
                     eq._installation_location = active_install.installation_location
+
+        # Загружаем историю установок для каждого оборудования
+        for eq in all_equipment:
+            history_rows = (
+                db.query(EquipmentInstallation)
+                .filter(EquipmentInstallation.equipment_id == eq.id)
+                .order_by(EquipmentInstallation.installed_at.desc())
+                .limit(10)
+                .all()
+            )
+            eq._install_history = []
+            for h in history_rows:
+                hw = db.query(Well).filter(Well.id == h.well_id).first()
+                eq._install_history.append({
+                    "well_number": hw.number if hw else h.well_id,
+                    "installed_at_display": h.installed_at.strftime("%d.%m.%Y %H:%M") if h.installed_at else "—",
+                    "installed_at_iso": h.installed_at.strftime("%Y-%m-%dT%H:%M") if h.installed_at else "",
+                    "removed_at_display": h.removed_at.strftime("%d.%m.%Y %H:%M") if h.removed_at else "—",
+                    "installation_location": h.installation_location or "—",
+                    "document_id": h.document_id,
+                    "is_active": h.removed_at is None,
+                })
 
         # Группируем по названию
         grouped = defaultdict(list)
@@ -600,156 +783,47 @@ async def equipment_doc_create(
             except ValueError:
                 pass
 
-    doc_type = db.query(DocumentType).filter(DocumentType.id == doc_type_id).first()
-    if not doc_type:
-        raise HTTPException(status_code=404, detail="Document type not found")
-
-    if doc_type.code not in ["equipment_install", "equipment_remove"]:
-        raise HTTPException(status_code=400, detail="Invalid doc_type for equipment document")
-
     well = db.query(Well).filter(Well.id == well_id).first()
     if not well:
         raise HTTPException(status_code=404, detail="Well not found")
 
     event_datetime = _parse_dt(event_dt, "event_dt")
-    doc_number = _next_doc_number(db, doc_type.code, str(well.number))
-
-    # Давления из формы
     tube_p = _to_float_or_none(tube_pressure)
     line_p = _to_float_or_none(line_pressure)
 
-    # Оборудование
-    equipment_items = []
-    for eq_id in equipment_ids:
-        eq = db.query(Equipment).filter(Equipment.id == eq_id).first()
-        if eq:
-            # Получаем место монтажа для этого оборудования
-            eq_install_location = None
-
-            # Сначала проверяем, есть ли активная установка
-            active_install = (
+    # Определяем, есть ли оборудование с другой скважины (document-only)
+    skip_ids: set[int] = set()
+    if kind == "install":
+        for eq_id in equipment_ids:
+            active = (
                 db.query(EquipmentInstallation)
                 .filter(
-                    EquipmentInstallation.equipment_id == eq.id,
-                    EquipmentInstallation.well_id == well_id,
-                    EquipmentInstallation.removed_at.is_(None)
+                    EquipmentInstallation.equipment_id == eq_id,
+                    EquipmentInstallation.removed_at.is_(None),
+                    EquipmentInstallation.well_id != well_id,
                 )
                 .first()
             )
+            if active:
+                skip_ids.add(eq_id)
 
-            if kind == "install":
-                # Для монтажа: сначала из формы, потом из существующей установки
-                eq_install_location = equipment_locations.get(eq_id)
-                if not eq_install_location and active_install:
-                    eq_install_location = active_install.installation_location
-            else:
-                # Для демонтажа: из активной установки
-                if active_install:
-                    eq_install_location = active_install.installation_location
-
-            equipment_items.append({
-                "equipment_id": eq.id,
-                "name": eq.name,
-                "equipment_type": eq.equipment_type,
-                "serial_number": eq.serial_number,
-                "manufacturer": eq.manufacturer,
-                "installation_location": eq_install_location,
-                "quantity": 1
-            })
-
-    # Метаданные
-    meta = {
-        "act_date": event_datetime.strftime("%Y-%m-%d"),
-        "event_dt": event_datetime.isoformat(),
-        "contract_number": contract_number,
-        "territory_state": territory_state,
-        "tube_pressure": tube_p,
-        "line_pressure": line_p,
-        "note": note,
-        "equipment_items": equipment_items,  # Место монтажа хранится в каждом item
-        "kind": kind,
-        "equipment_condition": equipment_condition,  # "working" или "not_working"
-    }
-
-    # Создание документа
-    doc = Document(
-        doc_type_id=doc_type_id,
-        doc_number=doc_number,
-        well_id=well_id,
-        status="draft",
-        created_by_name="web",
-        meta=meta,
+    # Создаём акт через общий helper
+    doc = _build_act_draft(
+        db,
+        kind=kind,
+        well=well,
+        equipment_ids=equipment_ids,
+        event_datetime=event_datetime,
+        tube_p=tube_p,
+        line_p=line_p,
+        contract_number=contract_number,
+        note=note,
+        equipment_locations=equipment_locations,
+        equipment_condition=equipment_condition,
+        territory_state=territory_state,
+        skip_installation_changes=bool(skip_ids),
+        created_by="web",
     )
-
-    db.add(doc)
-    db.commit()
-    db.refresh(doc)
-
-    # Обновление статуса оборудования
-    for eq_id in equipment_ids:
-        eq = db.query(Equipment).filter(Equipment.id == eq_id).first()
-        if not eq:
-            continue
-
-        if kind == "install":
-            eq.status = "installed"
-            eq.current_location = f"Скважина {well.number}"
-
-            # Проверяем, есть ли уже активная установка на ЭТУ ЖЕ скважину
-            existing_install = (
-                db.query(EquipmentInstallation)
-                .filter(
-                    EquipmentInstallation.equipment_id == eq.id,
-                    EquipmentInstallation.well_id == well_id,
-                    EquipmentInstallation.removed_at.is_(None)
-                )
-                .first()
-            )
-
-            # Получаем место монтажа для этого оборудования
-            eq_location = equipment_locations.get(eq.id)
-
-            if existing_install:
-                # Обновляем существующую запись (добавляем document_id если не было)
-                if not existing_install.document_id:
-                    existing_install.document_id = doc.id
-                existing_install.tube_pressure_install = tube_p
-                existing_install.line_pressure_install = line_p
-                # Обновляем место монтажа если указано новое
-                if eq_location:
-                    existing_install.installation_location = eq_location
-            else:
-                # Создаём новую запись установки
-                new_installation = EquipmentInstallation(
-                    equipment_id=eq.id,
-                    well_id=well_id,
-                    document_id=doc.id,
-                    installed_at=event_datetime,
-                    tube_pressure_install=tube_p,
-                    line_pressure_install=line_p,
-                    installation_location=eq_location,
-                )
-                db.add(new_installation)
-        else:
-            # Демонтаж
-            eq.status = "available"
-            eq.current_location = "Склад"
-
-            # Обновляем запись установки если есть
-            installation = (
-                db.query(EquipmentInstallation)
-                .filter(
-                    EquipmentInstallation.equipment_id == eq.id,
-                    EquipmentInstallation.well_id == well_id,
-                    EquipmentInstallation.removed_at.is_(None)
-                )
-                .first()
-            )
-
-            if installation:
-                installation.removed_at = event_datetime
-                installation.tube_pressure_remove = tube_p
-                installation.line_pressure_remove = line_p
 
     db.commit()
 

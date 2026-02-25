@@ -147,7 +147,7 @@
               <div style="display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:8px; margin-bottom:6px; border-radius:6px; {% if eq.status == 'available' %}background:#e7f5e7{% elif eq._installed_on_same_well %}background:#e7f0ff{% else %}background:#fff3cd{% endif %};">
                 <input type="checkbox" name="equipment_ids" value="{{ eq.id }}"
                        class="eq-checkbox" data-eq-id="{{ eq.id }}"
-                       {% if kind == 'install' and eq._installed_on_other_well %}disabled title="Установлено на другой скважине"{% endif %}
+                       {% if eq._installed_on_other_well %}data-other-well="{{ eq._installed_well_number }}"{% endif %}
                        onchange="toggleLocationSelect(this)">
                 <span style="font-family:monospace; font-weight:600;">{{ eq.serial_number }}</span>
                 <span style="flex:1; opacity:0.7; font-size:13px;">{{ eq.manufacturer or '—' }}</span>
@@ -164,11 +164,13 @@
                       <span style="color:#0066cc; font-size:12px;">ℹ️ Без акта</span>
                     {% endif %}
                   {% elif eq._installed_on_other_well %}
-                    {# Установлено на ДРУГОЙ скважине - блокируем #}
-                    <span style="padding:4px 8px; background:#dc3545; color:white; border-radius:4px; font-size:12px; font-weight:600;">
-                      🚫 Скв. {{ eq._installed_well_number }}
+                    {# Установлено на ДРУГОЙ скважине - предупреждение (не блокируем) #}
+                    <span style="padding:4px 8px; background:#fd7e14; color:white; border-radius:4px; font-size:12px; font-weight:600;">
+                      ⚠️ Скв. {{ eq._installed_well_number }}
                     </span>
-                    <span style="color:#dc3545; font-size:12px;">⚠️ Сначала демонтируй</span>
+                    <span style="color:#856404; font-size:12px;">
+                      {% if eq._installed_since_display %}С {{ eq._installed_since_display }} на{% else %}На{% endif %} скв. {{ eq._installed_well_number }}
+                    </span>
                   {% else %}
                     <span style="padding:4px 8px; background:#ffc107; color:#000; border-radius:4px; font-size:12px; font-weight:600;">
                       📍 {{ eq.current_location }}
@@ -181,7 +183,7 @@
                 {% endif %}
 
                 {# Место монтажа для каждого оборудования #}
-                {% if kind == 'install' and not eq._installed_on_other_well %}
+                {% if kind == 'install' %}
                 <div id="location-{{ eq.id }}" class="eq-location-row" style="display:none; width:100%; margin-top:8px; padding:8px; background:#fff; border-radius:4px; border:1px solid #0066cc;">
                   <label style="font-size:12px; font-weight:600; color:#0066cc;">📍 Место монтажа:</label>
                   <select name="location_{{ eq.id }}" class="eq-location-select" style="margin-left:8px; padding:4px 8px; font-size:13px; border-radius:4px; border:1px solid #ccc;"
@@ -205,6 +207,49 @@
                 {# Для демонтажа показываем место, откуда демонтируем (только отображение) #}
                 <div style="width:100%; margin-top:8px; padding:6px 8px; background:#fff9e6; border-radius:4px; border:1px solid #ffc107;">
                   <span style="font-size:12px; color:#856404;">📍 Место: <b>{{ eq._installation_location }}</b></span>
+                </div>
+                {% endif %}
+
+                {# История установок (сворачиваемая) #}
+                {% if eq._install_history and eq._install_history|length > 0 %}
+                <div style="width:100%; margin-top:6px;">
+                  <button type="button" onclick="toggleHistory({{ eq.id }})"
+                          style="padding:4px 10px; background:#f0f0f0; border:1px solid #ddd; border-radius:4px; cursor:pointer; font-size:12px; color:#555;">
+                    📋 История установок ({{ eq._install_history|length }})
+                  </button>
+                  <div id="history-{{ eq.id }}" style="display:none; margin-top:6px; width:100%;">
+                    <table style="width:100%; font-size:12px; border-collapse:collapse;">
+                      <thead>
+                        <tr style="background:#f5f5f5;">
+                          <th style="padding:4px 6px; border:1px solid #ddd; text-align:left;">Скважина</th>
+                          <th style="padding:4px 6px; border:1px solid #ddd; text-align:left;">Установлено</th>
+                          <th style="padding:4px 6px; border:1px solid #ddd; text-align:left;">Снято</th>
+                          <th style="padding:4px 6px; border:1px solid #ddd; text-align:left;">Место</th>
+                          <th style="padding:4px 6px; border:1px solid #ddd; text-align:left;">Акт</th>
+                          <th style="padding:4px 6px; border:1px solid #ddd; text-align:center;"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for h in eq._install_history %}
+                        <tr style="{% if h.is_active %}background:#e7f5e7;{% endif %}">
+                          <td style="padding:4px 6px; border:1px solid #ddd;">Скв. {{ h.well_number }}</td>
+                          <td style="padding:4px 6px; border:1px solid #ddd;">{{ h.installed_at_display }}</td>
+                          <td style="padding:4px 6px; border:1px solid #ddd;">{% if h.is_active %}<b style="color:#28a745;">Активна</b>{% else %}{{ h.removed_at_display }}{% endif %}</td>
+                          <td style="padding:4px 6px; border:1px solid #ddd;">{{ h.installation_location }}</td>
+                          <td style="padding:4px 6px; border:1px solid #ddd;">{% if h.document_id %}<a href="/documents/equipment/{{ h.document_id }}" target="_blank">📄</a>{% else %}—{% endif %}</td>
+                          <td style="padding:4px 6px; border:1px solid #ddd; text-align:center;">
+                            {% if h.installed_at_iso %}
+                            <button type="button" onclick="useHistoryDate('{{ h.installed_at_iso }}', {{ eq.id }})"
+                                    style="padding:2px 8px; background:#e7f0ff; border:1px solid #0066cc; border-radius:3px; cursor:pointer; font-size:11px; color:#0066cc;">
+                              Исп.
+                            </button>
+                            {% endif %}
+                          </td>
+                        </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
                 {% endif %}
               </div>
@@ -312,6 +357,11 @@
     <div style="margin-bottom:20px;">
       <label><b>Примечание</b></label>
       <textarea name="note" rows="3"></textarea>
+    </div>
+
+    <!-- Предупреждение: оборудование с другой скважины -->
+    <div id="cross-well-warning" style="display:none; margin-bottom:16px; padding:12px 16px; background:#fff3cd; border:1px solid #ffc107; border-radius:8px; color:#856404; font-size:14px;">
+      ⚠️ Выбрано оборудование с другой скважины. Будет создан только документ — перемещение <b>НЕ</b> выполняется.
     </div>
 
     <!-- Кнопки -->
@@ -471,6 +521,14 @@ function updateCount() {
     });
   }
 
+  // Проверяем, есть ли выбранное оборудование с другой скважины
+  var hasCrossWell = false;
+  checkedBoxes.forEach(function(cb) {
+    if (cb.dataset.otherWell) hasCrossWell = true;
+  });
+  var warningDiv = document.getElementById('cross-well-warning');
+  if (warningDiv) warningDiv.style.display = hasCrossWell ? 'block' : 'none';
+
   document.getElementById('submit-btn').disabled = count === 0 || !allLocationsValid;
 }
 
@@ -482,6 +540,27 @@ document.querySelectorAll('input[name="equipment_ids"]').forEach(cb => {
 document.querySelectorAll('.eq-location-select').forEach(sel => {
   sel.addEventListener('change', updateCount);
 });
+
+// История установок
+function toggleHistory(eqId) {
+  var div = document.getElementById('history-' + eqId);
+  if (div) div.style.display = div.style.display === 'none' ? 'block' : 'none';
+}
+
+function useHistoryDate(isoDate, eqId) {
+  // Заполняем дату формы
+  var dtInput = document.getElementById('event-dt');
+  if (dtInput && isoDate) {
+    dtInput.value = isoDate;
+    fetchPressure();
+  }
+  // Отмечаем чекбокс оборудования
+  var cb = document.querySelector('input[name="equipment_ids"][value="' + eqId + '"]');
+  if (cb && !cb.checked) {
+    cb.checked = true;
+    toggleLocationSelect(cb);
+  }
+}
 
 // Модалки
 function showNewEquipmentModal() {

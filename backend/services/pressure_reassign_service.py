@@ -508,3 +508,131 @@ def reassign_all(dry_run: bool = False) -> dict:
     Тяжёлая операция — для импорта данных за 2025 год.
     """
     return reassign_well_ids(sensor_ids=None, dry_run=dry_run)
+
+
+# ═══════════════════════════════════════════════════════════
+# 4. Reassign on sensor transfer (fast, targeted)
+# ═══════════════════════════════════════════════════════════
+
+def reassign_on_transfer(
+    sensor_ids: list[int],
+    old_well_id: int,
+    new_well_id: int,
+    since: datetime,
+) -> dict:
+    """
+    Быстрое переназначение pressure_raw при переносе датчика.
+
+    Вместо полного пересчёта через _find_installation() — прямое
+    обновление well_id для строк, где sensor_id совпадает и
+    measured_at >= since (UTC).
+
+    Args:
+        sensor_ids: список ID датчиков (lora_sensors.id)
+        old_well_id: скважина-источник
+        new_well_id: скважина-приёмник
+        since: дата/время начала действия (UTC) — когда физически установлен
+
+    Returns: {"pg_moved": N, "sqlite_moved": N}
+    """
+    pg_engine = _make_pg_engine()
+
+    # since — local (Кунград), а measured_at в БД — UTC
+    since_utc = since - _TZ_OFFSET
+
+    log.info(
+        "reassign_on_transfer: sensors=%s old_well=%d new_well=%d since=%s (utc=%s)",
+        sensor_ids, old_well_id, new_well_id, since, since_utc,
+    )
+
+    pg_moved = 0
+
+    # ── PostgreSQL: pressure_raw ──
+    try:
+        with pg_engine.begin() as conn:
+            # Удалить потенциальные конфликты в new_well_id
+            conn.execute(text("""
+                DELETE FROM pressure_raw
+                WHERE well_id = :new_well_id
+                  AND measured_at >= :since
+                  AND measured_at IN (
+                      SELECT measured_at FROM pressure_raw
+                      WHERE well_id = :old_well_id
+                        AND measured_at >= :since
+                        AND (sensor_id_tube = ANY(:sids) OR sensor_id_line = ANY(:sids))
+                  )
+            """), {
+                "old_well_id": old_well_id,
+                "new_well_id": new_well_id,
+                "since": since_utc,
+                "sids": sensor_ids,
+            })
+
+            result = conn.execute(text("""
+                UPDATE pressure_raw
+                SET well_id = :new_well_id
+                WHERE well_id = :old_well_id
+                  AND measured_at >= :since
+                  AND (sensor_id_tube = ANY(:sids) OR sensor_id_line = ANY(:sids))
+            """), {
+                "old_well_id": old_well_id,
+                "new_well_id": new_well_id,
+                "since": since_utc,
+                "sids": sensor_ids,
+            })
+            pg_moved = result.rowcount
+    except Exception as e:
+        log.error("reassign_on_transfer PG error: %s", e)
+
+    # ── SQLite: pressure_readings (если есть) ──
+    sqlite_moved = 0
+    try:
+        init_pressure_db()
+        db = PressureSessionLocal()
+        try:
+            sid_csv = ",".join(str(int(s)) for s in sensor_ids)
+            # Удалить конфликты
+            db.execute(text(f"""
+                DELETE FROM pressure_readings
+                WHERE well_id = :new_well_id
+                  AND measured_at >= :since
+                  AND measured_at IN (
+                      SELECT measured_at FROM pressure_readings
+                      WHERE well_id = :old_well_id
+                        AND measured_at >= :since
+                        AND (sensor_id_tube IN ({sid_csv}) OR sensor_id_line IN ({sid_csv}))
+                  )
+            """), {"old_well_id": old_well_id, "new_well_id": new_well_id, "since": since_utc})
+
+            result = db.execute(text(f"""
+                UPDATE pressure_readings
+                SET well_id = :new_well_id
+                WHERE well_id = :old_well_id
+                  AND measured_at >= :since
+                  AND (sensor_id_tube IN ({sid_csv}) OR sensor_id_line IN ({sid_csv}))
+            """), {"old_well_id": old_well_id, "new_well_id": new_well_id, "since": since_utc})
+            sqlite_moved = result.rowcount
+            db.commit()
+        finally:
+            db.close()
+    except Exception as e:
+        log.warning("reassign_on_transfer SQLite error (may not have local DB): %s", e)
+
+    # ── Обновить pressure_hourly и pressure_latest ──
+    try:
+        from backend.services.pressure_aggregate_service import (
+            aggregate_to_hourly,
+            update_latest,
+        )
+        affected = {old_well_id, new_well_id}
+        aggregate_to_hourly(since=since_utc, well_ids=affected)
+        update_latest(well_ids=affected)
+    except Exception as e:
+        log.warning("reassign_on_transfer aggregate error: %s", e)
+
+    log.info(
+        "reassign_on_transfer done: pg_moved=%d sqlite_moved=%d",
+        pg_moved, sqlite_moved,
+    )
+
+    return {"pg_moved": pg_moved, "sqlite_moved": sqlite_moved}

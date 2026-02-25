@@ -140,6 +140,16 @@
             {% endfor %}
           </select>
         </div>
+        <div class="dr-field">
+          <label>Порог группировки простоев, мин</label>
+          <input type="number" name="downtime_threshold_min" value="5" min="1" max="60" required>
+          <small style="color:#999;display:block;margin-top:0.2rem">Простои менее N мин будут сгруппированы в одну строку</small>
+        </div>
+        <div class="dr-field">
+          <label>Период сравнения дебита, дней</label>
+          <input type="number" name="comparison_days" value="7" min="1" max="30" required>
+          <small style="color:#999;display:block;margin-top:0.2rem">Средний дебит за последние N дней</small>
+        </div>
         <button type="submit" class="dr-btn">Создать отчёт</button>
       </form>
     </div>

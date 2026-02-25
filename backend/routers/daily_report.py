@@ -82,6 +82,8 @@ def daily_report_page(
 def create_single_report(
     well_id: int = Form(...),
     report_date: str = Form(...),
+    downtime_threshold_min: int = Form(default=5),
+    comparison_days: int = Form(default=7),
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
@@ -98,27 +100,48 @@ def create_single_report(
     if not well:
         raise HTTPException(404, "Well not found")
 
-    # Create document
-    doc = Document(
-        doc_type_id=doc_type.id,
-        well_id=well_id,
-        period_start=rd,
-        period_end=rd,
-        period_month=rd.month,
-        period_year=rd.year,
-        created_by_name=current_user,
-        status="draft",
-        meta={
+    # Reuse existing (non-deleted) document for same well+date, or create new
+    doc = db.query(Document).filter(
+        Document.doc_type_id == doc_type.id,
+        Document.well_id == well_id,
+        Document.period_start == rd,
+        Document.period_end == rd,
+        Document.deleted_at.is_(None),
+    ).first()
+
+    if doc:
+        doc.meta = {
             "report_date": rd.isoformat(),
             "well_ids": [well_id],
-        },
-    )
-    db.add(doc)
-    db.flush()
-
-    doc.doc_number = build_doc_number(db, doc, doc_type)
-    db.commit()
-    db.refresh(doc)
+            "downtime_threshold_min": downtime_threshold_min,
+            "comparison_days": comparison_days,
+        }
+        doc.status = "draft"
+        doc.created_by_name = current_user
+        db.commit()
+        db.refresh(doc)
+    else:
+        doc = Document(
+            doc_type_id=doc_type.id,
+            well_id=well_id,
+            period_start=rd,
+            period_end=rd,
+            period_month=rd.month,
+            period_year=rd.year,
+            created_by_name=current_user,
+            status="draft",
+            meta={
+                "report_date": rd.isoformat(),
+                "well_ids": [well_id],
+                "downtime_threshold_min": downtime_threshold_min,
+                "comparison_days": comparison_days,
+            },
+        )
+        db.add(doc)
+        db.flush()
+        doc.doc_number = build_doc_number(db, doc, doc_type)
+        db.commit()
+        db.refresh(doc)
 
     # Generate PDF
     try:
@@ -161,27 +184,44 @@ def create_all_report(
 
     final_well_ids = [w.id for w in wells]
 
-    # Create document
-    doc = Document(
-        doc_type_id=doc_type.id,
-        well_id=None,
-        period_start=rd,
-        period_end=rd,
-        period_month=rd.month,
-        period_year=rd.year,
-        created_by_name=current_user,
-        status="draft",
-        meta={
+    # Reuse existing (non-deleted) summary document for same date, or create new
+    doc = db.query(Document).filter(
+        Document.doc_type_id == doc_type.id,
+        Document.well_id.is_(None),
+        Document.period_start == rd,
+        Document.period_end == rd,
+        Document.deleted_at.is_(None),
+    ).first()
+
+    if doc:
+        doc.meta = {
             "report_date": rd.isoformat(),
             "well_ids": final_well_ids,
-        },
-    )
-    db.add(doc)
-    db.flush()
-
-    doc.doc_number = build_doc_number(db, doc, doc_type)
-    db.commit()
-    db.refresh(doc)
+        }
+        doc.status = "draft"
+        doc.created_by_name = current_user
+        db.commit()
+        db.refresh(doc)
+    else:
+        doc = Document(
+            doc_type_id=doc_type.id,
+            well_id=None,
+            period_start=rd,
+            period_end=rd,
+            period_month=rd.month,
+            period_year=rd.year,
+            created_by_name=current_user,
+            status="draft",
+            meta={
+                "report_date": rd.isoformat(),
+                "well_ids": final_well_ids,
+            },
+        )
+        db.add(doc)
+        db.flush()
+        doc.doc_number = build_doc_number(db, doc, doc_type)
+        db.commit()
+        db.refresh(doc)
 
     # Generate PDF
     try:

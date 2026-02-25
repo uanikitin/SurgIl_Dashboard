@@ -11,14 +11,20 @@
 \usepackage{lastpage}
 \usepackage{graphicx}
 \usepackage{pdflscape}
+\usepackage{amsmath}
 
 \newcolumntype{P}[1]{>{\RaggedRight\arraybackslash\footnotesize}m{#1}}
 \newcolumntype{C}[1]{>{\centering\arraybackslash\footnotesize}m{#1}}
 \newcolumntype{R}[1]{>{\RaggedLeft\arraybackslash\footnotesize}m{#1}}
 
 \setlength{\parindent}{0pt}
-\setlength{\parskip}{2pt}
+\setlength{\parskip}{1pt}
 \renewcommand{\arraystretch}{1.15}
+
+% Compact section/subsection spacing
+\usepackage{titlesec}
+\titlespacing*{\section}{0pt}{0.5em}{0.2em}
+\titlespacing*{\subsection}{0pt}{0.4em}{0.15em}
 
 \pagestyle{fancy}
 \fancyhf{}
@@ -27,18 +33,18 @@
 \fancyfoot[C]{\scriptsize Сформировано \VAR{generated_at}}
 
 \begin{document}
+
+\BLOCK{ if is_summary }
+% ══════════════════════════════════════════════════════════
+%  СВОДНЫЙ РЕЖИМ — титульная страница + компактные таблицы
+% ══════════════════════════════════════════════════════════
 \thispagestyle{empty}
 
-% ═══════ ТИТУЛЬНАЯ СТРАНИЦА ═══════
 \begin{center}
 \vspace*{3cm}
 
 {\LARGE\bfseries Суточный отчёт}\\[0.5em]
-\BLOCK{ if is_summary }
 {\large Сводный отчёт по \VAR{total_wells} скважинам}\\[1em]
-\BLOCK{ else }
-{\large Скважина №\VAR{wells_data[0].well_number}\BLOCK{ if wells_data[0].well_name } --- \VAR{wells_data[0].well_name}\BLOCK{ endif }}\\[1em]
-\BLOCK{ endif }
 
 {\large Дата: \VAR{report_date}}\\[0.3em]
 Документ №\VAR{doc_number}
@@ -49,11 +55,6 @@
 \end{center}
 
 \newpage
-
-\BLOCK{ if is_summary }
-% ══════════════════════════════════════════════════════════
-%  СВОДНЫЙ РЕЖИМ — компактные таблицы без графиков
-% ══════════════════════════════════════════════════════════
 
 % ── Таблица 1: Давления и конструкция ──
 \section*{1. Давления и конструкция}
@@ -155,190 +156,247 @@
 
 %% for w in wells_data
 
-% ═══════ СКВАЖИНА ═══════
-\section*{Скважина №\VAR{w.well_number}\BLOCK{ if w.well_name } --- \VAR{w.well_name}\BLOCK{ endif } \hfill \small \VAR{w.report_date}}
+% ═══════ ЗАГОЛОВОК ═══════
+\thispagestyle{fancy}
 
-% ── 1. Конструкция ──
-\begin{tabularx}{\textwidth}{|P{4.5cm}|R{3cm}|P{4.5cm}|R{4cm}|}
-\hline
-\textbf{Статус} & \VAR{w.status} & \textbf{Горизонт} & \VAR{w.horizon} \\
-\hline
-\textbf{Диам. штуцера, мм} & \VAR{w.choke_mm} & \textbf{Период данных} & \VAR{w.data_start_time} --- \VAR{w.data_end_time} (\VAR{w.data_points_count} зам.) \\
-\hline
+{\large\bfseries Суточный отчёт о работе скважины №\VAR{w.well_number} за \VAR{w.report_date}}
+
+\vspace{0.3em}
+
+{\footnotesize
+\begin{tabularx}{\textwidth}{XXXX}
+\toprule
+\textbf{Документ} & \textbf{Статус} & \textbf{Горизонт} & \textbf{Штуцер} \\
+№\VAR{doc_number} & \VAR{w.status} & \VAR{w.horizon} & \VAR{w.choke_mm}\,мм \\
+\midrule
+\textbf{Замеров P\,труб} & \textbf{Замеров P\,лин} & \textbf{Период наблюд.} & \textbf{Обработка сигнала} \\
+\VAR{w.p_tube_count} из \VAR{w.data_points_count} & \VAR{w.p_line_count} из \VAR{w.data_points_count} & \VAR{w.data_start_time}--\VAR{w.data_end_time} (\VAR{w.data_points_count}\,мин) & восст. \VAR{w.interpolated_tube}/\VAR{w.interpolated_line}, выбр. \VAR{w.spikes_tube}/\VAR{w.spikes_line} \\
+\bottomrule
 \end{tabularx}
+}
+{\scriptsize Обработка: ложные нули $\rightarrow$ NaN, forward/backward fill, Hampel-фильтр (робастный детектор выбросов, MAD, порог 3.5$\sigma$). Восст.~--- восстановленные пропуски (тр./лин.), выбр.~--- обнаруженные выбросы.}
 
-\vspace{0.4em}
+\vspace{0.3em}
 
-% ── 2. Давления ──
-\subsection*{1. Давления}
+% ── 1. События на скважине ──
+\subsection*{1. События на скважине}
 
-\BLOCK{ if w.pressure_stats }
-\begin{tabularx}{\textwidth}{|P{4.5cm}|R{3cm}|R{3cm}|R{3cm}|R{3cm}|}
-\hline
-\textbf{Параметр} & \textbf{Мин} & \textbf{Макс} & \textbf{Среднее} & \textbf{Медиана} \\
-\hline
-P трубное, кгс/см\textsuperscript{2} & \VAR{w.pressure_stats.p_tube_min} & \VAR{w.pressure_stats.p_tube_max} & \VAR{w.pressure_stats.p_tube_avg} & \VAR{w.pressure_stats.p_tube_median} \\
-\hline
-P линейное, кгс/см\textsuperscript{2} & \VAR{w.pressure_stats.p_line_min} & \VAR{w.pressure_stats.p_line_max} & \VAR{w.pressure_stats.p_line_avg} & \VAR{w.pressure_stats.p_line_median} \\
-\hline
-$\Delta$P, кгс/см\textsuperscript{2} & \VAR{w.pressure_stats.dp_min} & \VAR{w.pressure_stats.dp_max} & \VAR{w.pressure_stats.dp_avg} & \VAR{w.pressure_stats.dp_median} \\
-\hline
-\end{tabularx}
-\BLOCK{ else }
-\textit{\footnotesize Данные по давлениям отсутствуют}
-\BLOCK{ endif }
-
-\BLOCK{ if w.dp_trend }
-\vspace{0.2em}
-{\footnotesize \textbf{Тренд $\Delta$P:}
-\BLOCK{ if w.dp_trend.direction == "up" }$\uparrow$ Рост
-\BLOCK{ elif w.dp_trend.direction == "down" }$\downarrow$ Снижение
-\BLOCK{ else }$\rightarrow$ Стабильно
-\BLOCK{ endif }
-\VAR{w.dp_trend.slope_per_day} кгс/см\textsuperscript{2}/сут (R\textsuperscript{2}=\VAR{w.dp_trend.r_squared})}
-\BLOCK{ endif }
-
-\vspace{0.4em}
-
-% ── 3. Продувки ──
-\subsection*{2. Продувки}
-
-\BLOCK{ if w.purge_cycles }
-\begin{tabularx}{\textwidth}{|C{0.8cm}|C{1.5cm}|R{2.5cm}|R{2.5cm}|R{2.5cm}|R{2.5cm}|R{2.5cm}|}
-\hline
-\textbf{№} & \textbf{Время} & \textbf{Стравл., мин} & \textbf{Набор, мин} & \textbf{P нач} & \textbf{P мин} & \textbf{P кон} \\
-\hline
-%% for c in w.purge_cycles
-\VAR{loop.index} & \VAR{c.start_time} & \VAR{c.venting_min} & \VAR{c.buildup_min} & \VAR{c.p_start} & \VAR{c.p_bottom} & \VAR{c.p_end} \\
-\hline
+\BLOCK{ if w.event_type_stats }
+\noindent
+%% for s in w.event_type_stats
+\fbox{\begin{minipage}[t]{0.22\textwidth}\centering
+{\LARGE\bfseries \VAR{s.count}}\\[2pt]
+{\footnotesize \VAR{s.type_label}}
+\end{minipage}}\hfill
 %% endfor
-\end{tabularx}
-{\footnotesize Итого: \VAR{w.purge_count} продувок, стравливание \VAR{w.purge_total_venting_min} мин, набор \VAR{w.purge_total_buildup_min} мин}
-\BLOCK{ else }
-{\footnotesize Продувок: \VAR{w.purge_count}}
+
+\vspace{0.5em}
 \BLOCK{ endif }
-
-\vspace{0.4em}
-
-% ── 4. Простои ──
-\subsection*{3. Простои}
-
-\BLOCK{ if w.downtime_periods }
-\begin{tabularx}{\textwidth}{|C{0.8cm}|C{2.5cm}|C{2.5cm}|R{3cm}|}
-\hline
-\textbf{№} & \textbf{Начало} & \textbf{Конец} & \textbf{Длит., мин} \\
-\hline
-%% for d in w.downtime_periods
-\VAR{loop.index} & \VAR{d.start_time} & \VAR{d.end_time} & \VAR{d.duration_min} \\
-\hline
-%% endfor
-\end{tabularx}
-{\footnotesize Итого: \VAR{w.downtime_periods|length} периодов, суммарно \VAR{w.downtime_total_min} мин}
-\BLOCK{ else }
-{\footnotesize Простоев не зафиксировано}
-\BLOCK{ endif }
-
-\vspace{0.4em}
-
-% ── 5. Дебит ──
-\subsection*{4. Дебит}
-
-\BLOCK{ if w.flow_stats }
-\begin{tabularx}{\textwidth}{|P{6cm}|R{4cm}|P{3cm}|R{3cm}|}
-\hline
-\textbf{Показатель} & \textbf{Значение} & \textbf{Показатель} & \textbf{Значение} \\
-\hline
-Средний дебит, тыс.\,м\textsuperscript{3}/сут & \VAR{w.flow_stats.avg_flow_rate} & Мин. дебит & \VAR{w.flow_stats.min_flow_rate} \\
-\hline
-Медианный дебит & \VAR{w.flow_stats.median_flow_rate} & Макс. дебит & \VAR{w.flow_stats.max_flow_rate} \\
-\hline
-Эффективный дебит & \VAR{w.flow_stats.effective_flow_rate} & КИВ & \VAR{w.flow_stats.utilization_pct}\% \\
-\hline
-Суммарная добыча, тыс.\,м\textsuperscript{3} & \VAR{w.flow_stats.cumulative_flow} & Потери прод., тыс.\,м\textsuperscript{3} & \VAR{w.flow_stats.purge_loss} \\
-\hline
-Простой, мин & \VAR{w.flow_stats.downtime_minutes} & & \\
-\hline
-\end{tabularx}
-\BLOCK{ else }
-\textit{\footnotesize Данные по дебиту отсутствуют}
-\BLOCK{ endif }
-
-\vspace{0.4em}
-
-% ── 6. График давления ──
-\BLOCK{ if w.chart_path }
-\subsection*{5. График давления}
-\begin{center}
-\includegraphics[width=\textwidth]{\VAR{w.chart_path}}
-\end{center}
-\BLOCK{ endif }
-
-% ── 7. События ──
-\subsection*{\BLOCK{ if w.chart_path }6\BLOCK{ else }5\BLOCK{ endif }. События за сутки}
 
 \BLOCK{ if w.events }
-\begin{longtable}{|C{1.2cm}|P{3cm}|P{6.5cm}|R{2cm}|R{2cm}|}
+{\footnotesize
+\begin{tabularx}{\textwidth}{|C{1cm}|P{2.2cm}|X|R{1.2cm}|R{1.2cm}|}
 \hline
 \textbf{Время} & \textbf{Тип} & \textbf{Описание} & \textbf{P тр} & \textbf{P лин} \\
 \hline
-\endhead
 %% for e in w.events
 \VAR{e.time_str} & \VAR{e.type_label} & \VAR{e.description} & \VAR{e.p_tube} & \VAR{e.p_line} \\
 \hline
 %% endfor
-\end{longtable}
-
-\BLOCK{ if w.event_type_stats }
-{\footnotesize \textbf{Статистика:}
-%% for s in w.event_type_stats
-\VAR{s.type_label}: \VAR{s.count}\BLOCK{ if not loop.last }, \BLOCK{ endif }
-%% endfor
+\end{tabularx}
+}
+\BLOCK{ else }
+{\footnotesize
+\begin{tabularx}{\textwidth}{|X|}
+\hline
+\centering --- События за сутки отсутствуют --- \\
+\hline
+\end{tabularx}
 }
 \BLOCK{ endif }
-\BLOCK{ else }
-\textit{\footnotesize События за сутки отсутствуют}
-\BLOCK{ endif }
 
-\vspace{0.4em}
+\vspace{0.3em}
 
-% ── 8. Реагенты ──
-\subsection*{\BLOCK{ if w.chart_path }7\BLOCK{ else }6\BLOCK{ endif }. Анализ реагентов}
+% ── 2. Реагенты ──
+\subsection*{2. Реагенты}
 
 \BLOCK{ if w.reagent_stats }
-\begin{tabularx}{\textwidth}{|P{5cm}|R{2cm}|R{3cm}|}
+{\footnotesize
+\begin{tabularx}{\textwidth}{|X|R{2cm}|R{2.5cm}|R{2.5cm}|}
 \hline
-\textbf{Реагент} & \textbf{Кол-во} & \textbf{Расход} \\
+\textbf{Реагент} & \textbf{Вбросов} & \textbf{Расход} & \textbf{Ср. интервал, ч} \\
 \hline
 %% for r in w.reagent_stats
-\VAR{r.name} & \VAR{r.count} & \VAR{r.total_qty} \\
+\VAR{r.name} & \VAR{r.count} & \VAR{r.total_qty} & \VAR{r.interval_hours} \\
 \hline
 %% endfor
 \end{tabularx}
-
-\BLOCK{ if w.reagent_intervals }
-\vspace{0.2em}
-{\footnotesize \textbf{Интервалы между вбросами:}
-%% for ri in w.reagent_intervals
-\VAR{ri.reagent}: ср. \VAR{ri.interval_hours} ч\BLOCK{ if not loop.last }; \BLOCK{ endif }
-%% endfor
+}
+\BLOCK{ else }
+{\footnotesize
+\begin{tabularx}{\textwidth}{|X|}
+\hline
+\centering --- Вброс реагентов не зафиксирован --- \\
+\hline
+\end{tabularx}
 }
 \BLOCK{ endif }
 
-\BLOCK{ if w.reagent_prev_day }
-\vspace{0.2em}
-{\footnotesize \textbf{Сравнение с предыдущими сутками:}}
-\begin{tabularx}{\textwidth}{|P{5cm}|R{2.5cm}|R{2.5cm}|R{2.5cm}|}
+\vspace{0.3em}
+
+% ── 3. Давления ──
+\subsection*{3. Давления}
+
+\BLOCK{ if w.pressure_stats }
+{\footnotesize
+\begin{tabularx}{\textwidth}{|X|R{2.2cm}|R{2.2cm}|R{2.2cm}|}
 \hline
-\textbf{Реагент} & \textbf{Сегодня} & \textbf{Вчера} & \textbf{$\Delta$} \\
+\textbf{Параметр} & \textbf{Среднее} & \textbf{Медиана} & \textbf{Размах} \\
 \hline
-%% for rp in w.reagent_prev_day
-\VAR{rp.reagent} & \VAR{rp.today_count} & \VAR{rp.yesterday_count} & \VAR{rp.diff} \\
+P трубное, кгс/см\textsuperscript{2} & \VAR{w.pressure_stats.p_tube_avg} & \VAR{w.pressure_stats.p_tube_median} & \VAR{w.pressure_stats.p_tube_range} \\
+\hline
+P линейное, кгс/см\textsuperscript{2} & \VAR{w.pressure_stats.p_line_avg} & \VAR{w.pressure_stats.p_line_median} & \VAR{w.pressure_stats.p_line_range} \\
+\hline
+$\Delta$P, кгс/см\textsuperscript{2} & \VAR{w.pressure_stats.dp_avg} & \VAR{w.pressure_stats.dp_median} & \VAR{w.pressure_stats.dp_range} \\
+\hline
+\BLOCK{ if w.dp_trend }
+\multicolumn{1}{|l|}{\textbf{Тренд $\Delta$P}}
+& \multicolumn{3}{l|}{
+\BLOCK{ if w.dp_trend.direction == "up" }$\uparrow$ Рост
+\BLOCK{ elif w.dp_trend.direction == "down" }$\downarrow$ Снижение
+\BLOCK{ else }$\rightarrow$ Стабильно
+\BLOCK{ endif }
+\VAR{w.dp_trend.slope_per_day} кгс/см\textsuperscript{2}/сут (R\textsuperscript{2}=\VAR{w.dp_trend.r_squared})} \\
+\hline
+\BLOCK{ endif }
+\end{tabularx}
+}
+
+\BLOCK{ if w.dp_chart_path }
+\vspace{0.1em}
+\begin{center}
+\includegraphics[width=\textwidth]{\VAR{w.dp_chart_path}}\\[-0.3em]
+{\scriptsize Рис.~0. $\Delta$P за сутки с линией тренда.}
+\end{center}
+\BLOCK{ endif }
+
+\BLOCK{ else }
+{\footnotesize
+\begin{tabularx}{\textwidth}{|X|}
+\hline
+\centering --- Данные по давлениям отсутствуют --- \\
+\hline
+\end{tabularx}
+}
+\BLOCK{ endif }
+
+\vspace{0.3em}
+
+% ── 4. Простои / Продувки ──
+\subsection*{4. Простои / Продувки}
+
+{\footnotesize
+\begin{tabularx}{\textwidth}{|C{0.5cm}|P{1.5cm}|C{1.8cm}|R{1.2cm}|X|R{1.8cm}|}
+\hline
+\textbf{№} & \textbf{Тип} & \textbf{Период} & \textbf{Длит.} & \textbf{Подробности} & \textbf{Потери, тыс.\,м\textsuperscript{3}} \\
+\hline
+\BLOCK{ if w.stoppage_events }
+%% for se in w.stoppage_events
+\VAR{loop.index} & \VAR{se.type_label} & \VAR{se.start_time}--\VAR{se.end_time} & \VAR{se.duration_min} мин & {\scriptsize \VAR{se.details}} & \VAR{se.total_loss} \\
 \hline
 %% endfor
-\end{tabularx}
 \BLOCK{ endif }
+\BLOCK{ if w.downtime_short_count > 0 }
+\multicolumn{3}{|l|}{Кратк. простои $<$ \VAR{w.downtime_threshold_min} мин: \VAR{w.downtime_short_count} шт}
+& \VAR{w.downtime_short_total_min} мин & & \VAR{w.downtime_short_loss} \\
+\hline
+\BLOCK{ endif }
+\BLOCK{ if not w.stoppage_events and w.downtime_short_count == 0 }
+\multicolumn{6}{|c|}{--- Простоев и продувок не зафиксировано ---} \\
+\hline
+\BLOCK{ endif }
+\multicolumn{3}{|l|}{\textbf{Итого} простоев \VAR{w.downtime_total_min} мин\BLOCK{ if w.purge_count > 0 }, продувок: \VAR{w.purge_count}\BLOCK{ endif }}
+& & & \textbf{\VAR{w.downtime_loss_estimate}} \\
+\hline
+\end{tabularx}
+}
+{\scriptsize Простойные потери~--- время простоя $\times$ медианный суточный дебит (упущенная добыча).
+Атмосферные потери~--- прямые потери газа в атмосферу при стравливании во время продувки, тыс.\,м\textsuperscript{3}.}
+
+\vspace{0.3em}
+
+% ── 5. Дебит ──
+\subsection*{5. Дебит}
+
+\BLOCK{ if w.flow_stats }
+{\footnotesize
+\begin{tabularx}{\textwidth}{|X|R{2.5cm}|X|R{2.5cm}|}
+\hline
+\textbf{Показатель} & \textbf{Значение} & \textbf{Показатель} & \textbf{Значение} \\
+\hline
+Медианный дебит, тыс.\,м\textsuperscript{3}/сут & \VAR{w.flow_stats.median_flow_rate} & Средний дебит & \VAR{w.flow_stats.avg_flow_rate} \\
+\hline
+Добыча за сутки, тыс.\,м\textsuperscript{3} & \VAR{w.flow_stats.cumulative_flow} & КИВ\textsuperscript{*} & \VAR{w.flow_stats.utilization_pct}\% \\
+\hline
+Простой, мин & \VAR{w.flow_stats.downtime_minutes} & Раб. дней в мес. & \VAR{w.month_working_days} из \VAR{w.month_calendar_days} \\
+\hline
+$\Delta$Q от мед. мес. & \VAR{w.delta_q_month} (\VAR{w.delta_q_month_pct}\%) & Мед. за \VAR{w.comparison_days} дн. & \VAR{w.week_median_flow} \\
+\hline
+Мед. с нач. мес. & \VAR{w.month_median_flow} & Ср. с нач. мес. & \VAR{w.month_avg_flow} \\
+\hline
+\multicolumn{2}{|l|}{\textbf{Накопл. с нач. мес., тыс.\,м\textsuperscript{3}}} & \multicolumn{2}{r|}{\textbf{\VAR{w.month_cumulative}}} \\
+\hline
+\end{tabularx}
+}
+
+\vspace{0.2em}
+{\scriptsize \textsuperscript{*}КИВ --- Коэффициент Использования Времени = (рабочее время / 24\,ч) $\times$ 100\%.
+$\Delta$Q~--- отклонение сегодняшнего медианного дебита от медианы за \VAR{w.month_working_days} рабочих дней месяца.}
+
+\vspace{0.2em}
+{\scriptsize \textbf{Методика расчёта.}
+Дебит газа рассчитан по формуле истечения через штуцер:
+$Q = M \cdot C_1 \cdot (d/C_2)^2 \cdot P_{\text{тр}} \cdot f(r) \cdot \sqrt{r/C_3}$,
+$M{=}\VAR{w.flow_formula.multiplier}$,
+$C_1{=}\VAR{w.flow_formula.C1}$,
+$C_2{=}\VAR{w.flow_formula.C2}$,
+$C_3{=}\VAR{w.flow_formula.C3}$.
+\BLOCK{ if w.purge_count > 0 }
+Потери при продувках: $q = C_d \cdot A \cdot \sqrt{2\Delta P/\rho}$,
+$C_d{=}\VAR{w.flow_formula.purge_Cd}$, $d{=}\VAR{w.flow_formula.purge_d_mm}$\,мм.
+\BLOCK{ endif }}
+
 \BLOCK{ else }
-\textit{\footnotesize Вброс реагентов не зафиксирован}
+{\footnotesize
+\begin{tabularx}{\textwidth}{|X|}
+\hline
+\centering --- Данные по дебиту отсутствуют --- \\
+\hline
+\end{tabularx}
+}
+\BLOCK{ endif }
+
+\vspace{0.3em}
+
+% ── 6. Графики ──
+\BLOCK{ if w.chart_path or w.flow_chart_path }
+\subsection*{6. Графики}
+
+\BLOCK{ if w.chart_path }
+\begin{center}
+\includegraphics[width=\textwidth]{\VAR{w.chart_path}}\\[-0.3em]
+{\scriptsize Рис.~1. Давления P\,трубное / P\,линейное за сутки.\BLOCK{ if w.event_type_stats } Маркеры: пунктир --- продувки, точки --- реагенты.\BLOCK{ endif }}
+\end{center}
+\vspace{0.1em}
+\BLOCK{ endif }
+
+\BLOCK{ if w.flow_chart_path }
+\begin{center}
+\includegraphics[width=\textwidth]{\VAR{w.flow_chart_path}}\\[-0.3em]
+{\scriptsize Рис.~2. Мгновенный дебит газа Q(t), тыс.\,м\textsuperscript{3}/сут.}
+\end{center}
+\BLOCK{ endif }
+
 \BLOCK{ endif }
 
 %% if not loop.last

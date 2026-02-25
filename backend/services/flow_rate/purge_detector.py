@@ -389,12 +389,26 @@ class PurgeDetector:
         """
         Анализ V-образного паттерна: падение → дно → восстановление.
 
+        Отличает продувку от возврата после КВД (кривой восстановления давления):
+        - Продувка: давление падает НИЖЕ базового уровня, p_tube < p_line
+        - КВД-возврат: давление возвращается К базовому уровню после спайка
+
         Returns PurgeCycle или None если паттерн не подтвердился.
         """
         p_raw = df["p_tube"].values.astype(float)
+        p_line = df["p_line"].values.astype(float)
 
-        # Начальное давление (перед падением)
+        # Начальное давление (перед падением — вершина спайка)
         p_at_start = float(p_smooth[max(0, decline_start - 1)])
+
+        # ── Базовое давление (до спайка): медиана за 30-60 мин ранее ──
+        baseline_window = 60  # минут
+        baseline_end = max(0, decline_start - 5)  # чуть до начала снижения
+        baseline_begin = max(0, baseline_end - baseline_window)
+        if baseline_end > baseline_begin:
+            p_baseline = float(np.median(p_smooth[baseline_begin:baseline_end]))
+        else:
+            p_baseline = p_at_start  # fallback
 
         # Ищем дно в районе конца падения (±5 точек)
         search_start = max(0, decline_end - 5)
@@ -405,8 +419,25 @@ class PurgeDetector:
         # Глубина падения
         drop = p_at_start - p_at_bottom
         if drop < 1.0:
-            # Слишком маленькое падение — вероятно не продувка
             return None
+
+        # ── Проверка: возврат после КВД (buildup recovery) ──
+        # Если дно находится на уровне или выше базового давления,
+        # это не продувка, а возврат к норме после набора давления.
+        if p_baseline > 0 and p_at_bottom >= p_baseline * 0.85:
+            log.debug(
+                "Rejected buildup recovery: p_baseline=%.1f, p_bottom=%.1f (%.0f%% of baseline)",
+                p_baseline, p_at_bottom, p_at_bottom / p_baseline * 100,
+            )
+            return None
+
+        # ── Проверка: p_tube vs p_line во время снижения ──
+        # При реальной продувке p_tube падает ниже p_line хотя бы частично.
+        venting_slice = slice(decline_start, min(decline_end + 10, len(p_raw)))
+        p_tube_seg = p_raw[venting_slice]
+        p_line_seg = p_line[venting_slice]
+        tube_below_line = np.sum(p_tube_seg < p_line_seg)
+        tube_below_ratio = tube_below_line / max(len(p_tube_seg), 1)
 
         # Ищем восстановление: p_tube >= recovery_threshold * p_at_start
         target_p = p_at_start * self.cfg.recovery_threshold
@@ -421,10 +452,8 @@ class PurgeDetector:
         # Ищем рестарт (после восстановления давление снова начинает падать = добыча)
         restart_idx = recovery_idx
         if recovery_idx is not None:
-            # Ищем момент, когда давление стабилизируется или начинает падать
             for i in range(recovery_idx, min(len(p_smooth), recovery_idx + 30)):
                 if i + 3 < len(p_smooth):
-                    # Среднее изменение за 3 точки — если отрицательное, это рестарт
                     avg_dp = (p_smooth[i + 3] - p_smooth[i]) / 3.0
                     if avg_dp < -0.02:
                         restart_idx = i
@@ -452,7 +481,7 @@ class PurgeDetector:
             else:
                 confidence += 0.1
         else:
-            confidence += 0.0  # нет восстановления
+            confidence += 0.0
 
         # Форма V (скорость падения + скорость восстановления)
         decline_duration = decline_end - decline_start
@@ -466,6 +495,15 @@ class PurgeDetector:
         # Рестарт найден
         if restart_idx and restart_idx != recovery_idx:
             confidence += 0.1
+
+        # ── Штраф: если p_tube НЕ падал ниже p_line ──
+        # При реальной продувке p_tube < p_line хотя бы часть времени.
+        if tube_below_ratio < 0.1:
+            confidence *= 0.3  # сильный штраф — вероятно не продувка
+            log.debug(
+                "Low p_tube<p_line ratio (%.0f%%) — confidence penalized",
+                tube_below_ratio * 100,
+            )
 
         # Собираем цикл
         cycle = PurgeCycle(source="algorithm")

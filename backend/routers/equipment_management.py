@@ -561,11 +561,37 @@ async def transfer_equipment(
 
     db.commit()
 
+    # ── Автоматическое переназначение данных давления ──
+    reassign_result = None
+    if equipment.serial_number:
+        try:
+            from sqlalchemy import text as sa_text
+            from backend.db import engine as pg_engine
+            sensor_rows = db.execute(sa_text(
+                "SELECT id FROM lora_sensors WHERE serial_number = :sn"
+            ), {"sn": equipment.serial_number}).fetchall()
+            sensor_ids = [r[0] for r in sensor_rows]
+
+            if sensor_ids:
+                from backend.services.pressure_reassign_service import reassign_on_transfer
+                reassign_result = reassign_on_transfer(
+                    sensor_ids=sensor_ids,
+                    old_well_id=active_installation.well_id,
+                    new_well_id=target_well_id,
+                    since=dt_transfer,
+                )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Auto-reassign pressure on transfer failed: %s", e
+            )
+
     return JSONResponse({
         "success": True,
         "message": f"Обладнання переведено на свердловину {target_well.number}",
         "old_installation_id": active_installation.id,
         "new_installation_id": new_installation.id,
+        "pressure_reassign": reassign_result,
     })
 
 

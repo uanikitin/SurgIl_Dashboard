@@ -132,12 +132,74 @@ def _fmt(val, decimals: int = 2) -> str:
     return str(val)
 
 
+# ── Month-to-date flow from raw pressure data ─────────
+
+def _compute_month_flow_from_raw(
+    db, well, choke_mm: float,
+    month_start: date, report_date: date,
+    get_pressure_data_fn, clean_pressure_fn,
+    calculate_flow_rate_fn, calculate_cumulative_fn,
+    comparison_days: int = 7,
+) -> dict | None:
+    """
+    Compute month-to-date cumulative flow, avg and median from raw pressure.
+    Used as fallback when flow_result table has no records for the month.
+
+    Loads the full month of pressure data at once and aggregates per day.
+    Returns dict with month and week stats, or None.
+    """
+    from backend.services.flow_rate.scenario_service import aggregate_to_daily
+
+    # Load full month of pressure data (UTC)
+    utc_start = datetime.combine(month_start, time(0, 0)) - KUNGRAD_OFFSET
+    utc_end = datetime.combine(report_date, time(23, 59, 59)) - KUNGRAD_OFFSET
+
+    df_raw = get_pressure_data_fn(well.id, utc_start.isoformat(), utc_end.isoformat())
+    if df_raw.empty:
+        return None
+
+    df = clean_pressure_fn(df_raw)
+    if df.empty:
+        return None
+
+    df_flow = calculate_flow_rate_fn(df, choke_mm)
+    if df_flow.empty or "flow_rate" not in df_flow.columns:
+        return None
+
+    df_flow = calculate_cumulative_fn(df_flow)
+
+    # Aggregate per day
+    daily_rows = aggregate_to_daily(df_flow)
+    if not daily_rows:
+        return None
+
+    # Month stats
+    month_cum = sum(r["cumulative_flow"] for r in daily_rows)
+    month_medians = [r["median_flow_rate"] for r in daily_rows if r["median_flow_rate"] > 0]
+
+    # Week stats (last N days)
+    week_cutoff = report_date - timedelta(days=comparison_days)
+    week_medians = [
+        r["median_flow_rate"] for r in daily_rows
+        if r["result_date"] >= week_cutoff and r["median_flow_rate"] > 0
+    ]
+
+    return {
+        "month_cumulative": month_cum if month_cum > 0 else None,
+        "month_avg_flow": float(np.mean(month_medians)) if month_medians else None,
+        "month_median_flow": float(np.median(month_medians)) if month_medians else None,
+        "working_days": len(month_medians),
+        "week_avg_flow": float(np.mean(week_medians)) if week_medians else None,
+        "week_median_flow": float(np.median(week_medians)) if week_medians else None,
+    }
+
+
 # ── Linear trend (copied from flow_rate router) ─────────
 
 def _linear_trend(values: list, duration_hours: float) -> dict | None:
     """Linear regression Y(t) = a + b*t. Returns slope_per_day, direction, r_squared."""
     valid = [(i, v) for i, v in enumerate(values) if v is not None and not np.isnan(v)]
-    if len(valid) < 10:
+    if len(valid) < 3:
         return None
 
     idx = np.array([x[0] for x in valid], dtype=float)
@@ -167,8 +229,16 @@ def _linear_trend(values: list, duration_hours: float) -> dict | None:
 
 # ── Pressure chart ──────────────────────────────────────
 
-def _render_pressure_chart(df: pd.DataFrame, well_number: str, report_date: date) -> str | None:
-    """Render intraday pressure chart (p_tube + p_line) → PNG. Returns absolute path."""
+def _render_pressure_chart(
+    df: pd.DataFrame,
+    well_number: str,
+    report_date: date,
+    event_markers: list[dict] | None = None,
+) -> str | None:
+    """Render intraday pressure chart (p_tube + p_line) → PNG. Returns absolute path.
+
+    event_markers: list of {"time_utc": datetime, "event_type": str} for overlay.
+    """
     if df.empty or len(df) < 5:
         return None
 
@@ -194,6 +264,21 @@ def _render_pressure_chart(df: pd.DataFrame, well_number: str, report_date: date
     ax.plot(df_local.index, df_local["p_line"], color="#d62728",
             linewidth=0.7, label="P линия")
 
+    # Overlay event markers
+    if event_markers:
+        purge_drawn = False
+        reagent_drawn = False
+        for ev in event_markers:
+            ev_local = ev["time_utc"] + KUNGRAD_OFFSET
+            if ev["event_type"] == "purge":
+                ax.axvline(ev_local, color="#9c27b0", alpha=0.7, linewidth=1.0,
+                           linestyle="--", label="Продувка" if not purge_drawn else None)
+                purge_drawn = True
+            elif ev["event_type"] == "reagent":
+                ax.axvline(ev_local, color="#4caf50", alpha=0.7, linewidth=1.0,
+                           linestyle=":", label="Реагент" if not reagent_drawn else None)
+                reagent_drawn = True
+
     ax.set_ylabel("кгс/см²", fontsize=8)
     ax.set_xlabel("")
     ax.legend(fontsize=7, loc="upper right")
@@ -211,6 +296,117 @@ def _render_pressure_chart(df: pd.DataFrame, well_number: str, report_date: date
     return str(chart_path)
 
 
+def _render_flow_chart(
+    df_flow: pd.DataFrame,
+    well_number: str,
+    report_date: date,
+) -> str | None:
+    """Render intraday flow rate chart → PNG. Returns absolute path."""
+    if df_flow.empty or "flow_rate" not in df_flow.columns or len(df_flow) < 5:
+        return None
+
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import matplotlib.dates as mdates
+    except ImportError:
+        return None
+
+    _ensure_dirs()
+
+    df_local = df_flow.copy()
+    df_local.index = df_local.index + KUNGRAD_OFFSET
+
+    fig, ax = plt.subplots(figsize=(7.0, 2.5), dpi=150)
+
+    ax.plot(df_local.index, df_local["flow_rate"], color="#2e7d32",
+            linewidth=0.7, label="Q, тыс.м³/сут")
+    ax.fill_between(df_local.index, df_local["flow_rate"], alpha=0.15, color="#2e7d32")
+
+    ax.set_ylabel("тыс. м³/сут", fontsize=8)
+    ax.set_xlabel("")
+    ax.legend(fontsize=7, loc="upper right")
+    ax.tick_params(labelsize=7)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+    ax.grid(True, alpha=0.3, linewidth=0.5)
+
+    fig.autofmt_xdate(rotation=0, ha="center")
+    fig.tight_layout(pad=0.5)
+
+    chart_path = TEMP_DIR.resolve() / f"flow_chart_{well_number}_{report_date.isoformat()}.png"
+    fig.savefig(str(chart_path), bbox_inches="tight")
+    plt.close(fig)
+
+    return str(chart_path)
+
+
+def _render_dp_chart(
+    df: pd.DataFrame,
+    well_number: str,
+    report_date: date,
+    dp_trend: dict | None = None,
+) -> str | None:
+    """Render ΔP chart with optional linear trend overlay → PNG."""
+    if df.empty or len(df) < 5:
+        return None
+
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import matplotlib.dates as mdates
+    except ImportError:
+        return None
+
+    _ensure_dirs()
+
+    # Calculate ΔP (exclude false zeros, clamp negatives to 0)
+    pt = df["p_tube"].where(df["p_tube"] > 0)
+    pl = df["p_line"].where(df["p_line"] > 0)
+    dp = (pt - pl).dropna().clip(lower=0)
+
+    if len(dp) < 5:
+        return None
+
+    dp_local = dp.copy()
+    dp_local.index = dp_local.index + KUNGRAD_OFFSET
+
+    fig, ax = plt.subplots(figsize=(7.0, 2.0), dpi=150)
+
+    ax.plot(dp_local.index, dp_local.values, color="#e91e63",
+            linewidth=0.7, label="ΔP")
+    ax.fill_between(dp_local.index, dp_local.values, alpha=0.1, color="#e91e63")
+
+    # Trend line overlay (always show if trend exists)
+    if dp_trend:
+        t0 = dp.index[0]
+        t_hours = np.array([(t - t0).total_seconds() / 3600.0 for t in dp.index])
+        coeffs = np.polyfit(t_hours, dp.values, 1)
+        trend_y = np.polyval(coeffs, t_hours)
+
+        dir_text = {"up": "Рост", "down": "Снижение", "flat": "Стабильно"}.get(
+            dp_trend["direction"], "")
+        label = f"Тренд ({dir_text}, {dp_trend['slope_per_day']:.4f}/сут, R²={dp_trend['r_squared']:.2f})"
+        ax.plot(dp_local.index, trend_y, color="#333333",
+                linewidth=1.2, linestyle="--", label=label)
+
+    ax.set_ylabel("ΔP, кгс/см²", fontsize=8)
+    ax.legend(fontsize=6, loc="upper right")
+    ax.tick_params(labelsize=7)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+    ax.grid(True, alpha=0.3, linewidth=0.5)
+
+    fig.autofmt_xdate(rotation=0, ha="center")
+    fig.tight_layout(pad=0.5)
+
+    chart_path = TEMP_DIR.resolve() / f"dp_chart_{well_number}_{report_date.isoformat()}.png"
+    fig.savefig(str(chart_path), bbox_inches="tight")
+    plt.close(fig)
+
+    return str(chart_path)
+
+
 # ── Data aggregation ─────────────────────────────────────
 
 def _kungrad_day_utc_range(report_date: date):
@@ -220,7 +416,13 @@ def _kungrad_day_utc_range(report_date: date):
     return day_start_utc, day_end_utc
 
 
-def build_well_day_data(db: Session, well: Well, report_date: date) -> dict:
+def build_well_day_data(
+    db: Session,
+    well: Well,
+    report_date: date,
+    downtime_threshold_min: int = 5,
+    comparison_days: int = 7,
+) -> dict:
     """
     Aggregate all daily data for a single well.
 
@@ -271,24 +473,98 @@ def build_well_day_data(db: Session, well: Well, report_date: date) -> dict:
     pressure_stats = None
     dp_trend = None
     purge_count = 0
-    purge_cycles_data = []
+    stoppage_events = []
     purge_total_venting_min = 0
     purge_total_buildup_min = 0
-    downtime_periods_data = []
+    downtime_short_count = 0
+    downtime_short_total_min = 0
     downtime_total_min = 0
     chart_path = None
+    flow_chart_path = None
+    dp_chart_path = None
     flow_stats = None
+    raw_avg_flow = None
+    raw_median_flow = None
+    downtime_loss_estimate = None
+    downtime_short_loss = None
+    purge_total_standing_loss = None
+    purge_total_atm_loss = None
     data_start_time = "---"
     data_end_time = "---"
     data_points_count = 0
+    p_tube_count = 0
+    p_line_count = 0
+
+    # ── 2a. Events query (moved before charts for overlay) ──
+    event_rows = db.execute(text("""
+        SELECT event_time, event_type, description, p_tube, p_line, reagent, qty
+        FROM events
+        WHERE well = :wno
+          AND event_time >= :start AND event_time <= :end
+        ORDER BY event_time
+    """), {"wno": well_number, "start": day_start_local, "end": day_end_local}).fetchall()
+
+    events = []
+    event_type_counts: dict[str, int] = {}
+    event_markers: list[dict] = []
+    for e in event_rows:
+        et = e[1] or "other"
+        # Identify "other" events with pressure readings as equipment purge
+        has_pressures = (e[3] and float(e[3]) > 0 and e[4] and float(e[4]) > 0)
+        if et == "other" and has_pressures:
+            label = "Прод. штуц./маном."
+        else:
+            label = EVENT_TYPE_LABELS.get(et, et)
+        event_type_counts[label] = event_type_counts.get(label, 0) + 1
+
+        # Build rich description: include reagent name & qty for reagent events
+        desc_parts = []
+        if et == "reagent" and e[5]:
+            desc_parts.append(_tex_escape(str(e[5])))
+            if e[6]:
+                desc_parts.append(f"{float(e[6]):.1f}")
+        if e[2]:
+            desc_parts.append(_tex_escape(str(e[2])))
+        description = ", ".join(desc_parts) if desc_parts else "---"
+
+        events.append({
+            "time_str": e[0].strftime("%H:%M") if e[0] else "",
+            "type_label": _tex_escape(label),
+            "description": description,
+            "p_tube": _fmt(e[3]) if e[3] and float(e[3]) > 0 else "---",
+            "p_line": _fmt(e[4]) if e[4] and float(e[4]) > 0 else "---",
+        })
+        # Build chart overlay markers (Kungrad naive → UTC for chart index)
+        if e[0] and et in ("purge", "reagent"):
+            event_markers.append({
+                "time_utc": e[0] - KUNGRAD_OFFSET,
+                "event_type": et,
+            })
+
+    event_type_stats = [
+        {"type_label": _tex_escape(k), "count": v}
+        for k, v in sorted(event_type_counts.items(), key=lambda x: -x[1])
+    ]
+
+    spikes_tube = 0
+    spikes_line = 0
 
     if not df_raw.empty:
         df = clean_pressure(df_raw)
 
-        # Filter out false zeros for statistics
+        # Per-channel valid counts (before ffill, exclude false zeros)
+        p_tube_count = int(df_raw["p_tube"].dropna().pipe(lambda s: s[s > 0]).shape[0])
+        p_line_count = int(df_raw["p_line"].dropna().pipe(lambda s: s[s > 0]).shape[0])
+
+        # Hampel filter — detect and replace spikes (robust outlier detection)
+        from backend.services.pressure_filter_service import hampel_filter
+        df["p_tube"], spikes_tube = hampel_filter(df["p_tube"])
+        df["p_line"], spikes_line = hampel_filter(df["p_line"])
+
+        # Filter out false zeros for statistics, clamp ΔP < 0 to 0
         pt = df["p_tube"].where(df["p_tube"] > 0)
         pl = df["p_line"].where(df["p_line"] > 0)
-        dp = (pt - pl).dropna()
+        dp = (pt - pl).dropna().clip(lower=0)
 
         data_points_count = len(df)
 
@@ -305,75 +581,145 @@ def build_well_day_data(db: Session, well: Well, report_date: date) -> dict:
                 "p_tube_max": _fmt(float(pt.max())),
                 "p_tube_avg": _fmt(float(pt.mean())),
                 "p_tube_median": _fmt(float(pt.median())),
+                "p_tube_range": _fmt(float(pt.max()) - float(pt.min())),
                 "p_line_min": _fmt(float(pl.min())) if pl.dropna().shape[0] > 0 else "---",
                 "p_line_max": _fmt(float(pl.max())) if pl.dropna().shape[0] > 0 else "---",
                 "p_line_avg": _fmt(float(pl.mean())) if pl.dropna().shape[0] > 0 else "---",
                 "p_line_median": _fmt(float(pl.median())) if pl.dropna().shape[0] > 0 else "---",
+                "p_line_range": _fmt(float(pl.max()) - float(pl.min())) if pl.dropna().shape[0] > 0 else "---",
                 "dp_min": _fmt(float(dp.min())) if len(dp) > 0 else "---",
                 "dp_max": _fmt(float(dp.max())) if len(dp) > 0 else "---",
                 "dp_avg": _fmt(float(dp.mean())) if len(dp) > 0 else "---",
                 "dp_median": _fmt(float(dp.median())) if len(dp) > 0 else "---",
+                "dp_range": _fmt(float(dp.max()) - float(dp.min())) if len(dp) > 0 else "---",
             }
 
-        # ΔP trend analysis
-        if len(dp) >= 10:
+        # ΔP trend analysis (always show — even flat trend is informative)
+        if len(dp) >= 3:
             duration_hours = (df.index.max() - df.index.min()).total_seconds() / 3600.0
             trend = _linear_trend(dp.tolist(), duration_hours)
-            if trend and trend["r_squared"] > 0.1:
+            if trend:
                 dp_trend = trend
 
-        # ── 3. Purge detection ──
+        # ΔP chart with trend overlay
+        try:
+            dp_chart_path = _render_dp_chart(df, well_number, report_date, dp_trend)
+        except Exception:
+            log.exception("DP chart rendering failed for well %s", well_number)
+
+        # ── 3. Purge + Downtime detection (unified) ──
+        purge_ranges = []
+
+        # 3a. Purge detection (confidence ≥ 0.95 = confirmed purge)
         try:
             events_df = get_purge_events(well.id, utc_start_str, utc_end_str)
             detector = PurgeDetector()
             purge_cycles = detector.detect(df, events_df)
             active_cycles = [c for c in purge_cycles if not c.excluded]
-            purge_count = len(active_cycles)
 
-            for c in active_cycles:
-                start_t = c.venting_start
-                if start_t is not None:
-                    start_local = start_t + KUNGRAD_OFFSET
-                    purge_cycles_data.append({
-                        "start_time": start_local.strftime("%H:%M"),
-                        "venting_min": _fmt(c.venting_duration_min, 0),
-                        "buildup_min": _fmt(c.buildup_duration_min, 0),
-                        "p_start": _fmt(c.p_start),
-                        "p_bottom": _fmt(c.p_bottom),
-                        "p_end": _fmt(c.p_end),
-                    })
+            confirmed = [c for c in active_cycles
+                         if c.confidence >= 0.95 and c.venting_start]
+            purge_count = len(confirmed)
+            purge_total_venting_min = round(
+                sum(c.venting_duration_min for c in confirmed))
+            purge_total_buildup_min = round(
+                sum(c.buildup_duration_min for c in confirmed))
 
-            purge_total_venting_min = round(sum(c.venting_duration_min for c in active_cycles))
-            purge_total_buildup_min = round(sum(c.buildup_duration_min for c in active_cycles))
+            for c in confirmed:
+                p_end_ts = c.buildup_end or c.venting_end or c.venting_start
+                purge_ranges.append((c.venting_start, p_end_ts))
+
+                start_local = c.venting_start + KUNGRAD_OFFSET
+                end_local = p_end_ts + KUNGRAD_OFFSET
+                vent_min = float(c.venting_duration_min) if c.venting_duration_min else 0
+                build_min = float(c.buildup_duration_min) if c.buildup_duration_min else 0
+
+                stoppage_events.append({
+                    "type_label": "Продувка",
+                    "start_time": start_local.strftime("%H:%M"),
+                    "end_time": end_local.strftime("%H:%M"),
+                    "duration_min": _fmt(vent_min + build_min, 0),
+                    "details": (
+                        f"start P={_fmt(c.p_start)} $\\rightarrow$ "
+                        f"стравл. {_fmt(vent_min, 0)}м P={_fmt(c.p_bottom)} $\\rightarrow$ "
+                        f"набор {_fmt(build_min, 0)}м $\\rightarrow$ "
+                        f"пуск P={_fmt(c.p_end)}"
+                    ),
+                    "standing_loss": "---",
+                    "atm_loss": "---",
+                    "total_loss": "---",
+                    "_total_min": vent_min + build_min,
+                    "_venting_min": vent_min,
+                    "_p_start": float(c.p_start) if c.p_start else 0,
+                    "_p_bottom": float(c.p_bottom) if c.p_bottom else 0,
+                    "_standing_loss": 0.0,
+                    "_atm_loss": 0.0,
+                    "_sort_ts": c.venting_start,
+                })
         except Exception:
             log.exception("Purge detection failed for well %s", well_number)
             purge_cycles = []
 
-        # ── 4. Downtime detection ──
+        # 3b. Downtime detection (non-overlapping with confirmed purges)
         try:
             dt_periods = detect_downtime_periods(df)
             if not dt_periods.empty:
                 for _, row_dt in dt_periods.iterrows():
-                    start_local = row_dt["start"] + KUNGRAD_OFFSET
-                    end_local = row_dt["end"] + KUNGRAD_OFFSET
-                    downtime_periods_data.append({
-                        "start_time": start_local.strftime("%H:%M"),
-                        "end_time": end_local.strftime("%H:%M"),
-                        "duration_min": _fmt(row_dt["duration_min"], 0),
-                    })
+                    dur = float(row_dt["duration_min"])
+                    if dur < downtime_threshold_min:
+                        downtime_short_count += 1
+                        downtime_short_total_min += round(dur)
+                    else:
+                        dt_s = row_dt["start"]
+                        dt_e = row_dt["end"]
+                        overlaps = any(
+                            not (dt_e < ps or dt_s > pe)
+                            for ps, pe in purge_ranges
+                        )
+                        if not overlaps:
+                            start_local = dt_s + KUNGRAD_OFFSET
+                            end_local = dt_e + KUNGRAD_OFFSET
+                            stoppage_events.append({
+                                "type_label": "Простой",
+                                "start_time": start_local.strftime("%H:%M"),
+                                "end_time": end_local.strftime("%H:%M"),
+                                "duration_min": _fmt(dur, 0),
+                                "details": "---",
+                                "standing_loss": "---",
+                                "atm_loss": "---",
+                                "total_loss": "---",
+                                "_total_min": dur,
+                                "_venting_min": 0,
+                                "_p_start": 0,
+                                "_p_bottom": 0,
+                                "_standing_loss": 0.0,
+                                "_atm_loss": 0.0,
+                                "_sort_ts": dt_s,
+                            })
                 downtime_total_min = round(float(dt_periods["duration_min"].sum()))
         except Exception:
             log.exception("Downtime detection failed for well %s", well_number)
             dt_periods = pd.DataFrame()
 
+        # Sort stoppages by time
+        stoppage_events.sort(key=lambda x: x["_sort_ts"])
+
         # ── 5. Flow rate ──
+        # Always compute df_flow for charts if possible
+        df_flow_for_chart = None
+        if choke_mm and not df.empty:
+            try:
+                df_flow_for_chart = calculate_flow_rate(df.copy(), choke_mm)
+            except Exception:
+                log.exception("Flow calc for chart failed for well %s", well_number)
+
         # Try flow_result first (pre-computed baseline)
         fr = db.execute(text("""
             SELECT
                 fr.avg_flow_rate, fr.median_flow_rate,
                 fr.min_flow_rate, fr.max_flow_rate,
                 fr.cumulative_flow, fr.purge_loss,
-                fr.downtime_minutes
+                fr.downtime_minutes, fr.data_points
             FROM flow_result fr
             JOIN flow_scenario fs ON fs.id = fr.scenario_id
             WHERE fs.well_id = :wid
@@ -382,28 +728,40 @@ def build_well_day_data(db: Session, well: Well, report_date: date) -> dict:
             LIMIT 1
         """), {"wid": well.id, "rd": report_date}).fetchone()
 
+        # Compute clean avg from df_flow (only working minutes where flow_rate > 0)
+        clean_avg_flow = None
+        if df_flow_for_chart is not None and "flow_rate" in df_flow_for_chart.columns:
+            q_pos = df_flow_for_chart["flow_rate"][df_flow_for_chart["flow_rate"] > 0]
+            if len(q_pos) > 0:
+                clean_avg_flow = float(q_pos.mean())
+
         if fr:
             # Use pre-computed flow stats + compute КИВ
             total_min = 1440  # 24h
-            dt_min = float(fr[6]) if fr[6] else 0
+            dt_min = downtime_total_min
             utilization = ((total_min - dt_min) / total_min * 100.0) if total_min > 0 else 0
-            eff_flow = float(fr[0]) if fr[0] else 0  # avg = effective for daily
+            raw_median_flow = float(fr[1]) if fr[1] else None
+            cum_flow = float(fr[4]) if fr[4] else 0
+
+            # Use clean avg (only working minutes) or fallback to stored avg
+            display_avg = clean_avg_flow if clean_avg_flow else (float(fr[0]) if fr[0] else None)
+            raw_avg_flow = display_avg
 
             flow_stats = {
-                "avg_flow_rate": _fmt(fr[0]),
+                "avg_flow_rate": _fmt(display_avg),
                 "median_flow_rate": _fmt(fr[1]),
-                "min_flow_rate": _fmt(fr[2]) if fr[2] is not None else "---",
-                "max_flow_rate": _fmt(fr[3]) if fr[3] is not None else "---",
-                "effective_flow_rate": _fmt(eff_flow),
+                "min_flow_rate": _fmt(fr[2]),
+                "max_flow_rate": _fmt(fr[3]),
+                "effective_flow_rate": _fmt(display_avg),
                 "utilization_pct": _fmt(utilization, 1),
-                "cumulative_flow": _fmt(fr[4]),
-                "purge_loss": _fmt(fr[5]),
+                "cumulative_flow": _fmt(cum_flow),
+                "purge_loss": _fmt(fr[5]) if purge_count > 0 else "0",
                 "downtime_minutes": _fmt(dt_min, 0),
             }
-        elif choke_mm and not df.empty:
+        elif df_flow_for_chart is not None:
             # Calculate flow rate from raw pressure data
             try:
-                df_flow = calculate_flow_rate(df.copy(), choke_mm)
+                df_flow = df_flow_for_chart.copy()
                 df_flow = calculate_purge_loss(df_flow)
                 df_flow = calculate_cumulative(df_flow)
 
@@ -419,55 +777,187 @@ def build_well_day_data(db: Session, well: Well, report_date: date) -> dict:
                 )
 
                 if "error" not in summary:
+                    raw_median_flow = summary.get("median_flow_rate")
+                    # Use clean avg (only working minutes)
+                    display_avg = clean_avg_flow if clean_avg_flow else summary.get("mean_flow_rate")
+                    raw_avg_flow = display_avg
+
                     flow_stats = {
-                        "avg_flow_rate": _fmt(summary.get("mean_flow_rate")),
+                        "avg_flow_rate": _fmt(display_avg),
                         "median_flow_rate": _fmt(summary.get("median_flow_rate")),
-                        "min_flow_rate": _fmt(float(df_flow["flow_rate"].min())),
-                        "max_flow_rate": _fmt(float(df_flow["flow_rate"].max())),
-                        "effective_flow_rate": _fmt(summary.get("effective_flow_rate")),
+                        "min_flow_rate": _fmt(summary.get("q1_flow_rate")),
+                        "max_flow_rate": _fmt(summary.get("q3_flow_rate")),
+                        "effective_flow_rate": _fmt(display_avg),
                         "utilization_pct": _fmt(summary.get("utilization_pct"), 1),
                         "cumulative_flow": _fmt(summary.get("cumulative_flow")),
-                        "purge_loss": _fmt(summary.get("purge_loss_total")),
-                        "downtime_minutes": _fmt(summary.get("downtime_minutes"), 0),
+                        "purge_loss": _fmt(summary.get("purge_loss_total")) if purge_count > 0 else "0",
+                        "downtime_minutes": _fmt(downtime_total_min, 0),
                     }
             except Exception:
                 log.exception("Flow calculation failed for well %s", well_number)
 
-        # ── 6. Pressure chart ──
+        # ── 5b. Historical flow comparison ──
+        week_avg_flow = None
+        week_median_flow = None
+        month_cumulative = None
+        month_avg_flow = None
+        month_median_flow = None
+        month_working_days = 0
+        delta_q_month = None
+        delta_q_month_pct = None
+
+        if flow_stats:
+            month_start = report_date.replace(day=1)
+
+            # Weekly average + median (past N days)
+            week_start = report_date - timedelta(days=comparison_days)
+            week_row = db.execute(text("""
+                SELECT
+                    AVG(fr.median_flow_rate),
+                    PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY fr.median_flow_rate),
+                    COUNT(*)
+                FROM flow_result fr
+                JOIN flow_scenario fs ON fs.id = fr.scenario_id
+                WHERE fs.well_id = :wid
+                  AND fs.is_baseline = TRUE
+                  AND fr.result_date BETWEEN :ws AND :rd
+            """), {"wid": well.id, "ws": week_start, "rd": report_date}).fetchone()
+
+            if week_row:
+                if week_row[0]:
+                    week_avg_flow = float(week_row[0])
+                if week_row[1]:
+                    week_median_flow = float(week_row[1])
+
+            # Month-to-date: cumulative, average, median, working days
+            month_row = db.execute(text("""
+                SELECT
+                    SUM(fr.cumulative_flow),
+                    AVG(fr.median_flow_rate),
+                    PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY fr.median_flow_rate),
+                    COUNT(*)
+                FROM flow_result fr
+                JOIN flow_scenario fs ON fs.id = fr.scenario_id
+                WHERE fs.well_id = :wid
+                  AND fs.is_baseline = TRUE
+                  AND fr.result_date BETWEEN :ms AND :rd
+            """), {"wid": well.id, "ms": month_start, "rd": report_date}).fetchone()
+
+            if month_row:
+                if month_row[0]:
+                    month_cumulative = float(month_row[0])
+                if month_row[1]:
+                    month_avg_flow = float(month_row[1])
+                if month_row[2]:
+                    month_median_flow = float(month_row[2])
+                if month_row[3]:
+                    month_working_days = int(month_row[3])
+
+            # Fallback: if flow_result has no monthly data, compute from raw pressure
+            if month_cumulative is None and choke_mm:
+                try:
+                    result = _compute_month_flow_from_raw(
+                        db, well, choke_mm, month_start, report_date,
+                        get_pressure_data, clean_pressure,
+                        calculate_flow_rate, calculate_cumulative,
+                        comparison_days=comparison_days,
+                    )
+                    if result:
+                        month_cumulative = result["month_cumulative"]
+                        month_avg_flow = result["month_avg_flow"]
+                        month_median_flow = result["month_median_flow"]
+                        month_working_days = result.get("working_days", 0)
+                        if week_avg_flow is None:
+                            week_avg_flow = result.get("week_avg_flow")
+                        if week_median_flow is None:
+                            week_median_flow = result.get("week_median_flow")
+                except Exception:
+                    log.exception("Month flow fallback failed for well %s", well_number)
+
+            # Last fallback: use today's cumulative if still nothing
+            if month_cumulative is None and flow_stats and flow_stats.get("cumulative_flow"):
+                try:
+                    today_cum = float(flow_stats["cumulative_flow"].replace(",", "."))
+                    if today_cum > 0:
+                        month_cumulative = today_cum
+                        month_working_days = 1
+                except (ValueError, AttributeError):
+                    pass
+
+            # ΔQ relative to month median
+            current_q = raw_median_flow if raw_median_flow else raw_avg_flow
+            if current_q and month_median_flow and month_median_flow > 0:
+                delta_q_month = current_q - month_median_flow
+                delta_q_month_pct = (delta_q_month / month_median_flow * 100.0)
+
+        # ── 5c. Loss estimates (per-stoppage) ──
+        med = raw_median_flow if raw_median_flow else raw_avg_flow
+        if med:
+            per_min_flow = med / 1440.0  # тыс м³/мин
+
+            # Total downtime loss
+            if downtime_total_min > 0:
+                downtime_loss_estimate = per_min_flow * downtime_total_min
+
+            # Short downtime loss
+            if downtime_short_total_min > 0:
+                downtime_short_loss = per_min_flow * downtime_short_total_min
+
+            # Per-stoppage losses (standing + atmospheric)
+            from backend.services.flow_rate.config import DEFAULT_PURGE as _purge_cfg
+            for se in stoppage_events:
+                # Standing loss: production lost while well idle
+                sl = per_min_flow * se["_total_min"]
+                se["standing_loss"] = _fmt(sl, 3)
+                se["_standing_loss"] = sl
+
+                # Atmospheric loss: only for confirmed purges
+                if se["_venting_min"] > 0:
+                    p_avg = (se["_p_start"] + se["_p_bottom"]) / 2.0
+                    if p_avg > 0:
+                        p_mpa = p_avg * _purge_cfg.kgscm2_to_MPa
+                        delta_p_pa = max((p_mpa - _purge_cfg.atm_pressure_MPa) * 1e6, 0)
+                        area = np.pi * (_purge_cfg.choke_diameter_m / 2.0) ** 2
+                        rho = max(
+                            (p_mpa * 1e6) * _purge_cfg.molar_mass
+                            / (_purge_cfg.gas_constant * _purge_cfg.standard_temp_K),
+                            1e-6,
+                        )
+                        q_m3s = _purge_cfg.discharge_coeff * area * np.sqrt(2.0 * delta_p_pa / rho)
+                        al = q_m3s * se["_venting_min"] * 60.0 / 1000.0
+                        se["atm_loss"] = _fmt(al, 3)
+                        se["_atm_loss"] = al
+
+            # Compute total_loss per stoppage (standing + atmospheric)
+            for se in stoppage_events:
+                tl = se["_standing_loss"] + se["_atm_loss"]
+                se["total_loss"] = _fmt(tl, 3) if tl > 0 else "---"
+
+            if purge_count > 0:
+                purge_total_standing_loss = sum(
+                    se["_standing_loss"] for se in stoppage_events
+                    if se["_venting_min"] > 0
+                )
+                purge_total_atm_loss = sum(
+                    se["_atm_loss"] for se in stoppage_events
+                )
+
+        # ── 6. Charts ──
         try:
-            chart_path = _render_pressure_chart(df, well_number, report_date)
+            chart_path = _render_pressure_chart(
+                df, well_number, report_date,
+                event_markers=event_markers if event_markers else None,
+            )
         except Exception:
             log.exception("Chart rendering failed for well %s", well_number)
 
-    # ── 7. Events ──
-    event_rows = db.execute(text("""
-        SELECT event_time, event_type, description, p_tube, p_line
-        FROM events
-        WHERE well = :wno
-          AND event_time >= :start AND event_time <= :end
-        ORDER BY event_time
-    """), {"wno": well_number, "start": day_start_local, "end": day_end_local}).fetchall()
+        try:
+            if df_flow_for_chart is not None:
+                flow_chart_path = _render_flow_chart(df_flow_for_chart, well_number, report_date)
+        except Exception:
+            log.exception("Flow chart rendering failed for well %s", well_number)
 
-    events = []
-    event_type_counts: dict[str, int] = {}
-    for e in event_rows:
-        et = e[1] or "other"
-        label = EVENT_TYPE_LABELS.get(et, et)
-        event_type_counts[label] = event_type_counts.get(label, 0) + 1
-        events.append({
-            "time_str": e[0].strftime("%H:%M") if e[0] else "",
-            "type_label": _tex_escape(label),
-            "description": _tex_escape(e[2] or ""),
-            "p_tube": _fmt(e[3]) if e[3] and float(e[3]) > 0 else "---",
-            "p_line": _fmt(e[4]) if e[4] and float(e[4]) > 0 else "---",
-        })
-
-    event_type_stats = [
-        {"type_label": _tex_escape(k), "count": v}
-        for k, v in sorted(event_type_counts.items(), key=lambda x: -x[1])
-    ]
-
-    # ── 8. Reagent stats + intervals + prev day comparison ──
+    # ── 7. Reagent stats + intervals + prev day comparison ──
     reagent_rows = db.execute(text("""
         SELECT reagent, SUM(qty) AS total_qty, COUNT(*) AS cnt
         FROM events
@@ -516,11 +1006,33 @@ def build_well_day_data(db: Session, well: Well, report_date: date) -> dict:
                 "reagent": _tex_escape(rname),
                 "interval_hours": _fmt(avg_interval, 1),
             })
+        elif len(times_list) == 1:
+            # Single injection today — use prev day's last injection
+            prev_last = db.execute(text("""
+                SELECT MAX(event_time) FROM events
+                WHERE well = :wno AND event_type = 'reagent'
+                  AND reagent = :rname AND event_time < :today_start
+            """), {"wno": well_number, "rname": rname,
+                   "today_start": day_start_local}).scalar()
+            if prev_last:
+                diff_h = (times_list[0] - prev_last).total_seconds() / 3600.0
+                reagent_intervals.append({
+                    "reagent": _tex_escape(rname),
+                    "interval_hours": _fmt(diff_h, 1),
+                })
+
+    # Merge interval_hours into reagent_stats for unified table
+    for rs in reagent_stats:
+        rs["interval_hours"] = "---"
+        for ri in reagent_intervals:
+            if ri["reagent"] == rs["name"]:
+                rs["interval_hours"] = ri["interval_hours"]
+                break
 
     # Previous day comparison
-    prev_date = report_date - timedelta(days=1)
-    prev_start = datetime.combine(prev_date, time(0, 0))
-    prev_end = datetime.combine(prev_date, time(23, 59, 59))
+    prev_date_r = report_date - timedelta(days=1)
+    prev_start = datetime.combine(prev_date_r, time(0, 0))
+    prev_end = datetime.combine(prev_date_r, time(23, 59, 59))
 
     prev_reagent_rows = db.execute(text("""
         SELECT reagent, COUNT(*) AS cnt
@@ -565,6 +1077,17 @@ def build_well_day_data(db: Session, well: Well, report_date: date) -> dict:
             "diff": diff_str,
         })
 
+    # ── Flow formula coefficients for LaTeX description ──
+    from backend.services.flow_rate.config import DEFAULT_FLOW, DEFAULT_PURGE
+    flow_formula = {
+        "C1": DEFAULT_FLOW.C1,
+        "C2": DEFAULT_FLOW.C2,
+        "C3": DEFAULT_FLOW.C3,
+        "multiplier": DEFAULT_FLOW.multiplier,
+        "purge_Cd": DEFAULT_PURGE.discharge_coeff,
+        "purge_d_mm": int(DEFAULT_PURGE.choke_diameter_m * 1000),
+    }
+
     return {
         "well_number": well_number,
         "well_name": _tex_escape(well.name or ""),
@@ -576,21 +1099,47 @@ def build_well_day_data(db: Session, well: Well, report_date: date) -> dict:
         "data_start_time": data_start_time,
         "data_end_time": data_end_time,
         "data_points_count": data_points_count,
+        "p_tube_count": p_tube_count,
+        "p_line_count": p_line_count,
+        "interpolated_tube": max(data_points_count - p_tube_count, 0),
+        "interpolated_line": max(data_points_count - p_line_count, 0),
+        "spikes_tube": spikes_tube,
+        "spikes_line": spikes_line,
         # Pressure
         "pressure_stats": pressure_stats,
         "dp_trend": dp_trend,
-        # Purges
+        # Stoppages (unified purges + downtimes)
+        "stoppage_events": stoppage_events,
         "purge_count": purge_count,
-        "purge_cycles": purge_cycles_data,
         "purge_total_venting_min": purge_total_venting_min,
         "purge_total_buildup_min": purge_total_buildup_min,
-        # Downtime
-        "downtime_periods": downtime_periods_data,
+        "purge_total_standing_loss": _fmt(purge_total_standing_loss, 3) if purge_total_standing_loss else "---",
+        "purge_total_atm_loss": _fmt(purge_total_atm_loss, 3) if purge_total_atm_loss else "---",
+        "downtime_short_count": downtime_short_count,
+        "downtime_short_total_min": downtime_short_total_min,
+        "downtime_short_loss": _fmt(downtime_short_loss, 3) if downtime_short_loss else "---",
+        "downtime_threshold_min": downtime_threshold_min,
         "downtime_total_min": downtime_total_min,
+        "downtime_loss_estimate": _fmt(downtime_loss_estimate, 3) if downtime_loss_estimate else "---",
         # Flow
         "flow_stats": flow_stats,
-        # Chart
+        # Flow comparison
+        "week_avg_flow": _fmt(week_avg_flow) if week_avg_flow else "---",
+        "week_median_flow": _fmt(week_median_flow) if week_median_flow else "---",
+        "comparison_days": comparison_days,
+        "month_cumulative": _fmt(month_cumulative) if month_cumulative else "---",
+        "month_avg_flow": _fmt(month_avg_flow) if month_avg_flow else "---",
+        "month_median_flow": _fmt(month_median_flow) if month_median_flow else "---",
+        "month_working_days": month_working_days,
+        "month_calendar_days": report_date.day,
+        "delta_q_month": _fmt(delta_q_month) if delta_q_month is not None else "---",
+        "delta_q_month_pct": _fmt(delta_q_month_pct, 1) if delta_q_month_pct is not None else "---",
+        # Formula coefficients
+        "flow_formula": flow_formula,
+        # Charts
         "chart_path": chart_path,
+        "flow_chart_path": flow_chart_path,
+        "dp_chart_path": dp_chart_path,
         # Events
         "events": events,
         "event_type_stats": event_type_stats,
@@ -618,6 +1167,8 @@ def generate_daily_report_pdf(doc, db: Session) -> str:
     meta = doc.meta or {}
     report_date = date.fromisoformat(meta["report_date"])
     well_ids = meta.get("well_ids", [])
+    downtime_threshold_min = meta.get("downtime_threshold_min", 5)
+    comparison_days = meta.get("comparison_days", 7)
 
     if doc.well_id and not well_ids:
         well_ids = [doc.well_id]
@@ -630,7 +1181,11 @@ def generate_daily_report_pdf(doc, db: Session) -> str:
     # Build data for each well
     wells_data = []
     for w in wells:
-        wd = build_well_day_data(db, w, report_date)
+        wd = build_well_day_data(
+            db, w, report_date,
+            downtime_threshold_min=downtime_threshold_min,
+            comparison_days=comparison_days,
+        )
         wells_data.append(wd)
 
     now_kungrad = datetime.utcnow() + KUNGRAD_OFFSET
@@ -655,11 +1210,12 @@ def generate_daily_report_pdf(doc, db: Session) -> str:
 
     # Cleanup chart PNGs
     for w in wells_data:
-        cp = w.get("chart_path")
-        if cp:
-            p = Path(cp)
-            if p.exists():
-                p.unlink()
+        for key in ("chart_path", "flow_chart_path", "dp_chart_path"):
+            cp = w.get(key)
+            if cp:
+                p = Path(cp)
+                if p.exists():
+                    p.unlink()
 
     log.info("Daily report PDF generated: %s", pdf_path)
     return f"generated/pdf/{base_name}.pdf"

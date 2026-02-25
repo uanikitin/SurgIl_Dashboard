@@ -1146,3 +1146,26 @@ def pressure_reassign(
     from backend.services.pressure_reassign_service import reassign_well_ids
     result = reassign_well_ids(sensor_ids=sensor_ids, dry_run=dry_run)
     return {"status": "ok", **result}
+
+
+@router.post("/reassign-transfer")
+def pressure_reassign_transfer(
+    sensor_ids: list[int] = Query(...),
+    old_well_id: int = Query(...),
+    new_well_id: int = Query(...),
+    since: str = Query(..., description="Local datetime ISO, e.g. 2026-02-25T10:00"),
+    current_user=Depends(get_current_user),
+):
+    """
+    Быстрое переназначение давлений при переносе датчика.
+    POST /api/pressure/reassign-transfer?sensor_ids=5&sensor_ids=6&old_well_id=43&new_well_id=89&since=2026-02-20T10:00
+    """
+    since_dt = datetime.fromisoformat(since)
+    from backend.services.pressure_reassign_service import reassign_on_transfer
+    result = reassign_on_transfer(
+        sensor_ids=sensor_ids,
+        old_well_id=old_well_id,
+        new_well_id=new_well_id,
+        since=since_dt,
+    )
+    return {"status": "ok", **result}

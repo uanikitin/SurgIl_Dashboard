@@ -57,9 +57,6 @@ def _next_seq(db: Session, doc_type_id: int, well_id: int | None, year: int | No
     else:
         stmt = stmt.where(Document.period_month.is_(None))
 
-    # не считаем soft-deleted
-    if hasattr(Document, "deleted_at"):
-        stmt = stmt.where(Document.deleted_at.is_(None))
-
+    # Count ALL docs including soft-deleted: unique constraint covers all rows
     n = db.execute(stmt).scalar_one()
     return int(n) + 1

@@ -12,25 +12,18 @@ import numpy as np
 import pandas as pd
 
 
-_P_MAX = 85.0  # Максимальное физически допустимое давление (атм)
-_FFILL_LIMIT = 10  # Максимум 10 пропусков для ffill (≈10 мин при поминутных данных)
-
-
 def clean_pressure(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Базовая очистка: отрицательные/нули/выше 85 атм → NaN, ffill/bfill.
-
-    ffill ограничен 10 точками чтобы не заполнять многочасовые разрывы
-    (замена датчика, отключение) фиктивными значениями.
+    Базовая очистка: отрицательные → NaN, нули → NaN, ffill/bfill.
     """
     df = df.copy()
     for col in ("p_tube", "p_line"):
         if col not in df.columns:
             continue
         s = pd.to_numeric(df[col], errors="coerce")
-        s = s.where((s > 0) & (s <= _P_MAX))  # вне диапазона → NaN
+        s = s.where(s > 0)          # отрицательные и нули → NaN
         df[col] = s
-    df = df.ffill(limit=_FFILL_LIMIT).bfill(limit=_FFILL_LIMIT)
+    df = df.ffill().bfill()
     return df
 
 

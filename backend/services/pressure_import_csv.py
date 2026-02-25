@@ -45,11 +45,7 @@ TZ_OFFSET = timedelta(hours=5)
 TZ_UZB = timezone(TZ_OFFSET)
 
 # Невалидные значения давлений
-# Физически невозможные значения датчиков SMOD-PT-60
 INVALID_VALUES = {-1.0, -2.0}
-# Допустимый диапазон давления (атм): ≤0 — ложные нули или сбой, >85 — сбой датчика
-P_VALID_MIN = 0.0   # строго больше (0.0 = ложный нуль)
-P_VALID_MAX = 85.0  # включительно
 
 # Регулярка для имени файла: DD.MM.YYYY.{группа}_arc.csv
 FILENAME_RE = re.compile(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})\.(\d+)_arc\.csv$")
@@ -82,20 +78,11 @@ def _parse_filename(name: str) -> Optional[tuple[int, int, int, int]]:
 
 
 def _clean_pressure(val) -> Optional[float]:
-    """Возвращает None если значение невалидное или вне физического диапазона.
-
-    Отбрасывает: NaN, ≤0 (ложные нули, отрицательные), >85 атм (сбой датчика).
-    """
+    """Возвращает None если значение невалидное или отсутствует."""
     if pd.isna(val):
         return None
     v = float(val)
     if v in INVALID_VALUES:
-        return None
-    # Отрицательные и нулевые — ложные нули / сбой датчика SMOD-PT-60
-    if v <= P_VALID_MIN:
-        return None
-    # Выше максимума — сбой датчика
-    if v > P_VALID_MAX:
         return None
     return round(v, 3)
 

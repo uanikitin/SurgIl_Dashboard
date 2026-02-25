@@ -14,17 +14,14 @@ import pandas as pd
 
 def clean_pressure(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Базовая очистка: вне диапазона (0, 85] → NaN, ffill/bfill.
-
-    Правило то же что в SQL-запросах графиков:
-      CASE WHEN p > 0 AND p <= 85 THEN p END
+    Базовая очистка: отрицательные и нули → NaN, ffill/bfill.
     """
     df = df.copy()
     for col in ("p_tube", "p_line"):
         if col not in df.columns:
             continue
         s = pd.to_numeric(df[col], errors="coerce")
-        s = s.where((s > 0) & (s <= 85))  # вне диапазона → NaN
+        s = s.where(s > 0)          # отрицательные и нули → NaN
         df[col] = s
     df = df.ffill().bfill()
     return df

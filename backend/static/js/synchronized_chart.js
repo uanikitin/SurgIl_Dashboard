@@ -432,12 +432,17 @@
     }
 
     // ── 1) Кривая Ptr (устье) ──
-    // Включаем null-точки (gap-маркеры) чтобы Chart.js разрывал линию
+    // Gap-маркеры (_gap:true) → null → Chart.js рвёт линию.
+    // Обычные null (пустой бакет) → пропускаем → Chart.js рисует плавно.
     const tubeData = [];
     for (const p of points) {
       if (!p.t) continue;
       const v = p.p_tube_avg;
-      tubeData.push({ x: p.t, y: (v !== null && v !== undefined) ? v : null });
+      if (p._gap) {
+        tubeData.push({ x: p.t, y: null });
+      } else if (v !== null && v !== undefined) {
+        tubeData.push({ x: p.t, y: v });
+      }
     }
     ds.push({
       label: 'Ptr (устье)',
@@ -459,7 +464,11 @@
     for (const p of points) {
       if (!p.t) continue;
       const v = p.p_line_avg;
-      lineData.push({ x: p.t, y: (v !== null && v !== undefined) ? v : null });
+      if (p._gap) {
+        lineData.push({ x: p.t, y: null });
+      } else if (v !== null && v !== undefined) {
+        lineData.push({ x: p.t, y: v });
+      }
     }
     ds.push({
       label: 'Pshl (шлейф)',

@@ -124,15 +124,16 @@
     }
 
     // Вычисляем ΔP = Ptr_avg - Pshl_avg, clamped to >= 0
-    // Включаем null-точки (gap-маркеры) чтобы Chart.js разрывал линию
+    // Gap-маркеры (_gap:true) → null → Chart.js рвёт линию при больших разрывах.
+    // Обычные null → пропускаем → Chart.js рисует плавно через короткие пропуски.
     const deltaData = [];
     for (const p of points) {
       if (!p.t) continue;
-      if (p.p_tube_avg != null && p.p_line_avg != null) {
+      if (p._gap) {
+        deltaData.push({ x: p.t, y: null });
+      } else if (p.p_tube_avg != null && p.p_line_avg != null) {
         const dp = p.p_tube_avg - p.p_line_avg;
         deltaData.push({ x: p.t, y: Math.max(0, dp) });
-      } else {
-        deltaData.push({ x: p.t, y: null });
       }
     }
 

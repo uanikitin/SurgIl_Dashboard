@@ -352,7 +352,10 @@ def _insert_gap_markers(data: list[dict], interval_min: int) -> list[dict]:
     if len(data) < 2:
         return data
 
-    gap_threshold_sec = interval_min * 60 * 2.5  # 2.5× интервала
+    # Порог для разрыва линии: 2 часа.
+    # Короткие пропуски (dropout датчика, 10-30 мин) — Chart.js рисует плавно.
+    # Длинные разрывы (замена датчика, отключение скважины) — рвём линию.
+    gap_threshold_sec = max(2 * 3600, interval_min * 60 * 2.5)
     result = []
 
     for i, point in enumerate(data):
@@ -365,7 +368,7 @@ def _insert_gap_markers(data: list[dict], interval_min: int) -> list[dict]:
                 if gap_sec > gap_threshold_sec:
                     # Вставляем null-маркер через 1 секунду после текущей точки
                     gap_t = (t_cur + timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%S")
-                    null_point = {"t": gap_t}
+                    null_point = {"t": gap_t, "_gap": True}
                     for key in point:
                         if key != "t":
                             null_point[key] = None

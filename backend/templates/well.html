@@ -985,6 +985,10 @@
       <span style="font-size:11px; color:#e65100; font-weight:600; text-transform:uppercase; letter-spacing:.03em;">
         Обработка сигнала:
       </span>
+      <button type="button" id="sync-filter-help-btn"
+        style="background:none; border:1px solid #e65100; color:#e65100; border-radius:50%; width:18px; height:18px;
+               font-size:11px; font-weight:700; cursor:pointer; padding:0; line-height:16px; flex-shrink:0;"
+        title="Справка по фильтрам">?</button>
 
       {# Ложные нули #}
       <label style="font-size:12px; display:flex; align-items:center; gap:4px; cursor:pointer; color:#333;"
@@ -1041,6 +1045,105 @@
           style="width:55px; padding:3px 6px; border:1px solid #dee2e6; border-radius:4px; font-size:12px; text-align:center; color:#333;">
         <span style="font-size:11px; color:#666;">мин</span>
       </label>
+    </div>
+
+    {# ── Модальное окно справки по фильтрам ── #}
+    <div id="sync-filter-help-modal" style="
+      display:none; position:fixed; inset:0; z-index:9999;
+      background:rgba(0,0,0,0.5); justify-content:center; align-items:center;
+    ">
+      <div style="
+        background:white; border-radius:12px; max-width:680px; width:90%;
+        max-height:85vh; overflow-y:auto; padding:28px 32px;
+        box-shadow:0 8px 32px rgba(0,0,0,0.2); position:relative;
+      ">
+        <button type="button" id="sync-filter-help-close"
+          style="position:absolute; top:12px; right:16px; background:none; border:none;
+                 font-size:22px; cursor:pointer; color:#999; line-height:1;">&times;</button>
+        <h3 style="margin:0 0 16px; color:#e65100; font-size:16px;">Обработка сигнала давления</h3>
+        <p style="font-size:13px; color:#555; margin:0 0 16px; line-height:1.5;">
+          Данные поступают с датчиков давления LoRa SMOD-PT-60, установленных на устье и шлейфе скважины.
+          Передача каждую минуту. Сырые данные хранятся без изменений &mdash; фильтры применяются только при отображении.
+        </p>
+
+        <div style="display:flex; flex-direction:column; gap:14px;">
+
+          <div style="background:#fff8e1; padding:12px 14px; border-radius:8px; border-left:3px solid #ff9800;">
+            <div style="font-weight:600; font-size:13px; color:#e65100; margin-bottom:4px;">Убрать нули</div>
+            <div style="font-size:12px; color:#444; line-height:1.5;">
+              Датчик SMOD-PT-60 периодически теряет показания и передаёт <code>0.0</code> вместо реального давления.
+              По статистике &mdash; потеря ~4% данных. Серии нулей обычно 1-3 минуты, максимум ~16 минут.
+              <br>Фильтр заменяет <code>0.0</code> на пропуск (NaN). Реальное давление 0 атм на газовой скважине физически невозможно.
+            </div>
+          </div>
+
+          <div style="background:#fff8e1; padding:12px 14px; border-radius:8px; border-left:3px solid #ff9800;">
+            <div style="font-weight:600; font-size:13px; color:#e65100; margin-bottom:4px;">Hampel-фильтр</div>
+            <div style="font-size:12px; color:#444; line-height:1.5;">
+              Робастный статистический фильтр для обнаружения выбросов. Для каждой точки:
+              <ol style="margin:4px 0 0 16px; padding:0;">
+                <li>Берётся окно из 7 точек (3 слева + точка + 3 справа)</li>
+                <li>Вычисляется медиана окна и MAD (медианное абсолютное отклонение)</li>
+                <li>Оценивается &sigma; = 1.4826 &times; MAD</li>
+                <li>Если отклонение точки от медианы > 3.5&sigma; &mdash; это спайк, заменяется медианой</li>
+              </ol>
+              Плавные тренды (продувка, набор давления) <b>не затрагиваются</b> &mdash; фильтр реагирует только на резкие одиночные выбросы.
+              Минимальный абсолютный порог: 1 атм (защита от ложных срабатываний на шуме квантования).
+            </div>
+          </div>
+
+          <div style="background:#fff8e1; padding:12px 14px; border-radius:8px; border-left:3px solid #ff9800;">
+            <div style="font-weight:600; font-size:13px; color:#e65100; margin-bottom:4px;">Скачки > N атм</div>
+            <div style="font-size:12px; color:#444; line-height:1.5;">
+              Детектор мгновенных скачков. Проверяет каждую точку: если она отличается от <b>обоих</b> соседей
+              более чем на порог &mdash; это одиночный спайк (заменяется средним соседей).
+              <br>Если скачок <b>устойчивый</b> (следующая точка на том же уровне) &mdash; это реальное изменение
+              давления (продувка, переключение), <b>не затрагивается</b>.
+              <br>Значение 0 = фильтр выключен. Рекомендуемый диапазон: 3-10 атм.
+            </div>
+          </div>
+
+          <div style="background:#e8f5e9; padding:12px 14px; border-radius:8px; border-left:3px solid #4caf50;">
+            <div style="font-weight:600; font-size:13px; color:#2e7d32; margin-bottom:4px;">Пропуски</div>
+            <div style="font-size:12px; color:#444; line-height:1.5;">
+              Режим заполнения пропусков (NaN) во временном ряду:
+              <ul style="margin:4px 0 0 16px; padding:0;">
+                <li><b>Не заполнять</b> &mdash; пропуски остаются как есть</li>
+                <li><b>Forward-fill</b> &mdash; пропуск заполняется последним известным значением</li>
+                <li><b>Интерполяция</b> &mdash; линейная интерполяция между соседними валидными точками</li>
+              </ul>
+              Заполняются только короткие пропуски (до значения &laquo;Макс.пропуск&raquo;).
+            </div>
+          </div>
+
+          <div style="background:#e8f5e9; padding:12px 14px; border-radius:8px; border-left:3px solid #4caf50;">
+            <div style="font-weight:600; font-size:13px; color:#2e7d32; margin-bottom:4px;">Макс.пропуск (мин)</div>
+            <div style="font-size:12px; color:#444; line-height:1.5;">
+              Максимальная длительность пропуска, который будет заполнен.
+              Пропуски длиннее этого порога <b>не заполняются</b> &mdash; остаются NaN.
+              <br>Защищает от заполнения многочасовых разрывов фиктивными данными (замена датчика, отключение скважины).
+              <br>По умолчанию: 10 минут.
+            </div>
+          </div>
+
+          <div style="background:#e3f2fd; padding:12px 14px; border-radius:8px; border-left:3px solid #1976d2;">
+            <div style="font-weight:600; font-size:13px; color:#1565c0; margin-bottom:4px;">Разрыв линии > N мин</div>
+            <div style="font-size:12px; color:#444; line-height:1.5;">
+              Если между двумя соседними точками графика прошло больше указанного времени &mdash; линия разрывается.
+              <ul style="margin:4px 0 0 16px; padding:0;">
+                <li>Короткие пропуски (dropout датчика, 10-30 мин) &mdash; Chart.js рисует плавную линию</li>
+                <li>Длинные разрывы (замена датчика, отключение скважины) &mdash; видны как разрыв</li>
+              </ul>
+              По умолчанию: 120 минут (2 часа). Можно уменьшить до 5 мин для детального анализа или увеличить до 1440 мин (сутки).
+            </div>
+          </div>
+
+        </div>
+
+        <p style="font-size:11px; color:#999; margin:16px 0 0; text-align:center;">
+          Настройки сохраняются для каждой скважины отдельно.
+        </p>
+      </div>
     </div>
 
     {# ── Кастомная легенда с группами ── #}

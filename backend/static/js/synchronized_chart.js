@@ -2056,18 +2056,89 @@ Pshl (шлейф): ${pshlStats.count} точек
     });
   }
 
+  // ══════════════════ Сохранение/восстановление настроек фильтров ══════════════════
+
+  const FILTER_STORAGE_KEY = `sync-filters-well-${wellId}`;
+
+  /** Список ID контролов фильтров и их тип */
+  const FILTER_CONTROLS = [
+    { id: 'sync-filter-zeros',           type: 'checkbox' },
+    { id: 'sync-filter-spikes',          type: 'checkbox' },
+    { id: 'sync-filter-spike-threshold', type: 'number'   },
+    { id: 'sync-filter-fill-mode',       type: 'select'   },
+    { id: 'sync-filter-max-gap',         type: 'number'   },
+    { id: 'sync-filter-gap-break',       type: 'number'   },
+  ];
+
+  function saveFilterSettings() {
+    const settings = {};
+    for (const ctrl of FILTER_CONTROLS) {
+      const el = document.getElementById(ctrl.id);
+      if (!el) continue;
+      settings[ctrl.id] = ctrl.type === 'checkbox' ? el.checked : el.value;
+    }
+    try { localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(settings)); } catch(e) {}
+  }
+
+  function restoreFilterSettings() {
+    let settings;
+    try { settings = JSON.parse(localStorage.getItem(FILTER_STORAGE_KEY)); } catch(e) {}
+    if (!settings) return;
+    for (const ctrl of FILTER_CONTROLS) {
+      const el = document.getElementById(ctrl.id);
+      if (!el || !(ctrl.id in settings)) continue;
+      if (ctrl.type === 'checkbox') {
+        el.checked = !!settings[ctrl.id];
+      } else {
+        el.value = settings[ctrl.id];
+      }
+    }
+  }
+
+  // Восстанавливаем при загрузке
+  restoreFilterSettings();
+
   // ══════════════════ Обработчики собственных фильтров ══════════════════
+
+  /** Общий обработчик: сохранить настройки + перезагрузить график */
+  function onFilterChange() {
+    saveFilterSettings();
+    loadChart();
+  }
 
   ['sync-filter-zeros', 'sync-filter-spikes'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.addEventListener('change', () => loadChart());
+    if (el) el.addEventListener('change', onFilterChange);
   });
 
-  const syncFillEl = document.getElementById('sync-filter-fill-mode');
-  if (syncFillEl) syncFillEl.addEventListener('change', () => loadChart());
+  ['sync-filter-fill-mode'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', onFilterChange);
+  });
 
-  const syncGapEl = document.getElementById('sync-filter-max-gap');
-  if (syncGapEl) syncGapEl.addEventListener('change', () => loadChart());
+  // Числовые поля: перезагружаем по change (не input, чтобы не спамить запросами)
+  ['sync-filter-spike-threshold', 'sync-filter-max-gap', 'sync-filter-gap-break'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', onFilterChange);
+  });
+
+  // ══════════════════ Модалка справки по фильтрам ══════════════════
+
+  const helpModal = document.getElementById('sync-filter-help-modal');
+  const helpBtn = document.getElementById('sync-filter-help-btn');
+  const helpClose = document.getElementById('sync-filter-help-close');
+
+  if (helpBtn && helpModal) {
+    helpBtn.addEventListener('click', () => { helpModal.style.display = 'flex'; });
+  }
+  if (helpClose && helpModal) {
+    helpClose.addEventListener('click', () => { helpModal.style.display = 'none'; });
+  }
+  if (helpModal) {
+    helpModal.addEventListener('click', (e) => {
+      if (e.target === helpModal) helpModal.style.display = 'none';
+    });
+  }
 
   // ══════════════════ Слайдер чувствительности событий ══════════════════
 

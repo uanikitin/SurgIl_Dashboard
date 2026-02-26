@@ -978,31 +978,42 @@
 
     {# ── Панель фильтрации сигнала ── #}
     <div id="sync-filter-panel" style="
-      display:flex; align-items:center; gap:12px; margin-bottom:8px;
+      display:flex; align-items:center; gap:10px; margin-bottom:8px;
       padding:6px 12px; background:#fff3e0; border:1px solid #ffe0b2;
       border-radius:6px; flex-wrap:wrap;
     ">
       <span style="font-size:11px; color:#e65100; font-weight:600; text-transform:uppercase; letter-spacing:.03em;">
-        Фильтры:
+        Обработка сигнала:
       </span>
+
+      {# Ложные нули #}
       <label style="font-size:12px; display:flex; align-items:center; gap:4px; cursor:pointer; color:#333;"
-        title="Убрать ложные нули (0.0 → пропуск)">
+        title="Датчик SMOD-PT-60 периодически передаёт 0.0 вместо реального значения (потеря ~4% данных). Фильтр заменяет 0.0 на пропуск.">
         <input type="checkbox" id="sync-filter-zeros" style="accent-color:#e65100;">
         Убрать нули
       </label>
+
+      {# Hampel-фильтр #}
       <label style="font-size:12px; display:flex; align-items:center; gap:4px; cursor:pointer; color:#333;"
-        title="Hampel-фильтр: спайки > 1 атм от медианы → заменяются медианой">
+        title="Hampel-фильтр: в окне 7 точек вычисляется медиана и MAD. Если точка отклоняется > 3.5σ от медианы — заменяется медианой. Ловит одиночные выбросы (1-2 точки), не затрагивает продувки.">
         <input type="checkbox" id="sync-filter-spikes" style="accent-color:#e65100;">
-        Сгладить спайки
+        Hampel-фильтр
       </label>
+
+      {# Мгновенные скачки #}
       <label style="font-size:12px; display:flex; align-items:center; gap:4px; color:#333;"
-        title="Мгновенные скачки |ΔP| > порога → заменяются средним соседей. 0 = выкл.">
+        title="Детектор мгновенных скачков: если давление в точке отличается от ОБОИХ соседей более чем на порог — это одиночный спайк (заменяется средним соседей). Устойчивые изменения (продувка, переключение) не затрагиваются. 0 = выключен.">
         Скачки &gt;
         <input type="number" id="sync-filter-spike-threshold" value="0" min="0" max="50" step="1"
           style="width:45px; padding:3px 6px; border:1px solid #dee2e6; border-radius:4px; font-size:12px; text-align:center; color:#333;">
         <span style="font-size:11px; color:#666;">атм</span>
       </label>
-      <label style="font-size:12px; display:flex; align-items:center; gap:4px; color:#333;">
+
+      <span style="width:1px; height:20px; background:#ffe0b2;"></span>
+
+      {# Заполнение пропусков #}
+      <label style="font-size:12px; display:flex; align-items:center; gap:4px; color:#333;"
+        title="Режим заполнения пропусков (NaN): Forward-fill — повторяет последнее известное значение. Интерполяция — линейная интерполяция между соседними точками. Заполняет только короткие пропуски (до макс.пропуск минут).">
         Пропуски:
         <select id="sync-filter-fill-mode" style="padding:3px 6px; border:1px solid #dee2e6; border-radius:4px; font-size:12px; background:white; color:#333;">
           <option value="none">Не заполнять</option>
@@ -1010,10 +1021,24 @@
           <option value="interpolate">Интерполяция</option>
         </select>
       </label>
-      <label style="font-size:12px; display:flex; align-items:center; gap:4px; color:#333;">
+
+      {# Макс. пропуск #}
+      <label style="font-size:12px; display:flex; align-items:center; gap:4px; color:#333;"
+        title="Максимальная длительность пропуска (мин) для заполнения. Пропуски длиннее этого порога НЕ заполняются — остаются NaN. Защищает от заполнения многочасовых разрывов (замена датчика).">
         Макс.пропуск:
         <input type="number" id="sync-filter-max-gap" value="10" min="1" max="60" step="1"
           style="width:50px; padding:3px 6px; border:1px solid #dee2e6; border-radius:4px; font-size:12px; text-align:center; color:#333;">
+        <span style="font-size:11px; color:#666;">мин</span>
+      </label>
+
+      <span style="width:1px; height:20px; background:#ffe0b2;"></span>
+
+      {# Разрыв линии (dropout) #}
+      <label style="font-size:12px; display:flex; align-items:center; gap:4px; color:#333;"
+        title="Если между соседними точками графика прошло больше указанного времени — линия разрывается. Короткие пропуски (dropout датчика, 10-30 мин) рисуются плавно. Длинные разрывы (замена датчика, отключение скважины) видны как разрыв линии.">
+        Разрыв линии &gt;
+        <input type="number" id="sync-filter-gap-break" value="120" min="5" max="1440" step="5"
+          style="width:55px; padding:3px 6px; border:1px solid #dee2e6; border-radius:4px; font-size:12px; text-align:center; color:#333;">
         <span style="font-size:11px; color:#666;">мин</span>
       </label>
     </div>

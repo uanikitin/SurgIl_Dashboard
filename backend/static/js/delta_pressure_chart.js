@@ -73,14 +73,19 @@
     // Читаем из sync-filter-* элементов (синхронизированный график)
     const zeros = document.getElementById('sync-filter-zeros');
     const spikes = document.getElementById('sync-filter-spikes');
+    const spikeThreshold = document.getElementById('sync-filter-spike-threshold');
     const fillMode = document.getElementById('sync-filter-fill-mode');
     const maxGap = document.getElementById('sync-filter-max-gap');
+    const gapBreak = document.getElementById('sync-filter-gap-break');
 
     let params = '';
     if (zeros && zeros.checked) params += '&filter_zeros=true';
     if (spikes && spikes.checked) params += '&filter_spikes=true';
+    if (spikeThreshold && parseFloat(spikeThreshold.value) > 0)
+      params += `&spike_threshold=${spikeThreshold.value}`;
     if (fillMode && fillMode.value !== 'none') params += `&fill_mode=${fillMode.value}`;
     if (maxGap) params += `&max_gap=${maxGap.value}`;
+    if (gapBreak) params += `&gap_break=${gapBreak.value}`;
     return params;
   }
 

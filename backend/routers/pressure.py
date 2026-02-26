@@ -135,6 +135,7 @@ def get_pressure_chart(
     spike_threshold: float = Query(0.0, ge=0, le=50, description="Порог мгновенного скачка (атм), 0=выкл"),
     fill_mode: str = Query("none", description="Заполнение пропусков: none|ffill|interpolate"),
     max_gap: int = Query(10, ge=1, le=60, description="Макс. пропуск для заполнения (мин)"),
+    gap_break: int = Query(120, ge=5, le=1440, description="Разрыв линии при пропуске > N минут"),
 ):
     """
     Агрегированные давления с настраиваемым интервалом.
@@ -147,6 +148,7 @@ def get_pressure_chart(
     ?spike_threshold=5      — убрать мгновенные скачки > 5 атм
     ?fill_mode=ffill        — заполнить пропуски (ffill/interpolate)
     ?max_gap=10             — макс. пропуск для заполнения (мин)
+    ?gap_break=120          — рвать линию при пропуске > 120 мин
     """
     # Валидация интервала
     allowed_intervals = {1, 2, 5, 10, 15, 30, 60}
@@ -167,6 +169,7 @@ def get_pressure_chart(
         spike_threshold=spike_threshold,
         fill_mode=fill_mode,
         max_gap=max_gap,
+        gap_break=gap_break,
     )
     log.info(
         "[chart/%d] result: source=%s points=%d last=%s",
@@ -341,21 +344,18 @@ def _get_sensor_start(well_id: int) -> Optional[datetime]:
     return None
 
 
-def _insert_gap_markers(data: list[dict], interval_min: int) -> list[dict]:
+def _insert_gap_markers(data: list[dict], interval_min: int, gap_break_min: int = 120) -> list[dict]:
     """
     Вставляет null-маркеры в данные графика при обнаружении разрывов.
 
-    Если между двумя соседними точками прошло > 2× interval —
-    это разрыв (замена датчика, отсутствие связи, и т.д.).
-    Вставляем точку с null-значениями чтобы Chart.js разорвал линию.
+    gap_break_min — минимальный пропуск (мин) для разрыва линии.
+    Короткие пропуски (dropout датчика) — Chart.js рисует плавно.
+    Длинные разрывы (замена датчика, отключение) — рвём линию.
     """
     if len(data) < 2:
         return data
 
-    # Порог для разрыва линии: 2 часа.
-    # Короткие пропуски (dropout датчика, 10-30 мин) — Chart.js рисует плавно.
-    # Длинные разрывы (замена датчика, отключение скважины) — рвём линию.
-    gap_threshold_sec = max(2 * 3600, interval_min * 60 * 2.5)
+    gap_threshold_sec = gap_break_min * 60
     result = []
 
     for i, point in enumerate(data):
@@ -384,6 +384,7 @@ def _chart_from_pg(
     filter_zeros: bool = False, filter_spikes: bool = False,
     spike_threshold: float = 0.0,
     fill_mode: str = "none", max_gap: int = 10,
+    gap_break: int = 120,
 ) -> dict:
     """
     График из PostgreSQL pressure_raw.
@@ -466,7 +467,7 @@ def _chart_from_pg(
                 continue
             data.append(point)
 
-        data = _insert_gap_markers(data, interval)
+        data = _insert_gap_markers(data, interval, gap_break)
 
         result = {
             "well_id": well_id, "interval_min": interval,
@@ -537,7 +538,7 @@ def _chart_from_pg(
             "count": r[7],
         })
 
-    data = _insert_gap_markers(data, interval)
+    data = _insert_gap_markers(data, interval, gap_break)
 
     return {
         "well_id": well_id,

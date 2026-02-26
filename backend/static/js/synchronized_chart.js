@@ -323,6 +323,7 @@
     const spikeThreshold = document.getElementById('sync-filter-spike-threshold');
     const fill   = document.getElementById('sync-filter-fill-mode');
     const gap    = document.getElementById('sync-filter-max-gap');
+    const gapBreak = document.getElementById('sync-filter-gap-break');
 
     let s = '';
     if (zeros  && zeros.checked)  s += '&filter_zeros=true';
@@ -331,6 +332,7 @@
       s += `&spike_threshold=${spikeThreshold.value}`;
     if (fill   && fill.value !== 'none') s += `&fill_mode=${fill.value}`;
     if (gap)   s += `&max_gap=${gap.value}`;
+    if (gapBreak) s += `&gap_break=${gapBreak.value}`;
     return s;
   }
 

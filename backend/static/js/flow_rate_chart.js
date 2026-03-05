@@ -20,6 +20,65 @@
 
   console.log('[flow_rate_chart] Script loaded');
 
+  // ═══════════════════ Плагин: вертикальные линии событий ═══════════════════
+  var flowVerticalLinePlugin = {
+    id: 'flowVerticalLines',
+    afterDatasetsDraw: function (chart) {
+      var ctx = chart.ctx;
+      var yAxis = chart.scales.y;
+      var xAxis = chart.scales.x;
+      if (!yAxis || !xAxis) return;
+
+      chart.data.datasets.forEach(function (dataset, dsIndex) {
+        if (!dataset._isEventLine) return;
+        var meta = chart.getDatasetMeta(dsIndex);
+        if (!meta || meta.hidden) return;
+
+        meta.data.forEach(function (point) {
+          var x = point.x;
+          if (isNaN(x) || x < xAxis.left || x > xAxis.right) return;
+          ctx.save();
+          ctx.strokeStyle = dataset.borderColor || '#999';
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([5, 4]);
+          ctx.globalAlpha = 0.45;
+          ctx.beginPath();
+          ctx.moveTo(x, yAxis.top);
+          ctx.lineTo(x, yAxis.bottom);
+          ctx.stroke();
+          ctx.restore();
+        });
+      });
+    },
+  };
+
+  // ═══════════════════ Константы событий ═══════════════════
+  var FLOW_EVENT_ICONS = {
+    pressure: '\u{1F4CA}', purge: '\u{1F4A8}', reagent: '\u{1F489}',
+    equip: '\u{1F527}', note: '\u{1F4DD}', other: '\u{1F4CC}',
+  };
+  var FLOW_EVENT_LABELS = {
+    pressure: 'Замер', purge: 'Продувка', reagent: 'Реагент',
+    equip: 'Оборудование', note: 'Заметка', other: 'Другое',
+  };
+  var FLOW_EVENT_Y = {
+    pressure: 0.90, purge: 0.70, reagent: 0.50,
+    equip: 0.30, note: 0.15, other: 0.05,
+  };
+
+  /** Нормализация времени */
+  function normalizeTime(t) {
+    if (!t) return t;
+    t = t.replace(/[+-]\d{2}:\d{2}$/, '').replace(/Z$/, '');
+    var dotIdx = t.lastIndexOf('.');
+    if (dotIdx !== -1 && t.length - dotIdx > 4) {
+      t = t.substring(0, dotIdx + 4);
+    }
+    return t;
+  }
+
+  var showEvents = false; // управляется чекбоксом
+
   // ═══════════════════ Canvas ═══════════════════
   var canvas = document.getElementById('chart_flow_rate');
   if (!canvas) {
@@ -38,6 +97,8 @@
   // ═══════════════════ Состояние ═══════════════════
   var flowChart = null;
   var currentDays = 7;
+  var currentStart = null;  // ISO string (Кунград) или null
+  var currentEnd = null;    // ISO string (Кунград) или null
   var highlightedPurgeId = null;  // ID подсвеченной продувки (hover из таблицы)
   var lastPurgeCycles = null;     // Последние данные для перерисовки подсветки
 
@@ -190,22 +251,37 @@
   // ══════════════════════════════════════════════════════════════
   //                    ГЛАВНАЯ: loadChart
   // ══════════════════════════════════════════════════════════════
-  async function loadChart(days) {
+  async function loadChart(days, start, end) {
     if (days !== undefined) currentDays = days;
+    if (start !== undefined) currentStart = start;
+    if (end !== undefined) currentEnd = end;
     var coeffs = getCoeffs();
 
-    console.log('[flow_rate_chart] loadChart, days:', currentDays);
+    console.log('[flow_rate_chart] loadChart, days:', currentDays, 'start:', currentStart, 'end:', currentEnd);
     showLoading();
 
     try {
-      var url = '/api/flow-rate/calculate/' + wellId +
-                '?days=' + currentDays +
-                '&smooth=true' +
-                '&multiplier=' + coeffs.M +
-                '&C1=' + coeffs.C1 +
-                '&C2=' + coeffs.C2 +
-                '&C3=' + coeffs.C3 +
-                '&critical_ratio=' + coeffs.Rcrit;
+      var url;
+      if (currentStart && currentEnd) {
+        url = '/api/flow-rate/calculate/' + wellId +
+              '?start=' + encodeURIComponent(currentStart) +
+              '&end=' + encodeURIComponent(currentEnd) +
+              '&smooth=true' +
+              '&multiplier=' + coeffs.M +
+              '&C1=' + coeffs.C1 +
+              '&C2=' + coeffs.C2 +
+              '&C3=' + coeffs.C3 +
+              '&critical_ratio=' + coeffs.Rcrit;
+      } else {
+        url = '/api/flow-rate/calculate/' + wellId +
+              '?days=' + currentDays +
+              '&smooth=true' +
+              '&multiplier=' + coeffs.M +
+              '&C1=' + coeffs.C1 +
+              '&C2=' + coeffs.C2 +
+              '&C3=' + coeffs.C3 +
+              '&critical_ratio=' + coeffs.Rcrit;
+      }
 
       if (excludedPeriodIds.size > 0) {
         url += '&exclude_periods=' + Array.from(excludedPeriodIds).join(',');
@@ -425,6 +501,79 @@
   }
 
   // ══════════════════════════════════════════════════════════════
+  //       Построение datasets событий из window.wellEventsData
+  // ══════════════════════════════════════════════════════════════
+  function buildFlowEventDatasets(ds) {
+    var evData = window.wellEventsData || {};
+    var eventColors = evData.eventColors || {};
+    var reagentColors = evData.reagentColors || {};
+    var cutoffMs = Date.now() - currentDays * 24 * 60 * 60 * 1000;
+
+    // Не-reagent события → вертикальные линии
+    var eventsByType = {};
+    (evData.timelineEvents || []).forEach(function (ev) {
+      if (!ev.t) return;
+      if (new Date(normalizeTime(ev.t)).getTime() < cutoffMs) return;
+      var type = (ev.type || 'other').toLowerCase();
+      if (!eventsByType[type]) eventsByType[type] = [];
+      eventsByType[type].push(ev);
+    });
+
+    Object.entries(eventsByType).forEach(function (entry) {
+      var type = entry[0], events = entry[1];
+      var color = eventColors[type] || '#9e9e9e';
+      ds.push({
+        label: (FLOW_EVENT_ICONS[type] || '\u{1F4CC}') + ' ' + (FLOW_EVENT_LABELS[type] || type),
+        type: 'scatter',
+        data: events.map(function (ev) {
+          return { x: normalizeTime(ev.t), y: FLOW_EVENT_Y[type] || 0.5, eventData: ev };
+        }),
+        backgroundColor: color,
+        borderColor: color,
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHoverRadius: 6,
+        pointHitRadius: 20,
+        yAxisID: 'y_events',
+        order: 10,
+        _isEventLine: true,
+      });
+    });
+
+    // Реагенты → scatter circles
+    var injByReagent = {};
+    (evData.timelineInjections || []).forEach(function (inj) {
+      if (!inj.t) return;
+      if (new Date(normalizeTime(inj.t)).getTime() < cutoffMs) return;
+      var name = inj.reagent || 'Реагент';
+      if (!injByReagent[name]) injByReagent[name] = [];
+      injByReagent[name].push(inj);
+    });
+
+    Object.entries(injByReagent).forEach(function (entry) {
+      var name = entry[0], injs = entry[1];
+      var color = reagentColors[name] || '#e53935';
+      ds.push({
+        label: '\u{1F489} ' + name,
+        type: 'scatter',
+        data: injs.map(function (inj) {
+          return { x: normalizeTime(inj.t), y: 0.50, eventData: inj };
+        }),
+        backgroundColor: color,
+        borderColor: color,
+        borderWidth: 2,
+        pointRadius: 6,
+        pointHoverRadius: 9,
+        pointHitRadius: 20,
+        pointStyle: 'circle',
+        yAxisID: 'y_events',
+        order: 11,
+        _isEventLine: false,
+      });
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════
   //                    Рендеринг графика
   // ══════════════════════════════════════════════════════════════
   function renderChart(chartData, downtimePeriods, purgeCycles) {
@@ -605,6 +754,11 @@
       },
     ];
 
+    // ── События (если включены) ──
+    if (showEvents) {
+      buildFlowEventDatasets(datasets);
+    }
+
     if (flowChart) {
       flowChart.destroy();
       flowChart = null;
@@ -615,6 +769,7 @@
     flowChart = new Chart(ctx, {
       type: 'line',
       data: { datasets: datasets },
+      plugins: [flowVerticalLinePlugin],
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -693,6 +848,12 @@
             min: 0,
             grid: { drawOnChartArea: false },
             ticks: { font: { size: 11 }, color: COLORS.cumulative },
+          },
+          y_events: {
+            display: false,
+            position: 'right',
+            min: 0, max: 1,
+            grid: { drawOnChartArea: false },
           },
         },
       },
@@ -1884,6 +2045,15 @@
     });
   }
 
+  // ═══════════════════ Чекбокс событий ═══════════════════
+  var flowEventsToggle = document.getElementById('flow-events-toggle');
+  if (flowEventsToggle) {
+    flowEventsToggle.addEventListener('change', function () {
+      showEvents = this.checked;
+      loadChart();
+    });
+  }
+
   // ═══════════════════ Первичная загрузка ═══════════════════
   loadChart(7);
 
@@ -1894,9 +2064,9 @@
   }
 
   // ═══════════════════ Экспорт для координатора ═══════════════════
-  window.flowRateChartReload = function (days) {
-    console.log('[flow_rate_chart] flowRateChartReload called with days:', days, 'currentDays was:', currentDays);
-    loadChart(days);
+  window.flowRateChartReload = function (days, start, end) {
+    console.log('[flow_rate_chart] flowRateChartReload called with days:', days, 'start:', start, 'end:', end, 'currentDays was:', currentDays);
+    loadChart(days, start, end);
   };
 
   window.flowRateChart = {

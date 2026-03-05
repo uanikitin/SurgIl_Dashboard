@@ -1,0 +1,80 @@
+"""
+PressureMask — маска коррекции данных давления.
+
+Хранит инструкцию по замене значений «плохого» датчика
+на расчётный период. Оригинальные данные (pressure_raw) не изменяются —
+коррекции применяются in-memory при загрузке графиков и расчётов.
+"""
+from __future__ import annotations
+
+from datetime import datetime
+
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+)
+from sqlalchemy.orm import relationship
+
+from backend.db import Base
+
+
+class PressureMask(Base):
+    __tablename__ = "pressure_mask"
+
+    id = Column(Integer, primary_key=True)
+    well_id = Column(Integer, ForeignKey("wells.id"), nullable=False, index=True)
+
+    # Тип проблемы (для аналитики и цвета на графике)
+    problem_type = Column(
+        String(20), nullable=False, default="manual",
+    )  # 'hydrate' | 'comm_loss' | 'sensor_fault' | 'manual'
+
+    # Какой датчик неисправен
+    affected_sensor = Column(
+        String(10), nullable=False,
+    )  # 'p_tube' | 'p_line'
+
+    # Метод коррекции
+    correction_method = Column(
+        String(20), nullable=False,
+    )  # 'median_1d' | 'median_3d' | 'delta_reconstruct' | 'interpolate' | 'exclude'
+
+    # Временной диапазон (UTC)
+    dt_start = Column(DateTime, nullable=False)
+    dt_end = Column(DateTime, nullable=False)
+
+    # Для delta_reconstruct: медиана ΔP (если None — рассчитывается автоматически)
+    manual_delta_p = Column(Float, nullable=True)
+
+    # Переключатель (вкл/выкл без удаления)
+    is_active = Column(Boolean, nullable=False, default=True)
+
+    reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint(
+            "affected_sensor IN ('p_tube', 'p_line')",
+            name="chk_mask_sensor",
+        ),
+        CheckConstraint(
+            "correction_method IN ("
+            "'median_1d', 'median_3d', 'delta_reconstruct', 'interpolate', 'exclude'"
+            ")",
+            name="chk_mask_method",
+        ),
+        CheckConstraint(
+            "problem_type IN ('hydrate', 'comm_loss', 'sensor_fault', 'manual')",
+            name="chk_mask_problem_type",
+        ),
+        CheckConstraint("dt_end > dt_start", name="chk_mask_range"),
+        Index("ix_pressure_mask_range", "well_id", "dt_start", "dt_end"),
+    )

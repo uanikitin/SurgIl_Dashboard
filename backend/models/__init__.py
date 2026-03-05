@@ -31,3 +31,5 @@ from .well_sub_status import WellSubStatus
 from .chat_message_log import ChatMessageLog
 from .chat_subgroup import ChatSubgroup, chat_subgroup_member
 from .flow_analysis import FlowScenario, FlowCorrection, FlowResult
+from .chart_annotation import ChartAnnotation
+from .pressure_mask import PressureMask

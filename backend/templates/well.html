@@ -950,13 +950,24 @@
           <button data-sync-days="30" style="padding:4px 10px; border:1px solid #90a4ae; border-radius:4px; background:#f5f5f5; color:#333; cursor:pointer; font-size:11px; font-weight:500;">30д</button>
           <button data-sync-days="90" style="padding:4px 10px; border:1px solid #90a4ae; border-radius:4px; background:#f5f5f5; color:#333; cursor:pointer; font-size:11px; font-weight:500;">90д</button>
         </div>
-        {# Ручной выбор периода #}
+        {# Календарный день (сутки) #}
         <div style="display:flex; gap:4px; align-items:center;">
-          <input type="date" id="sync-date-from"
+          <input type="date" id="sync-date-day"
             style="padding:3px 6px; border:1px solid #90a4ae; border-radius:4px; font-size:11px; color:#333; background:#f5f5f5;">
+          <button id="sync-day-apply"
+            style="padding:4px 10px; border:1px solid #2e7d32; border-radius:4px; background:#e8f5e9; color:#2e7d32; cursor:pointer; font-size:11px; font-weight:600;"
+            title="Показать данные за выбранные сутки (00:00 — 23:59)">
+            Сутки
+          </button>
+        </div>
+        <span style="width:1px; height:18px; background:#dee2e6;"></span>
+        {# Ручной выбор периода (дата + время) #}
+        <div style="display:flex; gap:4px; align-items:center;">
+          <input type="datetime-local" id="sync-date-from" step="60"
+            style="padding:3px 6px; border:1px solid #90a4ae; border-radius:4px; font-size:11px; color:#333; background:#f5f5f5; max-width:170px;">
           <span style="color:#999; font-size:10px;">—</span>
-          <input type="date" id="sync-date-to"
-            style="padding:3px 6px; border:1px solid #90a4ae; border-radius:4px; font-size:11px; color:#333; background:#f5f5f5;">
+          <input type="datetime-local" id="sync-date-to" step="60"
+            style="padding:3px 6px; border:1px solid #90a4ae; border-radius:4px; font-size:11px; color:#333; background:#f5f5f5; max-width:170px;">
           <button id="sync-date-apply"
             style="padding:4px 10px; border:1px solid #1565c0; border-radius:4px; background:#e3f2fd; color:#1565c0; cursor:pointer; font-size:11px; font-weight:600;">
             OK
@@ -1045,6 +1056,19 @@
           style="width:55px; padding:3px 6px; border:1px solid #dee2e6; border-radius:4px; font-size:12px; text-align:center; color:#333;">
         <span style="font-size:11px; color:#666;">мин</span>
       </label>
+
+      <span style="width:1px; height:20px; background:#ffe0b2;"></span>
+
+      {# Маски коррекции давления #}
+      <label style="font-size:12px; display:flex; align-items:center; gap:4px; cursor:pointer; color:#333;"
+        title="Применить маски коррекции давления: замена показаний неисправного датчика (гидрат, потеря связи) расчётными значениями. Оригинальные данные не изменяются.">
+        <input type="checkbox" id="sync-apply-masks" style="accent-color:#7b1fa2;">
+        Коррекция
+      </label>
+      <button type="button" id="sync-masks-manage"
+        style="background:none; border:1px solid #7b1fa2; color:#7b1fa2; border-radius:4px;
+               padding:2px 8px; font-size:11px; cursor:pointer; font-weight:600;"
+        title="Управление масками коррекции давления">Маски</button>
     </div>
 
     {# ── Модальное окно справки по фильтрам ── #}
@@ -1303,6 +1327,11 @@
             background:#fff; cursor:pointer; font-size:13px; display:flex; align-items:center; justify-content:center;
             color:#333;
           ">&#8634;</button>
+          <button id="sync-annotations-toggle" title="Показать/скрыть аннотации" style="
+            width:28px; height:28px; border:1px solid #ccc; border-radius:4px;
+            background:#ff9800; cursor:pointer; font-size:13px; display:flex; align-items:center; justify-content:center;
+            color:#fff;
+          ">&#9998;</button>
         </div>
       </div>
 
@@ -1325,8 +1354,14 @@
               <div style="font-size:11px; color:#6c757d; text-transform:uppercase; letter-spacing:0.05em;">Время</div>
               <div id="sync-tooltip-time" style="font-size:16px; font-weight:700; color:#212529;">—</div>
             </div>
-            <div id="sync-mode-indicator" style="display:none; padding:4px 8px; background:#1565c0; color:white; border-radius:4px; font-size:10px; font-weight:600;">
-              🔒 Фикс
+            <div style="display:flex; align-items:center; gap:4px;">
+              <div id="sync-mode-indicator" style="display:none; padding:4px 8px; background:#1565c0; color:white; border-radius:4px; font-size:10px; font-weight:600;">
+                🔒 Фикс
+              </div>
+              <button id="sync-annotate-point" type="button" style="
+                display:none; padding:4px 8px; background:#ff9800; color:white;
+                border:none; border-radius:4px; font-size:10px; font-weight:600; cursor:pointer;
+              ">&#9998; Аннотация</button>
             </div>
           </div>
           {# Индикатор выбора диапазона #}
@@ -1389,6 +1424,10 @@
           padding:6px 12px; background:#6f42c1; color:white; border:none;
           border-radius:4px; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:4px;
         ">🧮 Рассчитать</button>
+        <button id="sync-range-annotate" type="button" style="
+          padding:6px 12px; background:#ff9800; color:white; border:none;
+          border-radius:4px; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:4px;
+        ">&#9998; Аннотация</button>
         <button id="sync-range-cancel" type="button" style="
           padding:6px 12px; background:#6c757d; color:white; border:none;
           border-radius:4px; font-size:11px; cursor:pointer;
@@ -1419,6 +1458,172 @@
       </table>
     </div>
   </div>
+  {# ── Модалка создания аннотации ── #}
+  <div id="annotation-modal" style="
+    display:none; position:fixed; top:0; left:0; width:100%; height:100%;
+    background:rgba(0,0,0,0.3); z-index:10000;
+    justify-content:center; align-items:center;
+  ">
+    <div style="
+      background:white; border-radius:10px; padding:20px; min-width:340px; max-width:420px;
+      box-shadow:0 8px 32px rgba(0,0,0,0.25);
+    ">
+      <div style="font-size:15px; font-weight:700; color:#333; margin-bottom:12px;">&#9998; Добавить аннотацию</div>
+      <div style="margin-bottom:10px;">
+        <div style="font-size:11px; color:#999; margin-bottom:2px;">Время</div>
+        <div id="annotation-time-label" style="font-size:13px; font-weight:600; color:#1565c0;">—</div>
+      </div>
+      <div style="margin-bottom:10px;">
+        <div style="font-size:11px; color:#999; margin-bottom:2px;">Текст</div>
+        <input id="annotation-text-input" type="text" maxlength="500" placeholder="Пик после продувки..."
+          style="width:100%; padding:8px; border:1px solid #ccc; border-radius:6px; font-size:13px; box-sizing:border-box;">
+      </div>
+      <div style="margin-bottom:14px; display:flex; align-items:center; gap:8px;">
+        <div style="font-size:11px; color:#999;">Цвет</div>
+        <input id="annotation-color-input" type="color" value="#ff9800"
+          style="width:36px; height:28px; border:1px solid #ccc; border-radius:4px; cursor:pointer;">
+      </div>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button id="annotation-modal-cancel" type="button" style="
+          padding:6px 16px; background:#f5f5f5; color:#333; border:1px solid #ccc;
+          border-radius:6px; font-size:12px; cursor:pointer;
+        ">Отмена</button>
+        <button id="annotation-modal-save" type="button" style="
+          padding:6px 16px; background:#ff9800; color:white; border:none;
+          border-radius:6px; font-size:12px; font-weight:600; cursor:pointer;
+        ">Сохранить</button>
+      </div>
+      <div style="margin-top:12px; border-top:1px solid #eee; padding-top:8px;">
+        <button id="annotation-list-toggle" type="button" style="
+          background:none; border:none; color:#1565c0; font-size:11px; cursor:pointer; padding:0;
+        ">Показать список</button>
+        <div id="annotation-list-panel" style="display:none; margin-top:8px; max-height:200px; overflow-y:auto;">
+          <div id="annotation-list-body"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ── Модальное окно управления масками ── #}
+  <div id="masks-modal" style="
+    display:none; position:fixed; inset:0; z-index:9999;
+    background:rgba(0,0,0,0.5); justify-content:center; align-items:center;
+  ">
+    <div style="
+      background:white; border-radius:12px; max-width:780px; width:95%;
+      max-height:85vh; overflow-y:auto; padding:24px 28px;
+      box-shadow:0 8px 32px rgba(0,0,0,0.2); position:relative;
+    ">
+      <button type="button" id="masks-modal-close"
+        style="position:absolute; top:12px; right:16px; background:none; border:none;
+               font-size:22px; cursor:pointer; color:#999; line-height:1;">&times;</button>
+      <h3 style="margin:0 0 16px; color:#7b1fa2; font-size:16px;">Маски коррекции давления</h3>
+
+      {# Список масок #}
+      <div id="masks-list" style="margin-bottom:16px;">
+        <div style="color:#999; font-size:13px;">Загрузка...</div>
+      </div>
+
+      {# Кнопки действий #}
+      <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
+        <button type="button" id="masks-select-chart"
+          style="padding:6px 16px; background:#7b1fa2; color:white; border:none;
+                 border-radius:6px; font-size:12px; font-weight:600; cursor:pointer;"
+          title="Выделите участок на графике мышью для создания маски">
+          Выбрать на графике
+        </button>
+        <button type="button" id="masks-detect-range"
+          style="padding:6px 16px; background:#f3e5f5; color:#7b1fa2; border:1px solid #ce93d8;
+                 border-radius:6px; font-size:12px; font-weight:600; cursor:pointer;"
+          title="Выделите участок на графике для авто-детекции аномалий">
+          Детекция на участке
+        </button>
+        <button type="button" id="masks-detect-btn"
+          style="padding:6px 16px; background:#f3e5f5; color:#7b1fa2; border:1px solid #ce93d8;
+                 border-radius:6px; font-size:12px; font-weight:600; cursor:pointer;">
+          Авто-детекция (весь период)
+        </button>
+        <button type="button" id="masks-create-btn"
+          style="padding:6px 16px; background:white; color:#7b1fa2; border:1px solid #7b1fa2;
+                 border-radius:6px; font-size:12px; font-weight:600; cursor:pointer;">
+          + Вручную
+        </button>
+      </div>
+
+      {# Результаты детекции #}
+      <div id="masks-detect-results" style="display:none; margin-bottom:16px;"></div>
+
+      {# Форма создания/редактирования маски #}
+      <div id="masks-form" style="display:none; background:#f5f5f5; border-radius:8px; padding:16px; margin-bottom:16px;">
+        <h4 style="margin:0 0 12px; font-size:14px; color:#333;" id="masks-form-title">Новая маска</h4>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <label style="font-size:12px; color:#555;">
+            Начало:
+            <input type="datetime-local" id="mask-dt-start" step="60"
+              style="width:100%; padding:4px 8px; border:1px solid #dee2e6; border-radius:4px; font-size:12px; margin-top:2px;">
+          </label>
+          <label style="font-size:12px; color:#555;">
+            Конец:
+            <input type="datetime-local" id="mask-dt-end" step="60"
+              style="width:100%; padding:4px 8px; border:1px solid #dee2e6; border-radius:4px; font-size:12px; margin-top:2px;">
+          </label>
+          <label style="font-size:12px; color:#555;">
+            Датчик:
+            <select id="mask-sensor"
+              style="width:100%; padding:4px 8px; border:1px solid #dee2e6; border-radius:4px; font-size:12px; margin-top:2px;">
+              <option value="p_tube">Устье (p_tube)</option>
+              <option value="p_line">Шлейф (p_line)</option>
+            </select>
+          </label>
+          <label style="font-size:12px; color:#555;">
+            Метод коррекции:
+            <select id="mask-method"
+              style="width:100%; padding:4px 8px; border:1px solid #dee2e6; border-radius:4px; font-size:12px; margin-top:2px;">
+              <option value="delta_reconstruct">ΔP реконструкция</option>
+              <option value="median_1d">Медиана (1 день)</option>
+              <option value="median_3d">Медиана (3 дня)</option>
+              <option value="interpolate">Интерполяция</option>
+              <option value="exclude">Исключить</option>
+            </select>
+          </label>
+          <label style="font-size:12px; color:#555;">
+            Тип проблемы:
+            <select id="mask-problem-type"
+              style="width:100%; padding:4px 8px; border:1px solid #dee2e6; border-radius:4px; font-size:12px; margin-top:2px;">
+              <option value="hydrate">Гидрат</option>
+              <option value="comm_loss">Потеря связи</option>
+              <option value="sensor_fault">Неисправность датчика</option>
+              <option value="manual">Ручная</option>
+            </select>
+          </label>
+          <label style="font-size:12px; color:#555;">
+            ΔP вручную (необяз.):
+            <input type="number" id="mask-manual-dp" step="0.1" placeholder="Авто"
+              style="width:100%; padding:4px 8px; border:1px solid #dee2e6; border-radius:4px; font-size:12px; margin-top:2px;">
+          </label>
+        </div>
+        <label style="font-size:12px; color:#555; display:block; margin-top:10px;">
+          Причина:
+          <input type="text" id="mask-reason" placeholder="Гидрат на штуцере, продувка не помогла"
+            style="width:100%; padding:4px 8px; border:1px solid #dee2e6; border-radius:4px; font-size:12px; margin-top:2px;">
+        </label>
+        <input type="hidden" id="mask-edit-id" value="">
+        <div style="display:flex; gap:8px; margin-top:12px;">
+          <button type="button" id="masks-form-save"
+            style="padding:6px 16px; background:#7b1fa2; color:white; border:none;
+                   border-radius:6px; font-size:12px; font-weight:600; cursor:pointer;">
+            Сохранить
+          </button>
+          <button type="button" id="masks-form-cancel"
+            style="padding:6px 16px; background:white; color:#666; border:1px solid #dee2e6;
+                   border-radius:6px; font-size:12px; cursor:pointer;">
+            Отмена
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   </div>{# /card-body #}
 </div>{# /card #}
 
@@ -1435,6 +1640,11 @@
         <input id="delta-threshold-input" type="number" step="0.05" min="0" max="10" value="0.5"
           style="width:65px; padding:4px 6px; border:1px solid #dee2e6; border-radius:4px; font-size:12px; text-align:center;">
         <span style="font-size:11px; color:#999;">атм</span>
+      </label>
+      <label style="font-size:12px; color:#6b7280; font-weight:500; display:flex; align-items:center; gap:4px; cursor:pointer;"
+        title="Показать события (продувки, замеры, реагенты) вертикальными линиями">
+        <input id="delta-events-toggle" type="checkbox" style="accent-color:#e65100;">
+        <span style="color:#e65100;">События</span>
       </label>
       <button id="delta-reset-zoom"
         style="padding:5px 12px; border:1px solid #dee2e6; border-radius:4px; background:white; cursor:pointer; font-size:12px;">
@@ -1571,6 +1781,11 @@
         background:#f8f9fa; color:#666; font-size:12px; cursor:pointer;
         display:inline-flex; align-items:center; gap:4px;
       " title="Выделить участок для анализа">📊 Анализ</button>
+      <label style="font-size:12px; color:#6b7280; font-weight:500; display:flex; align-items:center; gap:4px; cursor:pointer;"
+        title="Показать события (продувки, замеры, реагенты) вертикальными линиями">
+        <input id="flow-events-toggle" type="checkbox" style="accent-color:#e65100;">
+        <span style="color:#e65100;">События</span>
+      </label>
     </div>
   </div>
 
@@ -3568,13 +3783,13 @@
 <!-- well_events_chart.js загружается динамически через настройки страницы -->
 
 <!-- Скрипт синхронизированного графика: Давление LoRa + События Telegram -->
-<script src="/static/js/synchronized_chart.js?v=25"></script>
+<script src="/static/js/synchronized_chart.js?v=26"></script>
 
 <!-- Скрипт для графика ΔP (разница давлений) — синхронизирован с основным -->
-<script src="/static/js/delta_pressure_chart.js?v=14"></script>
+<script src="/static/js/delta_pressure_chart.js?v=15"></script>
 
 <!-- Скрипт для графика дебита газа — синхронизирован с основным -->
-<script src="/static/js/flow_rate_chart.js?v=5"></script>
+<script src="/static/js/flow_rate_chart.js?v=6"></script>
 
 <!-- Загрузка текущего дебита в плитку -->
 <script>

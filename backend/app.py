@@ -149,6 +149,14 @@ from backend.routers.daily_report import router as daily_report_router, pages_ro
 app.include_router(daily_report_router)
 app.include_router(daily_report_pages)
 
+# Аннотации на графиках
+from backend.routers.chart_annotations import router as chart_annotations_router
+app.include_router(chart_annotations_router)
+
+# Маски коррекции давления
+from backend.routers.pressure_masks import router as pressure_masks_router
+app.include_router(pressure_masks_router)
+
 # ------------------------------------------------------------
 # 1) SAFE helpers: FormData -> string
 # ------------------------------------------------------------

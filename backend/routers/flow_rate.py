@@ -73,9 +73,6 @@ def _run_calculation(
                    f"за период {dt_start}..{dt_end}",
         )
 
-    # UTC → Кунград (+5ч) для отображения на графиках
-    df.index = df.index + timedelta(hours=5)
-
     choke = get_choke_mm(well_id)
     if choke is None:
         raise HTTPException(
@@ -84,8 +81,25 @@ def _run_calculation(
                    f"Проверьте таблицу well_construction.",
         )
 
-    # 2. Предобработка
+    # 2. Предобработка (индекс пока UTC — маски тоже в UTC)
     df = clean_pressure(df)
+
+    # 2.5 Маски коррекции давления (ДО сдвига UTC→Кунград)
+    try:
+        from backend.services.pressure_mask_service import load_active_masks, apply_masks as _apply_masks
+        from datetime import datetime as _dt
+        _ms = _dt.fromisoformat(dt_start) if isinstance(dt_start, str) else dt_start
+        _me = _dt.fromisoformat(dt_end) if isinstance(dt_end, str) else dt_end
+        _masks = load_active_masks(well_id, _ms, _me)
+        if _masks:
+            df, _mc = _apply_masks(df, _masks)
+            log.info("[flow-rate] well=%d applied %d pressure masks, %d points", well_id, len(_masks), _mc)
+    except Exception as e:
+        log.warning("[flow-rate] failed to apply pressure masks: %s", e)
+
+    # UTC → Кунград (+5ч) для отображения на графиках
+    df.index = df.index + timedelta(hours=5)
+
     if smooth:
         df = smooth_pressure(df)
 
@@ -183,7 +197,13 @@ def api_calculate(
     Все коэффициенты формулы можно передать через query-параметры.
     """
     if start and end:
-        dt_start, dt_end = start, end
+        # Фронтенд передаёт время в Кунграде (UTC+5) — конвертируем в UTC
+        try:
+            kungrad_offset = timedelta(hours=5)
+            dt_start = (datetime.fromisoformat(start) - kungrad_offset).isoformat()
+            dt_end = (datetime.fromisoformat(end) - kungrad_offset).isoformat()
+        except ValueError:
+            raise HTTPException(400, "Invalid start/end format. Use ISO: 2025-01-01T08:00:00")
     else:
         dt_end = datetime.utcnow().isoformat()
         dt_start = (datetime.utcnow() - timedelta(days=days)).isoformat()

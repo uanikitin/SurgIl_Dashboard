@@ -15,7 +15,7 @@
 (function () {
   'use strict';
 
-  console.log('[sync_chart] Script loaded, version 24');
+  console.log('[sync_chart] Script loaded, version 27');
 
   const canvas = document.getElementById('chart_synchronized');
   if (!canvas) {
@@ -39,6 +39,8 @@
   let syncChart = null;
   let currentDays = 7;
   let currentInterval = 5;
+  let currentStart = null;  // ISO string (Кунград) или null — точное начало периода
+  let currentEnd = null;    // ISO string (Кунград) или null — точный конец периода
   let zoomHistory = [];
   let panMode = false;
   window._syncPanMode = false;
@@ -54,6 +56,15 @@
   let rangeStart = null;  // timestamp начала диапазона
   let rangeEnd = null;    // timestamp конца диапазона
   let lockedXValue = null; // зафиксированная позиция курсора на графике
+
+  // ══════════════════ Аннотации пользователя ══════════════════
+  let chartAnnotations = [];      // массив из API
+  let annotationsVisible = true;  // показывать ли аннотации
+
+  // ══════════════════ Маски коррекции давления ══════════════════
+  let currentMaskZones = [];  // массив зон из API (mask_zones)
+  let detectedAnomalyZones = [];  // временные зоны из авто-детекции
+  let maskSelectionMode = false;  // режим выбора участка для маски
 
   // ══════════════════ Цвета давления ══════════════════
   const COLORS = {
@@ -324,6 +335,7 @@
     const fill   = document.getElementById('sync-filter-fill-mode');
     const gap    = document.getElementById('sync-filter-max-gap');
     const gapBreak = document.getElementById('sync-filter-gap-break');
+    const masks  = document.getElementById('sync-apply-masks');
 
     let s = '';
     if (zeros  && zeros.checked)  s += '&filter_zeros=true';
@@ -333,6 +345,7 @@
     if (fill   && fill.value !== 'none') s += `&fill_mode=${fill.value}`;
     if (gap)   s += `&max_gap=${gap.value}`;
     if (gapBreak) s += `&gap_break=${gapBreak.value}`;
+    if (masks  && masks.checked) s += '&apply_masks=true';
     return s;
   }
 
@@ -825,6 +838,9 @@
               updateExternalTooltip(context);
             },
           },
+          annotation: {
+            annotations: buildUserAnnotations(),
+          },
           zoom: {
             pan: {
               enabled: true,   // Always true so Hammer.js registers pan recognizers
@@ -851,6 +867,29 @@
                 });
               },
               onZoomComplete: function ({ chart }) {
+                if (maskSelectionMode) {
+                  // Перехватываем выделение для создания маски
+                  const xMin = chart.scales.x.min;
+                  const xMax = chart.scales.x.max;
+                  const dtStart = new Date(xMin);
+                  const dtEnd = new Date(xMax);
+                  // Отменяем зум (откатываем к предыдущему состоянию)
+                  const prev = zoomHistory.pop();
+                  if (prev) {
+                    chart.scales.x.options.min = prev.xMin;
+                    chart.scales.x.options.max = prev.xMax;
+                    chart.scales.y.options.min = prev.yMin;
+                    chart.scales.y.options.max = prev.yMax;
+                    chart.update('none');
+                  } else {
+                    chart.resetZoom();
+                  }
+                  // Выходим из режима выбора
+                  exitMaskSelectionMode();
+                  // Открываем форму маски с выбранным диапазоном
+                  handleMaskSelection(dtStart, dtEnd);
+                  return;
+                }
                 syncZoomToDelta(chart);
               },
             },
@@ -1144,6 +1183,36 @@
 
   // ══════════════════ Панель настроек цветов ══════════════════
 
+  const COLOR_STORAGE_KEY = `sync-colors-well-${wellId}`;
+
+  function saveColorSettings() {
+    const evData = window.wellEventsData || {};
+    const data = {
+      eventColors: evData.eventColors || {},
+      reagentColors: evData.reagentColors || {},
+    };
+    try { localStorage.setItem(COLOR_STORAGE_KEY, JSON.stringify(data)); } catch(e) {}
+  }
+
+  function restoreColorSettings() {
+    let saved;
+    try { saved = JSON.parse(localStorage.getItem(COLOR_STORAGE_KEY)); } catch(e) {}
+    if (!saved) return;
+    const evData = window.wellEventsData;
+    if (!evData) return;
+    if (saved.eventColors) {
+      if (!evData.eventColors) evData.eventColors = {};
+      Object.assign(evData.eventColors, saved.eventColors);
+    }
+    if (saved.reagentColors) {
+      if (!evData.reagentColors) evData.reagentColors = {};
+      Object.assign(evData.reagentColors, saved.reagentColors);
+    }
+  }
+
+  // Восстанавливаем цвета сразу при загрузке скрипта
+  restoreColorSettings();
+
   function setupColorSettings() {
     const toggleBtn = document.getElementById('color-settings-toggle');
     const dropdown = document.getElementById('color-settings-dropdown');
@@ -1225,6 +1294,7 @@
         if (window.wellEventsData && window.wellEventsData.eventColors) {
           window.wellEventsData.eventColors[type] = color;
         }
+        saveColorSettings();
         loadChart();  // Перезагружаем график с новыми цветами
       });
     });
@@ -1236,20 +1306,207 @@
         if (window.wellEventsData && window.wellEventsData.reagentColors) {
           window.wellEventsData.reagentColors[name] = color;
         }
+        saveColorSettings();
         loadChart();  // Перезагружаем график с новыми цветами
       });
     });
   }
 
+  // ══════════════════ Аннотации: загрузка и рендеринг ══════════════════
+
+  async function loadAnnotations() {
+    try {
+      const resp = await fetch(`/api/chart-annotations?well_id=${wellId}`);
+      if (!resp.ok) { chartAnnotations = []; return; }
+      chartAnnotations = await resp.json();
+      console.log('[sync_chart] Loaded', chartAnnotations.length, 'annotations');
+    } catch (err) {
+      console.warn('[sync_chart] Failed to load annotations:', err);
+      chartAnnotations = [];
+    }
+  }
+
+  /**
+   * Строит объект аннотаций для chartjs-plugin-annotation.
+   * point → вертикальная пунктирная линия с label
+   * range → полупрозрачный box с label
+   */
+  function buildUserAnnotations() {
+    const annotations = {};
+
+    // Маски коррекции давления
+    if (currentMaskZones.length > 0) {
+      const MASK_COLORS = {
+        hydrate: '#7b1fa2',
+        comm_loss: '#e65100',
+        sensor_fault: '#c62828',
+        manual: '#37474f',
+      };
+      const MASK_LABELS = {
+        hydrate: 'Гидрат',
+        comm_loss: 'Потеря связи',
+        sensor_fault: 'Неисправн.',
+        manual: 'Ручная',
+      };
+      // Проверяем, включена ли коррекция данных (для разного стиля)
+      const masksCheckboxEl = document.getElementById('sync-apply-masks');
+      const correctionActive = masksCheckboxEl && masksCheckboxEl.checked;
+
+      currentMaskZones.forEach(function (zone) {
+        const key = 'mask_zone_' + zone.id;
+        const color = MASK_COLORS[zone.problem_type] || '#7b1fa2';
+        const label = MASK_LABELS[zone.problem_type] || zone.problem_type;
+        const sensor = zone.affected_sensor === 'p_tube' ? 'Ptr' : 'Pshl';
+        const METHOD_SHORT = {
+          delta_reconstruct: 'dP',
+          median_1d: 'med1d',
+          median_3d: 'med3d',
+          interpolate: 'interp',
+          exclude: 'excl',
+        };
+        const method = METHOD_SHORT[zone.correction_method] || zone.correction_method;
+        annotations[key] = {
+          type: 'box',
+          xMin: zone.dt_start,
+          xMax: zone.dt_end,
+          backgroundColor: hexToRgba(color, correctionActive ? 0.15 : 0.08),
+          borderColor: color,
+          borderWidth: correctionActive ? 2 : 1,
+          borderDash: correctionActive ? [] : [4, 4],
+          label: {
+            display: true,
+            content: label + ' (' + sensor + ', ' + method + ')' + (correctionActive ? ' *' : ''),
+            position: 'start',
+            font: { size: 10, weight: '600' },
+            color: color,
+            backgroundColor: 'rgba(255,255,255,0.92)',
+            padding: { top: 2, bottom: 2, left: 4, right: 4 },
+          },
+        };
+      });
+    }
+
+    // Пользовательские аннотации
+    if (annotationsVisible && chartAnnotations.length > 0) {
+      chartAnnotations.forEach(function (ann) {
+        const key = 'user_ann_' + ann.id;
+        if (ann.ann_type === 'range' && ann.dt_end) {
+          annotations[key] = {
+            type: 'box',
+            xMin: ann.dt_start,
+            xMax: ann.dt_end,
+            backgroundColor: hexToRgba(ann.color, 0.12),
+            borderColor: ann.color,
+            borderWidth: 1,
+            borderDash: [4, 4],
+            label: {
+              display: true,
+              content: ann.text,
+              position: 'start',
+              font: { size: 11, weight: 'bold' },
+              color: ann.color,
+              backgroundColor: 'rgba(255,255,255,0.85)',
+              padding: { top: 2, bottom: 2, left: 4, right: 4 },
+            },
+          };
+        } else {
+          // point annotation → vertical line
+          annotations[key] = {
+            type: 'line',
+            xMin: ann.dt_start,
+            xMax: ann.dt_start,
+            borderColor: ann.color,
+            borderWidth: 2,
+            borderDash: [6, 3],
+            label: {
+              display: true,
+              content: ann.text,
+              position: 'start',
+              font: { size: 11, weight: 'bold' },
+              color: ann.color,
+              backgroundColor: 'rgba(255,255,255,0.85)',
+              padding: { top: 2, bottom: 2, left: 4, right: 4 },
+            },
+          };
+        }
+      });
+    }
+
+    // Обнаруженные аномалии (временные зоны из авто-детекции)
+    if (detectedAnomalyZones.length > 0) {
+      detectedAnomalyZones.forEach(function (zone, idx) {
+        const key = 'detected_' + idx;
+        const sensor = zone.affected_sensor === 'p_tube' ? 'Ptr' : 'Pshl';
+        const conf = Math.round((zone.confidence || 0) * 100);
+        annotations[key] = {
+          type: 'box',
+          xMin: zone.dt_start,
+          xMax: zone.dt_end,
+          backgroundColor: 'rgba(255, 152, 0, 0.12)',
+          borderColor: '#ff9800',
+          borderWidth: 2,
+          borderDash: [6, 3],
+          label: {
+            display: true,
+            content: 'Аномалия (' + sensor + ', ' + conf + '%)',
+            position: 'start',
+            font: { size: 10, weight: '600' },
+            color: '#e65100',
+            backgroundColor: 'rgba(255,255,255,0.92)',
+            padding: { top: 2, bottom: 2, left: 4, right: 4 },
+          },
+        };
+      });
+    }
+
+    return annotations;
+  }
+
+  function hexToRgba(hex, alpha) {
+    let c = hex.replace('#', '');
+    if (c.length === 3) c = c[0]+c[0]+c[1]+c[1]+c[2]+c[2];
+    const r = parseInt(c.substring(0,2), 16);
+    const g = parseInt(c.substring(2,4), 16);
+    const b = parseInt(c.substring(4,6), 16);
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+  }
+
+  /**
+   * Обновляет аннотации на графике без перестроения
+   */
+  function refreshAnnotationsOnChart() {
+    if (!syncChart) return;
+    if (!syncChart.options.plugins.annotation) {
+      syncChart.options.plugins.annotation = { annotations: {} };
+    }
+    // Удаляем старые user_ann_*, mask_zone_*, detected_*
+    const existing = syncChart.options.plugins.annotation.annotations || {};
+    Object.keys(existing).forEach(function (k) {
+      if (k.startsWith('user_ann_') || k.startsWith('mask_zone_') || k.startsWith('detected_')) delete existing[k];
+    });
+    // Добавляем новые
+    const userAnns = buildUserAnnotations();
+    Object.assign(existing, userAnns);
+    syncChart.options.plugins.annotation.annotations = existing;
+    syncChart.update('none');
+  }
+
   // ══════════════════ Загрузка данных ══════════════════
 
-  async function loadChart(days, interval) {
+  async function loadChart(days, interval, start, end) {
     if (days !== undefined) currentDays = days;
     if (interval !== undefined) currentInterval = interval;
+    if (start !== undefined) currentStart = start;
+    if (end !== undefined) currentEnd = end;
 
     // 1) Получаем данные давления
     const filterStr = getFilterParams();
-    const url = `/api/pressure/chart/${wellId}?days=${currentDays}&interval=${currentInterval}${filterStr}`;
+    let url;
+    if (currentStart && currentEnd) {
+      url = `/api/pressure/chart/${wellId}?interval=${currentInterval}&start=${encodeURIComponent(currentStart)}&end=${encodeURIComponent(currentEnd)}${filterStr}`;
+    } else {
+      url = `/api/pressure/chart/${wellId}?days=${currentDays}&interval=${currentInterval}${filterStr}`;
+    }
 
     try {
       const resp = await fetch(url);
@@ -1260,25 +1517,38 @@
       const json = await resp.json();
       const points = json.points || [];
 
+      // 1.5) Маски коррекции давления
+      currentMaskZones = json.mask_zones || [];
+      if (json.masks_applied) {
+        console.log('[sync_chart] Masks applied:', json.mask_corrected_points, 'points,', currentMaskZones.length, 'zones');
+      }
+
       // 2) Получаем события и фильтруем по текущему периоду
       const rawEvData = window.wellEventsData || {};
       const visibleTypes = getVisibleEventTypes();
 
-      // Фильтруем события по периоду (последние currentDays дней)
-      const cutoffTime = new Date();
-      cutoffTime.setDate(cutoffTime.getDate() - currentDays);
-      const cutoffMs = cutoffTime.getTime();
+      // Фильтруем события по периоду
+      let cutoffMs, endMs;
+      if (currentStart && currentEnd) {
+        cutoffMs = new Date(currentStart).getTime();
+        endMs = new Date(currentEnd).getTime();
+      } else {
+        const cutoffTime = new Date();
+        cutoffTime.setDate(cutoffTime.getDate() - currentDays);
+        cutoffMs = cutoffTime.getTime();
+        endMs = Date.now();
+      }
 
       const filteredEvents = (rawEvData.timelineEvents || []).filter(ev => {
         if (!ev.t) return false;
         const evTime = new Date(normalizeTime(ev.t)).getTime();
-        return evTime >= cutoffMs;
+        return evTime >= cutoffMs && evTime <= endMs;
       });
 
       const filteredInjections = (rawEvData.timelineInjections || []).filter(inj => {
         if (!inj.t) return false;
         const injTime = new Date(normalizeTime(inj.t)).getTime();
-        return injTime >= cutoffMs;
+        return injTime >= cutoffMs && injTime <= endMs;
       });
 
       const evData = {
@@ -1309,6 +1579,9 @@
       showEventStats(datasets);
       updateEventsSummaryPanel(evData);
 
+      // 4.5) Загружаем аннотации
+      await loadAnnotations();
+
       // 5) Рендер (с привязкой оси X к диапазону давления)
       renderChart(datasets, result.pressureTimeMin, result.pressureTimeMax, result.maxQty);
 
@@ -1317,7 +1590,7 @@
 
       // 7) Перезагружаем delta chart с теми же параметрами
       if (window.deltaChart && window.deltaChart.reload) {
-        window.deltaChart.reload(currentDays, currentInterval);
+        window.deltaChart.reload(currentDays, currentInterval, currentStart, currentEnd);
       }
 
     } catch (err) {
@@ -1591,6 +1864,12 @@
       } else {
         modeIndicator.style.display = 'none';
       }
+    }
+
+    // Показываем кнопку «Аннотировать» в locked режиме
+    const annPointBtn = document.getElementById('sync-annotate-point');
+    if (annPointBtn) {
+      annPointBtn.style.display = cursorMode === 'locked' ? 'inline-block' : 'none';
     }
 
     if (tooltipPanel) {
@@ -1948,6 +2227,233 @@ Pshl (шлейф): ${pshlStats.count} точек
     console.log('[sync_chart] Range stats calculated');
   }
 
+  // ══════════════════ Аннотации: создание, toggle, удаление ══════════════════
+
+  /**
+   * Форматирует ms timestamp → ISO naive строку (как в chart data)
+   */
+  function msToNaiveISO(ms) {
+    const d = new Date(ms);
+    return d.getFullYear() + '-'
+      + String(d.getMonth() + 1).padStart(2, '0') + '-'
+      + String(d.getDate()).padStart(2, '0') + 'T'
+      + String(d.getHours()).padStart(2, '0') + ':'
+      + String(d.getMinutes()).padStart(2, '0') + ':'
+      + String(d.getSeconds()).padStart(2, '0');
+  }
+
+  /**
+   * Открывает модалку создания аннотации
+   * @param {string} annType — "point" | "range"
+   * @param {number} dtStartMs — ms timestamp начала
+   * @param {number|null} dtEndMs — ms timestamp конца (для range)
+   */
+  function openAnnotationModal(annType, dtStartMs, dtEndMs) {
+    const modal = document.getElementById('annotation-modal');
+    if (!modal) return;
+
+    const timeLabel = document.getElementById('annotation-time-label');
+    const textInput = document.getElementById('annotation-text-input');
+    const colorInput = document.getElementById('annotation-color-input');
+
+    // Форматируем время для показа
+    const fmtTime = function (ms) {
+      const d = new Date(ms);
+      return String(d.getDate()).padStart(2, '0') + '.'
+        + String(d.getMonth() + 1).padStart(2, '0') + ' '
+        + String(d.getHours()).padStart(2, '0') + ':'
+        + String(d.getMinutes()).padStart(2, '0');
+    };
+
+    if (timeLabel) {
+      if (annType === 'range' && dtEndMs) {
+        timeLabel.textContent = fmtTime(dtStartMs) + ' — ' + fmtTime(dtEndMs);
+      } else {
+        timeLabel.textContent = fmtTime(dtStartMs);
+      }
+    }
+
+    if (textInput) textInput.value = '';
+    if (colorInput) colorInput.value = '#ff9800';
+
+    modal.style.display = 'flex';
+    if (textInput) textInput.focus();
+
+    // Сохраняем контекст для submit
+    modal._annType = annType;
+    modal._dtStartMs = dtStartMs;
+    modal._dtEndMs = dtEndMs;
+  }
+
+  /**
+   * Отправляет аннотацию на сервер
+   */
+  async function submitAnnotation() {
+    const modal = document.getElementById('annotation-modal');
+    if (!modal) return;
+
+    const textInput = document.getElementById('annotation-text-input');
+    const colorInput = document.getElementById('annotation-color-input');
+    const text = (textInput ? textInput.value : '').trim();
+    if (!text) { if (textInput) textInput.focus(); return; }
+
+    const body = {
+      well_id: parseInt(wellId),
+      ann_type: modal._annType || 'point',
+      dt_start: msToNaiveISO(modal._dtStartMs),
+      dt_end: modal._dtEndMs ? msToNaiveISO(modal._dtEndMs) : null,
+      text: text,
+      color: colorInput ? colorInput.value : '#ff9800',
+    };
+
+    try {
+      const resp = await fetch('/api/chart-annotations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) {
+        console.error('[sync_chart] Failed to create annotation:', resp.status);
+        return;
+      }
+      const created = await resp.json();
+      chartAnnotations.push(created);
+      refreshAnnotationsOnChart();
+      updateAnnotationList();
+      console.log('[sync_chart] Annotation created:', created.id);
+    } catch (err) {
+      console.error('[sync_chart] Error creating annotation:', err);
+    }
+
+    modal.style.display = 'none';
+    resetCursorMode();
+  }
+
+  /**
+   * Удаляет аннотацию
+   */
+  async function deleteAnnotation(annId) {
+    try {
+      const resp = await fetch('/api/chart-annotations/' + annId, { method: 'DELETE' });
+      if (!resp.ok) {
+        console.error('[sync_chart] Failed to delete annotation:', resp.status);
+        return;
+      }
+      chartAnnotations = chartAnnotations.filter(function (a) { return a.id !== annId; });
+      refreshAnnotationsOnChart();
+      updateAnnotationList();
+      console.log('[sync_chart] Annotation deleted:', annId);
+    } catch (err) {
+      console.error('[sync_chart] Error deleting annotation:', err);
+    }
+  }
+
+  /**
+   * Обновляет список аннотаций в модалке
+   */
+  function updateAnnotationList() {
+    const listEl = document.getElementById('annotation-list-body');
+    if (!listEl) return;
+    if (chartAnnotations.length === 0) {
+      listEl.innerHTML = '<div style="color:#999; font-size:12px; text-align:center; padding:8px;">Нет аннотаций</div>';
+      return;
+    }
+    let html = '';
+    chartAnnotations.forEach(function (ann) {
+      const fmtTime = function (iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        return String(d.getDate()).padStart(2, '0') + '.'
+          + String(d.getMonth() + 1).padStart(2, '0') + ' '
+          + String(d.getHours()).padStart(2, '0') + ':'
+          + String(d.getMinutes()).padStart(2, '0');
+      };
+      const timeStr = ann.ann_type === 'range' && ann.dt_end
+        ? fmtTime(ann.dt_start) + ' — ' + fmtTime(ann.dt_end)
+        : fmtTime(ann.dt_start);
+      html += '<div style="display:flex; align-items:center; gap:6px; padding:4px 0; border-bottom:1px solid #eee;">'
+        + '<span style="width:12px; height:12px; border-radius:2px; background:' + ann.color + '; flex-shrink:0;"></span>'
+        + '<span style="flex:1; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="' + ann.text.replace(/"/g, '&quot;') + '">' + ann.text + '</span>'
+        + '<span style="font-size:10px; color:#999; white-space:nowrap;">' + timeStr + '</span>'
+        + '<button onclick="window._deleteAnnotation(' + ann.id + ')" style="border:none; background:none; color:#dc3545; cursor:pointer; font-size:14px; padding:0 2px;" title="Удалить">&times;</button>'
+        + '</div>';
+    });
+    listEl.innerHTML = html;
+  }
+
+  // Expose for onclick handlers in HTML
+  window._deleteAnnotation = deleteAnnotation;
+  window._submitAnnotation = submitAnnotation;
+
+  // Toggle annotations visibility
+  const annToggleBtn = document.getElementById('sync-annotations-toggle');
+  if (annToggleBtn) {
+    annToggleBtn.addEventListener('click', function () {
+      annotationsVisible = !annotationsVisible;
+      annToggleBtn.style.background = annotationsVisible ? '#ff9800' : '#fff';
+      annToggleBtn.style.color = annotationsVisible ? '#fff' : '#333';
+      refreshAnnotationsOnChart();
+    });
+  }
+
+  // Annotate from locked mode (point)
+  const annFromLockedBtn = document.getElementById('sync-annotate-point');
+  if (annFromLockedBtn) {
+    annFromLockedBtn.addEventListener('click', function () {
+      if (lockedXValue) {
+        openAnnotationModal('point', lockedXValue, null);
+      }
+    });
+  }
+
+  // Annotate from range menu
+  const annFromRangeBtn = document.getElementById('sync-range-annotate');
+  if (annFromRangeBtn) {
+    annFromRangeBtn.addEventListener('click', function () {
+      if (rangeStart && rangeEnd) {
+        openAnnotationModal('range', rangeStart, rangeEnd);
+      }
+    });
+  }
+
+  // Annotation modal cancel
+  const annCancelBtn = document.getElementById('annotation-modal-cancel');
+  if (annCancelBtn) {
+    annCancelBtn.addEventListener('click', function () {
+      document.getElementById('annotation-modal').style.display = 'none';
+    });
+  }
+
+  // Annotation modal save
+  const annSaveBtn = document.getElementById('annotation-modal-save');
+  if (annSaveBtn) {
+    annSaveBtn.addEventListener('click', function () {
+      submitAnnotation();
+    });
+  }
+
+  // Annotation modal list toggle
+  const annListToggle = document.getElementById('annotation-list-toggle');
+  if (annListToggle) {
+    annListToggle.addEventListener('click', function () {
+      const listPanel = document.getElementById('annotation-list-panel');
+      if (listPanel) {
+        const visible = listPanel.style.display !== 'none';
+        listPanel.style.display = visible ? 'none' : 'block';
+        annListToggle.textContent = visible ? 'Показать список' : 'Скрыть список';
+        if (!visible) updateAnnotationList();
+      }
+    });
+  }
+
+  // Enter key in text input → save
+  const annTextInput = document.getElementById('annotation-text-input');
+  if (annTextInput) {
+    annTextInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); submitAnnotation(); }
+    });
+  }
+
   // ══════════════════ Y-слайдер давления ══════════════════
 
   const yPressureSlider = document.getElementById('sync-y-pressure-slider');
@@ -2007,11 +2513,14 @@ Pshl (шлейф): ${pshlStats.count} точек
   document.querySelectorAll('[data-sync-days]').forEach(btn => {
     btn.addEventListener('click', function () {
       const days = parseInt(this.dataset.syncDays);
+      // Сброс ручного диапазона при выборе пресета
+      currentStart = null;
+      currentEnd = null;
       if (window.updateAllCharts) {
-        window.updateAllCharts(days, undefined);
+        window.updateAllCharts(days, undefined, null, null);
       } else {
         setActiveBtn('sync-days', this);
-        loadChart(days, undefined);
+        loadChart(days, undefined, null, null);
       }
     });
   });
@@ -2028,20 +2537,29 @@ Pshl (шлейф): ${pshlStats.count} точек
     });
   });
 
-  // ── Ручной выбор периода по датам ──
+  // ── Ручной выбор периода по дате и времени ──
   const syncDateApply = document.getElementById('sync-date-apply');
   if (syncDateApply) {
     syncDateApply.addEventListener('click', function () {
       const fromEl = document.getElementById('sync-date-from');
       const toEl = document.getElementById('sync-date-to');
-      const from = fromEl ? fromEl.value : '';
+      const from = fromEl ? fromEl.value : '';  // "2025-02-17T08:00"
       const to = toEl ? toEl.value : '';
       if (!from) return;
-      const dateFrom = new Date(from);
-      const dateTo = to ? new Date(to) : new Date();
-      const diffMs = dateTo.getTime() - dateFrom.getTime();
-      if (diffMs <= 0) return;
-      const days = Math.ceil(diffMs / 86400000);
+
+      // datetime-local даёт "YYYY-MM-DDTHH:MM", добавляем секунды
+      const startISO = from.length === 16 ? from + ':00' : from;
+      const endISO = to ? (to.length === 16 ? to + ':00' : to) : null;
+
+      if (!endISO) return;
+
+      const dateFrom = new Date(startISO);
+      const dateTo = new Date(endISO);
+      if (dateTo.getTime() <= dateFrom.getTime()) return;
+
+      // Вычисляем приблизительный days для совместимости
+      const days = Math.max(1, Math.ceil((dateTo - dateFrom) / 86400000));
+
       // Сбрасываем активную кнопку периода
       document.querySelectorAll('[data-sync-days]').forEach(b => {
         b.style.background = '#f5f5f5';
@@ -2049,9 +2567,34 @@ Pshl (шлейф): ${pshlStats.count} точек
         b.style.borderColor = '#90a4ae';
       });
       if (window.updateAllCharts) {
-        window.updateAllCharts(days, undefined);
+        window.updateAllCharts(days, undefined, startISO, endISO);
       } else {
-        loadChart(days, undefined);
+        loadChart(days, undefined, startISO, endISO);
+      }
+    });
+  }
+
+  // ── Кнопка «Сутки» — выбрать календарный день (00:00–23:59) ──
+  const syncDayApply = document.getElementById('sync-day-apply');
+  if (syncDayApply) {
+    syncDayApply.addEventListener('click', function () {
+      const dayEl = document.getElementById('sync-date-day');
+      const dayVal = dayEl ? dayEl.value : '';  // "2025-02-17"
+      if (!dayVal) return;
+
+      const startISO = dayVal + 'T00:00:00';
+      const endISO = dayVal + 'T23:59:59';
+
+      // Сбрасываем активную кнопку периода
+      document.querySelectorAll('[data-sync-days]').forEach(b => {
+        b.style.background = '#f5f5f5';
+        b.style.color = '#333';
+        b.style.borderColor = '#90a4ae';
+      });
+      if (window.updateAllCharts) {
+        window.updateAllCharts(1, undefined, startISO, endISO);
+      } else {
+        loadChart(1, undefined, startISO, endISO);
       }
     });
   }
@@ -2068,6 +2611,7 @@ Pshl (шлейф): ${pshlStats.count} точек
     { id: 'sync-filter-fill-mode',       type: 'select'   },
     { id: 'sync-filter-max-gap',         type: 'number'   },
     { id: 'sync-filter-gap-break',       type: 'number'   },
+    { id: 'sync-apply-masks',            type: 'checkbox' },
   ];
 
   function saveFilterSettings() {
@@ -2121,6 +2665,457 @@ Pshl (шлейф): ${pshlStats.count} точек
     const el = document.getElementById(id);
     if (el) el.addEventListener('change', onFilterChange);
   });
+
+  // Чекбокс масок коррекции
+  const masksCheckbox = document.getElementById('sync-apply-masks');
+  if (masksCheckbox) {
+    masksCheckbox.addEventListener('change', onFilterChange);
+  }
+
+  // ══════════════════ Управление масками ══════════════════
+
+  const masksModal = document.getElementById('masks-modal');
+  const masksManageBtn = document.getElementById('sync-masks-manage');
+  const masksCloseBtn = document.getElementById('masks-modal-close');
+  const masksListEl = document.getElementById('masks-list');
+  const masksFormEl = document.getElementById('masks-form');
+  const masksDetectBtn = document.getElementById('masks-detect-btn');
+  const masksCreateBtn = document.getElementById('masks-create-btn');
+  const masksFormSaveBtn = document.getElementById('masks-form-save');
+  const masksFormCancelBtn = document.getElementById('masks-form-cancel');
+  const masksDetectResults = document.getElementById('masks-detect-results');
+  const masksSelectBtn = document.getElementById('masks-select-chart');
+  const masksDetectRangeBtn = document.getElementById('masks-detect-range');
+
+  // ── Режим выбора участка на графике ──
+  let maskSelectionCallback = null;  // 'create' или 'detect'
+
+  function enterMaskSelectionMode(callback) {
+    maskSelectionMode = true;
+    maskSelectionCallback = callback;
+    // Включаем drag (даже если pan mode) и меняем цвет рамки на фиолетовый
+    if (syncChart) {
+      syncChart.options.plugins.zoom.zoom.drag.enabled = true;
+      syncChart.options.plugins.zoom.zoom.drag.backgroundColor = 'rgba(123, 31, 162, 0.15)';
+      syncChart.options.plugins.zoom.zoom.drag.borderColor = 'rgba(123, 31, 162, 0.6)';
+      // Временно отключаем pan чтобы drag работал
+      syncChart.options.plugins.zoom.pan.enabled = false;
+      syncChart.update('none');
+    }
+    // Меняем курсор на crosshair
+    canvas.style.cursor = 'crosshair';
+    // Скрываем модалку, показываем подсказку
+    if (masksModal) masksModal.style.display = 'none';
+    showMaskSelectionHint();
+  }
+
+  function exitMaskSelectionMode() {
+    maskSelectionMode = false;
+    maskSelectionCallback = null;
+    // Возвращаем стандартные настройки drag/pan
+    if (syncChart) {
+      syncChart.options.plugins.zoom.zoom.drag.enabled = !panMode;
+      syncChart.options.plugins.zoom.zoom.drag.backgroundColor = 'rgba(13, 110, 253, 0.1)';
+      syncChart.options.plugins.zoom.zoom.drag.borderColor = 'rgba(13, 110, 253, 0.4)';
+      syncChart.options.plugins.zoom.pan.enabled = panMode;
+      syncChart.update('none');
+    }
+    canvas.style.cursor = '';
+    hideMaskSelectionHint();
+  }
+
+  // Escape отменяет режим выбора маски
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && maskSelectionMode) {
+      exitMaskSelectionMode();
+    }
+  });
+
+  function showMaskSelectionHint() {
+    let hint = document.getElementById('mask-selection-hint');
+    if (!hint) {
+      hint = document.createElement('div');
+      hint.id = 'mask-selection-hint';
+      hint.style.cssText = 'position:fixed; top:12px; left:50%; transform:translateX(-50%); z-index:10000; background:#7b1fa2; color:white; padding:10px 24px; border-radius:8px; font-size:13px; font-weight:600; box-shadow:0 4px 16px rgba(0,0,0,0.3); display:flex; align-items:center; gap:12px;';
+      hint.innerHTML = '<span>Выделите участок на графике мышью</span>' +
+        '<button id="mask-selection-cancel" style="background:rgba(255,255,255,0.25); border:none; color:white; padding:4px 12px; border-radius:4px; font-size:12px; cursor:pointer;">Отмена</button>';
+      document.body.appendChild(hint);
+      document.getElementById('mask-selection-cancel').addEventListener('click', () => {
+        exitMaskSelectionMode();
+      });
+    }
+    hint.style.display = 'flex';
+  }
+
+  function hideMaskSelectionHint() {
+    const hint = document.getElementById('mask-selection-hint');
+    if (hint) hint.style.display = 'none';
+  }
+
+  function handleMaskSelection(dtStart, dtEnd) {
+    // Форматируем даты для datetime-local inputs
+    const fmt = (d) => {
+      const y = d.getFullYear();
+      const mo = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      return `${y}-${mo}-${dd}T${hh}:${mm}`;
+    };
+
+    const callback = maskSelectionCallback;
+
+    if (callback === 'detect') {
+      // Авто-детекция на выбранном участке
+      runDetectOnRange(dtStart, dtEnd);
+    } else {
+      // Создание маски — открыть форму с pre-filled диапазоном
+      if (masksModal) masksModal.style.display = 'flex';
+      openMaskForm({
+        dt_start: fmt(dtStart),
+        dt_end: fmt(dtEnd),
+        affected_sensor: 'p_tube',
+        correction_method: 'delta_reconstruct',
+        problem_type: 'hydrate',
+      });
+    }
+  }
+
+  async function runDetectOnRange(dtStart, dtEnd) {
+    // Вычисляем days из диапазона (минимум 1)
+    const msRange = dtEnd.getTime() - dtStart.getTime();
+    const daysRange = Math.max(1, Math.ceil(msRange / (1000 * 60 * 60 * 24)));
+
+    if (masksModal) masksModal.style.display = 'flex';
+    if (masksDetectResults) {
+      masksDetectResults.style.display = 'block';
+      masksDetectResults.innerHTML = '<div style="color:#999; font-size:12px;">Анализ выбранного участка...</div>';
+    }
+
+    try {
+      const resp = await fetch(`/api/pressure-masks/detect?well_id=${wellId}&days=${daysRange}`);
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const json = await resp.json();
+      let anomalies = json.anomalies || [];
+
+      // Фильтруем аномалии по выбранному диапазону
+      anomalies = anomalies.filter(a => {
+        const aStart = new Date(a.dt_start).getTime();
+        const aEnd = new Date(a.dt_end).getTime();
+        return aEnd >= dtStart.getTime() && aStart <= dtEnd.getTime();
+      });
+
+      if (anomalies.length === 0) {
+        masksDetectResults.innerHTML = '<div style="color:#4caf50; font-size:12px; padding:8px;">Аномалий не обнаружено на выбранном участке.</div>';
+        detectedAnomalyZones = [];
+        refreshAnnotationsOnChart();
+        return;
+      }
+
+      // Отображаем результаты (переиспользуем тот же формат)
+      masksDetectResults.innerHTML = '<div style="font-size:12px; font-weight:600; color:#7b1fa2; margin-bottom:8px;">Найдено аномалий: ' + anomalies.length + '</div>' +
+        anomalies.map((a, i) => {
+          const dtS = a.dt_start.replace('T', ' ').slice(0, 16);
+          const dtE = a.dt_end.replace('T', ' ').slice(0, 16);
+          const sensor = a.affected_sensor === 'p_tube' ? 'Устье' : 'Шлейф';
+          return '<div style="background:#f3e5f5; padding:8px 10px; border-radius:6px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">' +
+            `<div style="font-size:12px;"><strong>${dtS}</strong> — <strong>${dtE}</strong> (${a.duration_hours}ч)<br>` +
+            `Датчик: <strong>${sensor}</strong>, уверенность: ${Math.round(a.confidence * 100)}%, отклонение: ${a.dp_deviation} атм</div>` +
+            `<button data-detect-apply="${i}" style="padding:4px 12px; background:#7b1fa2; color:white; border:none; border-radius:4px; font-size:11px; cursor:pointer; white-space:nowrap;">Создать маску</button>` +
+          '</div>';
+        }).join('');
+
+      detectedAnomalyZones = anomalies.map(a => ({
+        dt_start: a.dt_start, dt_end: a.dt_end,
+        affected_sensor: a.affected_sensor, confidence: a.confidence,
+      }));
+      refreshAnnotationsOnChart();
+
+      masksDetectResults.querySelectorAll('[data-detect-apply]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.dataset.detectApply);
+          const a = anomalies[idx];
+          openMaskForm({
+            dt_start: a.dt_start, dt_end: a.dt_end,
+            affected_sensor: a.affected_sensor,
+            correction_method: a.suggested_method,
+            problem_type: 'hydrate',
+          });
+        });
+      });
+    } catch (err) {
+      console.error('[sync_chart] Range detect error:', err);
+      masksDetectResults.innerHTML = '<div style="color:#c62828; font-size:12px;">Ошибка детекции</div>';
+    }
+  }
+
+  if (masksManageBtn && masksModal) {
+    masksManageBtn.addEventListener('click', () => {
+      masksModal.style.display = 'flex';
+      loadMasksList();
+    });
+  }
+  function closeMasksModal() {
+    masksModal.style.display = 'none';
+    // Очищаем подсветку обнаруженных аномалий при закрытии
+    if (detectedAnomalyZones.length > 0) {
+      detectedAnomalyZones = [];
+      refreshAnnotationsOnChart();
+    }
+  }
+  if (masksCloseBtn && masksModal) {
+    masksCloseBtn.addEventListener('click', closeMasksModal);
+  }
+  if (masksModal) {
+    masksModal.addEventListener('click', (e) => {
+      if (e.target === masksModal) closeMasksModal();
+    });
+  }
+
+  async function loadMasksList() {
+    if (!masksListEl) return;
+    masksListEl.innerHTML = '<div style="color:#999; font-size:13px;">Загрузка...</div>';
+    try {
+      const resp = await fetch(`/api/pressure-masks?well_id=${wellId}`);
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const masks = await resp.json();
+      if (masks.length === 0) {
+        masksListEl.innerHTML = '<div style="color:#999; font-size:13px;">Нет масок для этой скважины.</div>';
+        return;
+      }
+      const METHOD_LABELS = {
+        delta_reconstruct: 'ΔP реконструкция',
+        median_1d: 'Медиана 1д',
+        median_3d: 'Медиана 3д',
+        interpolate: 'Интерполяция',
+        exclude: 'Исключить',
+      };
+      const TYPE_LABELS = {
+        hydrate: 'Гидрат',
+        comm_loss: 'Потеря связи',
+        sensor_fault: 'Неисправн.',
+        manual: 'Ручная',
+      };
+      const TYPE_COLORS = {
+        hydrate: '#7b1fa2',
+        comm_loss: '#e65100',
+        sensor_fault: '#c62828',
+        manual: '#37474f',
+      };
+      masksListEl.innerHTML = '<table style="width:100%; border-collapse:collapse; font-size:12px;">' +
+        '<tr style="background:#f5f5f5; font-weight:600; color:#555;">' +
+        '<td style="padding:4px 6px;">Период</td>' +
+        '<td style="padding:4px 6px;">Тип</td>' +
+        '<td style="padding:4px 6px;">Датчик</td>' +
+        '<td style="padding:4px 6px;">Метод</td>' +
+        '<td style="padding:4px 6px;">Причина</td>' +
+        '<td style="padding:4px 6px; text-align:center;">Акт.</td>' +
+        '<td style="padding:4px 6px; text-align:right;">Действия</td>' +
+        '</tr>' +
+        masks.map(m => {
+          const dtS = m.dt_start ? m.dt_start.replace('T', ' ').slice(0, 16) : '?';
+          const dtE = m.dt_end ? m.dt_end.replace('T', ' ').slice(0, 16) : '?';
+          const typeColor = TYPE_COLORS[m.problem_type] || '#666';
+          return '<tr style="border-bottom:1px solid #eee;">' +
+            `<td style="padding:4px 6px; white-space:nowrap;">${dtS}<br>${dtE}</td>` +
+            `<td style="padding:4px 6px; color:${typeColor}; font-weight:600;">${TYPE_LABELS[m.problem_type] || m.problem_type}</td>` +
+            `<td style="padding:4px 6px;">${m.affected_sensor === 'p_tube' ? 'Устье' : 'Шлейф'}</td>` +
+            `<td style="padding:4px 6px;">${METHOD_LABELS[m.correction_method] || m.correction_method}</td>` +
+            `<td style="padding:4px 6px; max-width:120px; overflow:hidden; text-overflow:ellipsis;">${m.reason || ''}</td>` +
+            `<td style="padding:4px 6px; text-align:center;">` +
+              `<button data-mask-toggle="${m.id}" style="background:none; border:none; cursor:pointer; font-size:16px;">${m.is_active ? '✅' : '⬜'}</button>` +
+            `</td>` +
+            `<td style="padding:4px 6px; text-align:right; white-space:nowrap;">` +
+              `<button data-mask-edit="${m.id}" style="background:none; border:1px solid #1565c0; color:#1565c0; border-radius:4px; padding:2px 8px; font-size:11px; cursor:pointer; margin-right:4px;">Ред.</button>` +
+              `<button data-mask-delete="${m.id}" style="background:none; border:1px solid #c62828; color:#c62828; border-radius:4px; padding:2px 8px; font-size:11px; cursor:pointer;">Уд.</button>` +
+            `</td>` +
+          '</tr>';
+        }).join('') +
+        '</table>';
+
+      // Обработчики кнопок
+      masksListEl.querySelectorAll('[data-mask-toggle]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.dataset.maskToggle;
+          await fetch(`/api/pressure-masks/${id}/toggle`, { method: 'PATCH' });
+          loadMasksList();
+          loadChart();
+        });
+      });
+      masksListEl.querySelectorAll('[data-mask-edit]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = btn.dataset.maskEdit;
+          const mask = masks.find(m => m.id == id);
+          if (mask) openMaskForm(mask);
+        });
+      });
+      masksListEl.querySelectorAll('[data-mask-delete]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.dataset.maskDelete;
+          if (!confirm('Удалить маску #' + id + '?')) return;
+          await fetch(`/api/pressure-masks/${id}`, { method: 'DELETE' });
+          loadMasksList();
+          loadChart();
+        });
+      });
+    } catch (err) {
+      console.error('[sync_chart] Failed to load masks:', err);
+      masksListEl.innerHTML = '<div style="color:#c62828; font-size:13px;">Ошибка загрузки масок</div>';
+    }
+  }
+
+  function openMaskForm(mask) {
+    if (!masksFormEl) return;
+    const titleEl = document.getElementById('masks-form-title');
+    const editIdEl = document.getElementById('mask-edit-id');
+
+    if (mask) {
+      titleEl.textContent = 'Редактировать маску #' + mask.id;
+      editIdEl.value = mask.id;
+      document.getElementById('mask-dt-start').value = mask.dt_start ? mask.dt_start.slice(0, 16) : '';
+      document.getElementById('mask-dt-end').value = mask.dt_end ? mask.dt_end.slice(0, 16) : '';
+      document.getElementById('mask-sensor').value = mask.affected_sensor || 'p_tube';
+      document.getElementById('mask-method').value = mask.correction_method || 'delta_reconstruct';
+      document.getElementById('mask-problem-type').value = mask.problem_type || 'manual';
+      document.getElementById('mask-manual-dp').value = mask.manual_delta_p || '';
+      document.getElementById('mask-reason').value = mask.reason || '';
+    } else {
+      titleEl.textContent = 'Новая маска';
+      editIdEl.value = '';
+      document.getElementById('mask-dt-start').value = '';
+      document.getElementById('mask-dt-end').value = '';
+      document.getElementById('mask-sensor').value = 'p_tube';
+      document.getElementById('mask-method').value = 'delta_reconstruct';
+      document.getElementById('mask-problem-type').value = 'hydrate';
+      document.getElementById('mask-manual-dp').value = '';
+      document.getElementById('mask-reason').value = '';
+    }
+    masksFormEl.style.display = 'block';
+  }
+
+  if (masksCreateBtn) {
+    masksCreateBtn.addEventListener('click', () => openMaskForm(null));
+  }
+  // Кнопка "Выбрать участок" — ручное создание маски по выделению на графике
+  if (masksSelectBtn) {
+    masksSelectBtn.addEventListener('click', () => enterMaskSelectionMode('create'));
+  }
+  // Кнопка "Детекция на участке" — авто-детекция на выбранном участке
+  if (masksDetectRangeBtn) {
+    masksDetectRangeBtn.addEventListener('click', () => enterMaskSelectionMode('detect'));
+  }
+  if (masksFormCancelBtn) {
+    masksFormCancelBtn.addEventListener('click', () => {
+      masksFormEl.style.display = 'none';
+    });
+  }
+  if (masksFormSaveBtn) {
+    masksFormSaveBtn.addEventListener('click', async () => {
+      const editId = document.getElementById('mask-edit-id').value;
+      const data = {
+        well_id: parseInt(wellId),
+        dt_start: document.getElementById('mask-dt-start').value + ':00',
+        dt_end: document.getElementById('mask-dt-end').value + ':00',
+        affected_sensor: document.getElementById('mask-sensor').value,
+        correction_method: document.getElementById('mask-method').value,
+        problem_type: document.getElementById('mask-problem-type').value,
+        reason: document.getElementById('mask-reason').value || null,
+      };
+      const manualDp = document.getElementById('mask-manual-dp').value;
+      if (manualDp) data.manual_delta_p = parseFloat(manualDp);
+
+      try {
+        let resp;
+        if (editId) {
+          resp = await fetch(`/api/pressure-masks/${editId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+          });
+        } else {
+          resp = await fetch('/api/pressure-masks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+          });
+        }
+        if (!resp.ok) {
+          const err = await resp.json();
+          alert('Ошибка: ' + (err.detail || resp.status));
+          return;
+        }
+        masksFormEl.style.display = 'none';
+        loadMasksList();
+        // Автоматически включаем чекбокс масок и перезагружаем график
+        if (masksCheckbox && !masksCheckbox.checked) {
+          masksCheckbox.checked = true;
+        }
+        loadChart();
+      } catch (err) {
+        console.error('[sync_chart] Failed to save mask:', err);
+        alert('Ошибка сохранения маски');
+      }
+    });
+  }
+
+  // Авто-детекция аномалий
+  if (masksDetectBtn) {
+    masksDetectBtn.addEventListener('click', async () => {
+      if (!masksDetectResults) return;
+      masksDetectResults.style.display = 'block';
+      masksDetectResults.innerHTML = '<div style="color:#999; font-size:12px;">Анализ данных...</div>';
+      try {
+        const resp = await fetch(`/api/pressure-masks/detect?well_id=${wellId}&days=${currentDays || 30}`);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const json = await resp.json();
+        const anomalies = json.anomalies || [];
+        if (anomalies.length === 0) {
+          masksDetectResults.innerHTML = '<div style="color:#4caf50; font-size:12px; padding:8px;">Аномалий не обнаружено.</div>';
+          // Очищаем подсветку аномалий на графике
+          detectedAnomalyZones = [];
+          refreshAnnotationsOnChart();
+          return;
+        }
+        masksDetectResults.innerHTML = '<div style="font-size:12px; font-weight:600; color:#7b1fa2; margin-bottom:8px;">Найдено аномалий: ' + anomalies.length + '</div>' +
+          anomalies.map((a, i) => {
+            const dtS = a.dt_start.replace('T', ' ').slice(0, 16);
+            const dtE = a.dt_end.replace('T', ' ').slice(0, 16);
+            const sensor = a.affected_sensor === 'p_tube' ? 'Устье' : 'Шлейф';
+            return '<div style="background:#f3e5f5; padding:8px 10px; border-radius:6px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">' +
+              `<div style="font-size:12px;"><strong>${dtS}</strong> — <strong>${dtE}</strong> (${a.duration_hours}ч)<br>` +
+              `Датчик: <strong>${sensor}</strong>, уверенность: ${Math.round(a.confidence * 100)}%, отклонение: ${a.dp_deviation} атм</div>` +
+              `<button data-detect-apply="${i}" style="padding:4px 12px; background:#7b1fa2; color:white; border:none; border-radius:4px; font-size:11px; cursor:pointer; white-space:nowrap;">Создать маску</button>` +
+            '</div>';
+          }).join('');
+
+        // Подсвечиваем найденные аномалии на графике
+        detectedAnomalyZones = anomalies.map(a => ({
+          dt_start: a.dt_start,
+          dt_end: a.dt_end,
+          affected_sensor: a.affected_sensor,
+          confidence: a.confidence,
+        }));
+        refreshAnnotationsOnChart();
+
+        masksDetectResults.querySelectorAll('[data-detect-apply]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const idx = parseInt(btn.dataset.detectApply);
+            const a = anomalies[idx];
+            openMaskForm({
+              dt_start: a.dt_start,
+              dt_end: a.dt_end,
+              affected_sensor: a.affected_sensor,
+              correction_method: a.suggested_method,
+              problem_type: 'hydrate',
+            });
+          });
+        });
+      } catch (err) {
+        console.error('[sync_chart] Detection error:', err);
+        masksDetectResults.innerHTML = '<div style="color:#c62828; font-size:12px;">Ошибка детекции</div>';
+      }
+    });
+  }
 
   // ══════════════════ Модалка справки по фильтрам ══════════════════
 
@@ -2230,10 +3225,16 @@ Pshl (шлейф): ${pshlStats.count} точек
    * Вызывается при нажатии кнопок периода/интервала.
    * @param {number} days - количество дней (если undefined, сохраняем текущее)
    * @param {number} interval - интервал в минутах (если undefined, сохраняем текущее)
+   * @param {string|null} start - ISO-строка начала периода (Кунград) или null
+   * @param {string|null} end - ISO-строка конца периода (Кунград) или null
    */
-  window.updateAllCharts = function (days, interval) {
-    // Обновляем активные кнопки
-    if (days !== undefined) {
+  window.updateAllCharts = function (days, interval, start, end) {
+    // Обновляем глобальный диапазон
+    if (start !== undefined) currentStart = start;
+    if (end !== undefined) currentEnd = end;
+
+    // Обновляем активные кнопки (только если пресет, не ручной выбор)
+    if (days !== undefined && !currentStart) {
       document.querySelectorAll('[data-sync-days]').forEach(b => {
         const d = parseInt(b.dataset.syncDays);
         if (d === days) {
@@ -2264,7 +3265,7 @@ Pshl (шлейф): ${pshlStats.count} точек
     }
 
     // Обновляем synchronized chart (который также обновляет delta chart)
-    loadChart(days, interval);
+    loadChart(days, interval, start, end);
 
     // Обновляем график событий если есть
     if (window.eventsChartReload) {
@@ -2272,9 +3273,9 @@ Pshl (шлейф): ${pshlStats.count} точек
     }
 
     // Обновляем график дебита если есть
-    console.log('[coordinator] flowRateChartReload exists:', !!window.flowRateChartReload, 'days:', days);
+    console.log('[coordinator] flowRateChartReload exists:', !!window.flowRateChartReload, 'days:', days, 'start:', start, 'end:', end);
     if (window.flowRateChartReload) {
-      window.flowRateChartReload(days);
+      window.flowRateChartReload(days, currentStart, currentEnd);
     }
   };
 

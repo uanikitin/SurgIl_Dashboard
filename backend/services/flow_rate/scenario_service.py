@@ -219,9 +219,26 @@ def run_scenario_calculation(
     # 3. Очистка
     df = clean_pressure(df)
 
+    # 3.5 Маски коррекции давления (гидраты, потеря связи и т.д.)
+    mask_corrected = 0
+    try:
+        from backend.services.pressure_mask_service import load_active_masks, apply_masks as apply_pressure_masks
+        pressure_masks = load_active_masks(
+            scenario.well_id, scenario.period_start, scenario.period_end,
+        )
+        if pressure_masks:
+            df, mask_corrected = apply_pressure_masks(df, pressure_masks)
+            log.info(
+                "[scenario %d] applied %d pressure masks, %d points corrected",
+                scenario.id, len(pressure_masks), mask_corrected,
+            )
+    except Exception as e:
+        log.warning("[scenario %d] failed to apply pressure masks: %s", scenario.id, e)
+
     # 4. *** КОРРЕКЦИИ *** (новый шаг)
     corrections = list(scenario.corrections) if scenario.corrections else []
     df, corrected_points = apply_corrections(df, corrections)
+    corrected_points += mask_corrected
 
     # 5. Сглаживание
     if scenario.smooth_enabled:

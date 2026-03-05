@@ -20,6 +20,65 @@
 
   console.log('[delta_chart] Script loaded');
 
+  // ══════════════════ Плагин: вертикальные линии событий ══════════════════
+  const deltaVerticalLinePlugin = {
+    id: 'deltaVerticalLines',
+    afterDatasetsDraw(chart) {
+      const ctx = chart.ctx;
+      const yAxis = chart.scales.y;
+      const xAxis = chart.scales.x;
+      if (!yAxis || !xAxis) return;
+
+      chart.data.datasets.forEach((dataset, dsIndex) => {
+        if (!dataset._isEventLine) return;
+        const meta = chart.getDatasetMeta(dsIndex);
+        if (!meta || meta.hidden) return;
+
+        meta.data.forEach((point) => {
+          const x = point.x;
+          if (isNaN(x) || x < xAxis.left || x > xAxis.right) return;
+          ctx.save();
+          ctx.strokeStyle = dataset.borderColor || '#999';
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([5, 4]);
+          ctx.globalAlpha = 0.45;
+          ctx.beginPath();
+          ctx.moveTo(x, yAxis.top);
+          ctx.lineTo(x, yAxis.bottom);
+          ctx.stroke();
+          ctx.restore();
+        });
+      });
+    },
+  };
+
+  // ══════════════════ Константы событий ══════════════════
+  const DELTA_EVENT_ICONS = {
+    pressure: '\u{1F4CA}', purge: '\u{1F4A8}', reagent: '\u{1F489}',
+    equip: '\u{1F527}', note: '\u{1F4DD}', other: '\u{1F4CC}',
+  };
+  const DELTA_EVENT_LABELS = {
+    pressure: 'Замер', purge: 'Продувка', reagent: 'Реагент',
+    equip: 'Оборудование', note: 'Заметка', other: 'Другое',
+  };
+  const DELTA_EVENT_Y = {
+    pressure: 0.90, purge: 0.70, reagent: 0.50,
+    equip: 0.30, note: 0.15, other: 0.05,
+  };
+
+  /** Нормализация времени: обрезка TZ-суффиксов и лишних десятичных знаков */
+  function normalizeTime(t) {
+    if (!t) return t;
+    t = t.replace(/[+-]\d{2}:\d{2}$/, '').replace(/Z$/, '');
+    const dotIdx = t.lastIndexOf('.');
+    if (dotIdx !== -1 && t.length - dotIdx > 4) {
+      t = t.substring(0, dotIdx + 4);
+    }
+    return t;
+  }
+
+  let showEvents = false; // управляется чекбоксом
+
   const canvasId = 'chart_delta_pressure';
   const canvas = document.getElementById(canvasId);
   if (!canvas) {
@@ -53,6 +112,8 @@
   let deltaChart = null;
   let currentDays = 7;
   let currentInterval = 5;
+  let currentStart = null;  // ISO string (Кунград) или null
+  let currentEnd = null;    // ISO string (Кунград) или null
   let criticalThreshold = 0.5; // атм — по умолчанию
   let currentDeltaData = [];   // хранение данных для пересчёта статистики
 
@@ -86,21 +147,30 @@
     if (fillMode && fillMode.value !== 'none') params += `&fill_mode=${fillMode.value}`;
     if (maxGap) params += `&max_gap=${maxGap.value}`;
     if (gapBreak) params += `&gap_break=${gapBreak.value}`;
+    const masks = document.getElementById('sync-apply-masks');
+    if (masks && masks.checked) params += '&apply_masks=true';
     return params;
   }
 
   /**
    * Загружает данные и строит/обновляет график ΔP
    */
-  async function loadChart(days, interval) {
+  async function loadChart(days, interval, start, end) {
     if (days !== undefined) currentDays = days;
     if (interval !== undefined) currentInterval = interval;
+    if (start !== undefined) currentStart = start;
+    if (end !== undefined) currentEnd = end;
 
-    console.log('[delta_chart] loadChart called, days:', currentDays, 'interval:', currentInterval);
+    console.log('[delta_chart] loadChart called, days:', currentDays, 'interval:', currentInterval, 'start:', currentStart, 'end:', currentEnd);
 
     try {
       const filterParams = getFilterParams();
-      const url = `/api/pressure/chart/${wellId}?days=${currentDays}&interval=${currentInterval}${filterParams}`;
+      let url;
+      if (currentStart && currentEnd) {
+        url = `/api/pressure/chart/${wellId}?interval=${currentInterval}&start=${encodeURIComponent(currentStart)}&end=${encodeURIComponent(currentEnd)}${filterParams}`;
+      } else {
+        url = `/api/pressure/chart/${wellId}?days=${currentDays}&interval=${currentInterval}${filterParams}`;
+      }
       console.log('[delta_chart] Fetching:', url);
 
       const resp = await fetch(url);
@@ -114,6 +184,91 @@
       console.error('[delta_chart] Load error:', err);
       showNoData('Нет данных для графика ΔP');
     }
+  }
+
+  /**
+   * Строит datasets событий из window.wellEventsData.
+   * Фильтрует по текущему периоду — показываем только события за выбранный диапазон.
+   */
+  function buildEventDatasets(ds) {
+    const evData = window.wellEventsData || {};
+    const eventColors = evData.eventColors || {};
+    const reagentColors = evData.reagentColors || {};
+    let cutoffMs, endMs;
+    if (currentStart && currentEnd) {
+      cutoffMs = new Date(currentStart).getTime();
+      endMs = new Date(currentEnd).getTime();
+    } else {
+      cutoffMs = Date.now() - currentDays * 24 * 60 * 60 * 1000;
+      endMs = Date.now();
+    }
+
+    // Не-reagent события → вертикальные линии
+    const eventsByType = {};
+    (evData.timelineEvents || []).forEach(ev => {
+      if (!ev.t) return;
+      const evMs = new Date(normalizeTime(ev.t)).getTime();
+      if (evMs < cutoffMs || evMs > endMs) return;
+      const type = (ev.type || 'other').toLowerCase();
+      if (!eventsByType[type]) eventsByType[type] = [];
+      eventsByType[type].push(ev);
+    });
+
+    Object.entries(eventsByType).forEach(([type, events]) => {
+      const color = eventColors[type] || '#9e9e9e';
+      ds.push({
+        label: `${DELTA_EVENT_ICONS[type] || '\u{1F4CC}'} ${DELTA_EVENT_LABELS[type] || type}`,
+        type: 'scatter',
+        data: events.map(ev => ({
+          x: normalizeTime(ev.t),
+          y: DELTA_EVENT_Y[type] || 0.5,
+          eventData: ev,
+        })),
+        backgroundColor: color,
+        borderColor: color,
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHoverRadius: 6,
+        pointHitRadius: 20,
+        yAxisID: 'y_events',
+        order: 10,
+        _isEventLine: true,
+      });
+    });
+
+    // Реагенты → scatter circles
+    const injByReagent = {};
+    (evData.timelineInjections || []).forEach(inj => {
+      if (!inj.t) return;
+      const injMs = new Date(normalizeTime(inj.t)).getTime();
+      if (injMs < cutoffMs || injMs > endMs) return;
+      const name = inj.reagent || 'Реагент';
+      if (!injByReagent[name]) injByReagent[name] = [];
+      injByReagent[name].push(inj);
+    });
+
+    Object.entries(injByReagent).forEach(([name, injs]) => {
+      const color = reagentColors[name] || '#e53935';
+      ds.push({
+        label: `\u{1F489} ${name}`,
+        type: 'scatter',
+        data: injs.map(inj => ({
+          x: normalizeTime(inj.t),
+          y: 0.50,
+          eventData: inj,
+        })),
+        backgroundColor: color,
+        borderColor: color,
+        borderWidth: 2,
+        pointRadius: 6,
+        pointHoverRadius: 9,
+        pointHitRadius: 20,
+        pointStyle: 'circle',
+        yAxisID: 'y_events',
+        order: 11,
+        _isEventLine: false,
+      });
+    });
   }
 
   /**
@@ -195,6 +350,11 @@
       },
     ];
 
+    // ── События (если включены) ──
+    if (showEvents) {
+      buildEventDatasets(datasets);
+    }
+
     if (deltaChart) {
       deltaChart.destroy();
     }
@@ -204,6 +364,7 @@
     deltaChart = new Chart(ctx, {
       type: 'line',
       data: { datasets },
+      plugins: [deltaVerticalLinePlugin],
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -297,6 +458,12 @@
             max: defaultMax,
             grid: { color: COLORS.grid },
             ticks: { font: { size: 11 } },
+          },
+          y_events: {
+            display: false,
+            position: 'right',
+            min: 0, max: 1,
+            grid: { drawOnChartArea: false },
           },
         },
       },
@@ -625,6 +792,15 @@
 
   const syncGapEl = document.getElementById('sync-filter-max-gap');
   if (syncGapEl) syncGapEl.addEventListener('change', () => loadChart());
+
+  // ══════════════════ Чекбокс событий ══════════════════
+  const eventsToggle = document.getElementById('delta-events-toggle');
+  if (eventsToggle) {
+    eventsToggle.addEventListener('change', function () {
+      showEvents = this.checked;
+      loadChart();
+    });
+  }
 
   // ══════════════════ Инициализация ══════════════════
 

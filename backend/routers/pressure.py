@@ -129,6 +129,8 @@ def get_pressure_chart(
     well_id: int,
     days: int = Query(7, ge=1, le=365),
     interval: int = Query(15, description="Interval in minutes: 5, 10, 15, 30, 60"),
+    start: Optional[str] = Query(None, description="Начало периода ISO (Кунград): 2025-01-01T08:00:00"),
+    end: Optional[str] = Query(None, description="Конец периода ISO (Кунград): 2025-02-01T20:00:00"),
     # ── Параметры фильтрации сигнала ──
     filter_zeros: bool = Query(False, description="Убрать 0.0 как ложные нули"),
     filter_spikes: bool = Query(False, description="Hampel-фильтр для спайков"),
@@ -136,11 +138,13 @@ def get_pressure_chart(
     fill_mode: str = Query("none", description="Заполнение пропусков: none|ffill|interpolate"),
     max_gap: int = Query(10, ge=1, le=60, description="Макс. пропуск для заполнения (мин)"),
     gap_break: int = Query(120, ge=5, le=1440, description="Разрыв линии при пропуске > N минут"),
+    apply_masks: bool = Query(False, description="Применить маски коррекции давления"),
 ):
     """
     Агрегированные давления с настраиваемым интервалом.
 
-    ?days=7&interval=15  — последние 7 дней, интервал 15 минут
+    ?days=7&interval=15          — последние 7 дней, интервал 15 минут
+    ?start=...&end=...&interval= — точный период (время в часовом поясе Кунграда)
 
     Фильтрация (опционально):
     ?filter_zeros=true      — убрать 0.0
@@ -160,8 +164,19 @@ def get_pressure_chart(
     if fill_mode not in allowed_fill_modes:
         raise HTTPException(400, f"fill_mode must be one of: {sorted(allowed_fill_modes)}")
 
+    # Определяем диапазон: start/end (Кунград) или days
+    dt_start_utc = None
+    dt_end_utc = None
+    if start and end:
+        try:
+            # Фронтенд передаёт время в Кунграде (UTC+5) — конвертируем в UTC
+            dt_start_utc = datetime.fromisoformat(start) - KUNKRAD_OFFSET
+            dt_end_utc = datetime.fromisoformat(end) - KUNKRAD_OFFSET
+        except ValueError:
+            raise HTTPException(400, "Invalid start/end format. Use ISO: 2025-01-01T08:00:00")
+
     # Единый источник: PostgreSQL pressure_raw (совпадает с flow-rate и pressure_latest)
-    log.info("[chart/%d] source=PostgreSQL days=%d interval=%d", well_id, days, interval)
+    log.info("[chart/%d] source=PostgreSQL days=%d interval=%d start=%s end=%s", well_id, days, interval, start, end)
     result = _chart_from_pg(
         well_id, days, interval,
         filter_zeros=filter_zeros,
@@ -170,6 +185,9 @@ def get_pressure_chart(
         fill_mode=fill_mode,
         max_gap=max_gap,
         gap_break=gap_break,
+        dt_start_override=dt_start_utc,
+        dt_end_override=dt_end_utc,
+        apply_masks=apply_masks,
     )
     log.info(
         "[chart/%d] result: source=%s points=%d last=%s",
@@ -385,6 +403,9 @@ def _chart_from_pg(
     spike_threshold: float = 0.0,
     fill_mode: str = "none", max_gap: int = 10,
     gap_break: int = 120,
+    dt_start_override: Optional[datetime] = None,
+    dt_end_override: Optional[datetime] = None,
+    apply_masks: bool = False,
 ) -> dict:
     """
     График из PostgreSQL pressure_raw.
@@ -392,12 +413,21 @@ def _chart_from_pg(
 
     Если фильтры включены — загружает сырые строки, применяет Python-фильтры,
     агрегирует в pandas. Если фильтры выключены — SQL-агрегация (быстрее).
+
+    dt_start_override / dt_end_override — абсолютный период (UTC).
+    Если заданы — используются вместо days.
+
+    apply_masks — если True, загружает маски коррекции и применяет к данным.
     """
     import math
     from sqlalchemy.exc import ProgrammingError
 
-    dt_end = datetime.utcnow()
-    dt_start = dt_end - timedelta(days=days)
+    if dt_start_override and dt_end_override:
+        dt_start = dt_start_override
+        dt_end = dt_end_override
+    else:
+        dt_end = datetime.utcnow()
+        dt_start = dt_end - timedelta(days=days)
 
     # ── Ограничение: не показывать данные до первой установки датчиков ──
     sensor_start = _get_sensor_start(well_id)
@@ -408,7 +438,35 @@ def _chart_from_pg(
         )
         dt_start = sensor_start
 
+    # ── Маски коррекции давления ──
+    # Всегда загружаем маски (для отображения зон на графике)
+    all_masks = []
+    try:
+        from backend.services.pressure_mask_service import load_active_masks
+        all_masks = load_active_masks(well_id, dt_start, dt_end)
+    except Exception as e:
+        log.warning("[_chart_from_pg] failed to load masks: %s", e)
+
+    # Зоны масок для визуализации (всегда возвращаем, даже без apply_masks)
+    mask_zones = []
+    for m in all_masks:
+        mask_zones.append({
+            "id": m["id"],
+            "dt_start": (m["dt_start"] + KUNKRAD_OFFSET).isoformat(),
+            "dt_end": (m["dt_end"] + KUNKRAD_OFFSET).isoformat(),
+            "affected_sensor": m["affected_sensor"],
+            "correction_method": m["correction_method"],
+            "problem_type": m["problem_type"],
+            "reason": m.get("reason"),
+        })
+
+    # Коррекции данных — только при apply_masks=True
+    active_masks = all_masks if apply_masks else []
+
+    # Если маски есть — принудительно идём через pandas-путь (filters_active)
     filters_active = any([filter_zeros, filter_spikes, spike_threshold > 0, fill_mode != "none"])
+    if active_masks:
+        filters_active = True
 
     if filters_active:
         # ── Путь с фильтрацией: сырые данные → Python-фильтры → pandas-агрегация ──
@@ -435,6 +493,33 @@ def _chart_from_pg(
                 "points": [], "count": 0, "tz": "UTC+5", "source": "raw_pg",
             }
 
+        # ── Применение масок коррекции давления (до фильтрации) ──
+        masks_applied = False
+        mask_corrected = 0
+
+        if active_masks:
+            try:
+                import pandas as pd
+                from backend.services.pressure_mask_service import apply_masks as _apply_masks
+
+                mask_df = pd.DataFrame(
+                    [(r[0], r[1], r[2]) for r in raw_rows],
+                    columns=["measured_at", "p_tube", "p_line"],
+                )
+                mask_df["measured_at"] = pd.to_datetime(mask_df["measured_at"])
+                mask_df = mask_df.set_index("measured_at").sort_index()
+
+                mask_df, mask_corrected = _apply_masks(mask_df, active_masks)
+                masks_applied = mask_corrected > 0
+
+                # Перестраиваем raw_rows из скорректированного DataFrame
+                raw_rows = [
+                    (idx, row["p_tube"], row["p_line"])
+                    for idx, row in mask_df.iterrows()
+                ]
+            except Exception as e:
+                log.warning("[_chart_from_pg] failed to apply masks: %s", e)
+
         from backend.services.pressure_filter_service import (
             filter_pressure_pair,
             aggregate_filtered,
@@ -443,7 +528,7 @@ def _chart_from_pg(
         filtered = filter_pressure_pair(
             p_tube=[r[1] for r in raw_rows],
             p_line=[r[2] for r in raw_rows],
-            timestamps=[r[0].strftime("%Y-%m-%d %H:%M:%S") for r in raw_rows],
+            timestamps=[r[0].strftime("%Y-%m-%d %H:%M:%S") if isinstance(r[0], datetime) else str(r[0]) for r in raw_rows],
             filter_zeros=filter_zeros,
             filter_spikes=filter_spikes,
             fill_mode=fill_mode,
@@ -475,6 +560,11 @@ def _chart_from_pg(
             "tz": "UTC+5", "source": "raw_pg",
         }
         result["filter_stats"] = filtered["stats"]
+        if mask_zones:
+            result["mask_zones"] = mask_zones
+        if masks_applied:
+            result["masks_applied"] = True
+            result["mask_corrected_points"] = mask_corrected
         return result
 
     # ── Стандартный путь: SQL-агрегация (без фильтров) ──
@@ -540,7 +630,7 @@ def _chart_from_pg(
 
     data = _insert_gap_markers(data, interval, gap_break)
 
-    return {
+    result = {
         "well_id": well_id,
         "interval_min": interval,
         "points": data,
@@ -548,6 +638,9 @@ def _chart_from_pg(
         "tz": "UTC+5",
         "source": "raw_pg",
     }
+    if mask_zones:
+        result["mask_zones"] = mask_zones
+    return result
 
 
 def _chart_from_hourly(well_id: int, days: int) -> dict:

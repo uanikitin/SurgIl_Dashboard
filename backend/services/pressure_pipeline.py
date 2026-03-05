@@ -130,29 +130,43 @@ def run_pipeline(skip_sync: bool = False) -> dict:
 def _step_sync_csv() -> dict:
     """Шаг 1: Скачать CSV с Raspberry Pi."""
     log.info("=== Шаг 1: Синхронизация CSV ===")
-    try:
-        sys.path.insert(0, str(LORA_ROOT))
-        from sync_lora_csv import SyncConfig, run_sync
 
-        config = SyncConfig(
-            base_url="http://10.242.96.193:2224",
-            dest_dir=str(CSV_DIR),
-            force_recent_days=7,
-        )
-        result = run_sync(config)
-        log.info(
-            f"CSV sync: {result.downloaded} скачано, "
-            f"{result.skipped} пропущено, "
-            f"{result.errors} ошибок"
-        )
-        return {
-            "downloaded": result.downloaded,
-            "skipped": result.skipped,
-            "errors": result.errors,
-        }
-    except Exception as e:
-        log.warning(f"CSV sync ошибка (Pi недоступен?): {e}")
-        return {"error": str(e)}
+    max_attempts = 2
+    last_error = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            sys.path.insert(0, str(LORA_ROOT))
+            from sync_lora_csv import SyncConfig, run_sync
+
+            config = SyncConfig(
+                base_url="http://10.242.96.193:2224",
+                dest_dir=str(CSV_DIR),
+                force_recent_days=7,
+            )
+            result = run_sync(config)
+            log.info(
+                f"CSV sync: {result.downloaded} скачано, "
+                f"{result.skipped} пропущено, "
+                f"{result.errors} ошибок"
+            )
+            return {
+                "downloaded": result.downloaded,
+                "skipped": result.skipped,
+                "errors": result.errors,
+            }
+        except Exception as e:
+            import traceback
+            last_error = e
+            log.warning(
+                f"CSV sync попытка {attempt}/{max_attempts} ошибка: {e}\n"
+                f"{traceback.format_exc()}"
+            )
+            if attempt < max_attempts:
+                time.sleep(3)
+
+    log.warning(f"CSV sync: все {max_attempts} попытки неуспешны")
+    return {"error": str(last_error)}
 
 
 def _step_import_csv() -> dict:

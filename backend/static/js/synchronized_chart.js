@@ -15,7 +15,7 @@
 (function () {
   'use strict';
 
-  console.log('[sync_chart] Script loaded, version 27');
+  console.log('[sync_chart] Script loaded, version 28');
 
   const canvas = document.getElementById('chart_synchronized');
   if (!canvas) {
@@ -56,6 +56,7 @@
   let rangeStart = null;  // timestamp начала диапазона
   let rangeEnd = null;    // timestamp конца диапазона
   let lockedXValue = null; // зафиксированная позиция курсора на графике
+  let hoverXValue = null;  // текущая позиция мыши (timestamp) для live-подсветки
 
   // ══════════════════ Аннотации пользователя ══════════════════
   let chartAnnotations = [];      // массив из API
@@ -215,6 +216,100 @@
       });
     },
   };
+
+  // ══════════════════ Плагин: live-подсветка выбираемого диапазона ══════════════════
+  // Рисует полупрозрачную заливку от rangeStart до текущей позиции мыши
+  // в режиме range_start, и фиксированную заливку в range_end.
+  const rangeHighlightPlugin = {
+    id: 'rangeHighlight',
+    afterDatasetsDraw(chart) {
+      const xAxis = chart.scales.x;
+      const yAxis = chart.scales.y;
+      if (!xAxis || !yAxis) return;
+
+      let xStart = null;
+      let xEnd = null;
+      let isLive = false;
+
+      if (cursorMode === 'range_start' && rangeStart != null && hoverXValue != null) {
+        // Live: от начала до текущей мыши
+        xStart = xAxis.getPixelForValue(rangeStart);
+        xEnd = xAxis.getPixelForValue(hoverXValue);
+        isLive = true;
+      } else if (cursorMode === 'range_end' && rangeStart != null && rangeEnd != null) {
+        // Зафиксированный диапазон
+        xStart = xAxis.getPixelForValue(rangeStart);
+        xEnd = xAxis.getPixelForValue(rangeEnd);
+      }
+
+      if (xStart == null || xEnd == null) return;
+
+      // Нормализуем порядок
+      const left = Math.max(Math.min(xStart, xEnd), xAxis.left);
+      const right = Math.min(Math.max(xStart, xEnd), xAxis.right);
+      if (right - left < 1) return;
+
+      const ctx = chart.ctx;
+      ctx.save();
+
+      // Заливка области
+      ctx.fillStyle = isLive
+        ? 'rgba(21, 101, 192, 0.10)'
+        : 'rgba(21, 101, 192, 0.15)';
+      ctx.fillRect(left, yAxis.top, right - left, yAxis.bottom - yAxis.top);
+
+      // Вертикальные границы
+      ctx.strokeStyle = 'rgba(21, 101, 192, 0.6)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash(isLive ? [4, 4] : []);
+
+      // Линия начала
+      const xStartPx = xAxis.getPixelForValue(rangeStart);
+      if (xStartPx >= xAxis.left && xStartPx <= xAxis.right) {
+        ctx.beginPath();
+        ctx.moveTo(xStartPx, yAxis.top);
+        ctx.lineTo(xStartPx, yAxis.bottom);
+        ctx.stroke();
+      }
+
+      // Линия конца (для live — текущая позиция мыши)
+      const xEndPx = isLive
+        ? xAxis.getPixelForValue(hoverXValue)
+        : xAxis.getPixelForValue(rangeEnd);
+      if (xEndPx >= xAxis.left && xEndPx <= xAxis.right && Math.abs(xEndPx - xStartPx) > 3) {
+        ctx.beginPath();
+        ctx.moveTo(xEndPx, yAxis.top);
+        ctx.lineTo(xEndPx, yAxis.bottom);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    },
+  };
+
+  // Отслеживаем позицию мыши для live-подсветки диапазона
+  let _rangeRafPending = false;
+  canvas.addEventListener('mousemove', function (e) {
+    if (cursorMode !== 'range_start') return;
+    if (!syncChart) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const xScale = syncChart.scales.x;
+    if (!xScale) return;
+
+    const val = xScale.getValueForPixel(x);
+    if (val) {
+      hoverXValue = new Date(val).getTime();
+      if (!_rangeRafPending) {
+        _rangeRafPending = true;
+        requestAnimationFrame(() => {
+          _rangeRafPending = false;
+          if (syncChart && cursorMode === 'range_start') syncChart.draw();
+        });
+      }
+    }
+  });
 
   // ══════════════════ Плагин: области продувок (start → stop) ══════════════════
   // Рисует полупрозрачные прямоугольники между событиями start и stop продувки.
@@ -819,7 +914,7 @@
     syncChart = new Chart(canvas, {
       type: 'line',
       data: { datasets },
-      plugins: [purgeDurationPlugin, verticalEventLinePlugin],
+      plugins: [purgeDurationPlugin, verticalEventLinePlugin, rangeHighlightPlugin],
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -1931,7 +2026,9 @@
     rangeStart = null;
     rangeEnd = null;
     lockedXValue = null;
+    hoverXValue = null;
     updateCursorModeUI();
+    if (syncChart) syncChart.draw();  // убираем подсветку
     console.log('[sync_chart] Cursor mode reset to normal');
   }
 

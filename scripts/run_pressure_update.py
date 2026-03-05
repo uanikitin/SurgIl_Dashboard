@@ -11,9 +11,9 @@
   5. Если да → запускает pipeline, обновляет last_run
 """
 
-import fcntl
 import json
 import os
+import signal
 import sys
 import logging
 from datetime import datetime, timedelta, timezone
@@ -73,19 +73,55 @@ def time_to_minutes(t: str) -> int:
     return int(h) * 60 + int(m)
 
 
-def main():
-    # Lock file — prevents concurrent pipeline runs from overlapping cron triggers
-    lock_fp = open(LOCK_FILE, "w")
+def _is_process_alive(pid: int) -> bool:
+    """Check if a process with given PID is still running."""
     try:
-        fcntl.flock(lock_fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        os.kill(pid, 0)  # signal 0 = existence check
+        return True
     except OSError:
+        return False
+
+
+def _acquire_lock() -> bool:
+    """
+    PID-file based lock. Returns True if lock acquired.
+    Uses PID file instead of fcntl.flock to avoid EDEADLK (errno 11)
+    that occurs on macOS cron when flock holder does file I/O.
+    """
+    LOCK_FILE.parent.mkdir(exist_ok=True)
+
+    if LOCK_FILE.exists():
+        try:
+            pid = int(LOCK_FILE.read_text().strip())
+            if _is_process_alive(pid):
+                return False  # Another instance is running
+        except (ValueError, OSError):
+            pass  # Corrupt PID file or stale — take over
+
+    LOCK_FILE.write_text(str(os.getpid()))
+    return True
+
+
+def _release_lock():
+    """Remove the PID lock file."""
+    try:
+        # Only remove if it's still ours
+        if LOCK_FILE.exists():
+            pid = int(LOCK_FILE.read_text().strip())
+            if pid == os.getpid():
+                LOCK_FILE.unlink(missing_ok=True)
+    except (ValueError, OSError):
+        LOCK_FILE.unlink(missing_ok=True)
+
+
+def main():
+    if not _acquire_lock():
         return  # Another instance is already running
 
     try:
         _run()
     finally:
-        fcntl.flock(lock_fp, fcntl.LOCK_UN)
-        lock_fp.close()
+        _release_lock()
 
 
 def _run():

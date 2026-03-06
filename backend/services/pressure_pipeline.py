@@ -21,6 +21,8 @@
 
 from __future__ import annotations
 
+import json as _json
+import subprocess
 import sys
 import time
 import logging
@@ -128,45 +130,74 @@ def run_pipeline(skip_sync: bool = False) -> dict:
 
 
 def _step_sync_csv() -> dict:
-    """Шаг 1: Скачать CSV с Raspberry Pi."""
+    """Шаг 1: Скачать CSV с Raspberry Pi (через subprocess)."""
     log.info("=== Шаг 1: Синхронизация CSV ===")
 
-    max_attempts = 2
-    last_error = None
+    # Запускаем sync как отдельный процесс, чтобы избежать EDEADLK (errno 11)
+    # который возникает при import файлов из cron-окружения macOS.
+    sync_script = LORA_ROOT / "sync_lora_csv.py"
+    if not sync_script.exists():
+        log.warning(f"sync_lora_csv.py не найден: {sync_script}")
+        return {"error": f"sync script not found: {sync_script}"}
 
-    for attempt in range(1, max_attempts + 1):
-        try:
-            sys.path.insert(0, str(LORA_ROOT))
-            from sync_lora_csv import SyncConfig, run_sync
+    # Маленький Python-скрипт, выполняемый в изолированном процессе
+    code = f"""
+import sys, json
+sys.path.insert(0, {str(LORA_ROOT)!r})
+from sync_lora_csv import SyncConfig, run_sync
 
-            config = SyncConfig(
-                base_url="http://10.242.96.193:2224",
-                dest_dir=str(CSV_DIR),
-                force_recent_days=7,
-            )
-            result = run_sync(config)
-            log.info(
-                f"CSV sync: {result.downloaded} скачано, "
-                f"{result.skipped} пропущено, "
-                f"{result.errors} ошибок"
-            )
-            return {
-                "downloaded": result.downloaded,
-                "skipped": result.skipped,
-                "errors": result.errors,
-            }
-        except Exception as e:
-            import traceback
-            last_error = e
+config = SyncConfig(
+    base_url="http://10.242.96.193:2224",
+    dest_dir={str(CSV_DIR)!r},
+    force_recent_days=7,
+)
+result = run_sync(config)
+print(json.dumps({{"downloaded": result.downloaded, "skipped": result.skipped, "errors": result.errors}}))
+"""
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        if proc.returncode == 2:
+            log.warning(f"CSV sync: Pi недоступен\nstderr: {proc.stderr[:500]}")
+            return {"error": "Pi unreachable", "stderr": proc.stderr[:500]}
+
+        # Ищем JSON в последней строке stdout
+        stdout_lines = proc.stdout.strip().splitlines()
+        result = None
+        for line in reversed(stdout_lines):
+            line = line.strip()
+            if line.startswith("{"):
+                try:
+                    result = _json.loads(line)
+                    break
+                except _json.JSONDecodeError:
+                    pass
+
+        if result is None:
             log.warning(
-                f"CSV sync попытка {attempt}/{max_attempts} ошибка: {e}\n"
-                f"{traceback.format_exc()}"
+                f"CSV sync: не удалось разобрать результат\n"
+                f"stdout: {proc.stdout[-500:]}\nstderr: {proc.stderr[:500]}"
             )
-            if attempt < max_attempts:
-                time.sleep(3)
+            return {"error": f"parse error, exit={proc.returncode}"}
 
-    log.warning(f"CSV sync: все {max_attempts} попытки неуспешны")
-    return {"error": str(last_error)}
+        log.info(
+            f"CSV sync: {result['downloaded']} скачано, "
+            f"{result['skipped']} пропущено, "
+            f"{result['errors']} ошибок"
+        )
+        return result
+
+    except subprocess.TimeoutExpired:
+        log.error("CSV sync: таймаут (300с)")
+        return {"error": "timeout"}
+    except Exception as e:
+        log.error(f"CSV sync ошибка: {e}")
+        return {"error": str(e)}
 
 
 def _step_import_csv() -> dict:

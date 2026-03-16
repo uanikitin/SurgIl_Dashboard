@@ -1,0 +1,32 @@
+{
+  "folders": [
+    {
+      "path": "."
+    }
+  ],
+  "settings": {
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+    "python.terminal.activateEnvironment": true,
+
+    "sqltools.autoConnect": true,
+
+    "sqltools.connections": [
+      {
+        "name": "Telegram Events",
+        "driver": "PostgreSQL",
+        "server": "dpg-d43l9pre5dus73a4241g-a.frankfurt-postgres.render.com",
+        "port": 5432,
+        "database": "telegram_events_db",
+        "username": "telegram_events_db_user",
+        "password": "NBBhfT7BgYyvq3yRmgnJ1UnVXKMkYCX7",
+        "previewLimit": 50,
+        "ssh": "Disabled",
+        "pgOptions": {
+          "ssl": {
+            "rejectUnauthorized": false
+          }
+        }
+      }
+    ]
+  }
+}

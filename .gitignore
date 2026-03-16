@@ -20,9 +20,16 @@ __pycache__/
 
 # Generated LaTeX/PDF artifacts
 backend/static/generated/pdf/
+backend/static/generated/temp/
 *.aux
 *.log
 *.out
 *.toc
 *.synctex.gz
 
+# Data files (LoRa sensor dumps)
+data/
+
+# Misc
+Telegram Events.session.sql
+Без названия.json

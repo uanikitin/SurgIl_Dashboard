@@ -1,4 +1,22 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Bash(launchctl load /Users/volodymyrnikitin/Library/LaunchAgents/com.surgil.pressure-update.plist)",
+      "Bash(LORA_BASE_URL=\"http://10.242.96.193:2224\" LORA_DEST_DIR=\"/Users/volodymyrnikitin/Documents/PythonFiles/SurgIl_Dashboard/data/lora\" .venv/bin/python /Users/volodymyrnikitin/Documents/PythonFiles/Lora/sync_lora_csv.py)",
+      "Bash(1 echo \"=== launchd ===\")",
+      "Read(//Users/volodymyrnikitin/Documents/PythonFiles/SurgIl_Dashboard/**)",
+      "Bash(TZ=Asia/Tashkent date)",
+      "Bash(while read date time)",
+      "Bash(do)",
+      "Bash(done)",
+      "Bash(LORA_BASE_URL=\"http://10.242.96.193:2224\" LORA_DEST_DIR=\"data/lora\" .venv/bin/python /Users/volodymyrnikitin/Documents/PythonFiles/Lora/sync_lora_csv.py)",
+      "Bash(# Check if new files appeared ls -la data/lora/*7.3.2026* data/lora/*6.3.2026*)"
+    ],
+    "additionalDirectories": [
+      "/Users/volodymyrnikitin/Documents/PythonFiles/SurgIl_Dashboard/data/lora"
+    ]
+  },
   "mcpServers": {
     "filesystem": {
       "command": "npx",
@@ -14,10 +32,5 @@
         "/Users/volodymyrnikitin/Documents/PythonFiles/SurgIl_Dashboard/scripts/mcp_postgres_ro.sh"
       ]
     }
-  },
-  "permissions": {
-    "allow": [
-      "Bash(grep:*)"
-    ]
   }
 }

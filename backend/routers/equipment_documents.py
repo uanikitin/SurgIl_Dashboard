@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from starlette.responses import RedirectResponse
 
 from backend.db import get_db
-from backend.web.templates import templates
+from backend.web.templates import templates, base_context
 from backend.models.wells import Well
 from backend.models.equipment import Equipment, EquipmentInstallation
 from backend.documents.models import Document, DocumentType
@@ -733,7 +733,7 @@ def equipment_doc_new(
     return templates.TemplateResponse(
         "documents/equipment_new.html",
         {
-            "request": request,
+            **base_context(request),
             "wells": wells,
             "equipment_classes": equipment_classes,
             "dt_install": dt_install,
@@ -859,7 +859,7 @@ def equipment_doc_detail(
     return templates.TemplateResponse(
         "documents/equipment_detail.html",
         {
-            "request": request,
+            **base_context(request),
             "doc": doc,
             "equipment_items": equipment_items,
         },

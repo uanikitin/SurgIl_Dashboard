@@ -5,18 +5,6 @@
 
 {% block content %}
 
-{# ============================================================
-   ЗОНА 0: ВЕРХНЯ НАВІГАЦІЯ ПО САЙТУ
-   ============================================================ #}
-<nav class="top-nav">
-  <div class="top-nav-inner">
-    <a href="/visual" class="top-nav-item">📊 Дашборд</a>
-    <a href="/documents" class="top-nav-item">📄 Акти</a>
-    <a href="/admin/reagents" class="top-nav-item active">🧪 Реагенти</a>
-    <a href="/equipment" class="top-nav-item">⚙️ Обладнання</a>
-    <a href="/admin/users" class="top-nav-item">👥 Користувачі</a>
-  </div>
-</nav>
 
 <div class="reagents-dashboard">
 
@@ -157,13 +145,52 @@
 </section>
 
 {# ============================================================
-   ЗОНА 2.5: ГРАФІК ПОТОЧНИХ ЗАЛИШКІВ НА СКЛАДІ
+   ЗОНА 2.5: ГРАФІКИ ЗАЛИШКІВ І ДОБОВОГО РОЗХОДУ
    ============================================================ #}
 <section class="stock-chart-section">
   <div class="section-header">
-    <h2>📊 Поточні залишки на складі</h2>
+    <h2>Добовий розхід</h2>
   </div>
-  <div class="stock-chart-container">
+  <div style="display:flex;gap:16px;align-items:flex-start;">
+    <div class="stock-chart-container" id="daily-consumption-chart-wrap" style="flex:0 0 45%;min-width:300px;">
+      <canvas id="chart-daily-consumption"></canvas>
+    </div>
+    <div style="flex:1;max-height:250px;overflow-y:auto;font-size:13px;">
+      <table class="data-table" id="today-consumption-table" style="font-size:12px;">
+        <thead>
+          <tr>
+            <th>Реагент</th>
+            <th>Скважина</th>
+            <th class="col-num">Кількість</th>
+          </tr>
+        </thead>
+        <tbody id="today-consumption-body">
+          {% if today_consumption_detail %}
+            {% for item in today_consumption_detail %}
+            <tr>
+              <td>{{ item.reagent }}</td>
+              <td>{{ item.well }}</td>
+              <td class="col-num">{{ item.qty }}</td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="3" style="text-align:center;color:#999;">Немає даних за сьогодні</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="stock-chart-section">
+  <div class="section-header" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+    <h2 style="margin:0;">Залишки на складі</h2>
+    <label class="checkbox-label" style="font-size:13px;font-weight:400;">
+      <input type="checkbox" id="stock-hide-zero" onchange="loadStockChart()">
+      Сховати з нульовим залишком
+    </label>
+  </div>
+  <div class="stock-chart-container" id="stock-chart-wrap">
     <canvas id="chart-stock-current"></canvas>
   </div>
 </section>
@@ -418,63 +445,55 @@
    ЗОНА 7: ТАБЛИЦЯ ВСІХ РЕАГЕНТІВ (ВКЛЮЧНО З 0)
    ============================================================ #}
 <section class="all-reagents-section">
-  <div class="section-header">
-    <h2>📦 Усі реагенти</h2>
-    <span class="section-subtitle">Включаючи закінчені</span>
+  <div class="section-header clickable" onclick="toggleReagentsTable()">
+    <h2>Усі реагенти <small style="color:var(--text-muted);font-weight:400;">Включаючи закінчені</small></h2>
+    <span class="toggle-icon" id="reagents-table-toggle">&#9660;</span>
   </div>
 
-  <div class="table-controls">
-    <input type="text" id="reagent-search" class="search-input" placeholder="🔍 Пошук реагента..." oninput="filterReagentsTable()">
-    <label class="checkbox-label">
-      <input type="checkbox" id="show-zero-only" onchange="filterReagentsTable()">
-      Тільки закінчені
-    </label>
-  </div>
+  <div id="reagents-table-wrap" style="display:none;">
+    <div class="table-controls">
+      <input type="text" id="reagent-search" class="search-input" placeholder="Пошук реагента..." oninput="filterReagentsTable()">
+      <label class="checkbox-label">
+        <input type="checkbox" id="show-zero-only" onchange="filterReagentsTable()">
+        Тільки закінчені
+      </label>
+    </div>
 
-  <div class="all-reagents-table-wrap">
-    <table class="data-table" id="all-reagents-table">
-      <thead>
-        <tr>
-          <th>Реагент</th>
-          <th>Од.</th>
-          <th class="col-num">Залишок</th>
-          <th class="col-num">Сер./день</th>
-          <th class="col-status">Статус</th>
-          <th class="col-date">Дата вичерпання</th>
-        </tr>
-      </thead>
-      <tbody id="all-reagents-body">
-        {% for r in reagents %}
-        <tr class="reagent-row {% if r.stock <= 0 %}depleted{% endif %}" data-name="{{ r.name|lower }}">
-          <td>
-            <span class="fc-color" style="background:{{ reagent_colors.get(r.name, '#999') }};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;"></span>
-            {{ r.name }}
-          </td>
-          <td>{{ r.unit or 'шт' }}</td>
-          <td class="col-num {% if r.stock <= 0 %}text-danger{% endif %}">{{ r.stock|round(2) }}</td>
-          <td class="col-num">{{ r.avg_daily|round(3) }}</td>
-          <td class="col-status">
-            {% if r.stock > 0 %}
-              <span class="status-badge status-ok">В наявності</span>
-            {% else %}
-              <span class="status-badge status-depleted">Закінчився</span>
-            {% endif %}
-          </td>
-          <td class="col-date">
-            {% if r.stock <= 0 %}
-              {% if r.last_inventory_date %}
-                {{ r.last_inventory_date.strftime('%d.%m.%Y') if r.last_inventory_date else '—' }}
+    <div class="all-reagents-table-wrap">
+      <table class="data-table" id="all-reagents-table">
+        <thead>
+          <tr>
+            <th>Реагент</th>
+            <th>Од.</th>
+            <th class="col-num">Залишок</th>
+            <th class="col-num">Розхід сьогодні</th>
+            <th class="col-num">Сер./день</th>
+            <th class="col-status">Статус</th>
+          </tr>
+        </thead>
+        <tbody id="all-reagents-body">
+          {% for r in reagents %}
+          <tr class="reagent-row {% if r.stock <= 0 %}depleted{% endif %}" data-name="{{ r.name|lower }}">
+            <td>
+              <span class="fc-color" style="background:{{ reagent_colors.get(r.name, '#999') }};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;"></span>
+              {{ r.name }}
+            </td>
+            <td>{{ r.unit or 'шт' }}</td>
+            <td class="col-num {% if r.stock <= 0 %}text-danger{% endif %}">{{ r.stock|round(2) }}</td>
+            <td class="col-num {% if r.consumption_today > 0 %}text-danger{% endif %}">{{ r.consumption_today|round(2) }}</td>
+            <td class="col-num">{{ r.avg_daily|round(3) }}</td>
+            <td class="col-status">
+              {% if r.stock > 0 %}
+                <span class="status-badge status-ok">В наявності</span>
               {% else %}
-                —
+                <span class="status-badge status-depleted">Закінчився</span>
               {% endif %}
-            {% else %}
-              —
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 </section>
 
@@ -532,6 +551,60 @@
   </div>
 </section>
 
+{# ============================================================
+   ЗОНА 9: УПРАВЛІННЯ ПОСТАВКАМИ
+   ============================================================ #}
+<section class="supplies-section collapsed" id="supplies-section">
+  <div class="section-header clickable" onclick="toggleSupplies()">
+    <h2>📋 Останні поставки</h2>
+    <span class="toggle-icon" id="supplies-toggle">▼</span>
+  </div>
+  <div class="supplies-wrap" id="supplies-wrap" style="display:none;">
+    <div class="form-row" style="margin-bottom:10px; align-items:flex-end; gap:8px;">
+      <div class="form-field">
+        <label>Реагент</label>
+        <select id="sup-filter-reagent">
+          <option value="">Усі</option>
+          {% for r in reagent_catalog %}
+          <option value="{{ r.name }}">{{ r.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-field">
+        <label>Від</label>
+        <input type="date" id="sup-filter-from">
+      </div>
+      <div class="form-field">
+        <label>До</label>
+        <input type="date" id="sup-filter-to">
+      </div>
+      <div class="form-field">
+        <button class="btn-primary btn-sm" onclick="loadSupplies()">Пошук</button>
+        <button class="btn-secondary btn-sm" onclick="deleteFilteredSupplies()" style="margin-left:4px; color:#c0392b;">Видалити знайдені</button>
+      </div>
+    </div>
+    <div style="max-height:350px; overflow-y:auto;">
+      <table class="data-table" id="supplies-table" style="font-size:13px;">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Дата</th>
+            <th>Реагент</th>
+            <th class="col-num">Кількість</th>
+            <th>Од.</th>
+            <th>Джерело</th>
+            <th>Коментар</th>
+            <th style="width:40px;"></th>
+          </tr>
+        </thead>
+        <tbody id="supplies-table-body">
+          <tr><td colspan="8" style="text-align:center; color:#999;">Натисніть "Пошук" для завантаження</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
 </div>
 
 {# ============================================================
@@ -546,7 +619,8 @@
     <div class="modal-body">
       <div class="import-instructions">
         <p>Завантажте Excel-файл з поступленнями реагентів.</p>
-        <p><strong>Обов'язкові колонки:</strong> record_type, date, reagent, qty</p>
+        <p><strong>Колонки:</strong> Дата, Реагент, Кількість, Одиниця (опц.), Коментар (опц.)</p>
+        <p class="text-muted">Назви реагентів повинні відповідати каталогу (див. лист "Каталог" у шаблоні)</p>
         <a href="/api/reagents/import/template/supplies" class="btn-sm">📄 Завантажити шаблон</a>
       </div>
 
@@ -559,20 +633,36 @@
       </div>
 
       <div id="import-preview" class="import-preview" style="display:none;">
-        <h4>Попередній перегляд</h4>
+        <h4>Попередній перегляд <small>(можна редагувати перед імпортом)</small></h4>
         <div class="preview-stats">
           <span class="stat-item stat-valid">✓ Валідних: <strong id="valid-count">0</strong></span>
-          <span class="stat-item stat-error">✗ Помилок: <strong id="error-count">0</strong></span>
+          <span class="stat-item stat-error">⚠ Нових реагентів: <strong id="error-count">0</strong></span>
         </div>
         <div class="preview-errors" id="preview-errors" style="display:none;">
           <h5>Помилки:</h5>
           <ul id="error-list"></ul>
         </div>
+        <div class="preview-table-wrap" id="preview-table-wrap" style="display:none; max-height:300px; overflow-y:auto; margin-top:8px;">
+          <table class="data-table" id="preview-table" style="font-size:13px;">
+            <thead>
+              <tr>
+                <th style="width:30px;"></th>
+                <th>Дата</th>
+                <th>Реагент</th>
+                <th>Кількість</th>
+                <th>Одиниця</th>
+                <th>Коментар</th>
+                <th style="width:40px;"></th>
+              </tr>
+            </thead>
+            <tbody id="preview-table-body"></tbody>
+          </table>
+        </div>
       </div>
     </div>
     <div class="modal-footer">
       <button class="btn-secondary" onclick="closeImportModal()">Скасувати</button>
-      <button class="btn-primary" id="btn-import" onclick="executeImport()" disabled>Імпортувати</button>
+      <button class="btn-primary" id="btn-import" onclick="executeImportFromPreview()" disabled>Імпортувати</button>
     </div>
   </div>
 </div>
@@ -589,8 +679,8 @@
     <div class="modal-body">
       <div class="import-instructions">
         <p>Завантажте Excel-файл з даними інвентаризації.</p>
-        <p><strong>Обов'язкові колонки:</strong> reagent, qty</p>
-        <p><strong>Опціонально:</strong> snapshot_at, unit, comment</p>
+        <p><strong>Колонки:</strong> Дата, Реагент, Фактична кількість, Коментар (опц.)</p>
+        <p class="text-muted">Назви реагентів повинні відповідати каталогу (див. лист "Каталог" у шаблоні)</p>
         <a href="/api/reagents/import/template/inventory" class="btn-sm">📄 Завантажити шаблон</a>
       </div>
 
@@ -1474,12 +1564,17 @@
 }
 
 /* === ADD SECTION === */
-.add-section {
+.add-section, .supplies-section {
   background: #fff;
   border-radius: 10px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.06);
   overflow: hidden;
 }
+
+.supplies-section .section-header.clickable { cursor: pointer; padding: 14px 20px; margin: 0; border-bottom: 1px solid #e5e7eb; }
+.supplies-section .section-header.clickable:hover { background: #f8fafc; }
+.supplies-wrap { padding: 16px 20px; }
+.text-muted { color: var(--text-muted); font-size: 13px; margin-top: 2px; }
 
 .add-section .section-header {
   padding: 14px 20px;
@@ -1573,7 +1668,7 @@
 
 .stock-chart-container {
   height: 200px;
-  max-height: 250px;
+  position: relative;
 }
 
 /* === TOOLTIPS === */
@@ -2464,6 +2559,20 @@ function getReagentColor(name) {
   return `hsl(${Math.abs(hash) % 360}, 65%, 50%)`;
 }
 
+function withAlpha(color, alpha) {
+  // Convert hex or hsl to rgba with given alpha
+  if (color.startsWith('#')) {
+    const r = parseInt(color.slice(1, 3), 16);
+    const g = parseInt(color.slice(3, 5), 16);
+    const b = parseInt(color.slice(5, 7), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+  if (color.startsWith('hsl(')) {
+    return color.replace('hsl(', 'hsla(').replace(')', `,${alpha})`);
+  }
+  return color;
+}
+
 function formatDate(d) {
   return d.toISOString().split('T')[0];
 }
@@ -3080,43 +3189,71 @@ const stockData = [
     "avg_daily": {{ r.avg_daily }},
     "consumption_today": {{ r.consumption_today }},
     "last_inventory_date": {% if r.last_inventory_date_str %}{{ r.last_inventory_date_str | tojson | safe }}{% else %}null{% endif %},
-    "calculation_method": {{ r.calculation_method | tojson | safe }}
+    "calculation_method": {{ r.calculation_method | tojson | safe }},
+    "last_supply_qty": {{ r.last_supply_qty|default(0) }},
+    "last_supply_date": {{ (r.last_supply_date or '') | tojson | safe }},
+    "stock_after_supply": {{ r.stock_after_supply|default(0) }}
   }{% if not loop.last %},{% endif %}
   {% endfor %}
 ];
 
 function loadStockChart() {
-  const ctx = document.getElementById('chart-stock-current');
-  if (!ctx) return;
+  const wrap = document.getElementById('stock-chart-wrap');
+  let ctx = document.getElementById('chart-stock-current');
+  if (!ctx) {
+    wrap.innerHTML = '<canvas id="chart-stock-current"></canvas>';
+    ctx = document.getElementById('chart-stock-current');
+  }
 
-  if (chartStock) chartStock.destroy();
+  if (chartStock) { chartStock.destroy(); chartStock = null; }
 
-  // Filter and sort by stock (descending), only show > 0
-  const filtered = stockData
-    .filter(r => r.stock > 0)
-    .sort((a, b) => b.stock - a.stock)
-    .slice(0, 20);
+  const hideZero = document.getElementById('stock-hide-zero').checked;
+
+  // Sort by stock_after_supply descending (the "full scale" value)
+  let filtered = stockData
+    .filter(r => hideZero ? r.stock > 0 : true)
+    .sort((a, b) => (b.stock_after_supply || b.stock) - (a.stock_after_supply || a.stock));
 
   if (filtered.length === 0) {
-    ctx.parentElement.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">Немає реагентів з залишком > 0</div>';
+    wrap.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">Немає реагентів для відображення</div>';
     return;
   }
 
+  // Dynamic height
+  const barH = 24;
+  const chartH = Math.max(180, filtered.length * barH + 60);
+  wrap.style.height = chartH + 'px';
+
   const labels = filtered.map(r => r.name);
-  const values = filtered.map(r => r.stock);
+  const stockValues = filtered.map(r => Math.max(r.stock, 0));
+  const afterSupplyValues = filtered.map(r => r.stock_after_supply || 0);
   const colors = filtered.map(r => getReagentColor(r.name));
 
+  // Two overlaid bars on the same row (y-axis stacked, x-axis not stacked):
+  // 1) Ghost bar (behind) = stock right after last supply — the "full scale"
+  // 2) Filled bar (on top) = current remaining stock — shrinks with consumption
   chartStock = new Chart(ctx, {
     type: 'bar',
     data: {
       labels: labels,
-      datasets: [{
-        data: values,
-        backgroundColor: colors,
-        borderColor: colors,
-        borderWidth: 1,
-        barThickness: 14
-      }]
+      datasets: [
+        {
+          label: 'На момент поставки',
+          data: afterSupplyValues,
+          backgroundColor: colors.map(c => withAlpha(c, 0.15)),
+          borderColor: colors.map(c => withAlpha(c, 0.3)),
+          borderWidth: 1,
+          barThickness: 18,
+        },
+        {
+          label: 'Поточний залишок',
+          data: stockValues,
+          backgroundColor: colors,
+          borderColor: colors,
+          borderWidth: 0,
+          barThickness: 18,
+        }
+      ]
     },
     plugins: [ChartDataLabels],
     options: {
@@ -3124,19 +3261,133 @@ function loadStockChart() {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { display: false },
+        legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
         datalabels: {
-          display: ctx => ctx.dataset.data[ctx.dataIndex] > 0.1,
-          color: 'var(--text-primary)',
+          display: function(context) {
+            const val = context.dataset.data[context.dataIndex];
+            if (context.datasetIndex === 0) {
+              // Ghost: show only if > stock (there was consumption)
+              const stock = filtered[context.dataIndex].stock;
+              return val > 0 && (val - stock) > 0.1;
+            }
+            // Stock: always show if > 0
+            return val > 0;
+          },
+          color: function(context) {
+            return context.datasetIndex === 0 ? '#aaa' : '#333';
+          },
+          anchor: 'end',
+          align: 'right',
+          font: { size: 10, weight: '500' },
+          formatter: function(v, context) {
+            if (v <= 0) return '';
+            if (context.datasetIndex === 0) {
+              const r = filtered[context.dataIndex];
+              return `${v.toFixed(0)} (${r.last_supply_date || ''})`;
+            }
+            return v.toFixed(1);
+          }
+        },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              const r = filtered[context.dataIndex];
+              if (context.datasetIndex === 0) {
+                const consumed = Math.max(0, r.stock_after_supply - r.stock).toFixed(1);
+                return `Було після поставки (${r.last_supply_date || '—'}): ${context.parsed.x.toFixed(1)} ${r.unit}  |  витрачено: ${consumed}`;
+              }
+              return `Зараз: ${context.parsed.x.toFixed(1)} ${r.unit}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          beginAtZero: true,
+          stacked: false,
+          grid: { color: 'rgba(0,0,0,0.04)' },
+        },
+        y: {
+          stacked: true, // <-- overlay bars at same position (not side-by-side)
+          grid: { display: false },
+          ticks: {
+            font: { size: 11 },
+            color: function(context) {
+              const r = filtered[context.index];
+              return (r && r.stock <= 0) ? '#c0392b' : '#333';
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+// === DAILY CONSUMPTION CHART ===
+let chartDailyConsumption = null;
+
+function loadDailyConsumptionChart() {
+  const ctx = document.getElementById('chart-daily-consumption');
+  if (!ctx) return;
+
+  if (chartDailyConsumption) chartDailyConsumption.destroy();
+
+  // Show reagents that have any consumption (today or avg)
+  const filtered = stockData
+    .filter(r => r.consumption_today > 0 || r.avg_daily > 0)
+    .sort((a, b) => b.consumption_today - a.consumption_today);
+
+  if (filtered.length === 0) {
+    ctx.parentElement.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">Немає даних про добовий розхід</div>';
+    return;
+  }
+
+  const labels = filtered.map(r => r.name);
+  const todayValues = filtered.map(r => r.consumption_today);
+  const avgValues = filtered.map(r => r.avg_daily);
+
+  chartDailyConsumption = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: 'Сьогодні',
+          data: todayValues,
+          backgroundColor: 'rgba(231, 76, 60, 0.8)',
+          borderColor: 'rgba(231, 76, 60, 1)',
+          borderWidth: 1,
+          barThickness: 12,
+        },
+        {
+          label: 'Середній/день',
+          data: avgValues,
+          backgroundColor: 'rgba(52, 152, 219, 0.5)',
+          borderColor: 'rgba(52, 152, 219, 1)',
+          borderWidth: 1,
+          borderDash: [3, 3],
+          barThickness: 12,
+        }
+      ]
+    },
+    plugins: [ChartDataLabels],
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
+        datalabels: {
+          display: ctx => ctx.dataset.data[ctx.dataIndex] > 0,
+          color: '#333',
           anchor: 'end',
           align: 'right',
           font: { size: 10, weight: '500' },
           formatter: v => v > 0 ? v.toFixed(1) : ''
         },
         tooltip: {
-          filter: item => item.parsed.x > 0,
           callbacks: {
-            label: ctx => `Залишок: ${ctx.parsed.x.toFixed(2)}`
+            label: ctx => `${ctx.dataset.label}: ${ctx.parsed.x.toFixed(2)}`
           }
         }
       },
@@ -3151,6 +3402,8 @@ function loadStockChart() {
 // === IMPORT MODAL ===
 let importFileData = null;
 let validatedData = null;
+let previewRows = [];  // editable rows for import
+let catalogList = [];  // available reagents from catalog
 
 function openImportModal() {
   document.getElementById('import-modal').style.display = 'flex';
@@ -3165,8 +3418,11 @@ function closeImportModal() {
 function resetImportState() {
   importFileData = null;
   validatedData = null;
+  previewRows = [];
+  catalogList = [];
   document.getElementById('import-file').value = '';
   document.getElementById('import-preview').style.display = 'none';
+  document.getElementById('preview-table-wrap').style.display = 'none';
   document.getElementById('btn-import').disabled = true;
 }
 
@@ -3186,24 +3442,52 @@ async function handleImportFile(input) {
     });
     const result = await res.json();
     validatedData = result;
+    catalogList = result.catalog || [];
 
-    document.getElementById('valid-count').textContent = result.valid_count || 0;
-    document.getElementById('error-count').textContent = result.error_count || 0;
+    // Build editable preview from valid rows
+    previewRows = (result.valid_rows || []).map((r, i) => ({...r, _idx: i, _status: 'ok'}));
 
-    const errorsDiv = document.getElementById('preview-errors');
-    const errorList = document.getElementById('error-list');
-
+    // Add error rows that have partial data (reagent not found) - user can fix via dropdown
     if (result.errors && result.errors.length > 0) {
-      errorList.innerHTML = result.errors.slice(0, 10).map(e =>
-        `<li>Рядок ${e.row}: ${e.message}</li>`
-      ).join('');
-      errorsDiv.style.display = 'block';
+      const nonRecoverableErrors = [];
+      for (const err of result.errors) {
+        if (err.column === 'B' && err.partial_data && err.partial_data.qty != null) {
+          // "Reagent not found" error with usable data — add to preview as fixable row
+          previewRows.push({
+            date: err.partial_data.date || '',
+            reagent: err.partial_data.reagent || '',
+            qty: err.partial_data.qty,
+            unit: err.partial_data.unit || '',
+            comment: err.partial_data.comment || '',
+            _status: 'not_in_catalog',
+            _originalReagent: err.partial_data.reagent || '',
+          });
+        } else {
+          nonRecoverableErrors.push(err);
+        }
+      }
+
+      const errorsDiv = document.getElementById('preview-errors');
+      const errorList = document.getElementById('error-list');
+      if (nonRecoverableErrors.length > 0) {
+        errorList.innerHTML = nonRecoverableErrors.slice(0, 10).map(e =>
+          `<li>Рядок ${e.row}: ${e.message}</li>`
+        ).join('');
+        errorsDiv.style.display = 'block';
+      } else {
+        errorsDiv.style.display = 'none';
+      }
     } else {
-      errorsDiv.style.display = 'none';
+      document.getElementById('preview-errors').style.display = 'none';
     }
 
+    document.getElementById('valid-count').textContent = previewRows.filter(r => r._status === 'ok').length;
+    document.getElementById('error-count').textContent = previewRows.filter(r => r._status === 'not_in_catalog').length;
+
+    renderPreviewTable();
+
     document.getElementById('import-preview').style.display = 'block';
-    document.getElementById('btn-import').disabled = !(result.valid_count > 0);
+    document.getElementById('btn-import').disabled = previewRows.length === 0;
 
   } catch (e) {
     console.error(e);
@@ -3211,29 +3495,267 @@ async function handleImportFile(input) {
   }
 }
 
-async function executeImport() {
-  if (!importFileData) return;
+function buildCatalogSelect(rowIdx, currentReagent) {
+  const escapedCurrent = (currentReagent || '').replace(/"/g, '&quot;');
+  let options = `<option value="__new__" selected>+ Створити "${escapedCurrent}"</option>`;
+  for (const c of catalogList) {
+    options += `<option value="${c.name.replace(/"/g, '&quot;')}">${c.name} (${c.unit})</option>`;
+  }
+  return `<select onchange="onCatalogSelect(${rowIdx}, this)" style="width:160px; font-size:12px; border:1px solid #e67e22; background:#fff8f0;">
+    ${options}
+  </select>`;
+}
 
-  const formData = new FormData();
-  formData.append('file', importFileData);
+function onCatalogSelect(idx, sel) {
+  const row = previewRows[idx];
+  if (sel.value === '__new__') {
+    // User wants to create new — keep original name, backend will auto-create
+    row.reagent = row._originalReagent;
+    row._status = 'create_new';
+  } else {
+    row.reagent = sel.value;
+    // Update unit from catalog
+    const cat = catalogList.find(c => c.name === sel.value);
+    if (cat && !row.unit) row.unit = cat.unit;
+    row._status = 'ok';
+  }
+  updatePreviewCounts();
+}
+
+function updatePreviewCounts() {
+  const okCount = previewRows.filter(r => r._status === 'ok').length;
+  const newCount = previewRows.filter(r => r._status === 'create_new' || r._status === 'not_in_catalog').length;
+  document.getElementById('valid-count').textContent = okCount;
+  document.getElementById('error-count').textContent = newCount;
+  document.getElementById('btn-import').disabled = previewRows.length === 0;
+}
+
+function renderPreviewTable() {
+  const tbody = document.getElementById('preview-table-body');
+  const wrap = document.getElementById('preview-table-wrap');
+  if (previewRows.length === 0) {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'block';
+  tbody.innerHTML = previewRows.map((r, i) => {
+    const isError = r._status === 'not_in_catalog' || r._status === 'create_new';
+    const rowStyle = isError ? 'background:#fff8f0;' : '';
+
+    let reagentCell;
+    if (r._status === 'not_in_catalog' || r._status === 'create_new') {
+      reagentCell = buildCatalogSelect(i, r._originalReagent);
+    } else {
+      reagentCell = `<input type="text" value="${(r.reagent || '').replace(/"/g, '&quot;')}" onchange="previewRows[${i}].reagent=this.value" style="width:120px; font-size:12px;">`;
+    }
+
+    return `<tr data-idx="${i}" style="${rowStyle}">
+      <td style="text-align:center; color:#999;">${i+1}</td>
+      <td><input type="text" value="${r.date || ''}" onchange="previewRows[${i}].date=this.value" style="width:90px; font-size:12px;"></td>
+      <td>${reagentCell}</td>
+      <td><input type="number" step="0.001" value="${r.qty || 0}" onchange="previewRows[${i}].qty=parseFloat(this.value)" style="width:70px; font-size:12px;"></td>
+      <td><input type="text" value="${r.unit || 'шт'}" onchange="previewRows[${i}].unit=this.value" style="width:50px; font-size:12px;"></td>
+      <td><input type="text" value="${r.comment || ''}" onchange="previewRows[${i}].comment=this.value" style="width:120px; font-size:12px;"></td>
+      <td><button onclick="removePreviewRow(${i})" style="background:none;border:none;color:#c0392b;cursor:pointer;font-size:16px;" title="Видалити рядок">&#x2715;</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function removePreviewRow(idx) {
+  previewRows.splice(idx, 1);
+  renderPreviewTable();
+  updatePreviewCounts();
+}
+
+async function executeImportFromPreview() {
+  if (previewRows.length === 0) return;
+
+  const rows = previewRows.map(r => ({
+    date: r.date,
+    reagent: r.reagent,
+    qty: r.qty,
+    unit: r.unit,
+    comment: r.comment,
+  }));
 
   try {
-    const res = await fetch('/api/reagents/import/supplies', {
+    const res = await fetch('/api/reagents/import/supplies/json', {
       method: 'POST',
-      body: formData
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({rows})
     });
     const result = await res.json();
 
     if (result.success) {
-      alert(`Імпортовано ${result.imported_count} записів!`);
+      let msg = `Імпортовано ${result.imported_count} записів!`;
+      if (result.created_catalog && result.created_catalog.length > 0) {
+        msg += `\nСтворено нових реагентів: ${result.created_catalog.join(', ')}`;
+      }
+      if (result.errors && result.errors.length > 0) {
+        msg += '\n\nПомилки:\n' + result.errors.map(e => `Рядок ${e.row}: ${e.message}`).join('\n');
+      }
+      alert(msg);
       closeImportModal();
       location.reload();
     } else {
-      alert(`Помилка: ${result.message}`);
+      let msg = result.message || 'Помилка імпорту';
+      if (result.errors && result.errors.length > 0) {
+        msg += '\n\n' + result.errors.map(e => `Рядок ${e.row}: ${e.message}`).join('\n');
+      }
+      alert(msg);
     }
   } catch (e) {
     console.error(e);
     alert('Помилка імпорту');
+  }
+}
+
+// === SUPPLIES MANAGEMENT ===
+function toggleSupplies() {
+  const wrap = document.getElementById('supplies-wrap');
+  const icon = document.getElementById('supplies-toggle');
+  if (wrap.style.display === 'none') {
+    wrap.style.display = 'block';
+    icon.textContent = '▲';
+  } else {
+    wrap.style.display = 'none';
+    icon.textContent = '▼';
+  }
+}
+
+async function loadSupplies() {
+  const reagent = document.getElementById('sup-filter-reagent').value;
+  const dateFrom = document.getElementById('sup-filter-from').value;
+  const dateTo = document.getElementById('sup-filter-to').value;
+
+  const params = new URLSearchParams();
+  if (reagent) params.set('reagent', reagent);
+  if (dateFrom) params.set('date_from', dateFrom);
+  if (dateTo) params.set('date_to', dateTo);
+
+  try {
+    const res = await fetch(`/api/reagents/supplies?${params}`);
+    const data = await res.json();
+    const tbody = document.getElementById('supplies-table-body');
+
+    if (data.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#999;">Нічого не знайдено</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = data.map(s => {
+      const dt = s.received_at ? new Date(s.received_at).toLocaleDateString('uk-UA') : '—';
+      // datetime-local value for edit mode
+      const dtLocal = s.received_at ? s.received_at.slice(0, 16) : '';
+      return `<tr id="supply-row-${s.id}">
+        <td>${s.id}</td>
+        <td class="sup-view-${s.id}">${dt}</td>
+        <td class="sup-view-${s.id}">${s.reagent}</td>
+        <td class="sup-view-${s.id} col-num">${s.qty}</td>
+        <td class="sup-view-${s.id}">${s.unit}</td>
+        <td class="sup-view-${s.id}">${s.source || '—'}</td>
+        <td class="sup-view-${s.id}">${s.comment || '—'}</td>
+        <td class="sup-edit-${s.id}" style="display:none;" colspan="6">
+          <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">
+            <label style="font-size:11px;color:#666;">Дата/час:</label>
+            <input type="datetime-local" id="edit-dt-${s.id}" value="${dtLocal}" style="font-size:12px;width:170px;">
+            <label style="font-size:11px;color:#666;">Кількість:</label>
+            <input type="number" step="0.001" id="edit-qty-${s.id}" value="${s.qty}" style="font-size:12px;width:70px;">
+            <label style="font-size:11px;color:#666;">Коментар:</label>
+            <input type="text" id="edit-comment-${s.id}" value="${s.comment || ''}" style="font-size:12px;width:120px;">
+            <button onclick="saveSupply(${s.id})" style="background:#27ae60;color:#fff;border:none;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:12px;">OK</button>
+            <button onclick="cancelEditSupply(${s.id})" style="background:#95a5a6;color:#fff;border:none;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:12px;">Скасувати</button>
+          </div>
+        </td>
+        <td>
+          <button onclick="startEditSupply(${s.id})" class="sup-view-${s.id}" style="background:none;border:none;color:#2980b9;cursor:pointer;font-size:14px;" title="Редагувати">&#9998;</button>
+          <button onclick="deleteSupply(${s.id})" class="sup-view-${s.id}" style="background:none;border:none;color:#c0392b;cursor:pointer;font-size:14px;" title="Видалити">&#128465;</button>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    console.error(e);
+    alert('Помилка завантаження');
+  }
+}
+
+function startEditSupply(id) {
+  document.querySelectorAll(`.sup-view-${id}`).forEach(el => el.style.display = 'none');
+  document.querySelectorAll(`.sup-edit-${id}`).forEach(el => el.style.display = '');
+}
+
+function cancelEditSupply(id) {
+  document.querySelectorAll(`.sup-view-${id}`).forEach(el => el.style.display = '');
+  document.querySelectorAll(`.sup-edit-${id}`).forEach(el => el.style.display = 'none');
+}
+
+async function saveSupply(id) {
+  const dt = document.getElementById(`edit-dt-${id}`).value;
+  const qty = document.getElementById(`edit-qty-${id}`).value;
+  const comment = document.getElementById(`edit-comment-${id}`).value;
+
+  const params = new URLSearchParams();
+  if (dt) params.set('received_at', dt);
+  if (qty) params.set('qty', qty);
+  params.set('comment', comment);
+
+  try {
+    const res = await fetch(`/api/reagents/supplies/${id}?${params}`, {method: 'PUT'});
+    const result = await res.json();
+    if (result.success) {
+      loadSupplies();
+    } else {
+      alert('Помилка збереження');
+    }
+  } catch (e) {
+    console.error(e);
+    alert('Помилка збереження');
+  }
+}
+
+async function deleteSupply(id) {
+  if (!confirm('Видалити цю поставку?')) return;
+
+  try {
+    const res = await fetch(`/api/reagents/supplies/${id}`, {method: 'DELETE'});
+    const result = await res.json();
+    if (result.success) {
+      const row = document.getElementById(`supply-row-${id}`);
+      if (row) row.remove();
+    } else {
+      alert('Помилка видалення');
+    }
+  } catch (e) {
+    console.error(e);
+    alert('Помилка видалення');
+  }
+}
+
+async function deleteFilteredSupplies() {
+  const reagent = document.getElementById('sup-filter-reagent').value;
+  const dateFrom = document.getElementById('sup-filter-from').value;
+  const dateTo = document.getElementById('sup-filter-to').value;
+
+  if (!reagent && !dateFrom && !dateTo) {
+    alert('Вкажіть хоча б один фільтр для масового видалення');
+    return;
+  }
+
+  const params = new URLSearchParams();
+  if (reagent) params.set('reagent', reagent);
+  if (dateFrom) params.set('date_from', dateFrom);
+  if (dateTo) params.set('date_to', dateTo);
+
+  if (!confirm(`Видалити ВСІ поставки за вказаними фільтрами?\n\nРеагент: ${reagent || 'усі'}\nВід: ${dateFrom || '—'}\nДо: ${dateTo || '—'}`)) return;
+
+  try {
+    const res = await fetch(`/api/reagents/supplies?${params}`, {method: 'DELETE'});
+    const result = await res.json();
+    alert(`Видалено ${result.deleted_count} записів`);
+    loadSupplies();
+  } catch (e) {
+    console.error(e);
+    alert('Помилка видалення');
   }
 }
 
@@ -3305,7 +3827,19 @@ async function submitInventory(event) {
   }
 }
 
-// === REAGENT TABLE FILTER ===
+// === REAGENT TABLE TOGGLE & FILTER ===
+function toggleReagentsTable() {
+  const wrap = document.getElementById('reagents-table-wrap');
+  const icon = document.getElementById('reagents-table-toggle');
+  if (wrap.style.display === 'none') {
+    wrap.style.display = 'block';
+    icon.innerHTML = '&#9650;';
+  } else {
+    wrap.style.display = 'none';
+    icon.innerHTML = '&#9660;';
+  }
+}
+
 function filterReagentsTable() {
   const search = document.getElementById('reagent-search').value.toLowerCase();
   const showZeroOnly = document.getElementById('show-zero-only').checked;
@@ -3637,6 +4171,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadDailyChart();
     loadWellsChart();
     loadStockChart();
+    loadDailyConsumptionChart();
   }, 300);
 });
 </script>

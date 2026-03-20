@@ -68,18 +68,18 @@ class ReagentBalanceService:
             base_qty = _D(last_inventory.qty)
             base_date = last_inventory.snapshot_at
 
-            # Поставки после инвентаризации
+            # Поставки после инвентаризации (>= чтобы включить поставки с тем же timestamp)
             supplies_after = _D(
                 db.query(func.sum(ReagentSupply.qty))
                 .filter(
                     ReagentSupply.reagent == reagent_name,
-                    ReagentSupply.received_at > base_date,
+                    ReagentSupply.received_at >= base_date,
                     ReagentSupply.received_at <= as_of_date,
                 )
                 .scalar()
             )
 
-            # Расход после инвентаризации (из событий)
+            # Расход после инвентаризации (из событий, строго после)
             consumption_after = _D(
                 db.query(func.sum(Event.qty))
                 .filter(

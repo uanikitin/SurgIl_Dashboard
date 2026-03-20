@@ -67,6 +67,7 @@ def daily_report_page(
         {
             "request": request,
             "current_user": current_user,
+            "is_admin": request.session.get("is_admin", False),
             "wells": wells,
             "default_date": yesterday,
             "today": today,
@@ -161,6 +162,7 @@ def create_single_report(
 def create_all_report(
     report_date: str = Form(...),
     well_ids: List[int] = Form(default=[]),
+    downtime_threshold_min: int = Form(default=5),
     db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user),
 ):
@@ -197,6 +199,7 @@ def create_all_report(
         doc.meta = {
             "report_date": rd.isoformat(),
             "well_ids": final_well_ids,
+            "downtime_threshold_min": downtime_threshold_min,
         }
         doc.status = "draft"
         doc.created_by_name = current_user
@@ -215,6 +218,7 @@ def create_all_report(
             meta={
                 "report_date": rd.isoformat(),
                 "well_ids": final_well_ids,
+                "downtime_threshold_min": downtime_threshold_min,
             },
         )
         db.add(doc)
@@ -237,6 +241,177 @@ def create_all_report(
     return RedirectResponse(url=f"/documents/{doc.id}", status_code=303)
 
 
+@router.post("/create/summary")
+def create_summary_report(
+    report_date: str = Form(...),
+    well_ids: List[int] = Form(default=[]),
+    downtime_threshold_min: int = Form(default=5),
+    trend_target: str = Form(default="flow"),
+    trend_days: int = Form(default=2),
+    include_charts: str = Form(default="true"),
+    chart_style: str = Form(default="line"),
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """Create compact summary report (tables only, no per-well detail pages)."""
+    rd = date.fromisoformat(report_date)
+
+    doc_type = db.query(DocumentType).filter(
+        DocumentType.code == "daily_report_all"
+    ).first()
+    if not doc_type:
+        raise HTTPException(400, "DocumentType daily_report_all not found. Run migration.")
+
+    if well_ids:
+        wells = db.query(Well).filter(Well.id.in_(well_ids)).order_by(Well.number).all()
+    else:
+        wells = db.query(Well).order_by(Well.number).all()
+
+    if not wells:
+        raise HTTPException(404, "No wells found")
+
+    final_well_ids = [w.id for w in wells]
+
+    doc = db.query(Document).filter(
+        Document.doc_type_id == doc_type.id,
+        Document.well_id.is_(None),
+        Document.period_start == rd,
+        Document.period_end == rd,
+        Document.deleted_at.is_(None),
+    ).first()
+
+    meta = {
+        "report_date": rd.isoformat(),
+        "well_ids": final_well_ids,
+        "downtime_threshold_min": downtime_threshold_min,
+        "report_mode": "summary",
+        "trend_target": trend_target,
+        "trend_days": trend_days,
+        "include_charts": include_charts.lower() in ("true", "1", "on"),
+        "chart_style": chart_style if chart_style in ("line", "bar", "area", "stem") else "line",
+    }
+
+    if doc:
+        doc.meta = meta
+        doc.status = "draft"
+        doc.created_by_name = current_user
+        db.commit()
+        db.refresh(doc)
+    else:
+        doc = Document(
+            doc_type_id=doc_type.id,
+            well_id=None,
+            period_start=rd,
+            period_end=rd,
+            period_month=rd.month,
+            period_year=rd.year,
+            created_by_name=current_user,
+            status="draft",
+            meta=meta,
+        )
+        db.add(doc)
+        db.flush()
+        doc.doc_number = build_doc_number(db, doc, doc_type)
+        db.commit()
+        db.refresh(doc)
+
+    try:
+        from backend.services.daily_report_service import generate_summary_report_pdf
+        pdf_rel = generate_summary_report_pdf(doc, db)
+        doc.pdf_filename = pdf_rel
+        doc.status = "generated"
+        db.commit()
+    except Exception as e:
+        log.exception("Summary PDF generation failed: %s", e)
+        db.commit()
+
+    return RedirectResponse(url=f"/documents/{doc.id}", status_code=303)
+
+
+@router.post("/create/monthly")
+def create_monthly_report(
+    period_year: int = Form(...),
+    period_month: int = Form(...),
+    well_ids: List[int] = Form(default=[]),
+    downtime_threshold_min: int = Form(default=5),
+    trend_target: str = Form(default="flow"),
+    include_charts: str = Form(default="true"),
+    chart_style: str = Form(default="line"),
+    loss_window_hours: int = Form(default=24),
+    status_filter: List[str] = Form(default=[]),
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user),
+):
+    """Create monthly summary report for selected wells."""
+    import calendar
+    rd_start = date(period_year, period_month, 1)
+    last_day = calendar.monthrange(period_year, period_month)[1]
+    rd_end = date(period_year, period_month, last_day)
+    # If current month, end at yesterday (not future)
+    today = date.today()
+    if rd_end >= today:
+        rd_end = today - timedelta(days=1) if today.day > 1 else today
+
+    doc_type = db.query(DocumentType).filter(
+        DocumentType.code == "daily_report_all"
+    ).first()
+    if not doc_type:
+        raise HTTPException(400, "DocumentType daily_report_all not found.")
+
+    if well_ids:
+        wells = db.query(Well).filter(Well.id.in_(well_ids)).order_by(Well.number).all()
+    else:
+        wells = db.query(Well).order_by(Well.number).all()
+
+    if not wells:
+        raise HTTPException(404, "No wells found")
+
+    final_well_ids = [w.id for w in wells]
+
+    meta = {
+        "period_year": period_year,
+        "period_month": period_month,
+        "period_end_day": rd_end.day,
+        "well_ids": final_well_ids,
+        "downtime_threshold_min": downtime_threshold_min,
+        "report_mode": "monthly",
+        "trend_target": trend_target,
+        "include_charts": include_charts.lower() in ("true", "1", "on"),
+        "chart_style": chart_style if chart_style in ("line", "bar", "area", "stem") else "line",
+        "loss_window_hours": max(6, min(loss_window_hours, 72)),
+        "status_filter": status_filter if status_filter else [],
+    }
+
+    doc = Document(
+        doc_type_id=doc_type.id,
+        well_id=None,
+        period_start=rd_start,
+        period_end=rd_end,
+        period_month=period_month,
+        period_year=period_year,
+        created_by_name=current_user,
+        status="draft",
+        meta=meta,
+    )
+    db.add(doc)
+    db.flush()
+    doc.doc_number = build_doc_number(db, doc, doc_type)
+    db.commit()
+    db.refresh(doc)
+
+    try:
+        from backend.services.daily_report_service import generate_monthly_report_pdf
+        pdf_rel = generate_monthly_report_pdf(doc, db)
+        doc.pdf_filename = pdf_rel
+        doc.status = "generated"
+        db.commit()
+    except Exception as e:
+        log.exception("Monthly PDF generation failed: %s", e)
+        db.commit()
+
+    return RedirectResponse(url=f"/documents/{doc.id}", status_code=303)
+
+
 @router.post("/{doc_id}/regenerate")
 def regenerate_report(
     doc_id: int,
@@ -251,8 +426,18 @@ def regenerate_report(
     if not doc.doc_type or doc.doc_type.code not in ("daily_report_well", "daily_report_all"):
         raise HTTPException(400, "Not a daily report document")
 
-    from backend.services.daily_report_service import generate_daily_report_pdf
-    pdf_rel = generate_daily_report_pdf(doc, db)
+    meta = doc.meta or {}
+    mode = meta.get("report_mode", "")
+    if mode == "monthly":
+        from backend.services.daily_report_service import generate_monthly_report_pdf
+        pdf_rel = generate_monthly_report_pdf(doc, db)
+    elif mode == "summary":
+        from backend.services.daily_report_service import generate_summary_report_pdf
+        pdf_rel = generate_summary_report_pdf(doc, db)
+    else:
+        from backend.services.daily_report_service import generate_daily_report_pdf
+        pdf_rel = generate_daily_report_pdf(doc, db)
+
     doc.pdf_filename = pdf_rel
     doc.status = "generated"
     db.commit()

@@ -3,15 +3,6 @@
 {% block title %}Админ-панель · Пользователи{% endblock %}
 
 {% block content %}
-<nav class="top-nav">
-  <div class="top-nav-inner">
-    <a href="/visual" class="top-nav-item">📊 Дашборд</a>
-    <a href="/documents" class="top-nav-item">📄 Акты</a>
-    <a href="/admin/reagents" class="top-nav-item">🧪 Реагенты</a>
-    <a href="/equipment" class="top-nav-item">⚙️ Оборудование</a>
-    <a href="/admin/users" class="top-nav-item active">👥 Пользователи</a>
-  </div>
-</nav>
 
 <div class="admin-page">
     <div class="admin-header-row">
@@ -24,6 +15,7 @@
     <div class="admin-tabs">
         <a href="/admin/users" class="admin-tab admin-tab--active">Пользователи</a>
         <a href="/admin/logins" class="admin-tab">Сессии</a>
+        <a href="/admin/map" class="admin-tab">Карта</a>
     </div>
 
     <form method="get" class="admin-search">
@@ -57,7 +49,8 @@
                         data-id="{{ u.id }}"
                         data-role="{{ 'admin' if u.is_admin else 'operator' }}"
                         data-active="{{ '1' if u.is_active else '0' }}"
-                        data-can-reagents="{{ '1' if u.can_view_reagents else '0' }}">
+                        data-can-reagents="{{ '1' if u.can_view_reagents else '0' }}"
+                        data-can-map="{{ '1' if u.can_view_map else '0' }}">
                     <td>{{ u.id }}</td>
                     <td class="cell-username">{{ u.username }}</td>
                     <td>{{ u.full_name or "—" }}</td>
@@ -100,6 +93,12 @@
                 Дать доступ к реагентам
             </button>
         </form>
+
+        <form method="post" id="action-map" action="">
+            <button type="submit" class="admin-pill-btn">
+                Дать доступ к карте
+            </button>
+        </form>
     </div>
 </div>
 {% endblock %}
@@ -136,6 +135,8 @@
     const deleteForm    = document.getElementById('action-delete');
     const reagentsForm  = document.getElementById('action-reagents');
     const reagentsBtn   = reagentsForm ? reagentsForm.querySelector('button') : null;
+    const mapForm       = document.getElementById('action-map');
+    const mapBtn        = mapForm ? mapForm.querySelector('button') : null;
 
     rows.forEach(row => {
         row.addEventListener('click', () => {
@@ -150,6 +151,7 @@
             const roleText = row.children[4].textContent.trim();
             const status   = row.children[5].textContent.trim();
             const canReagents = row.dataset.canReagents === '1';
+            const canMap      = row.dataset.canMap === '1';
 
             // Обновляем подпись и показываем панель
             label.textContent = 'Пользователь: ' + username;
@@ -166,6 +168,15 @@
                     reagentsBtn.textContent = canReagents
                         ? 'Забрать доступ к реагентам'
                         : 'Дать доступ к реагентам';
+                }
+            }
+
+            if (mapForm) {
+                mapForm.action = `/admin/users/${id}/toggle-map`;
+                if (mapBtn) {
+                    mapBtn.textContent = canMap
+                        ? 'Забрать доступ к карте'
+                        : 'Дать доступ к карте';
                 }
             }
 

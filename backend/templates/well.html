@@ -1059,12 +1059,15 @@
 
       <span style="width:1px; height:20px; background:#ffe0b2;"></span>
 
-      {# Маски коррекции давления #}
-      <label style="font-size:12px; display:flex; align-items:center; gap:4px; cursor:pointer; color:#333;"
-        title="Применить маски коррекции давления: замена показаний неисправного датчика (гидрат, потеря связи) расчётными значениями. Оригинальные данные не изменяются.">
-        <input type="checkbox" id="sync-apply-masks" style="accent-color:#7b1fa2;">
-        Коррекция
-      </label>
+      {# Режим отображения: raw / filtered / masked #}
+      <select id="sync-chart-mode"
+        style="font-size:11px; padding:2px 4px; border-radius:4px; border:1px solid #7b1fa2; color:#333; background:#fff; cursor:pointer;"
+        title="Режим: Сырые — без обработки; Фильтр — нули+спайки; Маски — фильтр + верифицированные коррекции">
+        <option value="">По параметрам</option>
+        <option value="raw">Сырые</option>
+        <option value="filtered" selected>Фильтр</option>
+        <option value="masked">Маски</option>
+      </select>
       <button type="button" id="sync-masks-manage"
         style="background:none; border:1px solid #7b1fa2; color:#7b1fa2; border-radius:4px;
                padding:2px 8px; font-size:11px; cursor:pointer; font-weight:600;"
@@ -1550,6 +1553,43 @@
         </button>
       </div>
 
+      {# Авто-детекция и верификация #}
+      <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; align-items:center;">
+        <button type="button" id="masks-auto-detect-btn"
+          style="padding:6px 16px; background:#e8f5e9; color:#2e7d32; border:1px solid #81c784;
+                 border-radius:6px; font-size:12px; font-weight:600; cursor:pointer;"
+          title="Запустить авто-детекцию деградации и гидратов, создать маски">
+          Авто-детекция + Создать маски
+        </button>
+        <select id="masks-auto-detect-days" style="font-size:12px; padding:4px 8px; border:1px solid #dee2e6; border-radius:4px;">
+          <option value="3">3 дня</option>
+          <option value="7" selected>7 дней</option>
+          <option value="14">14 дней</option>
+          <option value="30">30 дней</option>
+        </select>
+        <span id="masks-auto-detect-status" style="font-size:12px; color:#666;"></span>
+      </div>
+
+      {# Панель верификации неподтверждённых масок #}
+      <div id="masks-pending-panel" style="display:none; background:#fff3e0; border:1px solid #ffcc80; border-radius:8px; padding:12px 16px; margin-bottom:16px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <h4 style="margin:0; font-size:13px; color:#e65100;">Ожидают верификации</h4>
+          <div style="display:flex; gap:6px;">
+            <button type="button" id="masks-approve-all"
+              style="padding:4px 12px; background:#2e7d32; color:white; border:none;
+                     border-radius:4px; font-size:11px; font-weight:600; cursor:pointer;">
+              Подтвердить все
+            </button>
+            <button type="button" id="masks-reject-all"
+              style="padding:4px 12px; background:#c62828; color:white; border:none;
+                     border-radius:4px; font-size:11px; font-weight:600; cursor:pointer;">
+              Отклонить все
+            </button>
+          </div>
+        </div>
+        <div id="masks-pending-list" style="font-size:12px;"></div>
+      </div>
+
       {# Результаты детекции #}
       <div id="masks-detect-results" style="display:none; margin-bottom:16px;"></div>
 
@@ -1591,6 +1631,8 @@
             <select id="mask-problem-type"
               style="width:100%; padding:4px 8px; border:1px solid #dee2e6; border-radius:4px; font-size:12px; margin-top:2px;">
               <option value="hydrate">Гидрат</option>
+              <option value="degradation">Деградация датчика</option>
+              <option value="purge">Продувка</option>
               <option value="comm_loss">Потеря связи</option>
               <option value="sensor_fault">Неисправность датчика</option>
               <option value="manual">Ручная</option>
@@ -3783,10 +3825,10 @@
 <!-- well_events_chart.js загружается динамически через настройки страницы -->
 
 <!-- Скрипт синхронизированного графика: Давление LoRa + События Telegram -->
-<script src="/static/js/synchronized_chart.js?v=26"></script>
+<script src="/static/js/synchronized_chart.js?v=28"></script>
 
 <!-- Скрипт для графика ΔP (разница давлений) — синхронизирован с основным -->
-<script src="/static/js/delta_pressure_chart.js?v=15"></script>
+<script src="/static/js/delta_pressure_chart.js?v=16"></script>
 
 <!-- Скрипт для графика дебита газа — синхронизирован с основным -->
 <script src="/static/js/flow_rate_chart.js?v=6"></script>

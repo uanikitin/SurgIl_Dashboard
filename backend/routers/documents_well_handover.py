@@ -13,7 +13,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from starlette.responses import RedirectResponse
 
 from backend.db import get_db
-from backend.web.templates import templates
+from backend.web.templates import templates, base_context
 from backend.models.wells import Well
 from backend.documents.models import Document, DocumentType
 from backend.models.events import Event
@@ -412,7 +412,7 @@ def well_handover_new(
     return templates.TemplateResponse(
         "documents/well_handover_new.html",
         {
-            "request": request,
+            **base_context(request),
             "wells": wells,
             "doc_types": doc_types,
             # Legacy compatibility
@@ -556,7 +556,7 @@ def well_handover_detail(doc_id: int, request: Request, db: Session = Depends(ge
     is_stage_doc = doc.doc_type.code in ("well_stage_accept", "well_stage_return")
 
     ctx = {
-        "request": request,
+        **base_context(request),
         "doc": doc,
         "act_date": (meta.get("act_date") or ""),
         "tube_pressure": meta.get("tube_pressure"),

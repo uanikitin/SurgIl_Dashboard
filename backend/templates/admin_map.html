@@ -1,0 +1,1184 @@
+{% extends "base.html" %}
+
+{% block title %}Админ-панель · Карта{% endblock %}
+
+{% block content %}
+<div class="admin-page admin-page--wide">
+    <div class="admin-header-row">
+        <div>
+            <h1>Карта объектов</h1>
+            <p class="admin-meta">
+                Скважин на карте: {{ wells|length }} · Объектов: {{ map_objects|length }}
+            </p>
+        </div>
+    </div>
+
+    <div class="admin-tabs">
+        <a href="/admin/users" class="admin-tab">Пользователи</a>
+        <a href="/admin/logins" class="admin-tab">Сессии</a>
+        <a href="/admin/map" class="admin-tab admin-tab--active">Карта</a>
+    </div>
+
+    <div class="admin-map-layout">
+        {# LEFT: Map #}
+        <div class="admin-map-col">
+            <div id="admin-map"></div>
+        </div>
+
+        {# RIGHT: Sidebar #}
+        <div class="admin-map-sidebar">
+            <button id="btn-add-object" class="admin-pill-btn admin-pill-btn--primary" style="width:100%">
+                + Добавить объект
+            </button>
+
+            <label class="map-checkbox" style="margin-top:10px">
+                <input type="checkbox" id="chk-show-sensors"> Показать датчики (каналы / серийные №)
+            </label>
+
+            {# Well Info Panel #}
+            <div id="well-info-panel" class="well-info-panel" style="display:none">
+                <h3 id="well-info-name">—</h3>
+                <div class="well-info-row">
+                    <span class="well-info-label">Статус:</span>
+                    <span id="well-info-status">—</span>
+                </div>
+                <div class="well-info-row">
+                    <span class="well-info-label">Координаты:</span>
+                    <span id="well-info-coords">—</span>
+                </div>
+                <div id="well-info-sensors-block" style="display:none">
+                    <h4 style="margin:10px 0 6px;font-size:13px;font-weight:600">Установленные датчики</h4>
+                    <table class="admin-table sensor-info-table" id="well-info-sensors">
+                        <thead>
+                        <tr>
+                            <th>SN</th>
+                            <th>Канал</th>
+                            <th>Установлен</th>
+                            <th>Дней</th>
+                        </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <div id="well-info-no-sensors" style="display:none">
+                    <p class="empty-hint" style="margin-top:8px">Датчики не установлены</p>
+                </div>
+
+                {# Antenna distance block #}
+                <div id="well-antenna-block" style="display:none;margin-top:10px">
+                    <h4 style="margin:0 0 6px;font-size:13px;font-weight:600">Расстояние до антенн</h4>
+                    <table class="admin-table sensor-info-table" id="well-antenna-table">
+                        <thead><tr><th>Объект</th><th>Расст. (м)</th><th></th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                    <button id="btn-record-antenna" class="admin-pill-btn" style="width:100%;margin-top:6px;font-size:12px">
+                        Записать расстояние до антенны
+                    </button>
+                    <p id="antenna-record-hint" class="distance-hint" style="display:none;color:#2563eb;font-size:12px;margin-top:4px">
+                        Кликните на объект-антенну на карте
+                    </p>
+                </div>
+
+                {# Diagnostics block #}
+                <div id="well-diag-block" style="display:none;margin-top:10px">
+                    <h4 style="margin:0 0 6px;font-size:13px;font-weight:600">
+                        Диагностика датчиков
+                        <button onclick="document.getElementById('diag-help-modal').style.display='flex'" style="background:none;border:none;cursor:pointer;font-size:14px;color:#2563eb;vertical-align:middle" title="Справка">&#9432;</button>
+                    </h4>
+                    <div style="margin-bottom:6px">
+                        <button class="admin-pill-btn diag-period-btn diag-period-btn--active" data-days="1" style="font-size:11px;padding:3px 10px">1 сутки</button>
+                        <button class="admin-pill-btn diag-period-btn" data-days="10" style="font-size:11px;padding:3px 10px">10 суток</button>
+                        <button class="admin-pill-btn diag-period-btn" data-days="30" style="font-size:11px;padding:3px 10px">30 суток</button>
+                    </div>
+                    <table class="admin-table diag-table diag-table-2col" id="diag-results">
+                        <thead>
+                            <tr>
+                                <th class="diag-label"></th>
+                                <th id="diag-hdr-tube">Устье</th>
+                                <th id="diag-hdr-line">Шлейф</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td class="diag-label">Всего точек</td><td id="diag-tube-total">—</td><td id="diag-line-total">—</td></tr>
+                            <tr><td class="diag-label">Пропуски</td><td id="diag-tube-missing">—</td><td id="diag-line-missing">—</td></tr>
+                            <tr><td class="diag-label">Ложные нули</td><td id="diag-tube-zeros">—</td><td id="diag-line-zeros">—</td></tr>
+                            <tr><td class="diag-label">Вне диапазона</td><td id="diag-tube-oor">—</td><td id="diag-line-oor">—</td></tr>
+                            <tr><td class="diag-label">Деградация (эпиз.)</td><td id="diag-tube-deg-count">—</td><td id="diag-line-deg-count">—</td></tr>
+                            <tr><td class="diag-label">Деградация (мин)</td><td id="diag-tube-deg-min">—</td><td id="diag-line-deg-min">—</td></tr>
+                            <tr><td class="diag-label">Выбросы (Hampel)</td><td id="diag-tube-hampel">—</td><td id="diag-line-hampel">—</td></tr>
+                            <tr><td class="diag-label">Мгнов. скачки</td><td id="diag-tube-instant">—</td><td id="diag-line-instant">—</td></tr>
+                            <tr><td class="diag-label">Валидных</td><td id="diag-tube-valid">—</td><td id="diag-line-valid">—</td></tr>
+                            <tr><td class="diag-label">Uptime</td><td id="diag-tube-uptime">—</td><td id="diag-line-uptime">—</td></tr>
+                            <tr><td class="diag-label">Ср. давление</td><td id="diag-tube-mean">—</td><td id="diag-line-mean">—</td></tr>
+                            <tr><td class="diag-label">Разброс (&sigma;)</td><td id="diag-tube-std">—</td><td id="diag-line-std">—</td></tr>
+                        </tbody>
+                    </table>
+                    <table class="admin-table diag-table diag-table-sync" id="diag-sync" style="margin-top:6px">
+                        <thead><tr><th colspan="2" style="text-align:center;font-size:11px;color:#2563eb">Синхронность</th></tr></thead>
+                        <tbody>
+                            <tr><td class="diag-label">Оба работают</td><td id="diag-sync-both">—</td></tr>
+                            <tr><td class="diag-label">Только устье</td><td id="diag-sync-tube">—</td></tr>
+                            <tr><td class="diag-label">Только шлейф</td><td id="diag-sync-line">—</td></tr>
+                            <tr><td class="diag-label">Оба не передают</td><td id="diag-sync-none">—</td></tr>
+                        </tbody>
+                    </table>
+                    <p id="diag-loading" style="display:none;font-size:12px;color:#64748b;margin-top:4px">Загрузка...</p>
+                </div>
+            </div>
+
+            {# Survey Distance Tool #}
+            <div class="distance-tool">
+                <h3>Засечки расстояний</h3>
+                <div id="survey-controls">
+                    <button id="btn-start-survey" class="admin-pill-btn admin-pill-btn--primary" style="width:100%;font-size:12px">
+                        Засечь расстояния
+                    </button>
+                </div>
+                <div id="survey-active-controls" style="display:none">
+                    <p class="distance-hint" id="survey-hint">Кликните на стартовую точку</p>
+                    <div id="survey-groups"></div>
+                    <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+                        <button id="btn-new-origin" class="admin-pill-btn" style="font-size:11px;padding:3px 10px">Новая точка отсчёта</button>
+                        <button id="btn-export-csv" class="admin-pill-btn" style="font-size:11px;padding:3px 10px">Экспорт CSV</button>
+                        <label class="admin-pill-btn" style="font-size:11px;padding:3px 10px;cursor:pointer">
+                            Импорт CSV
+                            <input type="file" id="btn-import-csv" accept=".csv" style="display:none">
+                        </label>
+                        <button id="btn-end-survey" class="admin-pill-btn" style="font-size:11px;padding:3px 10px;color:#ef4444">Завершить</button>
+                    </div>
+                </div>
+            </div>
+
+            {# Object List #}
+            <div class="map-objects-list">
+                <h3>Пользовательские объекты</h3>
+                {% if map_objects %}
+                <table class="admin-table" id="objects-table">
+                    <thead>
+                    <tr>
+                        <th>Название</th>
+                        <th>Координаты</th>
+                        <th></th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {% for obj in map_objects %}
+                    <tr data-id="{{ obj.id }}">
+                        <td>
+                            <span class="obj-icon-badge" title="{{ obj.icon_type or 'default' }}">{{ {'antenna':'📡','warehouse':'🏭','server':'🖥️','canteen':'🍽️','bed':'🛏️','gas_station':'⛽'}.get(obj.icon_type, '◆') }}</span>
+                            {{ obj.name }}
+                        </td>
+                        <td class="cell-coords">{{ "%.5f"|format(obj.lat) }}, {{ "%.5f"|format(obj.lon) }}</td>
+                        <td class="cell-actions">
+                            <button class="btn-icon btn-edit-obj" data-id="{{ obj.id }}" title="Редактировать">&#9998;</button>
+                            <button class="btn-icon btn-delete-obj" data-id="{{ obj.id }}" title="Удалить">&times;</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="empty-hint">Нет добавленных объектов</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{# Modal: Add/Edit Object #}
+<div id="obj-modal" class="map-modal" style="display:none">
+    <div class="map-modal-content">
+        <div class="map-modal-header">
+            <h3 id="modal-title">Новый объект</h3>
+            <button type="button" id="btn-close-modal" class="map-modal-close">&times;</button>
+        </div>
+        <form id="obj-form">
+            <input type="hidden" id="obj-id" value="">
+
+            <div class="form-group">
+                <label for="obj-name">Название</label>
+                <input type="text" id="obj-name" required maxlength="200" placeholder="Название объекта">
+            </div>
+
+            <div class="form-group">
+                <label for="obj-coords-dms">Координаты (DMS или десятичные)</label>
+                <input type="text" id="obj-coords-dms" placeholder="44°02'23.3&quot;N 58°41'49.6&quot;E  или  41.31111, 64.58333">
+                <small class="form-hint">Форматы: <code>44°02'23.3"N 58°41'49.6"E</code> или <code>41.31111, 64.58333</code></small>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="obj-lat">Широта</label>
+                    <input type="number" id="obj-lat" step="any" required placeholder="41.31111">
+                </div>
+                <div class="form-group">
+                    <label for="obj-lon">Долгота</label>
+                    <input type="number" id="obj-lon" step="any" required placeholder="64.58333">
+                </div>
+            </div>
+
+            <p class="pick-hint" id="pick-hint" style="display:none">
+                Кликните на карту, чтобы выбрать координаты
+            </p>
+
+            <div class="form-group">
+                <label for="obj-desc">Описание</label>
+                <textarea id="obj-desc" rows="2" maxlength="2000" placeholder="Необязательно"></textarea>
+            </div>
+
+            <div class="form-group">
+                <label>Тип значка</label>
+                <div class="icon-picker" id="icon-picker">
+                    <button type="button" class="icon-pick-btn selected" data-icon="default" title="По умолчанию">◆</button>
+                    <button type="button" class="icon-pick-btn" data-icon="antenna" title="Антенна">📡</button>
+                    <button type="button" class="icon-pick-btn" data-icon="warehouse" title="СКДЛ">🏭</button>
+                    <button type="button" class="icon-pick-btn" data-icon="server" title="Сервер">🖥️</button>
+                    <button type="button" class="icon-pick-btn" data-icon="canteen" title="Столовая">🍽️</button>
+                    <button type="button" class="icon-pick-btn" data-icon="bed" title="Кровать">🛏️</button>
+                    <button type="button" class="icon-pick-btn" data-icon="gas_station" title="Заправка">⛽</button>
+                </div>
+                <input type="hidden" id="obj-icon-type" value="default">
+            </div>
+
+            <div class="form-group">
+                <label for="obj-color">Цвет маркера</label>
+                <input type="color" id="obj-color" value="#e74c3c">
+            </div>
+
+            <div class="map-modal-actions">
+                <button type="button" id="btn-pick-from-map" class="admin-pill-btn">
+                    Выбрать на карте
+                </button>
+                <div style="flex:1"></div>
+                <button type="button" id="btn-cancel-modal" class="admin-pill-btn">
+                    Отмена
+                </button>
+                <button type="submit" class="admin-pill-btn admin-pill-btn--primary">
+                    Сохранить
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{# Help modal for diagnostics #}
+<div id="diag-help-modal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.5);align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:12px;max-width:680px;width:90%;max-height:85vh;overflow-y:auto;padding:28px;position:relative">
+        <button onclick="this.parentElement.parentElement.style.display='none'" style="position:absolute;top:12px;right:16px;background:none;border:none;font-size:20px;cursor:pointer;color:#64748b">&times;</button>
+        <h2 style="margin:0 0 16px;font-size:18px;font-weight:700;color:#1e293b">Справка: Диагностика датчиков</h2>
+
+        <h3 style="font-size:14px;color:#2563eb;margin:16px 0 8px">Источник данных</h3>
+        <p style="font-size:13px;line-height:1.5;color:#334155">
+            Данные поступают из CSV-файлов LoRa-шлюзов (формат CODESYS). Каждая строка = одна минута.
+            При импорте значения <b>-1.0</b> (нет пакета от шлюза) и <b>-2.0</b> (датчик не ответил) заменяются на NULL.
+            Значение <b>0.0</b> сохраняется как есть. Артефакты переполнения (&lt;0 или &gt;100) также сохраняются.
+        </p>
+
+        <h3 style="font-size:14px;color:#2563eb;margin:16px 0 8px">Параметры таблицы</h3>
+        <table style="width:100%;font-size:12px;border-collapse:collapse">
+            <thead><tr style="background:#f1f5f9"><th style="text-align:left;padding:6px 8px">Параметр</th><th style="text-align:left;padding:6px 8px">Описание</th></tr></thead>
+            <tbody>
+                <tr><td style="padding:5px 8px;font-weight:600;white-space:nowrap;border-bottom:1px solid #e2e8f0">Всего точек</td>
+                    <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Количество строк в pressure_readings за период. Строка создаётся только если хотя бы один датчик передал данные. Ожидаемо: 1440 в сутки (1 строка/мин).</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:600;white-space:nowrap;border-bottom:1px solid #e2e8f0">Пропуски</td>
+                    <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">NULL в столбце p_tube или p_line. Означает: в CSV было <b>-1.0</b> (шлюз не получил пакет &mdash; все каналы одновременно) или <b>-2.0</b> (конкретный датчик не ответил, остальные могут работать). При импорте оба кода заменяются на NULL.</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:600;white-space:nowrap;border-bottom:1px solid #e2e8f0">Ложные нули</td>
+                    <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Значение ровно <b>0.0</b>. Реальное давление в трубопроводе никогда не равно нулю. Ноль = кратковременный сбой датчика или битая запись (<code>,0</code> в CSV без целой части). Длится обычно 1-5 минут.</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:600;white-space:nowrap;border-bottom:1px solid #e2e8f0">Вне диапазона</td>
+                    <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Значения <b>&lt; 0</b> или <b>&gt; 100 атм</b>. Физически невозможны. Артефакт переполнения буфера прошивки шлюза (например -384.2 или 191.6). Встречается редко.</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:600;white-space:nowrap;border-bottom:1px solid #e2e8f0">Деградация</td>
+                    <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Непрерывные отрезки &ge; 5 мин, где давление отклоняется от базовой линии (медианы) более чем на 30% или 3 атм. Это <b>не одиночные выбросы</b> (их ловит Hampel), а длительные аномалии: неисправность датчика, залипание, потеря калибровки. Анализ 123 маркированных продувок подтвердил: <b>LoRa-датчик не видит продувки</b> (установлен выше задвижки), поэтому такие эпизоды &mdash; именно сенсорная деградация. Флаг <code>sensor_degradation</code> ставится при суммарной деградации &gt; 30 мин за сутки.</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:600;white-space:nowrap;border-bottom:1px solid #e2e8f0">Выбросы (Hampel)</td>
+                    <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Статистический фильтр: для каждой точки берётся окно из 7 соседних значений, вычисляется медиана и MAD. Если отклонение &gt; 3.5&sigma; &mdash; это спайк. Ловит одиночные выбросы. Не реагирует на продувки (плавный тренд).</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:600;white-space:nowrap;border-bottom:1px solid #e2e8f0">Мгнов. скачки</td>
+                    <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Если |P[i] - P[i-1]| &gt; 5 атм И |P[i] - P[i+1]| &gt; 5 атм &mdash; точка резко отличается от обоих соседей. Устойчивый скачок (продувка) не считается.</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:600;white-space:nowrap;border-bottom:1px solid #e2e8f0">Валидных</td>
+                    <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Всего точек минус пропуски, ложные нули и вне диапазона. Это количество реально достоверных измерений.</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:600;white-space:nowrap;border-bottom:1px solid #e2e8f0">Uptime %</td>
+                    <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Валидных / Всего точек &times; 100%. Основной показатель надёжности датчика. &lt;90% &mdash; подсвечивается красным.</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:600;white-space:nowrap;border-bottom:1px solid #e2e8f0">Ср. давление</td>
+                    <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Среднее арифметическое по валидным точкам (без нулей, без out-of-range). Единица: атм.</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:600;white-space:nowrap;border-bottom:1px solid #e2e8f0">Разброс (&sigma;)</td>
+                    <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Стандартное отклонение по валидным точкам. Малый разброс = стабильный сигнал. Большой (&sigma;/mean &gt; 10%) может указывать на нестабильную работу.</td></tr>
+            </tbody>
+        </table>
+
+        <h3 style="font-size:14px;color:#2563eb;margin:16px 0 8px">Синхронность</h3>
+        <table style="width:100%;font-size:12px;border-collapse:collapse">
+            <tbody>
+                <tr><td style="padding:5px 8px;font-weight:600;white-space:nowrap;border-bottom:1px solid #e2e8f0">Оба работают</td>
+                    <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Моменты, когда оба датчика (устье и шлейф) дали ненулевое значение. Чем выше % &mdash; тем полнее картина давлений на скважине.</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:600;white-space:nowrap;border-bottom:1px solid #e2e8f0">Только устье / шлейф</td>
+                    <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Один датчик работает, другой &mdash; нет. Помогает найти конкретный ненадёжный датчик.</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:600;white-space:nowrap;border-bottom:1px solid #e2e8f0">Оба не передают</td>
+                    <td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Скважина полностью без наблюдения. Обычно причина &mdash; сбой шлюза (код -1 во всех каналах одновременно).</td></tr>
+            </tbody>
+        </table>
+
+        <h3 style="font-size:14px;color:#2563eb;margin:16px 0 8px">Оценка качества (A/B/C/F)</h3>
+        <table style="width:100%;font-size:12px;border-collapse:collapse">
+            <tbody>
+                <tr><td style="padding:5px 8px;font-weight:700;color:#16a34a;border-bottom:1px solid #e2e8f0">A</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Uptime &gt; 95%, нет длинных разрывов</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:700;color:#ca8a04;border-bottom:1px solid #e2e8f0">B</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Uptime 85-95%</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:700;color:#ea580c;border-bottom:1px solid #e2e8f0">C</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Uptime 70-85%</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:700;color:#dc2626;border-bottom:1px solid #e2e8f0">F</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Uptime &lt; 70% или разрыв &gt; 2 часов</td></tr>
+            </tbody>
+        </table>
+
+        <h3 style="font-size:14px;color:#2563eb;margin:16px 0 8px">Флаги проблем</h3>
+        <table style="width:100%;font-size:12px;border-collapse:collapse">
+            <tbody>
+                <tr><td style="padding:5px 8px;font-weight:600;white-space:nowrap;border-bottom:1px solid #e2e8f0;font-family:monospace">many_zeros</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Более 5% ложных нулей &mdash; частые сбои датчика</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:600;white-space:nowrap;border-bottom:1px solid #e2e8f0;font-family:monospace">long_gap</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Разрыв более 60 минут &mdash; длительный провал связи</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:600;white-space:nowrap;border-bottom:1px solid #e2e8f0;font-family:monospace">low_sync</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Синхронность &lt; 80% &mdash; датчики часто работают порознь</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:600;white-space:nowrap;border-bottom:1px solid #e2e8f0;font-family:monospace">high_noise</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Коэфф. вариации &gt; 10% &mdash; шумный сигнал</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:600;white-space:nowrap;border-bottom:1px solid #e2e8f0;font-family:monospace">many_spikes</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Более 3% выбросов &mdash; нестабильный сигнал</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:600;white-space:nowrap;border-bottom:1px solid #e2e8f0;font-family:monospace">sensor_degradation</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Суммарная деградация &gt; 30 мин за сутки &mdash; датчик выдавал аномальные значения длительное время</td></tr>
+            </tbody>
+        </table>
+
+        <h3 style="font-size:14px;color:#2563eb;margin:16px 0 8px">Коды LoRa-шлюза в CSV</h3>
+        <table style="width:100%;font-size:12px;border-collapse:collapse">
+            <tbody>
+                <tr><td style="padding:5px 8px;font-weight:600;border-bottom:1px solid #e2e8f0"><code>-1,0</code></td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Нет пакета от шлюза. Заполняет ВСЕ 10 столбцов одновременно. При импорте &rarr; NULL.</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:600;border-bottom:1px solid #e2e8f0"><code>-2,0</code></td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Конкретный датчик не ответил. Может быть в отдельных столбцах. При импорте &rarr; NULL.</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:600;border-bottom:1px solid #e2e8f0"><code>0,0</code></td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Пропуск измерения. Импортируется как 0.0, в диагностике считается &laquo;ложным нулём&raquo;.</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:600;border-bottom:1px solid #e2e8f0"><code>,0</code></td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Битая запись (нет целой части). Баг прошивки. При парсинге &rarr; NaN или 0.</td></tr>
+                <tr><td style="padding:5px 8px;font-weight:600;border-bottom:1px solid #e2e8f0"><code>-384,2</code> / <code>191,6</code></td><td style="padding:5px 8px;border-bottom:1px solid #e2e8f0">Переполнение буфера прошивки. Физически невозможные значения. В диагностике &rarr; &laquo;вне диапазона&raquo;.</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+window.addEventListener('load', function() {
+    'use strict';
+
+    // ========== DATA ==========
+    var WELLS = [
+        {% for w in wells %}
+        {
+            type: "well",
+            id: "well-{{ w.id }}",
+            dbId: {{ w.id }},
+            name: {{ (w.name or ("СКВ " ~ (w.number or w.id)))|tojson }},
+            lat: {{ w.lat }},
+            lon: {{ w.lon }},
+            status: {{ (w._map_status or "")|tojson }},
+            color: {{ (w._map_color or "#6b7280")|tojson }},
+            sensors: [
+                {% for s in w._sensors %}
+                { sn: {{ s.serial_number|tojson }}, group: {{ s.csv_group }}, channel: {{ s.csv_channel }}, col: {{ s.csv_column|tojson }}, installed_at: {{ (s.installed_at or "")|tojson }} },
+                {% endfor %}
+            ]
+        },
+        {% endfor %}
+    ];
+
+    var MAP_OBJECTS = [
+        {% for obj in map_objects %}
+        {
+            type: "custom",
+            id: "obj-{{ obj.id }}",
+            dbId: {{ obj.id }},
+            name: {{ obj.name|tojson }},
+            lat: {{ obj.lat }},
+            lon: {{ obj.lon }},
+            description: {{ (obj.description or "")|tojson }},
+            icon_color: {{ obj.icon_color|tojson }},
+            icon_type: {{ (obj.icon_type or "default")|tojson }}
+        },
+        {% endfor %}
+    ];
+
+    // ========== MAP INIT ==========
+    var map = L.map('admin-map', { scrollWheelZoom: true });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    var allMarkers = {};  // key -> L.marker
+    var group = L.featureGroup();
+
+    // ========== MARKER ICONS ==========
+    function createPinIcon(color) {
+        return L.divIcon({
+            className: 'map-marker-pin',
+            html: '<svg width="28" height="36" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">'
+                + '<path fill="' + color + '" d="M12 2C8 2 5 5 5 9c0 5 7 13 7 13s7-8 7-13c0-4-3-7-7-7z"/>'
+                + '<circle cx="12" cy="9" r="4" fill="#ffffff"/>'
+                + '</svg>',
+            iconSize: [28, 36],
+            iconAnchor: [14, 36],
+            popupAnchor: [0, -30]
+        });
+    }
+
+    // Icon SVG paths for each type (inside a 32x32 circle marker)
+    var ICON_SVGS = {
+        'default': '<rect x="6" y="6" width="20" height="20" rx="3" fill="WHITE" transform="rotate(45 16 16)"/>',
+        'antenna': '<circle cx="16" cy="10" r="2.5" fill="WHITE"/><line x1="16" y1="12" x2="16" y2="26" stroke="WHITE" stroke-width="2.5"/><path d="M9 7 Q16 2 23 7" fill="none" stroke="WHITE" stroke-width="2"/><path d="M11 4 Q16 0 21 4" fill="none" stroke="WHITE" stroke-width="1.5"/>',
+        'warehouse': '<rect x="6" y="14" width="20" height="12" rx="1" fill="WHITE"/><polygon points="6,14 16,6 26,14" fill="WHITE"/><rect x="11" y="18" width="4" height="8" fill="COLOR"/><rect x="18" y="17" width="4" height="4" fill="COLOR"/>',
+        'server': '<rect x="7" y="5" width="18" height="7" rx="2" fill="WHITE"/><rect x="7" y="14" width="18" height="7" rx="2" fill="WHITE"/><rect x="7" y="23" width="18" height="7" rx="2" fill="WHITE"/><circle cx="21" cy="8.5" r="1.5" fill="COLOR"/><circle cx="21" cy="17.5" r="1.5" fill="COLOR"/><circle cx="21" cy="26.5" r="1.5" fill="COLOR"/>',
+        'canteen': '<ellipse cx="16" cy="22" rx="10" ry="5" fill="WHITE"/><ellipse cx="16" cy="20" rx="10" ry="5" fill="WHITE"/><path d="M14 8 L14 16" stroke="WHITE" stroke-width="2"/><path d="M18 8 L18 16" stroke="WHITE" stroke-width="2"/><path d="M10 8 C10 4 14 4 14 8" fill="none" stroke="WHITE" stroke-width="1.5"/><path d="M18 8 C18 4 22 4 22 8" fill="none" stroke="WHITE" stroke-width="1.5"/>',
+        'bed': '<rect x="4" y="18" width="24" height="3" rx="1" fill="WHITE"/><rect x="4" y="12" width="12" height="6" rx="2" fill="WHITE"/><line x1="6" y1="21" x2="6" y2="26" stroke="WHITE" stroke-width="2.5"/><line x1="26" y1="21" x2="26" y2="26" stroke="WHITE" stroke-width="2.5"/><circle cx="9" cy="12" r="3" fill="WHITE"/>',
+        'gas_station': '<rect x="6" y="8" width="14" height="18" rx="2" fill="WHITE"/><rect x="9" y="11" width="8" height="6" rx="1" fill="COLOR"/><path d="M22 10 L26 14 L26 22 L24 22 L24 15 L22 13 Z" fill="WHITE"/><rect x="10" y="22" width="6" height="2" rx="0.5" fill="COLOR"/>'
+    };
+
+    function createObjectIcon(color, iconType) {
+        var svgInner = ICON_SVGS[iconType] || ICON_SVGS['default'];
+        svgInner = svgInner.replace(/WHITE/g, '#ffffff').replace(/COLOR/g, color);
+        var svg = '<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">'
+            + '<circle cx="16" cy="16" r="15" fill="' + color + '" stroke="#fff" stroke-width="2"/>'
+            + svgInner
+            + '</svg>';
+        return L.divIcon({
+            className: 'map-marker-object',
+            html: svg,
+            iconSize: [32, 32],
+            iconAnchor: [16, 16],
+            popupAnchor: [0, -16]
+        });
+    }
+
+    // ========== PLACE WELLS ==========
+    WELLS.forEach(function(w) {
+        var color = w.color || '#6b7280';
+        var icon = createPinIcon(color);
+        var marker = L.marker([w.lat, w.lon], { icon: icon });
+
+        // Only show well number as permanent label, no popup
+        marker.bindTooltip(w.name, {
+            permanent: true,
+            direction: 'top',
+            offset: [0, -32],
+            className: 'well-name-label'
+        });
+
+        marker.objectData = w;
+        marker.on('click', onMarkerClick);
+
+        group.addLayer(marker);
+        allMarkers[w.id] = marker;
+    });
+
+    // ========== PLACE CUSTOM OBJECTS ==========
+    MAP_OBJECTS.forEach(function(o) {
+        addCustomMarker(o);
+    });
+
+    function addCustomMarker(o) {
+        var icon = createObjectIcon(o.icon_color || '#e74c3c', o.icon_type || 'default');
+        var marker = L.marker([o.lat, o.lon], { icon: icon });
+
+        marker.bindTooltip(o.name, {
+            permanent: true,
+            direction: 'top',
+            offset: [0, -12],
+            className: 'obj-name-label'
+        });
+
+        marker.objectData = o;
+        marker.on('click', onMarkerClick);
+
+        group.addLayer(marker);
+        allMarkers[o.id] = marker;
+    }
+
+    // ========== FIT MAP ==========
+    group.addTo(map);
+    try {
+        map.fitBounds(group.getBounds().pad(0.2));
+    } catch (e) {
+        map.setView([41.3, 64.6], 10);
+    }
+
+    // ========== HAVERSINE ==========
+    function haversineMeters(lat1, lon1, lat2, lon2) {
+        var R = 6371000;
+        var toRad = function(d) { return d * Math.PI / 180; };
+        var dLat = toRad(lat2 - lat1);
+        var dLon = toRad(lon2 - lon1);
+        var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    function formatDist(m) {
+        return m >= 1000 ? (m / 1000).toFixed(2) + ' км' : Math.round(m) + ' м';
+    }
+
+    function highlightMarker(marker, on) {
+        var el = marker.getElement();
+        if (el) {
+            if (on) el.classList.add('marker-selected');
+            else el.classList.remove('marker-selected');
+        }
+    }
+
+    // ========== WELL INFO PANEL ==========
+    var wellInfoPanel = document.getElementById('well-info-panel');
+    var wellInfoName = document.getElementById('well-info-name');
+    var wellInfoStatus = document.getElementById('well-info-status');
+    var wellInfoCoords = document.getElementById('well-info-coords');
+    var wellInfoSensorsBlock = document.getElementById('well-info-sensors-block');
+    var wellInfoNoSensors = document.getElementById('well-info-no-sensors');
+    var wellInfoSensorsTable = document.querySelector('#well-info-sensors tbody');
+    var antennaBlock = document.getElementById('well-antenna-block');
+    var antennaTableBody = document.querySelector('#well-antenna-table tbody');
+    var diagBlock = document.getElementById('well-diag-block');
+    var currentWellId = null;
+
+    function showWellInfo(data) {
+        currentWellId = data.dbId;
+        wellInfoName.textContent = data.name;
+        wellInfoStatus.textContent = data.status || '—';
+        wellInfoCoords.textContent = data.lat.toFixed(5) + ', ' + data.lon.toFixed(5);
+
+        // Sensors
+        wellInfoSensorsTable.innerHTML = '';
+        var sensors = data.sensors || [];
+        if (sensors.length) {
+            wellInfoSensorsBlock.style.display = '';
+            wellInfoNoSensors.style.display = 'none';
+            var now = new Date();
+            sensors.forEach(function(s) {
+                var tr = document.createElement('tr');
+                var installedStr = '—';
+                var daysStr = '—';
+                if (s.installed_at) {
+                    var d = new Date(s.installed_at);
+                    installedStr = d.toLocaleDateString('ru-RU');
+                    var diffMs = now - d;
+                    daysStr = Math.floor(diffMs / 86400000).toString();
+                }
+                tr.innerHTML = '<td>' + escHtml(s.sn) + '</td>'
+                    + '<td>' + escHtml(s.col + '_' + s.channel) + ' (гр.' + s.group + ')</td>'
+                    + '<td>' + installedStr + '</td>'
+                    + '<td>' + daysStr + '</td>';
+                wellInfoSensorsTable.appendChild(tr);
+            });
+        } else {
+            wellInfoSensorsBlock.style.display = 'none';
+            wellInfoNoSensors.style.display = '';
+        }
+
+        // Antenna distances
+        antennaBlock.style.display = '';
+        loadAntennaDistances(data.dbId);
+
+        // Diagnostics
+        diagBlock.style.display = '';
+        document.querySelectorAll('.diag-period-btn').forEach(function(b) {
+            b.classList.toggle('diag-period-btn--active', b.dataset.days === '1');
+        });
+        loadDiagnostics(data.dbId, 1);
+
+        wellInfoPanel.style.display = '';
+    }
+
+    // ========== ANTENNA DISTANCES ==========
+    var antennaRecordMode = false;
+
+    function loadAntennaDistances(wellId) {
+        antennaTableBody.innerHTML = '<tr><td colspan="3" style="color:#94a3b8;font-size:12px">Загрузка...</td></tr>';
+        fetch('/api/map-objects/well-antenna-distance/' + wellId)
+            .then(function(r) { return r.json(); })
+            .then(function(rows) {
+                antennaTableBody.innerHTML = '';
+                if (!rows.length) {
+                    antennaTableBody.innerHTML = '<tr><td colspan="3" style="color:#94a3b8;font-size:12px">Нет записей</td></tr>';
+                    return;
+                }
+                rows.forEach(function(r) {
+                    var tr = document.createElement('tr');
+                    tr.innerHTML = '<td>' + escHtml(r.object_name) + '</td>'
+                        + '<td>' + formatDist(r.distance_m) + '</td>'
+                        + '<td><button class="btn-icon btn-del-antenna" data-mo="' + r.map_object_id + '" title="Удалить">&times;</button></td>';
+                    antennaTableBody.appendChild(tr);
+                });
+                // Bind delete buttons
+                antennaTableBody.querySelectorAll('.btn-del-antenna').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        var moId = this.dataset.mo;
+                        fetch('/api/map-objects/well-antenna-distance/' + wellId + '/' + moId, { method: 'DELETE' })
+                            .then(function() { loadAntennaDistances(wellId); });
+                    });
+                });
+            })
+            .catch(function() {
+                antennaTableBody.innerHTML = '<tr><td colspan="3" style="color:#ef4444;font-size:12px">Ошибка загрузки</td></tr>';
+            });
+    }
+
+    document.getElementById('btn-record-antenna').addEventListener('click', function() {
+        if (!currentWellId) return;
+        antennaRecordMode = true;
+        document.getElementById('antenna-record-hint').style.display = '';
+        map.getContainer().style.cursor = 'crosshair';
+    });
+
+    // ========== DIAGNOSTICS ==========
+    function loadDiagnostics(wellId, days) {
+        var loadEl = document.getElementById('diag-loading');
+        loadEl.style.display = '';
+        fetch('/api/map-objects/well-diagnostics/' + wellId + '?days=' + days)
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                loadEl.style.display = 'none';
+                renderDiagnostics(d);
+            })
+            .catch(function() {
+                loadEl.style.display = 'none';
+            });
+    }
+
+    document.querySelectorAll('.diag-period-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            if (!currentWellId) return;
+            document.querySelectorAll('.diag-period-btn').forEach(function(b) { b.classList.remove('diag-period-btn--active'); });
+            this.classList.add('diag-period-btn--active');
+            loadDiagnostics(currentWellId, parseInt(this.dataset.days));
+        });
+    });
+
+    function renderDiagnostics(d) {
+        var t = d.tube || {};
+        var l = d.line || {};
+        var s = d.sync || {};
+
+        // Headers with SN
+        document.getElementById('diag-hdr-tube').textContent = 'Устье' + (t.sensor_sn ? ' (' + t.sensor_sn + ')' : '');
+        document.getElementById('diag-hdr-line').textContent = 'Шлейф' + (l.sensor_sn ? ' (' + l.sensor_sn + ')' : '');
+
+        function setCell(id, val, badCondition) {
+            var el = document.getElementById(id);
+            el.textContent = (val !== null && val !== undefined) ? val : '—';
+            el.classList.toggle('diag-bad', !!badCondition);
+        }
+
+        var total = d.total_points || 1;
+
+        // Tube column
+        setCell('diag-tube-total', t.total);
+        setCell('diag-tube-missing', t.missing, t.missing > total * 0.1);
+        setCell('diag-tube-zeros', t.zeros, t.zeros > total * 0.05);
+        setCell('diag-tube-oor', t.out_of_range || 0, (t.out_of_range || 0) > 0);
+        setCell('diag-tube-deg-count', t.degradation_count || 0, (t.degradation_count || 0) > 0);
+        setCell('diag-tube-deg-min', t.degradation_total_min || 0, (t.degradation_total_min || 0) > 30);
+        setCell('diag-tube-hampel', t.spikes_hampel, t.spikes_hampel > total * 0.05);
+        setCell('diag-tube-instant', t.spikes_instant, t.spikes_instant > total * 0.02);
+        setCell('diag-tube-valid', t.valid);
+        setCell('diag-tube-uptime', t.uptime_pct !== undefined ? t.uptime_pct + '%' : '—', t.uptime_pct < 90);
+        setCell('diag-tube-mean', t.mean !== null ? t.mean + ' атм' : '—');
+        setCell('diag-tube-std', t.std !== null ? t.std : '—', t.std > 3);
+
+        // Line column
+        setCell('diag-line-total', l.total);
+        setCell('diag-line-missing', l.missing, l.missing > total * 0.1);
+        setCell('diag-line-zeros', l.zeros, l.zeros > total * 0.05);
+        setCell('diag-line-oor', l.out_of_range || 0, (l.out_of_range || 0) > 0);
+        setCell('diag-line-deg-count', l.degradation_count || 0, (l.degradation_count || 0) > 0);
+        setCell('diag-line-deg-min', l.degradation_total_min || 0, (l.degradation_total_min || 0) > 30);
+        setCell('diag-line-hampel', l.spikes_hampel, l.spikes_hampel > total * 0.05);
+        setCell('diag-line-instant', l.spikes_instant, l.spikes_instant > total * 0.02);
+        setCell('diag-line-valid', l.valid);
+        setCell('diag-line-uptime', l.uptime_pct !== undefined ? l.uptime_pct + '%' : '—', l.uptime_pct < 90);
+        setCell('diag-line-mean', l.mean !== null ? l.mean + ' атм' : '—');
+        setCell('diag-line-std', l.std !== null ? l.std : '—', l.std > 3);
+
+        // Sync
+        setCell('diag-sync-both', s.both_ok + ' (' + (s.sync_pct || 0) + '%)', s.sync_pct < 85);
+        setCell('diag-sync-tube', s.only_tube, s.only_tube > total * 0.1);
+        setCell('diag-sync-line', s.only_line, s.only_line > total * 0.1);
+        setCell('diag-sync-none', s.both_missing, s.both_missing > total * 0.05);
+    }
+
+    // ========== SURVEY TOOL ==========
+    var surveyActive = false;
+    var surveyGroups = [];    // [{origin:{name,lat,lon,marker}, targets:[{name,lat,lon,dist,marker,line}]}]
+    var currentGroupIdx = -1;
+
+    var surveyControls = document.getElementById('survey-controls');
+    var surveyActiveControls = document.getElementById('survey-active-controls');
+    var surveyHint = document.getElementById('survey-hint');
+    var surveyGroupsEl = document.getElementById('survey-groups');
+
+    document.getElementById('btn-start-survey').addEventListener('click', function() {
+        surveyActive = true;
+        surveyGroups = [];
+        currentGroupIdx = -1;
+        surveyControls.style.display = 'none';
+        surveyActiveControls.style.display = '';
+        surveyHint.textContent = 'Кликните на стартовую точку';
+        surveyGroupsEl.innerHTML = '';
+    });
+
+    document.getElementById('btn-new-origin').addEventListener('click', function() {
+        // Start a new group — wait for new origin click
+        currentGroupIdx = -1;
+        surveyHint.textContent = 'Кликните на новую точку отсчёта';
+    });
+
+    document.getElementById('btn-end-survey').addEventListener('click', endSurvey);
+
+    function endSurvey() {
+        surveyActive = false;
+        // Clean up highlights and lines
+        surveyGroups.forEach(function(g) {
+            if (g.origin && g.origin.marker) highlightMarker(g.origin.marker, false);
+            g.targets.forEach(function(t) {
+                if (t.marker) highlightMarker(t.marker, false);
+                if (t.line) map.removeLayer(t.line);
+            });
+        });
+        surveyGroups = [];
+        currentGroupIdx = -1;
+        surveyGroupsEl.innerHTML = '';
+        surveyControls.style.display = '';
+        surveyActiveControls.style.display = 'none';
+    }
+
+    function addSurveyTarget(data, marker) {
+        var g = surveyGroups[currentGroupIdx];
+        var dist = haversineMeters(g.origin.lat, g.origin.lon, data.lat, data.lon);
+        var line = L.polyline(
+            [[g.origin.lat, g.origin.lon], [data.lat, data.lon]],
+            { color: '#2563eb', weight: 2, dashArray: '6,4' }
+        ).addTo(map);
+
+        g.targets.push({ name: data.name, lat: data.lat, lon: data.lon, dist: dist, marker: marker, line: line });
+        highlightMarker(marker, true);
+        renderSurveyGroups();
+        surveyHint.textContent = 'Кликните на следующую цель или задайте новую точку отсчёта';
+    }
+
+    function renderSurveyGroups() {
+        surveyGroupsEl.innerHTML = '';
+        surveyGroups.forEach(function(g, gi) {
+            var sec = document.createElement('div');
+            sec.className = 'dist-group-section';
+            var hdr = document.createElement('div');
+            hdr.className = 'dist-group-header';
+            hdr.textContent = 'Группа ' + (gi + 1) + ': ' + g.origin.name;
+            sec.appendChild(hdr);
+
+            if (g.targets.length) {
+                var tbl = document.createElement('table');
+                tbl.className = 'admin-table dist-results-table';
+                tbl.innerHTML = '<thead><tr><th>Цель</th><th>Расстояние</th></tr></thead>';
+                var tbody = document.createElement('tbody');
+                g.targets.forEach(function(t) {
+                    var tr = document.createElement('tr');
+                    tr.innerHTML = '<td>' + escHtml(t.name) + '</td><td>' + formatDist(t.dist) + '</td>';
+                    tbody.appendChild(tr);
+                });
+                tbl.appendChild(tbody);
+                sec.appendChild(tbl);
+            } else {
+                var p = document.createElement('p');
+                p.style.cssText = 'font-size:11px;color:#94a3b8;margin:4px 0 0';
+                p.textContent = 'Нет целей';
+                sec.appendChild(p);
+            }
+            surveyGroupsEl.appendChild(sec);
+        });
+    }
+
+    // ========== SURVEY CSV EXPORT / IMPORT ==========
+    document.getElementById('btn-export-csv').addEventListener('click', function() {
+        if (!surveyGroups.length) return;
+        var lines = ['start_name,start_lat,start_lon,target_name,target_lat,target_lon,distance_m'];
+        surveyGroups.forEach(function(g) {
+            g.targets.forEach(function(t) {
+                lines.push([
+                    csvQuote(g.origin.name), g.origin.lat.toFixed(6), g.origin.lon.toFixed(6),
+                    csvQuote(t.name), t.lat.toFixed(6), t.lon.toFixed(6), t.dist.toFixed(1)
+                ].join(','));
+            });
+        });
+        var blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        var d = new Date();
+        a.download = 'distances_' + d.toISOString().slice(0, 10) + '.csv';
+        a.click();
+    });
+
+    function csvQuote(s) {
+        if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+        return s;
+    }
+
+    function parseCSVLine(line) {
+        var result = [], current = '', inQuotes = false;
+        for (var i = 0; i < line.length; i++) {
+            var c = line[i];
+            if (inQuotes) {
+                if (c === '"' && line[i + 1] === '"') { current += '"'; i++; }
+                else if (c === '"') { inQuotes = false; }
+                else { current += c; }
+            } else {
+                if (c === '"') { inQuotes = true; }
+                else if (c === ',') { result.push(current); current = ''; }
+                else { current += c; }
+            }
+        }
+        result.push(current);
+        return result;
+    }
+
+    document.getElementById('btn-import-csv').addEventListener('change', function(e) {
+        var file = e.target.files[0];
+        if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function(ev) {
+            endSurvey();
+            surveyActive = true;
+            surveyControls.style.display = 'none';
+            surveyActiveControls.style.display = '';
+
+            var lines = ev.target.result.split('\n').filter(function(l) { return l.trim(); });
+            var groupMap = {};  // key = "name_lat_lon" -> group index
+
+            for (var i = 1; i < lines.length; i++) {
+                var cols = parseCSVLine(lines[i]);
+                if (cols.length < 7) continue;
+                var key = cols[0] + '_' + cols[1] + '_' + cols[2];
+                if (!(key in groupMap)) {
+                    groupMap[key] = surveyGroups.length;
+                    surveyGroups.push({
+                        origin: { name: cols[0], lat: parseFloat(cols[1]), lon: parseFloat(cols[2]), marker: null },
+                        targets: []
+                    });
+                }
+                var gi = groupMap[key];
+                var dist = parseFloat(cols[6]);
+                var tLat = parseFloat(cols[4]);
+                var tLon = parseFloat(cols[5]);
+                var line = L.polyline(
+                    [[surveyGroups[gi].origin.lat, surveyGroups[gi].origin.lon], [tLat, tLon]],
+                    { color: '#2563eb', weight: 2, dashArray: '6,4' }
+                ).addTo(map);
+                surveyGroups[gi].targets.push({
+                    name: cols[3], lat: tLat, lon: tLon, dist: dist, marker: null, line: line
+                });
+            }
+            currentGroupIdx = surveyGroups.length - 1;
+            renderSurveyGroups();
+            surveyHint.textContent = 'Импортировано ' + surveyGroups.length + ' групп. Можно продолжить.';
+        };
+        reader.readAsText(file);
+        e.target.value = '';
+    });
+
+    // ========== MARKER CLICK HANDLER ==========
+    function onMarkerClick(e) {
+        // 1. Pick mode for form coordinates
+        if (pickMode) {
+            var ll = e.latlng || this.getLatLng();
+            document.getElementById('obj-lat').value = ll.lat.toFixed(6);
+            document.getElementById('obj-lon').value = ll.lng.toFixed(6);
+            pickMode = false;
+            document.getElementById('pick-hint').style.display = 'none';
+            map.getContainer().style.cursor = '';
+            return;
+        }
+
+        var data = this.objectData;
+        if (!data) return;
+
+        // 2. Antenna record mode — click on a map object to record distance
+        if (antennaRecordMode && data.type === 'custom' && currentWellId) {
+            var wellData = WELLS.find(function(w) { return w.dbId === currentWellId; });
+            if (wellData) {
+                var dist = haversineMeters(wellData.lat, wellData.lon, data.lat, data.lon);
+                fetch('/api/map-objects/well-antenna-distance', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        well_id: currentWellId,
+                        map_object_id: data.dbId,
+                        distance_m: Math.round(dist * 10) / 10
+                    })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function() {
+                    loadAntennaDistances(currentWellId);
+                    antennaRecordMode = false;
+                    document.getElementById('antenna-record-hint').style.display = 'none';
+                    map.getContainer().style.cursor = '';
+                })
+                .catch(function(err) { alert('Ошибка: ' + err.message); });
+            }
+            return;
+        }
+
+        // 3. Survey mode
+        if (surveyActive) {
+            if (currentGroupIdx < 0 || !surveyGroups[currentGroupIdx] || !surveyGroups[currentGroupIdx].origin) {
+                // Set origin
+                surveyGroups.push({
+                    origin: { name: data.name, lat: data.lat, lon: data.lon, marker: this },
+                    targets: []
+                });
+                currentGroupIdx = surveyGroups.length - 1;
+                highlightMarker(this, true);
+                surveyHint.textContent = 'Старт: ' + data.name + '. Кликните на цели.';
+                renderSurveyGroups();
+            } else {
+                // Add target
+                addSurveyTarget(data, this);
+            }
+            return;
+        }
+
+        // 4. Default — show well info
+        if (data.type === 'well') {
+            showWellInfo(data);
+        }
+    }
+
+    // ========== CRUD: Modal ==========
+    var modal = document.getElementById('obj-modal');
+    var form = document.getElementById('obj-form');
+    var modalTitle = document.getElementById('modal-title');
+    var btnAdd = document.getElementById('btn-add-object');
+    var btnCancel = document.getElementById('btn-cancel-modal');
+    var btnClose = document.getElementById('btn-close-modal');
+    var btnPick = document.getElementById('btn-pick-from-map');
+    var pickHint = document.getElementById('pick-hint');
+    var pickMode = false;
+
+    btnAdd.addEventListener('click', function() {
+        openModal(null);
+    });
+
+    btnCancel.addEventListener('click', closeModal);
+    btnClose.addEventListener('click', closeModal);
+
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) closeModal();
+    });
+
+    // ========== DMS PARSER ==========
+    function parseDMS(input) {
+        // Accepts: 44°02'23.3"N 58°41'49.6"E  or  41.31111, 64.58333
+        if (!input || !input.trim()) return null;
+        input = input.trim();
+
+        // Try decimal pair: "41.31111, 64.58333" or "41.31111 64.58333"
+        var decMatch = input.match(/^(-?\d+\.?\d*)\s*[,;\s]\s*(-?\d+\.?\d*)$/);
+        if (decMatch) {
+            return { lat: parseFloat(decMatch[1]), lon: parseFloat(decMatch[2]) };
+        }
+
+        // Try DMS: 44°02'23.3"N 58°41'49.6"E
+        var dmsRe = /(\d+)[°]\s*(\d+)[′']\s*([\d.]+)[″"]\s*([NSns])\s+(\d+)[°]\s*(\d+)[′']\s*([\d.]+)[″"]\s*([EWew])/;
+        var m = input.match(dmsRe);
+        if (m) {
+            var lat = parseInt(m[1]) + parseInt(m[2]) / 60 + parseFloat(m[3]) / 3600;
+            if (m[4].toUpperCase() === 'S') lat = -lat;
+            var lon = parseInt(m[5]) + parseInt(m[6]) / 60 + parseFloat(m[7]) / 3600;
+            if (m[8].toUpperCase() === 'W') lon = -lon;
+            return { lat: lat, lon: lon };
+        }
+
+        return null;
+    }
+
+    var dmsInput = document.getElementById('obj-coords-dms');
+    dmsInput.addEventListener('input', function() {
+        var result = parseDMS(this.value);
+        if (result) {
+            document.getElementById('obj-lat').value = result.lat.toFixed(6);
+            document.getElementById('obj-lon').value = result.lon.toFixed(6);
+        }
+    });
+
+    // ========== ICON PICKER ==========
+    var iconPicker = document.getElementById('icon-picker');
+    var iconTypeInput = document.getElementById('obj-icon-type');
+
+    iconPicker.querySelectorAll('.icon-pick-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            iconPicker.querySelectorAll('.icon-pick-btn').forEach(function(b) { b.classList.remove('selected'); });
+            this.classList.add('selected');
+            iconTypeInput.value = this.dataset.icon;
+        });
+    });
+
+    function openModal(obj) {
+        document.getElementById('obj-id').value = obj ? obj.dbId : '';
+        document.getElementById('obj-name').value = obj ? obj.name : '';
+        document.getElementById('obj-lat').value = obj ? obj.lat : '';
+        document.getElementById('obj-lon').value = obj ? obj.lon : '';
+        document.getElementById('obj-desc').value = obj ? (obj.description || '') : '';
+        document.getElementById('obj-color').value = obj ? obj.icon_color : '#e74c3c';
+        dmsInput.value = '';
+
+        // Set icon type
+        var iconType = (obj && obj.icon_type) ? obj.icon_type : 'default';
+        iconTypeInput.value = iconType;
+        iconPicker.querySelectorAll('.icon-pick-btn').forEach(function(b) {
+            b.classList.toggle('selected', b.dataset.icon === iconType);
+        });
+
+        modalTitle.textContent = obj ? 'Редактировать объект' : 'Новый объект';
+        modal.style.display = 'flex';
+    }
+
+    function closeModal() {
+        modal.style.display = 'none';
+        pickMode = false;
+        pickHint.style.display = 'none';
+        map.getContainer().style.cursor = '';
+    }
+
+    // Pick from map
+    btnPick.addEventListener('click', function() {
+        pickMode = true;
+        pickHint.style.display = 'block';
+        map.getContainer().style.cursor = 'crosshair';
+    });
+
+    map.on('click', function(e) {
+        if (!pickMode) return;
+        document.getElementById('obj-lat').value = e.latlng.lat.toFixed(6);
+        document.getElementById('obj-lon').value = e.latlng.lng.toFixed(6);
+        pickMode = false;
+        pickHint.style.display = 'none';
+        map.getContainer().style.cursor = '';
+    });
+
+    // Form submit
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        var id = document.getElementById('obj-id').value;
+        var payload = {
+            name: document.getElementById('obj-name').value.trim(),
+            lat: parseFloat(document.getElementById('obj-lat').value),
+            lon: parseFloat(document.getElementById('obj-lon').value),
+            description: document.getElementById('obj-desc').value.trim(),
+            icon_color: document.getElementById('obj-color').value,
+            icon_type: document.getElementById('obj-icon-type').value || 'default'
+        };
+
+        if (!payload.name || isNaN(payload.lat) || isNaN(payload.lon)) return;
+
+        var url = '/api/map-objects';
+        var method = 'POST';
+        if (id) {
+            url += '/' + id;
+            method = 'PUT';
+        }
+
+        fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(function(r) {
+            if (!r.ok) return r.json().then(function(d) { throw new Error(d.detail || 'Ошибка'); });
+            return r.json();
+        })
+        .then(function() {
+            location.reload();
+        })
+        .catch(function(err) {
+            alert(err.message);
+        });
+    });
+
+    // ========== CRUD: Edit / Delete buttons in table ==========
+    document.querySelectorAll('.btn-edit-obj').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var id = parseInt(this.dataset.id, 10);
+            var obj = MAP_OBJECTS.find(function(o) { return o.dbId === id; });
+            if (obj) openModal(obj);
+        });
+    });
+
+    document.querySelectorAll('.btn-delete-obj').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var id = this.dataset.id;
+            if (!confirm('Удалить объект?')) return;
+
+            fetch('/api/map-objects/' + id, { method: 'DELETE' })
+                .then(function(r) {
+                    if (!r.ok) throw new Error('Ошибка удаления');
+                    location.reload();
+                })
+                .catch(function(err) {
+                    alert(err.message);
+                });
+        });
+    });
+
+    // ========== CRUD: Focus on object from table row click ==========
+    document.querySelectorAll('#objects-table tbody tr').forEach(function(row) {
+        row.addEventListener('click', function(e) {
+            if (e.target.closest('.btn-icon')) return;
+            var id = 'obj-' + this.dataset.id;
+            var marker = allMarkers[id];
+            if (marker) {
+                map.setView(marker.getLatLng(), 15);
+            }
+        });
+    });
+
+    // ========== SENSOR OVERLAY ==========
+    var sensorLabels = [];  // L.tooltip references
+    var chkSensors = document.getElementById('chk-show-sensors');
+
+    function buildSensorText(w) {
+        if (!w.sensors || !w.sensors.length) return null;
+        var lines = w.sensors.map(function(s) {
+            return s.col + '_' + s.channel + ' (гр.' + s.group + ') SN:' + s.sn;
+        });
+        return lines.join('\n');
+    }
+
+    function showSensorLabels() {
+        hideSensorLabels();
+        WELLS.forEach(function(w) {
+            var text = buildSensorText(w);
+            if (!text) return;
+            var tooltip = L.tooltip({
+                permanent: true,
+                direction: 'bottom',
+                offset: [0, 12],
+                className: 'sensor-tooltip'
+            })
+            .setLatLng([w.lat, w.lon])
+            .setContent(text)
+            .addTo(map);
+            sensorLabels.push(tooltip);
+        });
+    }
+
+    function hideSensorLabels() {
+        sensorLabels.forEach(function(t) { map.removeLayer(t); });
+        sensorLabels = [];
+    }
+
+    chkSensors.addEventListener('change', function() {
+        if (this.checked) showSensorLabels();
+        else hideSensorLabels();
+    });
+
+    // ========== HELPERS ==========
+    function escHtml(s) {
+        if (!s) return '';
+        var d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+});
+</script>
+{% endblock %}

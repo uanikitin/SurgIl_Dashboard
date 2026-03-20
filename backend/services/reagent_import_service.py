@@ -30,6 +30,8 @@ class ImportError:
     row: int
     column: str
     message: str
+    # Частичные данные строки (для отображения в preview с возможностью выбора)
+    partial_data: Optional[dict] = None
 
 
 @dataclass
@@ -65,7 +67,7 @@ class ReagentImportService:
     # =========================================================================
 
     @staticmethod
-    def generate_supply_template() -> bytes:
+    def generate_supply_template(db: Session = None) -> bytes:
         """Генерирует Excel шаблон для импорта поступлений."""
         wb = Workbook()
         ws = wb.active
@@ -151,6 +153,21 @@ class ReagentImportService:
                 cell.font = Font(bold=True, color="FF0000")
         ws_help.column_dimensions["A"].width = 80
 
+        # Лист с каталогом реагентов
+        if db is not None:
+            catalog_items = db.query(ReagentCatalog).filter(
+                ReagentCatalog.is_active == True  # noqa: E712
+            ).order_by(ReagentCatalog.name).all()
+            if catalog_items:
+                ws_cat = wb.create_sheet("Каталог реагентів")
+                ws_cat.cell(row=1, column=1, value="Назва реагента").font = Font(bold=True)
+                ws_cat.cell(row=1, column=2, value="Одиниця").font = Font(bold=True)
+                for idx, item in enumerate(catalog_items, 2):
+                    ws_cat.cell(row=idx, column=1, value=item.name)
+                    ws_cat.cell(row=idx, column=2, value=item.default_unit or "шт")
+                ws_cat.column_dimensions["A"].width = 30
+                ws_cat.column_dimensions["B"].width = 12
+
         # Сохраняем в байты
         output = BytesIO()
         wb.save(output)
@@ -158,7 +175,7 @@ class ReagentImportService:
         return output.getvalue()
 
     @staticmethod
-    def generate_inventory_template() -> bytes:
+    def generate_inventory_template(db: Session = None) -> bytes:
         """Генерирует Excel шаблон для импорта инвентаризаций."""
         wb = Workbook()
         ws = wb.active
@@ -243,6 +260,21 @@ class ReagentImportService:
                 cell.font = Font(bold=True, color="FF0000" if "ВАЖЛИВО" in line else "0070C0")
         ws_help.column_dimensions["A"].width = 80
 
+        # Лист с каталогом реагентов
+        if db is not None:
+            catalog_items = db.query(ReagentCatalog).filter(
+                ReagentCatalog.is_active == True  # noqa: E712
+            ).order_by(ReagentCatalog.name).all()
+            if catalog_items:
+                ws_cat = wb.create_sheet("Каталог реагентів")
+                ws_cat.cell(row=1, column=1, value="Назва реагента").font = Font(bold=True)
+                ws_cat.cell(row=1, column=2, value="Одиниця").font = Font(bold=True)
+                for idx, item in enumerate(catalog_items, 2):
+                    ws_cat.cell(row=idx, column=1, value=item.name)
+                    ws_cat.cell(row=idx, column=2, value=item.default_unit or "шт")
+                ws_cat.column_dimensions["A"].width = 30
+                ws_cat.column_dimensions["B"].width = 12
+
         output = BytesIO()
         wb.save(output)
         output.seek(0)
@@ -306,8 +338,10 @@ class ReagentImportService:
             result.message = f"Помилка читання файлу: {str(e)}"
             return result
 
-        # Получаем список реагентов из каталога
-        catalog = {r.name: r for r in db.query(ReagentCatalog).filter(ReagentCatalog.is_active == True).all()}
+        # Получаем список реагентов из каталога (case-insensitive lookup)
+        catalog_items = db.query(ReagentCatalog).filter(ReagentCatalog.is_active == True).all()
+        catalog = {r.name: r for r in catalog_items}
+        catalog_lower = {r.name.lower(): r for r in catalog_items}
 
         # Читаем строки (пропускаем 2 строки заголовков)
         for row_idx, row in enumerate(ws.iter_rows(min_row=3, values_only=True), start=3):
@@ -331,12 +365,23 @@ class ReagentImportService:
             if not parsed_date:
                 row_errors.append(ImportError(row_idx, "A", f"Невірний формат дати: {date_val}"))
 
-            # Валидация реагента
+            # Валидация реагента (case-insensitive)
             reagent_name = str(reagent_val).strip() if reagent_val else None
+            catalog_entry = None
             if not reagent_name:
                 row_errors.append(ImportError(row_idx, "B", "Реагент не вказано"))
-            elif reagent_name not in catalog:
-                row_errors.append(ImportError(row_idx, "B", f"Реагент '{reagent_name}' не знайдено в каталозі"))
+            else:
+                # Сначала точное совпадение, потом case-insensitive
+                if reagent_name in catalog:
+                    catalog_entry = catalog[reagent_name]
+                elif reagent_name.lower() in catalog_lower:
+                    catalog_entry = catalog_lower[reagent_name.lower()]
+                    reagent_name = catalog_entry.name  # используем каноническое имя из каталога
+                else:
+                    row_errors.append(ImportError(
+                        row_idx, "B",
+                        f"Реагент '{reagent_name}' не знайдено в каталозі",
+                    ))
 
             # Валидация количества
             parsed_qty = cls._parse_decimal(qty_val)
@@ -349,18 +394,34 @@ class ReagentImportService:
             unit = None
             if unit_val:
                 unit = str(unit_val).strip()
-            elif reagent_name and reagent_name in catalog:
-                unit = catalog[reagent_name].default_unit
+            elif catalog_entry:
+                unit = catalog_entry.default_unit
 
             # Комментарий
             comment = str(comment_val).strip() if comment_val else None
 
             if row_errors:
+                # Сохраняем partial_data для ошибок "не знайдено в каталозі"
+                # чтобы JS мог показать строку с dropdown
+                partial = {
+                    "date": parsed_date.strftime("%d.%m.%Y") if parsed_date else str(date_val or ""),
+                    "reagent": reagent_name or "",
+                    "qty": float(parsed_qty) if parsed_qty is not None else None,
+                    "unit": unit or (str(unit_val).strip() if unit_val else ""),
+                    "comment": comment or "",
+                }
+                for err in row_errors:
+                    err.partial_data = partial
                 result.errors.extend(row_errors)
             else:
+                # Если дата без времени (полночь) — ставим 23:59:59,
+                # чтобы поставка была "после" инвентаризации/расхода в тот же день
+                supply_date = parsed_date
+                if supply_date and supply_date.hour == 0 and supply_date.minute == 0:
+                    supply_date = supply_date.replace(hour=23, minute=59, second=59)
                 result.valid_rows.append(ImportRow(
                     row_num=row_idx,
-                    date=parsed_date,
+                    date=supply_date,
                     reagent=reagent_name,
                     qty=parsed_qty,
                     unit=unit,
@@ -396,7 +457,9 @@ class ReagentImportService:
             result.message = f"Помилка читання файлу: {str(e)}"
             return result
 
-        catalog = {r.name: r for r in db.query(ReagentCatalog).filter(ReagentCatalog.is_active == True).all()}
+        catalog_items = db.query(ReagentCatalog).filter(ReagentCatalog.is_active == True).all()
+        catalog = {r.name: r for r in catalog_items}
+        catalog_lower = {r.name.lower(): r for r in catalog_items}
 
         for row_idx, row in enumerate(ws.iter_rows(min_row=3, values_only=True), start=3):
             if not row or all(cell is None or str(cell).strip() == "" for cell in row):
@@ -416,12 +479,24 @@ class ReagentImportService:
             if not parsed_date:
                 row_errors.append(ImportError(row_idx, "A", f"Невірний формат дати: {date_val}"))
 
-            # Валидация реагента
+            # Валидация реагента (case-insensitive)
             reagent_name = str(reagent_val).strip() if reagent_val else None
+            catalog_entry = None
             if not reagent_name:
                 row_errors.append(ImportError(row_idx, "B", "Реагент не вказано"))
-            elif reagent_name not in catalog:
-                row_errors.append(ImportError(row_idx, "B", f"Реагент '{reagent_name}' не знайдено в каталозі"))
+            else:
+                if reagent_name in catalog:
+                    catalog_entry = catalog[reagent_name]
+                elif reagent_name.lower() in catalog_lower:
+                    catalog_entry = catalog_lower[reagent_name.lower()]
+                    reagent_name = catalog_entry.name
+                else:
+                    available = ", ".join(sorted(catalog.keys()))
+                    row_errors.append(ImportError(
+                        row_idx, "B",
+                        f"Реагент '{reagent_name}' не знайдено в каталозі. "
+                        f"Доступні: {available}"
+                    ))
 
             # Валидация количества (для инвентаризации может быть 0)
             parsed_qty = cls._parse_decimal(qty_val)
@@ -451,7 +526,7 @@ class ReagentImportService:
                     date=parsed_date,
                     reagent=reagent_name,
                     qty=parsed_qty,
-                    unit=catalog[reagent_name].default_unit if reagent_name in catalog else "шт",
+                    unit=catalog_entry.default_unit if catalog_entry else "шт",
                     comment=comment,
                     calculated_qty=calculated_qty,
                     discrepancy=discrepancy,

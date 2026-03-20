@@ -32,9 +32,9 @@ class ReagentInventorySnapshot(Base):
 
     unit = Column(String, nullable=False, default="шт")
     snapshot_at = Column(
-        DateTime(timezone=True),
+        DateTime,
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=datetime.utcnow,
         index=True
     )
     location = Column(String, nullable=True)

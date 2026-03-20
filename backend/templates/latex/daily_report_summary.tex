@@ -1,0 +1,298 @@
+\documentclass[10pt]{article}
+\usepackage{fontspec}
+\setmainfont{Times New Roman}
+\usepackage[russian]{babel}
+\usepackage{geometry}
+\geometry{a4paper, portrait, left=2cm, right=1cm, top=1.5cm, bottom=1.5cm}
+
+\usepackage{longtable, array, booktabs, tabularx}
+\usepackage{ragged2e}
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+\usepackage{amsmath}
+\usepackage{xcolor}
+\usepackage{colortbl}
+\usepackage{grffile}
+
+\newcolumntype{P}[1]{>{\RaggedRight\arraybackslash\footnotesize}m{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash\footnotesize}m{#1}}
+\newcolumntype{R}[1]{>{\RaggedLeft\arraybackslash\footnotesize}m{#1}}
+\newcolumntype{Y}{>{\centering\arraybackslash\footnotesize}X}
+\newcolumntype{Z}{>{\RaggedLeft\arraybackslash\footnotesize}X}
+\newcolumntype{W}{>{\RaggedRight\arraybackslash\footnotesize}X}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0pt}
+\renewcommand{\arraystretch}{1.15}
+
+\usepackage{titlesec}
+\titlespacing*{\section}{0pt}{0.3em}{0.08em}
+\titlespacing*{\subsection}{0pt}{0.2em}{0.06em}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\footnotesize Сводный суточный отчёт \VAR{report_date} · №\VAR{doc_number}}
+\fancyhead[R]{\footnotesize \thepage\ / \pageref{LastPage}}
+\fancyfoot[C]{\scriptsize Сформировано \VAR{generated_at}}
+
+\begin{document}
+\thispagestyle{fancy}
+
+% ═══════ ШАПКА ═══════
+{\large\bfseries Суточный отчёт о работе скважин}\\[0.1em]
+{\normalsize Проект оптимизации с применением пенных реагентов}
+
+\vspace{0.15em}
+
+{\footnotesize
+\begin{tabularx}{\textwidth}{XXXX}
+\toprule
+\textbf{Документ} & \textbf{Дата} & \textbf{Период} & \textbf{Скважин} \\
+№\VAR{doc_number} & \VAR{report_date} & \VAR{report_date}, 00:00--23:59 (UTC+5) & \VAR{total_wells} \\
+\bottomrule
+\end{tabularx}
+}
+
+\vspace{0.1em}
+
+% ── Плитки ──
+\noindent
+\fbox{\begin{minipage}[t]{0.18\textwidth}\centering
+{\LARGE\bfseries \VAR{totals.events}}\\[1pt]
+{\scriptsize Событий}
+\end{minipage}}\hfill
+\fbox{\begin{minipage}[t]{0.18\textwidth}\centering
+{\LARGE\bfseries \VAR{totals.purge_events}}\\[1pt]
+{\scriptsize Продувок}
+\end{minipage}}\hfill
+\fbox{\begin{minipage}[t]{0.18\textwidth}\centering
+{\LARGE\bfseries \VAR{totals.reagent_events}}\\[1pt]
+{\scriptsize Вбросов}
+\end{minipage}}\hfill
+\fbox{\begin{minipage}[t]{0.18\textwidth}\centering
+{\LARGE\bfseries \VAR{totals.downtime_hours}}\\[1pt]
+{\scriptsize Простоев, ч}
+\end{minipage}}\hfill
+\fbox{\begin{minipage}[t]{0.18\textwidth}\centering
+{\LARGE\bfseries \VAR{total_wells}}\\[1pt]
+{\scriptsize Скважин}
+\end{minipage}}
+
+\vspace{0.15em}
+
+% ════════════════════════════════════════════════════════════
+%  1. СОБЫТИЯ
+% ════════════════════════════════════════════════════════════
+\section*{1. События за календарные сутки}
+
+\BLOCK{ if wells_by_status }
+{\footnotesize
+\begin{tabularx}{\textwidth}{|C{0.7cm}|C{0.8cm}|X|}
+\hline
+\textbf{Скв} & \textbf{Кол-во} & \textbf{Разбивка} \\
+\hline
+%% for grp in wells_by_status
+\multicolumn{3}{|>{\columncolor[gray]{0.92}}l|}{\textbf{\VAR{grp.status}}} \\
+\hline
+%% for w in grp.wells
+\BLOCK{ if (w.s_event_count is defined and w.s_event_count > 0) or w.events|length > 0 }
+\VAR{w.well_number} & \BLOCK{ if w.s_event_count is defined }\VAR{w.s_event_count}\BLOCK{ else }\VAR{w.events|length}\BLOCK{ endif }
+& \BLOCK{ if w.s_event_type_stats is defined }\BLOCK{ for s in w.s_event_type_stats }\VAR{s.type_label}: \VAR{s.count}\BLOCK{ if not loop.last }, \BLOCK{ endif }\BLOCK{ endfor }\BLOCK{ elif w.event_type_stats }\BLOCK{ for s in w.event_type_stats }\VAR{s.type_label}: \VAR{s.count}\BLOCK{ if not loop.last }, \BLOCK{ endif }\BLOCK{ endfor }\BLOCK{ else }---\BLOCK{ endif } \\
+\hline
+\BLOCK{ endif }
+%% endfor
+%% endfor
+\multicolumn{1}{|l|}{\textbf{Итого}} & \textbf{\BLOCK{ if totals.events > 0 }\VAR{totals.events}\BLOCK{ else }---\BLOCK{ endif }} & \\
+\hline
+\end{tabularx}
+}
+\BLOCK{ endif }
+
+\vspace{0.08em}
+
+% ════════════════════════════════════════════════════════════
+%  2. РАБОЧИЕ ПАРАМЕТРЫ
+% ════════════════════════════════════════════════════════════
+\section*{2. Рабочие параметры}
+
+{\scriptsize
+\begin{tabularx}{\textwidth}{|C{0.5cm}|C{1.2cm}|Y|Y|Y|Y|Y|Y|Y|Y|Y|Y|Y|W|}
+\hline
+\textbf{Скв}
+& \textbf{Период}
+& \textbf{$P_{\text{тр}}$}
+& \textbf{$P_{\text{лин}}$}
+& \textbf{$\Delta P$}
+& \textbf{$Q_{\text{мед}}$}
+& \textbf{$Q_{\text{ср}}$}
+& \textbf{$T_{\text{р}}$}
+& \textbf{КИВ}
+& \textbf{$\Sigma Q$}
+& \textbf{$L_{\text{п}}$}
+& \textbf{$L_{\text{а}}$}
+& \textbf{$\Delta$\%}
+& \textbf{$\tau$} \\
+\hline
+%% for grp in wells_by_status
+\multicolumn{14}{|>{\columncolor[gray]{0.92}}l|}{\textbf{\VAR{grp.status}}} \\
+\hline
+%% for w in grp.wells
+\VAR{w.well_number}
+& {\scriptsize \VAR{w.status_period}}\BLOCK{ if w.substatus and w.substatus != "В работе" } {\tiny \VAR{w.substatus}}\BLOCK{ endif }
+& \VAR{w.s_p_tube_median}
+& \VAR{w.s_p_line_median}
+& \VAR{w.s_dp_median}
+& \VAR{w.s_median_flow}
+& \VAR{w.s_avg_flow}
+& \VAR{w.s_working_hours}
+& \VAR{w.s_utilization}
+& \VAR{w.s_month_cumulative}
+& \VAR{w.s_downtime_loss}
+& \VAR{w.s_purge_atm_loss}
+& \BLOCK{ if w.summary_trend and w.summary_trend.delta_pct is not none }\BLOCK{ if w.summary_trend.delta_pct > 0 }+\VAR{w.summary_trend.delta_pct}\BLOCK{ else }\VAR{w.summary_trend.delta_pct}\BLOCK{ endif }\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if w.summary_trend }\BLOCK{ if w.summary_trend.direction == "up" }$\uparrow$\VAR{w.summary_trend.slope_per_day}\BLOCK{ elif w.summary_trend.direction == "down" }$\downarrow$\VAR{w.summary_trend.slope_per_day}\BLOCK{ else }$\rightarrow$\BLOCK{ endif }\BLOCK{ else }---\BLOCK{ endif } \\
+\hline
+%% endfor
+%% endfor
+\end{tabularx}
+}
+{\scriptsize
+$P_{\text{тр}}$, $P_{\text{лин}}$, $\Delta P$~--- медиана за сутки, кгс/см\textsuperscript{2}.
+$Q_{\text{мед}}$, $Q_{\text{ср}}$~--- медианный и средний дебит, тыс.\,м\textsuperscript{3}/сут.
+$T_{\text{р}}$~--- рабочие часы.
+КИВ~--- коэфф. использования времени, \%.
+$\Sigma Q$~--- накопленный дебит с начала месяца, тыс.\,м\textsuperscript{3}.
+$L_{\text{п}}$~--- потери от простоев.
+$L_{\text{а}}$~--- потери в атмосферу при продувках (тыс.\,м\textsuperscript{3}).
+$\Delta$\%~--- изменение среднесуточного дебита относительно предыдущих суток.
+$\tau$~--- скорость изменения дебита, тыс.\,м\textsuperscript{3}/сут за сутки (по почасовым данным за \VAR{trend_days}\,сут). $\uparrow$ рост, $\downarrow$ снижение, $\rightarrow$ стабильно.}
+
+\vspace{0.08em}
+
+% ════════════════════════════════════════════════════════════
+%  3. УЧЁТ РАБОЧЕГО ВРЕМЕНИ
+% ════════════════════════════════════════════════════════════
+\section*{3. Учёт рабочего времени}
+
+{\footnotesize
+\begin{tabularx}{\textwidth}{|C{0.6cm}|Y|Y|Y|Y|Y|Y|Y|Y|}
+\hline
+\textbf{Скв}
+& \textbf{Прод.}
+& \textbf{Ср.\,мин}
+& \textbf{$L_{\text{п}}$}
+& \textbf{$L_{\text{а}}$}
+& \textbf{Прост., ч}
+& \textbf{Шт/ман}
+& \textbf{Гидр.} \\
+\hline
+%% for w in wells_data
+\VAR{w.well_number}
+& \BLOCK{ if w.s_purge_total > 0 }\VAR{w.s_purge_total}\BLOCK{ else }---\BLOCK{ endif }
+& \VAR{w.s_purge_avg_dur}
+& \VAR{w.s_downtime_loss}
+& \VAR{w.s_purge_atm_loss}
+& \VAR{w.s_downtime_hours}
+& \BLOCK{ if w.s_purge_choke > 0 or w.s_purge_manometer > 0 }\VAR{w.s_purge_choke}/\VAR{w.s_purge_manometer}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if w.s_hydrate_count > 0 }\VAR{w.s_hydrate_count}\BLOCK{ else }---\BLOCK{ endif } \\
+\hline
+%% endfor
+\multicolumn{1}{|l|}{\textbf{Итого}}
+& \textbf{\VAR{totals.purge_count}}
+& &
+\textbf{\VAR{totals.downtime_loss}}
+& \textbf{\VAR{totals.atm_loss}}
+& \textbf{\VAR{totals.downtime_hours}}
+& & \\
+\hline
+\end{tabularx}
+}
+{\scriptsize
+Прод.~--- продувок (сессии start$\rightarrow$stop из журнала событий).
+$L_{\text{п}}$~--- потери от простоев, тыс.\,м\textsuperscript{3}.
+$L_{\text{а}}$~--- потери в атмосферу, тыс.\,м\textsuperscript{3}.
+Шт/ман~--- продувки штуцера/манометра.
+Гидр.~--- зафиксированные гидратные события.}
+
+\vspace{0.08em}
+
+% ════════════════════════════════════════════════════════════
+%  4. РЕАГЕНТЫ
+% ════════════════════════════════════════════════════════════
+\section*{4. Реагенты}
+
+\subsection*{4.1. Вбросы по скважинам}
+
+{\footnotesize
+\begin{tabularx}{\textwidth}{|C{0.7cm}|C{1cm}|X|}
+\hline
+\textbf{Скв} & \textbf{Кол-во} & \textbf{Тип: кол-во} \\
+\hline
+%% for w in wells_data
+\VAR{w.well_number} & \BLOCK{ if w.s_reagent_total_count > 0 }\VAR{w.s_reagent_total_count}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if w.reagent_stats }\BLOCK{ for r in w.reagent_stats }\VAR{r.name}: \VAR{r.count}\BLOCK{ if not loop.last }, \BLOCK{ endif }\BLOCK{ endfor }\BLOCK{ else }---\BLOCK{ endif } \\
+\hline
+%% endfor
+\multicolumn{1}{|l|}{\textbf{Итого}} & \textbf{\BLOCK{ if totals.reagent_count > 0 }\VAR{totals.reagent_count}\BLOCK{ else }---\BLOCK{ endif }} & \\
+\hline
+\end{tabularx}
+}
+
+\vspace{0.05em}
+
+\subsection*{4.2. Сводка по типам}
+
+{\footnotesize
+\begin{tabularx}{\textwidth}{|X|Y|Z|}
+\hline
+\textbf{Тип реагента} & \textbf{Вбросов} & \textbf{Расход} \\
+\hline
+%% for rt in reagent_totals
+\VAR{rt.name} & \VAR{rt.count} & \VAR{rt.total_qty} \\
+\hline
+%% endfor
+\multicolumn{1}{|l|}{\textbf{Всего}} & \textbf{\VAR{totals.reagent_count}} & \textbf{\VAR{totals.reagent_qty}} \\
+\hline
+\end{tabularx}
+}
+
+\vspace{0.08em}
+
+% ════════════════════════════════════════════════════════════
+%  5. СУТОЧНАЯ СВОДКА — ПОЛНАЯ ВЫПИСКА ИЗ БАЗЫ ДАННЫХ
+% ════════════════════════════════════════════════════════════
+\BLOCK{ if daily_extract }
+\section*{5. Суточная сводка (выписка из журнала событий)}
+{\scriptsize
+\setlength{\LTleft}{0pt}
+\setlength{\LTright}{0pt}
+\begin{longtable}{|C{0.5cm}|C{0.6cm}|P{1.4cm}|>{\RaggedRight\arraybackslash\scriptsize}p{\dimexpr\textwidth-0.5cm-0.6cm-1.4cm-0.8cm-0.8cm-1.6cm-0.6cm-0.8cm-20\tabcolsep-10\arrayrulewidth}|R{0.8cm}|R{0.8cm}|P{1.6cm}|R{0.6cm}|P{0.8cm}|}
+\hline
+\textbf{Скв} & \textbf{Время} & \textbf{Тип} & \textbf{Описание} & \textbf{$P_{\text{тр}}$} & \textbf{$P_{\text{лин}}$} & \textbf{Реагент} & \textbf{Кол} & \textbf{Фаза} \\
+\hline
+\endhead
+%% for e in daily_extract
+\VAR{e.well} & \VAR{e.time_str} & \VAR{e.event_type} & \VAR{e.description} & \VAR{e.p_tube} & \VAR{e.p_line} & \VAR{e.reagent} & \VAR{e.qty} & \VAR{e.phase} \\
+\hline
+%% endfor
+\end{longtable}
+}
+\BLOCK{ endif }
+
+% ════════════════════════════════════════════════════════════
+%  ПРИЛОЖЕНИЕ: ДИНАМИКА ДЕБИТА
+% ════════════════════════════════════════════════════════════
+\BLOCK{ if flow_grid_path }
+\newpage
+\section*{Приложение. Динамика дебита за месяц}
+
+\begin{center}
+\includegraphics[width=\textwidth]{\VAR{flow_grid_path}}
+\end{center}
+
+\vspace{0.3em}
+{\scriptsize Среднесуточный дебит (тыс.\,м\textsuperscript{3}/сут) по календарным дням месяца.
+Пунктир~--- медиана за период. Дни без данных давления не отображаются.}
+\BLOCK{ endif }
+
+\end{document}

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from backend.db import get_db
-from backend.web.templates import templates
+from backend.web.templates import templates, base_context
 from backend.models.equipment import Equipment, EquipmentInstallation, EquipmentMaintenance
 
 router = APIRouter(tags=["equipment-admin"])
@@ -72,14 +72,14 @@ async def equipment_admin_panel(
     except:
         pass
 
-    context = {
-        "request": request,
+    context = base_context(request)
+    context.update({
         "equipment_list": equipment_list,
         "status_stats": status_stats,
         "has_installation_location": has_installation_location,
         "has_condition": has_condition,
         "has_no_document_confirmed": has_no_document_confirmed,
-    }
+    })
 
     return templates.TemplateResponse("equipment_admin.html", context)
 

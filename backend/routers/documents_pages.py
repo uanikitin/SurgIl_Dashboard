@@ -13,7 +13,7 @@ from datetime import datetime, date
 from calendar import monthrange
 
 from backend.db import get_db
-from backend.web.templates import templates
+from backend.web.templates import templates, base_context
 
 from backend.models.wells import Well
 from backend.documents.models import Document, DocumentType, DocumentItem
@@ -355,7 +355,7 @@ def documents_index(
     return templates.TemplateResponse(
         "documents/index.html",
         {
-            "request": request,
+            **base_context(request),
             "board": board,
             "board_titles": board_titles,
             "wells": all_wells,  # <-- Передаём ВСЕ скважины
@@ -473,7 +473,7 @@ def documents_jobs(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(
         "documents/jobs.html",
         {
-            "request": request,
+            **base_context(request),
             "jobs": jobs,
             "total": total,
         },
@@ -527,7 +527,7 @@ def document_detail(doc_id: int, request: Request, db: Session = Depends(get_db)
     return templates.TemplateResponse(
         "documents/detail.html",
         {
-            "request": request,
+            **base_context(request),
             "doc": doc,
             "items": items,
             "all_status_names": all_status_names,
@@ -697,7 +697,7 @@ def reagent_expense_new(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(
         "documents/reagent_expense_new.html",
         {
-            "request": request,
+            **base_context(request),
             "dt": dt,
             "wells": wells,
             "status_names": status_names,

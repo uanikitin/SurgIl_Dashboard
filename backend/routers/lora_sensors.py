@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from backend.db import get_db
-from backend.web.templates import templates
+from backend.web.templates import templates, base_context
 
 router = APIRouter(tags=["lora-sensors"])
 
@@ -61,14 +61,15 @@ async def lora_sensors_page(
     installed_count = sum(1 for s in sensors if s.well_id is not None)
     uninstalled_count = total_sensors - installed_count
 
-    return templates.TemplateResponse("lora_sensors.html", {
-        "request": request,
+    ctx = base_context(request)
+    ctx.update({
         "sensors": sensors,
         "wells": wells,
         "total_sensors": total_sensors,
         "installed_count": installed_count,
         "uninstalled_count": uninstalled_count,
     })
+    return templates.TemplateResponse("lora_sensors.html", ctx)
 
 
 @router.post("/admin/lora-sensors/add")
@@ -168,11 +169,12 @@ async def sensor_history(
         ORDER BY ei.installed_at DESC
     """), {"sensor_id": sensor_id}).fetchall()
 
-    return templates.TemplateResponse("lora_sensor_history.html", {
-        "request": request,
+    ctx = base_context(request)
+    ctx.update({
         "sensor": sensor,
         "history": history,
     })
+    return templates.TemplateResponse("lora_sensor_history.html", ctx)
 
 
 @router.get("/api/lora-sensors", response_class=HTMLResponse)

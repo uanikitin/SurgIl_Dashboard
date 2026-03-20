@@ -79,3 +79,26 @@ def get_reagents_user(
 
     return user
 
+
+def get_map_user(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> DashboardUser:
+    """
+    Пользователь, который имеет доступ к странице карты:
+    - admin
+    - или can_view_map = True
+    """
+    user_id = request.session.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+
+    user = db.query(DashboardUser).filter(DashboardUser.id == user_id).first()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+
+    if not (user.is_admin or getattr(user, "can_view_map", False)):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Нет доступа к карте")
+
+    return user
+

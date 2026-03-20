@@ -33,3 +33,6 @@ from .chat_subgroup import ChatSubgroup, chat_subgroup_member
 from .flow_analysis import FlowScenario, FlowCorrection, FlowResult
 from .chart_annotation import ChartAnnotation
 from .pressure_mask import PressureMask
+from .map_object import MapObject
+from .well_antenna_distance import WellAntennaDistance
+from .sensor_daily_report import SensorDailyReport

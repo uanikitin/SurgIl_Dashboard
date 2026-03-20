@@ -14,7 +14,7 @@ from sqlalchemy import and_, or_, desc, func
 # from starlette.responses import RedirectResponse
 
 from backend.db import get_db
-from backend.web.templates import templates
+from backend.web.templates import templates, base_context
 from backend.deps import get_current_admin
 from backend.models.wells import Well
 from backend.models.equipment import Equipment, EquipmentInstallation, EquipmentMaintenance
@@ -37,9 +37,7 @@ async def equipment_add_page(
 ):
     """Форма додавання нового обладнання"""
 
-    context = {
-        "request": request,
-    }
+    context = base_context(request)
 
     return templates.TemplateResponse("equipment_add.html", context)
 
@@ -188,8 +186,8 @@ async def equipment_list_page(
         Equipment.status == 'maintenance'
     ).scalar()
 
-    context = {
-        "request": request,
+    context = base_context(request)
+    context.update({
         "equipment_list": equipment_list,
         "equipment_types": equipment_types,
         "selected_type": equipment_type,
@@ -202,7 +200,7 @@ async def equipment_list_page(
             "available": available_count,
             "maintenance": maintenance_count,
         }
-    }
+    })
 
     return templates.TemplateResponse("equipment_list.html", context)
 
@@ -331,8 +329,8 @@ async def equipment_detail_page(
     # Список свердловин для форми встановлення
     wells_list = db.query(Well).order_by(Well.number).all()
 
-    context = {
-        "request": request,
+    context = base_context(request)
+    context.update({
         "equipment": equipment,
         "current_installation": current_installation,
         "installation_history": installation_history,
@@ -344,7 +342,7 @@ async def equipment_detail_page(
             "total_maintenance_cost": total_maintenance_cost,
             "avg_days_per_installation": round(total_days / total_installations, 1) if total_installations > 0 else 0,
         }
-    }
+    })
 
     return templates.TemplateResponse("equipment_detail.html", context)
 
@@ -833,9 +831,7 @@ async def equipment_import_page(
 ):
     """Сторінка імпорту обладнання з Excel"""
 
-    context = {
-        "request": request,
-    }
+    context = base_context(request)
 
     return templates.TemplateResponse("equipment_import.html", context)
 

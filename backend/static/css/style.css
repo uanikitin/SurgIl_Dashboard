@@ -2259,6 +2259,10 @@ button:hover {
     margin: 0 auto;
     padding: 24px 32px 40px;
 }
+.admin-page--wide {
+    max-width: none;
+    padding: 16px 24px 40px;
+}
 
 .admin-page h1 {
     font-size: 28px;
@@ -2393,15 +2397,8 @@ button:hover {
 
 .header-user-block {
     display: flex;
-    flex-direction: column; /* первая строка – текст, ниже – кнопки */
-    align-items: flex-end;
-    gap: 4px;
-}
-
-.header-buttons {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
 }
 
 /* ===== Общий контейнер страницы ===== */
@@ -2797,3 +2794,348 @@ button:hover {
 }
 .chart-title{ font-size:12px; color: rgba(255,255,255,.70); text-transform:uppercase; letter-spacing:.3px; margin-bottom:8px; }
 .hint{ margin-top:8px; font-size:12px; color: rgba(255,255,255,.60); }
+
+/* ===== Admin Map Layout ===== */
+.admin-map-layout {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 12px;
+    margin-top: 16px;
+}
+.admin-map-col { min-width: 0; }
+
+#admin-map {
+    height: 800px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+}
+
+.admin-map-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 340px;
+}
+/* All tables in sidebar — full width, compact */
+.admin-map-sidebar table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+.admin-map-sidebar table th,
+.admin-map-sidebar table td {
+    padding: 3px 6px;
+    word-break: break-word;
+    overflow-wrap: break-word;
+}
+.admin-map-sidebar h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1e293b;
+    margin: 0 0 8px;
+}
+
+/* Distance tool */
+.distance-tool {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px;
+}
+.distance-hint {
+    font-size: 12px;
+    color: #64748b;
+    margin: 0;
+}
+.distance-pair {
+    font-size: 13px;
+    color: #334155;
+    margin-bottom: 4px;
+}
+.distance-label {
+    font-weight: 700;
+    color: #2563eb;
+    margin-right: 4px;
+}
+.distance-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: #2563eb;
+    margin: 8px 0;
+    text-align: center;
+}
+
+/* Object list */
+.map-objects-list {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+.map-objects-list .admin-table { font-size: 12px; }
+.map-objects-list .admin-table td,
+.map-objects-list .admin-table th { padding: 6px 8px; }
+.cell-coords { font-size: 11px; color: #64748b; font-variant-numeric: tabular-nums; }
+.cell-actions { white-space: nowrap; }
+
+.obj-color-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    margin-right: 4px;
+    vertical-align: middle;
+    transform: rotate(45deg);
+}
+.btn-icon {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 2px 4px;
+    color: #64748b;
+    transition: color 0.12s;
+}
+.btn-icon:hover { color: #2563eb; }
+.btn-delete-obj:hover { color: #ef4444; }
+.empty-hint { font-size: 12px; color: #94a3b8; margin: 0; }
+
+#objects-table tbody tr { cursor: pointer; }
+#objects-table tbody tr:hover { background: #f1f5f9; }
+
+/* Map markers */
+.map-marker-pin,
+.map-marker-diamond,
+.map-marker-object { background: none !important; border: none !important; }
+.marker-selected { filter: brightness(1.3) drop-shadow(0 0 6px rgba(37,99,235,0.6)); z-index: 1000 !important; }
+
+/* Icon picker */
+.icon-picker {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.icon-pick-btn {
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
+    line-height: 1;
+    border: 2px solid #d1d5db;
+    border-radius: 8px;
+    background: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.12s, background 0.12s;
+}
+.icon-pick-btn:hover { border-color: #3b82f6; background: #eff6ff; }
+.icon-pick-btn.selected { border-color: #2563eb; background: #dbeafe; box-shadow: 0 0 0 2px rgba(59,130,246,0.2); }
+
+.obj-icon-badge { margin-right: 4px; font-size: 14px; }
+
+/* Sensor tooltip */
+.sensor-tooltip {
+    background: rgba(30,41,59,0.9) !important;
+    color: #f1f5f9 !important;
+    border: none !important;
+    border-radius: 6px !important;
+    padding: 4px 8px !important;
+    font-size: 11px !important;
+    font-family: monospace !important;
+    white-space: pre !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2) !important;
+}
+.sensor-tooltip::before { border-bottom-color: rgba(30,41,59,0.9) !important; }
+
+/* Map checkbox */
+.map-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: #334155;
+    cursor: pointer;
+}
+.map-checkbox input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+
+.form-hint { display: block; font-size: 11px; color: #94a3b8; margin-top: 2px; }
+
+/* Well info panel */
+.well-info-panel {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px;
+}
+.well-info-panel h3 {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1e293b;
+    margin: 0 0 8px;
+}
+.well-info-row {
+    font-size: 13px;
+    color: #334155;
+    margin-bottom: 4px;
+}
+.well-info-label {
+    font-weight: 600;
+    color: #64748b;
+    margin-right: 4px;
+}
+.sensor-info-table { font-size: 12px !important; width: 100%; table-layout: fixed; }
+.sensor-info-table th,
+.sensor-info-table td { padding: 5px 8px !important; word-break: break-word; overflow-wrap: break-word; }
+.sensor-info-table th { font-weight: 600; color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; }
+.sensor-info-table td { font-variant-numeric: tabular-nums; }
+
+/* Well name labels on map */
+.well-name-label {
+    background: rgba(255,255,255,0.9) !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 4px !important;
+    padding: 1px 5px !important;
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    color: #1e293b !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
+    white-space: nowrap !important;
+}
+.well-name-label::before { display: none !important; }
+
+.obj-name-label {
+    background: rgba(255,255,255,0.9) !important;
+    border: 1px solid #f59e0b !important;
+    border-radius: 4px !important;
+    padding: 1px 5px !important;
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    color: #92400e !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
+    white-space: nowrap !important;
+}
+.obj-name-label::before { display: none !important; }
+
+/* Multi-distance survey */
+.dist-group-section { margin-top: 10px; padding: 8px; background: #f1f5f9; border-radius: 6px; border: 1px solid #e2e8f0; }
+.dist-group-header { font-size: 12px; font-weight: 700; color: #2563eb; margin-bottom: 6px; }
+.dist-results-table { font-size: 12px; width: 100%; }
+.dist-results-table th { font-size: 11px; text-transform: uppercase; color: #64748b; }
+.dist-results-table td:last-child { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+
+/* Diagnostics panel */
+.diag-table { font-size: 12px; width: 100%; border-collapse: collapse; }
+.diag-table th, .diag-table td { padding: 4px 8px !important; }
+.diag-table th { font-size: 11px; text-transform: uppercase; color: #475569; letter-spacing: 0.3px; font-weight: 700; }
+.diag-label { font-weight: 600; color: #64748b; white-space: nowrap; font-size: 11px; }
+.diag-table-2col td:nth-child(2), .diag-table-2col td:nth-child(3),
+.diag-table-2col th:nth-child(2), .diag-table-2col th:nth-child(3) {
+    text-align: center; font-variant-numeric: tabular-nums;
+}
+.diag-table-sync td:last-child { text-align: center; font-variant-numeric: tabular-nums; }
+.diag-bad { color: #dc2626 !important; font-weight: 700; }
+.diag-period-btns { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+.diag-period-btn--active { background: #2563eb !important; color: #fff !important; }
+
+/* Modal */
+.map-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    background: rgba(0,0,0,0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.map-modal-content {
+    background: #fff;
+    border-radius: 12px;
+    padding: 0;
+    width: 420px;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+}
+.map-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid #e2e8f0;
+}
+.map-modal-header h3 { margin: 0; font-size: 16px; font-weight: 600; }
+.map-modal-close {
+    background: none;
+    border: none;
+    font-size: 22px;
+    cursor: pointer;
+    color: #64748b;
+    line-height: 1;
+    padding: 0;
+}
+.map-modal-close:hover { color: #ef4444; }
+
+#obj-form { padding: 16px 20px 20px; }
+#obj-form .form-group { margin-bottom: 12px; }
+#obj-form label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+    margin-bottom: 4px;
+}
+#obj-form input[type="text"],
+#obj-form input[type="number"],
+#obj-form textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 13px;
+    box-sizing: border-box;
+}
+#obj-form input:focus,
+#obj-form textarea:focus {
+    border-color: #3b82f6;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+}
+#obj-form input[type="color"] {
+    width: 48px;
+    height: 32px;
+    padding: 2px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    cursor: pointer;
+}
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+.pick-hint {
+    font-size: 12px;
+    color: #2563eb;
+    background: #eff6ff;
+    padding: 6px 10px;
+    border-radius: 6px;
+    margin: 0 0 12px;
+}
+.map-modal-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 16px;
+}
+
+@media (max-width: 900px) {
+    .admin-map-layout {
+        grid-template-columns: 1fr;
+    }
+    #admin-map { height: 500px; }
+    .admin-map-sidebar { order: -1; }
+}

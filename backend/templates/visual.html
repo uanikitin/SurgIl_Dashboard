@@ -672,21 +672,20 @@
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 12px;
 }
+
 </style>
 {% endblock %}
 
 {% block content %}
-<nav class="top-nav">
-  <div class="top-nav-inner">
-    <a href="/visual" class="top-nav-item active">📊 Дашборд</a>
-    <a href="/documents" class="top-nav-item">📄 Акты</a>
-    <a href="/admin/reagents" class="top-nav-item">🧪 Реагенты</a>
-    <a href="/equipment" class="top-nav-item">⚙️ Оборудование</a>
-    <a href="/daily-report" class="top-nav-item">📋 Суточный отчёт</a>
-    <a href="/admin/users" class="top-nav-item">👥 Пользователи</a>
-  </div>
-</nav>
-
+{% set _status_color_map = {
+    'status-watch': 'var(--status-watch-color)',
+    'status-adapt': 'var(--status-adapt-color)',
+    'status-opt':   'var(--status-opt-color)',
+    'status-dev':   'var(--status-dev-color)',
+    'status-off':   'var(--status-off-color)',
+    'status-idle':  'var(--status-idle-color)',
+    'status-other': 'var(--status-other-color)',
+} %}
 <!-- ===== ДНЕВНАЯ СТАТИСТИКА ===== -->
 {% set ds = daily_stats %}
 <div class="daily-stats-grid">

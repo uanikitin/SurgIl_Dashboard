@@ -139,6 +139,7 @@ def get_pressure_chart(
     max_gap: int = Query(10, ge=1, le=60, description="Макс. пропуск для заполнения (мин)"),
     gap_break: int = Query(120, ge=5, le=1440, description="Разрыв линии при пропуске > N минут"),
     apply_masks: bool = Query(False, description="Применить маски коррекции давления"),
+    mode: Optional[str] = Query(None, description="Режим: raw|filtered|masked (переопределяет остальные параметры)"),
 ):
     """
     Агрегированные давления с настраиваемым интервалом.
@@ -146,7 +147,12 @@ def get_pressure_chart(
     ?days=7&interval=15          — последние 7 дней, интервал 15 минут
     ?start=...&end=...&interval= — точный период (время в часовом поясе Кунграда)
 
-    Фильтрация (опционально):
+    Режимы (параметр mode):
+    ?mode=raw               — сырые данные без обработки
+    ?mode=filtered          — фильтры (нули, спайки, пропуски) — по умолчанию
+    ?mode=masked            — фильтры + верифицированные маски коррекции
+
+    Фильтрация (опционально, при mode=filtered или mode=masked):
     ?filter_zeros=true      — убрать 0.0
     ?filter_spikes=true     — Hampel-фильтр для спайков
     ?spike_threshold=5      — убрать мгновенные скачки > 5 атм
@@ -175,8 +181,27 @@ def get_pressure_chart(
         except ValueError:
             raise HTTPException(400, "Invalid start/end format. Use ISO: 2025-01-01T08:00:00")
 
+    # ── Режим mode переопределяет отдельные параметры фильтрации ──
+    if mode:
+        if mode not in ("raw", "filtered", "masked"):
+            raise HTTPException(400, "mode must be one of: raw, filtered, masked")
+        if mode == "raw":
+            filter_zeros = False
+            filter_spikes = False
+            spike_threshold = 0.0
+            fill_mode = "none"
+            apply_masks = False
+        elif mode == "filtered":
+            filter_zeros = True
+            filter_spikes = True
+            apply_masks = False
+        elif mode == "masked":
+            filter_zeros = True
+            filter_spikes = True
+            apply_masks = True
+
     # Единый источник: PostgreSQL pressure_raw (совпадает с flow-rate и pressure_latest)
-    log.info("[chart/%d] source=PostgreSQL days=%d interval=%d start=%s end=%s", well_id, days, interval, start, end)
+    log.info("[chart/%d] source=PostgreSQL days=%d interval=%d start=%s end=%s mode=%s", well_id, days, interval, start, end, mode)
     result = _chart_from_pg(
         well_id, days, interval,
         filter_zeros=filter_zeros,
@@ -189,10 +214,13 @@ def get_pressure_chart(
         dt_end_override=dt_end_utc,
         apply_masks=apply_masks,
     )
+    if mode:
+        result["mode"] = mode
     log.info(
-        "[chart/%d] result: source=%s points=%d last=%s",
+        "[chart/%d] result: source=%s points=%d last=%s mode=%s",
         well_id, result.get("source"), result.get("count", 0),
         result["points"][-1]["t"] if result.get("points") else "none",
+        mode,
     )
     return result
 
@@ -439,7 +467,7 @@ def _chart_from_pg(
         dt_start = sensor_start
 
     # ── Маски коррекции давления ──
-    # Всегда загружаем маски (для отображения зон на графике)
+    # Всегда загружаем ВСЕ маски (для отображения зон на графике)
     all_masks = []
     try:
         from backend.services.pressure_mask_service import load_active_masks
@@ -461,7 +489,14 @@ def _chart_from_pg(
         })
 
     # Коррекции данных — только при apply_masks=True
-    active_masks = all_masks if apply_masks else []
+    # Для коррекции используем только верифицированные маски
+    if apply_masks:
+        try:
+            active_masks = load_active_masks(well_id, dt_start, dt_end, verified_only=True)
+        except Exception:
+            active_masks = []
+    else:
+        active_masks = []
 
     # Если маски есть — принудительно идём через pandas-путь (filters_active)
     filters_active = any([filter_zeros, filter_spikes, spike_threshold > 0, fill_mode != "none"])
@@ -1011,7 +1046,13 @@ def pressure_refresh_status(current_user: str = Depends(get_current_user)):
 @router.get("/admin/page", response_class=HTMLResponse)
 def pressure_admin_page(request: Request, current_user: str = Depends(get_current_user)):
     """HTML-страница для просмотра таблиц давлений."""
-    return _templates.TemplateResponse("pressure_admin.html", {"request": request})
+    username = request.session.get("username")
+    is_admin = request.session.get("is_admin", False)
+    return _templates.TemplateResponse("pressure_admin.html", {
+        "request": request,
+        "current_user": username,
+        "is_admin": is_admin,
+    })
 
 
 @router.get("/admin/overview")

@@ -41,6 +41,7 @@ class DashboardUser(Base):
     is_active = Column(Boolean, default=True)
 
     can_view_reagents = Column(Boolean, nullable=False, server_default="0")
+    can_view_map = Column(Boolean, nullable=False, server_default="0")
 
     created_at = Column(DateTime, default=datetime.utcnow)
     last_login_at = Column(DateTime, nullable=True)

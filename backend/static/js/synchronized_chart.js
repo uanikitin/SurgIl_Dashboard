@@ -430,17 +430,24 @@
     const fill   = document.getElementById('sync-filter-fill-mode');
     const gap    = document.getElementById('sync-filter-max-gap');
     const gapBreak = document.getElementById('sync-filter-gap-break');
-    const masks  = document.getElementById('sync-apply-masks');
+    const modeSelect = document.getElementById('sync-chart-mode');
 
     let s = '';
-    if (zeros  && zeros.checked)  s += '&filter_zeros=true';
-    if (spikes && spikes.checked) s += '&filter_spikes=true';
-    if (spikeThreshold && parseFloat(spikeThreshold.value) > 0)
-      s += `&spike_threshold=${spikeThreshold.value}`;
-    if (fill   && fill.value !== 'none') s += `&fill_mode=${fill.value}`;
-    if (gap)   s += `&max_gap=${gap.value}`;
-    if (gapBreak) s += `&gap_break=${gapBreak.value}`;
-    if (masks  && masks.checked) s += '&apply_masks=true';
+
+    // If mode is set, it overrides individual filter params on the backend
+    const mode = modeSelect ? modeSelect.value : '';
+    if (mode) {
+      s += `&mode=${mode}`;
+    } else {
+      // Legacy: individual filter params
+      if (zeros  && zeros.checked)  s += '&filter_zeros=true';
+      if (spikes && spikes.checked) s += '&filter_spikes=true';
+      if (spikeThreshold && parseFloat(spikeThreshold.value) > 0)
+        s += `&spike_threshold=${spikeThreshold.value}`;
+      if (fill   && fill.value !== 'none') s += `&fill_mode=${fill.value}`;
+      if (gap)   s += `&max_gap=${gap.value}`;
+      if (gapBreak) s += `&gap_break=${gapBreak.value}`;
+    }
     return s;
   }
 
@@ -1443,9 +1450,9 @@
         sensor_fault: 'Неисправн.',
         manual: 'Ручная',
       };
-      // Проверяем, включена ли коррекция данных (для разного стиля)
-      const masksCheckboxEl = document.getElementById('sync-apply-masks');
-      const correctionActive = masksCheckboxEl && masksCheckboxEl.checked;
+      // Проверяем, включён ли режим масок (для разного стиля)
+      const chartModeEl = document.getElementById('sync-chart-mode');
+      const correctionActive = chartModeEl && chartModeEl.value === 'masked';
 
       currentMaskZones.forEach(function (zone) {
         const key = 'mask_zone_' + zone.id;
@@ -2076,12 +2083,16 @@
 
   // ЛКМ на canvas:
   //  - В не-normal режиме → сброс курсора
-  //  - В normal режиме → показать popup с ±10 сырыми замерами из БД
   canvas.addEventListener('click', function (e) {
     if (cursorMode !== 'normal') {
       resetCursorMode();
       return;
     }
+  });
+
+  // Двойной клик на canvas → показать popup с ±10 сырыми замерами из БД
+  canvas.addEventListener('dblclick', function (e) {
+    if (cursorMode !== 'normal') return;
 
     // Получаем время клика по X-оси графика
     if (!syncChart) return;
@@ -2764,9 +2775,9 @@ Pshl (шлейф): ${pshlStats.count} точек
   });
 
   // Чекбокс масок коррекции
-  const masksCheckbox = document.getElementById('sync-apply-masks');
-  if (masksCheckbox) {
-    masksCheckbox.addEventListener('change', onFilterChange);
+  const chartModeSelect = document.getElementById('sync-chart-mode');
+  if (chartModeSelect) {
+    chartModeSelect.addEventListener('change', onFilterChange);
   }
 
   // ══════════════════ Управление масками ══════════════════
@@ -2942,7 +2953,7 @@ Pshl (шлейф): ${pshlStats.count} точек
       });
     } catch (err) {
       console.error('[sync_chart] Range detect error:', err);
-      masksDetectResults.innerHTML = '<div style="color:#c62828; font-size:12px;">Ошибка детекции</div>';
+      masksDetectResults.innerHTML = '<div style="color:#c62828; font-size:12px;">Ошибка детекции: ' + (err.message || err) + '</div>';
     }
   }
 
@@ -2989,12 +3000,16 @@ Pshl (шлейф): ${pshlStats.count} точек
       };
       const TYPE_LABELS = {
         hydrate: 'Гидрат',
+        degradation: 'Деградация',
+        purge: 'Продувка',
         comm_loss: 'Потеря связи',
         sensor_fault: 'Неисправн.',
         manual: 'Ручная',
       };
       const TYPE_COLORS = {
         hydrate: '#7b1fa2',
+        degradation: '#ff6f00',
+        purge: '#2e7d32',
         comm_loss: '#e65100',
         sensor_fault: '#c62828',
         manual: '#37474f',
@@ -3006,21 +3021,28 @@ Pshl (шлейф): ${pshlStats.count} точек
         '<td style="padding:4px 6px;">Датчик</td>' +
         '<td style="padding:4px 6px;">Метод</td>' +
         '<td style="padding:4px 6px;">Причина</td>' +
-        '<td style="padding:4px 6px; text-align:center;">Акт.</td>' +
+        '<td style="padding:4px 6px; text-align:center;">Стат.</td>' +
         '<td style="padding:4px 6px; text-align:right;">Действия</td>' +
         '</tr>' +
         masks.map(m => {
           const dtS = m.dt_start ? m.dt_start.replace('T', ' ').slice(0, 16) : '?';
           const dtE = m.dt_end ? m.dt_end.replace('T', ' ').slice(0, 16) : '?';
           const typeColor = TYPE_COLORS[m.problem_type] || '#666';
+          const verBadge = m.is_verified
+            ? '<span title="Верифицирована" style="color:#2e7d32;">V</span>'
+            : (m.source && m.source !== 'manual'
+              ? '<span title="Ожидает верификации" style="color:#e65100;">?</span>'
+              : '');
+          const activeBadge = m.is_active ? '' : '<span style="color:#999;" title="Отключена">off</span>';
           return '<tr style="border-bottom:1px solid #eee;">' +
             `<td style="padding:4px 6px; white-space:nowrap;">${dtS}<br>${dtE}</td>` +
             `<td style="padding:4px 6px; color:${typeColor}; font-weight:600;">${TYPE_LABELS[m.problem_type] || m.problem_type}</td>` +
             `<td style="padding:4px 6px;">${m.affected_sensor === 'p_tube' ? 'Устье' : 'Шлейф'}</td>` +
             `<td style="padding:4px 6px;">${METHOD_LABELS[m.correction_method] || m.correction_method}</td>` +
             `<td style="padding:4px 6px; max-width:120px; overflow:hidden; text-overflow:ellipsis;">${m.reason || ''}</td>` +
-            `<td style="padding:4px 6px; text-align:center;">` +
-              `<button data-mask-toggle="${m.id}" style="background:none; border:none; cursor:pointer; font-size:16px;">${m.is_active ? '✅' : '⬜'}</button>` +
+            `<td style="padding:4px 6px; text-align:center; white-space:nowrap;">` +
+              `<button data-mask-toggle="${m.id}" style="background:none; border:none; cursor:pointer; font-size:14px;" title="Вкл/Выкл">${m.is_active ? '✅' : '⬜'}</button>` +
+              ` ${verBadge}${activeBadge}` +
             `</td>` +
             `<td style="padding:4px 6px; text-align:right; white-space:nowrap;">` +
               `<button data-mask-edit="${m.id}" style="background:none; border:1px solid #1565c0; color:#1565c0; border-radius:4px; padding:2px 8px; font-size:11px; cursor:pointer; margin-right:4px;">Ред.</button>` +
@@ -3143,9 +3165,9 @@ Pshl (шлейф): ${pshlStats.count} точек
         }
         masksFormEl.style.display = 'none';
         loadMasksList();
-        // Автоматически включаем чекбокс масок и перезагружаем график
-        if (masksCheckbox && !masksCheckbox.checked) {
-          masksCheckbox.checked = true;
+        // Автоматически переключаем в режим масок и перезагружаем график
+        if (chartModeSelect && chartModeSelect.value !== 'masked') {
+          chartModeSelect.value = 'masked';
         }
         loadChart();
       } catch (err) {
@@ -3209,8 +3231,156 @@ Pshl (шлейф): ${pshlStats.count} точек
         });
       } catch (err) {
         console.error('[sync_chart] Detection error:', err);
-        masksDetectResults.innerHTML = '<div style="color:#c62828; font-size:12px;">Ошибка детекции</div>';
+        masksDetectResults.innerHTML = '<div style="color:#c62828; font-size:12px;">Ошибка детекции: ' + (err.message || err) + '</div>';
       }
+    });
+  }
+
+  // ══════════════════ Авто-детекция + создание масок ══════════════════
+
+  const autoDetectBtn = document.getElementById('masks-auto-detect-btn');
+  const autoDetectDays = document.getElementById('masks-auto-detect-days');
+  const autoDetectStatus = document.getElementById('masks-auto-detect-status');
+
+  if (autoDetectBtn) {
+    autoDetectBtn.addEventListener('click', async () => {
+      const days = autoDetectDays ? parseInt(autoDetectDays.value) : 7;
+      autoDetectBtn.disabled = true;
+      if (autoDetectStatus) {
+        autoDetectStatus.textContent = 'Анализ...';
+        autoDetectStatus.style.color = '#666';
+      }
+      try {
+        const resp = await fetch('/api/pressure-masks/auto-detect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ well_id: parseInt(wellId), days }),
+        });
+        if (!resp.ok) {
+          const errBody = await resp.text();
+          throw new Error('HTTP ' + resp.status + ': ' + errBody);
+        }
+        const json = await resp.json();
+        if (autoDetectStatus) {
+          autoDetectStatus.textContent = `Создано: ${json.created}, пропущено: ${json.skipped_overlap}`;
+          autoDetectStatus.style.color = json.created > 0 ? '#2e7d32' : '#666';
+        }
+        loadMasksList();
+        loadPendingMasks();
+      } catch (err) {
+        console.error('[sync_chart] Auto-detect error:', err);
+        if (autoDetectStatus) {
+          autoDetectStatus.textContent = 'Ошибка: ' + (err.message || err);
+          autoDetectStatus.style.color = '#c62828';
+        }
+      } finally {
+        autoDetectBtn.disabled = false;
+      }
+    });
+  }
+
+  // ══════════════════ Панель верификации ══════════════════
+
+  const pendingPanel = document.getElementById('masks-pending-panel');
+  const pendingList = document.getElementById('masks-pending-list');
+  const approveAllBtn = document.getElementById('masks-approve-all');
+  const rejectAllBtn = document.getElementById('masks-reject-all');
+
+  async function loadPendingMasks() {
+    if (!pendingList) return;
+    try {
+      const resp = await fetch(`/api/pressure-masks/pending?well_id=${wellId}`);
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const masks = await resp.json();
+      if (masks.length === 0) {
+        if (pendingPanel) pendingPanel.style.display = 'none';
+        return;
+      }
+      if (pendingPanel) pendingPanel.style.display = 'block';
+      const TYPE_LABELS = {
+        hydrate: 'Гидрат', degradation: 'Деградация', purge: 'Продувка',
+        comm_loss: 'Потеря связи', sensor_fault: 'Неисправн.', manual: 'Ручная',
+      };
+      pendingList.innerHTML = masks.map(m => {
+        const dtS = m.dt_start ? m.dt_start.replace('T', ' ').slice(0, 16) : '?';
+        const dtE = m.dt_end ? m.dt_end.replace('T', ' ').slice(0, 16) : '?';
+        const conf = m.detection_confidence ? Math.round(m.detection_confidence * 100) + '%' : '';
+        return `<div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-bottom:1px solid #ffe0b2;">
+          <span>${dtS} - ${dtE} | ${TYPE_LABELS[m.problem_type] || m.problem_type} | ${m.affected_sensor === 'p_tube' ? 'Устье' : 'Шлейф'} ${conf}</span>
+          <span style="white-space:nowrap;">
+            <button data-pending-approve="${m.id}" style="padding:2px 8px; background:#2e7d32; color:white; border:none; border-radius:3px; font-size:10px; cursor:pointer; margin-right:3px;">OK</button>
+            <button data-pending-reject="${m.id}" style="padding:2px 8px; background:#c62828; color:white; border:none; border-radius:3px; font-size:10px; cursor:pointer;">X</button>
+          </span>
+        </div>`;
+      }).join('');
+
+      // Individual approve/reject
+      pendingList.querySelectorAll('[data-pending-approve]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          await fetch('/api/pressure-masks/verify-batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mask_ids: [parseInt(btn.dataset.pendingApprove)], action: 'approve' }),
+          });
+          loadMasksList();
+          loadPendingMasks();
+        });
+      });
+      pendingList.querySelectorAll('[data-pending-reject]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          await fetch('/api/pressure-masks/verify-batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mask_ids: [parseInt(btn.dataset.pendingReject)], action: 'reject' }),
+          });
+          loadMasksList();
+          loadPendingMasks();
+        });
+      });
+
+      // Store IDs for bulk operations
+      pendingList._maskIds = masks.map(m => m.id);
+    } catch (err) {
+      console.error('[sync_chart] Failed to load pending masks:', err);
+    }
+  }
+
+  // Bulk approve/reject
+  if (approveAllBtn) {
+    approveAllBtn.addEventListener('click', async () => {
+      const ids = pendingList && pendingList._maskIds;
+      if (!ids || ids.length === 0) return;
+      if (!confirm(`Подтвердить ${ids.length} маск(и)?`)) return;
+      await fetch('/api/pressure-masks/verify-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mask_ids: ids, action: 'approve' }),
+      });
+      loadMasksList();
+      loadPendingMasks();
+      loadChart();
+    });
+  }
+  if (rejectAllBtn) {
+    rejectAllBtn.addEventListener('click', async () => {
+      const ids = pendingList && pendingList._maskIds;
+      if (!ids || ids.length === 0) return;
+      if (!confirm(`Отклонить ${ids.length} маск(и)?`)) return;
+      await fetch('/api/pressure-masks/verify-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mask_ids: ids, action: 'reject' }),
+      });
+      loadMasksList();
+      loadPendingMasks();
+    });
+  }
+
+  // Load pending masks when modal opens
+  if (masksManageBtn) {
+    const origHandler = masksManageBtn.onclick;
+    masksManageBtn.addEventListener('click', () => {
+      loadPendingMasks();
     });
   }
 

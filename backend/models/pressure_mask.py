@@ -35,7 +35,7 @@ class PressureMask(Base):
     # Тип проблемы (для аналитики и цвета на графике)
     problem_type = Column(
         String(20), nullable=False, default="manual",
-    )  # 'hydrate' | 'comm_loss' | 'sensor_fault' | 'manual'
+    )  # 'hydrate' | 'comm_loss' | 'sensor_fault' | 'manual' | 'degradation' | 'purge'
 
     # Какой датчик неисправен
     affected_sensor = Column(
@@ -60,6 +60,16 @@ class PressureMask(Base):
     reason = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
+    # Verification workflow
+    is_verified = Column(Boolean, nullable=False, default=False)
+    verified_at = Column(DateTime, nullable=True)
+    verified_by = Column(String(100), nullable=True)
+
+    # Detection source
+    source = Column(String(20), nullable=False, default="manual")
+    detection_confidence = Column(Float, nullable=True)
+    batch_id = Column(String(50), nullable=True)
+
     __table_args__ = (
         CheckConstraint(
             "affected_sensor IN ('p_tube', 'p_line')",
@@ -72,7 +82,7 @@ class PressureMask(Base):
             name="chk_mask_method",
         ),
         CheckConstraint(
-            "problem_type IN ('hydrate', 'comm_loss', 'sensor_fault', 'manual')",
+            "problem_type IN ('hydrate', 'comm_loss', 'sensor_fault', 'manual', 'degradation', 'purge')",
             name="chk_mask_problem_type",
         ),
         CheckConstraint("dt_end > dt_start", name="chk_mask_range"),

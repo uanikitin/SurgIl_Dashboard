@@ -25,6 +25,12 @@ def _mask_to_dict(m) -> dict:
         "dt_end": (m.dt_end + KUNGRAD_OFFSET).isoformat() if m.dt_end else None,
         "manual_delta_p": m.manual_delta_p,
         "is_active": m.is_active,
+        "is_verified": m.is_verified,
+        "verified_at": m.verified_at.isoformat() if m.verified_at else None,
+        "verified_by": m.verified_by,
+        "source": m.source,
+        "detection_confidence": m.detection_confidence,
+        "batch_id": m.batch_id,
         "reason": m.reason,
         "created_at": m.created_at.isoformat() if m.created_at else None,
     }
@@ -51,7 +57,7 @@ def list_masks(well_id: int = Query(...)):
         db.close()
 
 
-# ──────────────────── AUTO-DETECT ────────────────────
+# ──────────────────── AUTO-DETECT (read-only) ────────────────────
 # (до /{mask_id}, иначе "detect" перехватится как mask_id)
 
 
@@ -60,11 +66,123 @@ def detect(
     well_id: int = Query(...),
     days: int = Query(30, ge=1, le=365),
 ):
-    """Запуск базовой эвристики детекции аномалий давления."""
+    """Запуск базовой эвристики детекции аномалий давления (без сохранения)."""
     from backend.services.pressure_mask_service import detect_anomalies
 
     results = detect_anomalies(well_id, days=days)
     return {"well_id": well_id, "days": days, "anomalies": results}
+
+
+# ──────────────────── AUTO-DETECT + CREATE ────────────────────
+
+
+@router.post("/auto-detect")
+def auto_detect(data: dict):
+    """Run all detectors and create mask records for found anomalies."""
+    from backend.services.pressure_mask_service import auto_create_masks
+
+    well_id = data.get("well_id")
+    if not well_id:
+        raise HTTPException(400, "well_id is required")
+    days = data.get("days", 7)
+
+    result = auto_create_masks(well_id=well_id, days=days)
+    return result
+
+
+# ──────────────────── PENDING (unverified) ────────────────────
+
+
+@router.get("/pending")
+def list_pending(well_id: int = Query(...)):
+    """List unverified active masks for a well."""
+    from backend.db import SessionLocal
+    from backend.models.pressure_mask import PressureMask
+
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(PressureMask)
+            .filter(
+                PressureMask.well_id == well_id,
+                PressureMask.is_active == True,
+                PressureMask.is_verified == False,
+            )
+            .order_by(PressureMask.dt_start)
+            .all()
+        )
+        return [_mask_to_dict(r) for r in rows]
+    finally:
+        db.close()
+
+
+# ──────────────────── VERIFY BATCH ────────────────────
+
+
+@router.post("/verify-batch")
+def verify_batch(data: dict):
+    """
+    Approve or reject masks in batch.
+
+    Body: {mask_ids: [1,2,3], action: "approve"|"reject"}
+    """
+    from backend.db import SessionLocal
+    from backend.models.pressure_mask import PressureMask
+
+    mask_ids = data.get("mask_ids", [])
+    action = data.get("action")
+
+    if not mask_ids:
+        raise HTTPException(400, "mask_ids is required")
+    if action not in ("approve", "reject"):
+        raise HTTPException(400, "action must be 'approve' or 'reject'")
+
+    db = SessionLocal()
+    try:
+        masks = (
+            db.query(PressureMask)
+            .filter(PressureMask.id.in_(mask_ids))
+            .all()
+        )
+        if not masks:
+            raise HTTPException(404, "No masks found")
+
+        now = datetime.utcnow()
+        updated = 0
+        for m in masks:
+            if action == "approve":
+                m.is_verified = True
+                m.verified_at = now
+                m.verified_by = data.get("verified_by", "operator")
+            else:
+                m.is_active = False
+            updated += 1
+
+        db.commit()
+        return {"ok": True, "action": action, "updated": updated}
+    finally:
+        db.close()
+
+
+# ──────────────────── SUMMARY ────────────────────
+
+
+@router.get("/summary")
+def mask_summary(
+    well_id: int = Query(...),
+    dt_start: str = Query(...),
+    dt_end: str = Query(...),
+):
+    """Get mask summary for a period (for reports)."""
+    from backend.services.pressure_mask_service import get_mask_summary_for_period
+
+    try:
+        start = datetime.fromisoformat(dt_start) - KUNGRAD_OFFSET
+        end = datetime.fromisoformat(dt_end) - KUNGRAD_OFFSET
+    except ValueError:
+        raise HTTPException(400, "Invalid date format")
+
+    return get_mask_summary_for_period(well_id, start, end)
 
 
 # ──────────────────── GET ONE ────────────────────
@@ -106,7 +224,7 @@ def create_mask(data: dict):
     if data["correction_method"] not in valid_methods:
         raise HTTPException(400, f"correction_method must be one of: {valid_methods}")
 
-    valid_types = ("hydrate", "comm_loss", "sensor_fault", "manual")
+    valid_types = ("hydrate", "comm_loss", "sensor_fault", "manual", "degradation", "purge")
     problem_type = data.get("problem_type", "manual")
     if problem_type not in valid_types:
         raise HTTPException(400, f"problem_type must be one of: {valid_types}")

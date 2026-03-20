@@ -11,7 +11,22 @@
       "Bash(do)",
       "Bash(done)",
       "Bash(LORA_BASE_URL=\"http://10.242.96.193:2224\" LORA_DEST_DIR=\"data/lora\" .venv/bin/python /Users/volodymyrnikitin/Documents/PythonFiles/Lora/sync_lora_csv.py)",
-      "Bash(# Check if new files appeared ls -la data/lora/*7.3.2026* data/lora/*6.3.2026*)"
+      "Bash(# Check if new files appeared ls -la data/lora/*7.3.2026* data/lora/*6.3.2026*)",
+      "Bash(/Users/volodymyrnikitin/Documents/PythonFiles/SurgIl_Dashboard/venv/bin/pip show alembic)",
+      "Bash(/Users/volodymyrnikitin/Documents/PythonFiles/SurgIl_Dashboard/venv/bin/pip list:*)",
+      "Read(//usr/local/bin/**)",
+      "Bash(/usr/local/bin/python3.11:*)",
+      "Bash(/Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11:*)",
+      "Bash(for p in /opt/homebrew/bin/python3* /usr/bin/python3* /usr/local/bin/python3*)",
+      "Bash(do echo \"=== $p ===\")",
+      "Bash(\"$p\" -c \"import numpy; print\\(''numpy ok''\\)\")",
+      "Bash(/opt/homebrew/bin/python3.12:*)",
+      "Bash(.venv/bin/pip install:*)",
+      "Bash(.venv/bin/python3:*)",
+      "Bash(.venv/bin/alembic upgrade:*)",
+      "Bash(brew services:*)",
+      "Bash(pg_isready:*)",
+      "Bash(pgrep:*)"
     ],
     "additionalDirectories": [
       "/Users/volodymyrnikitin/Documents/PythonFiles/SurgIl_Dashboard/data/lora"

@@ -147,8 +147,12 @@
     if (fillMode && fillMode.value !== 'none') params += `&fill_mode=${fillMode.value}`;
     if (maxGap) params += `&max_gap=${maxGap.value}`;
     if (gapBreak) params += `&gap_break=${gapBreak.value}`;
-    const masks = document.getElementById('sync-apply-masks');
-    if (masks && masks.checked) params += '&apply_masks=true';
+    const modeSelect = document.getElementById('sync-chart-mode');
+    const mode = modeSelect ? modeSelect.value : '';
+    if (mode) {
+      // mode overrides individual filter params on the backend
+      return `&mode=${mode}`;
+    }
     return params;
   }
 

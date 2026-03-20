@@ -1,8 +1,9 @@
 # backend/api/reagents.py
-from fastapi import APIRouter, Depends, status, Query, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from datetime import datetime
+from decimal import Decimal
 from typing import Optional
 from io import BytesIO
 
@@ -40,6 +41,141 @@ def api_create_reagent(data: ReagentCreate, db: Session = Depends(get_db)):
         comment=data.comment,
     )
     return obj
+
+
+@router.get("/supplies")
+def api_list_supplies(
+    db: Session = Depends(get_db),
+    reagent: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    limit: int = Query(100, le=500),
+):
+    """Список поставок с фильтрами."""
+    from backend.models.reagents import ReagentSupply
+    from sqlalchemy import desc
+
+    q = db.query(ReagentSupply)
+    if reagent:
+        q = q.filter(ReagentSupply.reagent == reagent)
+    if date_from:
+        dt = _parse_date(date_from)
+        if dt:
+            q = q.filter(ReagentSupply.received_at >= dt)
+    if date_to:
+        dt = _parse_date(date_to)
+        if dt:
+            q = q.filter(ReagentSupply.received_at <= dt)
+
+    supplies = q.order_by(desc(ReagentSupply.received_at)).limit(limit).all()
+    return [
+        {
+            "id": s.id,
+            "reagent": s.reagent,
+            "qty": float(s.qty),
+            "unit": s.unit,
+            "received_at": s.received_at.isoformat() if s.received_at else None,
+            "source": s.source,
+            "location": s.location,
+            "comment": s.comment,
+        }
+        for s in supplies
+    ]
+
+
+@router.delete("/supplies/{supply_id}")
+def api_delete_supply(
+    supply_id: int,
+    db: Session = Depends(get_db),
+):
+    """Удалить поставку по ID."""
+    from backend.models.reagents import ReagentSupply
+
+    supply = db.query(ReagentSupply).filter(ReagentSupply.id == supply_id).first()
+    if not supply:
+        raise HTTPException(status_code=404, detail="Поставку не знайдено")
+
+    info = {"id": supply.id, "reagent": supply.reagent, "qty": float(supply.qty)}
+    db.delete(supply)
+    db.commit()
+    return {"success": True, "deleted": info}
+
+
+@router.delete("/supplies")
+def api_delete_supplies_bulk(
+    db: Session = Depends(get_db),
+    reagent: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    source: Optional[str] = Query(None),
+):
+    """Массовое удаление поставок по фильтрам."""
+    from backend.models.reagents import ReagentSupply
+
+    q = db.query(ReagentSupply)
+    if reagent:
+        q = q.filter(ReagentSupply.reagent == reagent)
+    if date_from:
+        dt = _parse_date(date_from)
+        if dt:
+            q = q.filter(ReagentSupply.received_at >= dt)
+    if date_to:
+        dt = _parse_date(date_to)
+        if dt:
+            q = q.filter(ReagentSupply.received_at <= dt)
+    if source:
+        q = q.filter(ReagentSupply.source.ilike(f"%{source}%"))
+
+    count = q.count()
+    if count == 0:
+        return {"success": True, "deleted_count": 0, "message": "Нічого не знайдено"}
+
+    q.delete(synchronize_session=False)
+    db.commit()
+    return {"success": True, "deleted_count": count}
+
+
+@router.put("/supplies/{supply_id}")
+def api_update_supply(
+    supply_id: int,
+    db: Session = Depends(get_db),
+    reagent: Optional[str] = Query(None),
+    qty: Optional[float] = Query(None),
+    unit: Optional[str] = Query(None),
+    received_at: Optional[str] = Query(None),
+    comment: Optional[str] = Query(None),
+):
+    """Редактировать поставку."""
+    from backend.models.reagents import ReagentSupply
+
+    supply = db.query(ReagentSupply).filter(ReagentSupply.id == supply_id).first()
+    if not supply:
+        raise HTTPException(status_code=404, detail="Поставку не знайдено")
+
+    if reagent is not None:
+        supply.reagent = reagent
+    if qty is not None:
+        supply.qty = qty
+    if unit is not None:
+        supply.unit = unit
+    if received_at is not None:
+        dt = _parse_date(received_at)
+        if dt:
+            supply.received_at = dt
+    if comment is not None:
+        supply.comment = comment
+
+    db.commit()
+    return {
+        "success": True,
+        "supply": {
+            "id": supply.id,
+            "reagent": supply.reagent,
+            "qty": float(supply.qty),
+            "unit": supply.unit,
+            "received_at": supply.received_at.isoformat() if supply.received_at else None,
+        }
+    }
 
 
 @router.get("/balance")
@@ -81,6 +217,72 @@ def api_reagents_balance(
         })
 
     return result
+
+
+@router.get("/balance/debug/{reagent_name}")
+def api_reagent_balance_debug(
+    reagent_name: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Диагностика расчёта остатка конкретного реагента.
+    Показывает все составляющие: инвентаризации, поставки, расход.
+    """
+    from backend.models.reagent_inventory import ReagentInventorySnapshot
+    from backend.models.reagents import ReagentSupply
+    from backend.models.events import Event
+    from sqlalchemy import desc
+
+    balance = ReagentBalanceService.get_current_balance(db, reagent_name)
+
+    # Все инвентаризации
+    inventories = (
+        db.query(ReagentInventorySnapshot)
+        .filter(ReagentInventorySnapshot.reagent == reagent_name)
+        .order_by(desc(ReagentInventorySnapshot.snapshot_at))
+        .limit(10)
+        .all()
+    )
+
+    # Все поставки
+    supplies = (
+        db.query(ReagentSupply)
+        .filter(ReagentSupply.reagent == reagent_name)
+        .order_by(desc(ReagentSupply.received_at))
+        .limit(20)
+        .all()
+    )
+
+    # Последние события расхода
+    events = (
+        db.query(Event)
+        .filter(Event.reagent == reagent_name, Event.event_type == "reagent")
+        .order_by(desc(Event.event_time))
+        .limit(20)
+        .all()
+    )
+
+    return {
+        "reagent": reagent_name,
+        "balance": {k: str(v) if isinstance(v, (Decimal,)) else (v.isoformat() if isinstance(v, datetime) else v)
+                    for k, v in balance.items()},
+        "inventories": [
+            {"id": i.id, "qty": str(i.qty), "snapshot_at": i.snapshot_at.isoformat() if i.snapshot_at else None,
+             "calculated_qty": str(i.calculated_qty) if i.calculated_qty else None,
+             "discrepancy": str(i.discrepancy) if i.discrepancy else None}
+            for i in inventories
+        ],
+        "supplies": [
+            {"id": s.id, "qty": str(s.qty), "received_at": s.received_at.isoformat() if s.received_at else None,
+             "source": s.source, "comment": s.comment}
+            for s in supplies
+        ],
+        "consumption_events": [
+            {"id": e.id, "qty": str(e.qty), "event_time": e.event_time.isoformat() if e.event_time else None,
+             "well": e.well}
+            for e in events
+        ],
+    }
 
 
 # =============================================================================
@@ -468,9 +670,9 @@ def api_analytics_filters(
 # =============================================================================
 
 @router.get("/import/template/supplies")
-def download_supply_template():
+def download_supply_template(db: Session = Depends(get_db)):
     """Скачать шаблон Excel для импорта поступлений."""
-    content = ReagentImportService.generate_supply_template()
+    content = ReagentImportService.generate_supply_template(db)
     return StreamingResponse(
         BytesIO(content),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -481,9 +683,9 @@ def download_supply_template():
 
 
 @router.get("/import/template/inventory")
-def download_inventory_template():
+def download_inventory_template(db: Session = Depends(get_db)):
     """Скачать шаблон Excel для импорта инвентаризаций."""
-    content = ReagentImportService.generate_inventory_template()
+    content = ReagentImportService.generate_inventory_template(db)
     return StreamingResponse(
         BytesIO(content),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -508,6 +710,13 @@ async def validate_supply_import(
     content = await file.read()
     result = ReagentImportService.validate_supply_file(db, content)
 
+    # Список каталожных реагентов для JS (dropdown при ошибках)
+    from backend.models.reagent_catalog import ReagentCatalog
+    catalog_items = db.query(ReagentCatalog).filter(
+        ReagentCatalog.is_active == True  # noqa: E712
+    ).order_by(ReagentCatalog.name).all()
+    catalog_list = [{"name": c.name, "unit": c.default_unit or "шт"} for c in catalog_items]
+
     return {
         "success": result.success,
         "message": result.message,
@@ -526,9 +735,15 @@ async def validate_supply_import(
             for r in result.valid_rows
         ],
         "errors": [
-            {"row": e.row, "column": e.column, "message": e.message}
+            {
+                "row": e.row,
+                "column": e.column,
+                "message": e.message,
+                "partial_data": e.partial_data,
+            }
             for e in result.errors
         ],
+        "catalog": catalog_list,
     }
 
 
@@ -556,6 +771,108 @@ async def import_supplies(
             {"row": e.row, "column": e.column, "message": e.message}
             for e in result.errors
         ],
+    }
+
+
+@router.post("/import/supplies/json")
+async def import_supplies_json(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Импорт поставок из JSON (отредактированные строки из preview).
+    Body: {"rows": [{"date": "20.03.2026", "reagent": "...", "qty": 90, "unit": "шт", "comment": "..."}, ...]}
+    """
+    from backend.models.reagents import ReagentSupply
+    from backend.models.reagent_catalog import ReagentCatalog
+
+    body = await request.json()
+    rows = body.get("rows", [])
+    if not rows:
+        return {"success": False, "message": "Немає рядків для імпорту"}
+
+    catalog_items = db.query(ReagentCatalog).filter(ReagentCatalog.is_active == True).all()
+    catalog = {r.name: r for r in catalog_items}
+    catalog_lower = {r.name.lower(): r for r in catalog_items}
+
+    imported = 0
+    created_catalog = []
+    errors = []
+    for i, row in enumerate(rows):
+        reagent_raw = (row.get("reagent") or "").strip()
+        if not reagent_raw:
+            errors.append({"row": i + 1, "message": "Реагент не вказано"})
+            continue
+
+        cat = catalog.get(reagent_raw) or catalog_lower.get(reagent_raw.lower())
+        if not cat:
+            # Автосоздание нового реагента в каталоге
+            new_cat = ReagentCatalog(
+                name=reagent_raw,
+                default_unit=row.get("unit") or "шт",
+                is_active=True,
+            )
+            db.add(new_cat)
+            db.flush()  # получаем id
+            cat = new_cat
+            catalog[cat.name] = cat
+            catalog_lower[cat.name.lower()] = cat
+            created_catalog.append(cat.name)
+
+        try:
+            qty = float(str(row.get("qty", 0)).replace(",", "."))
+        except (ValueError, TypeError):
+            errors.append({"row": i + 1, "message": f"Невірна кількість: {row.get('qty')}"})
+            continue
+
+        if qty <= 0:
+            errors.append({"row": i + 1, "message": f"Кількість повинна бути > 0"})
+            continue
+
+        date_str = row.get("date", "")
+        dt = None
+        for fmt in ["%d.%m.%Y", "%Y-%m-%d", "%d/%m/%Y"]:
+            try:
+                dt = datetime.strptime(date_str, fmt)
+                break
+            except (ValueError, TypeError):
+                continue
+        if not dt:
+            try:
+                dt = datetime.fromisoformat(date_str)
+            except (ValueError, TypeError):
+                dt = datetime.now()
+        # Если дата без времени (полночь) — ставим 23:59:59,
+        # чтобы поставка всегда была "после" инвентаризации/расхода в тот же день
+        if dt and dt.hour == 0 and dt.minute == 0 and dt.second == 0:
+            dt = dt.replace(hour=23, minute=59, second=59)
+
+        supply = ReagentSupply(
+            reagent=cat.name,
+            reagent_id=cat.id,
+            qty=qty,
+            unit=row.get("unit") or cat.default_unit or "шт",
+            received_at=dt,
+            source="Excel import (edited)",
+            comment=row.get("comment") or None,
+        )
+        db.add(supply)
+        imported += 1
+
+    if imported > 0:
+        db.commit()
+
+    msg = f"Імпортовано {imported} записів" if imported > 0 else "Нічого не імпортовано"
+    if created_catalog:
+        msg += f". Створено нових реагентів: {', '.join(created_catalog)}"
+
+    return {
+        "success": imported > 0,
+        "imported_count": imported,
+        "error_count": len(errors),
+        "errors": errors,
+        "created_catalog": created_catalog,
+        "message": msg,
     }
 
 

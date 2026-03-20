@@ -157,6 +157,12 @@ app.include_router(chart_annotations_router)
 from backend.routers.pressure_masks import router as pressure_masks_router
 app.include_router(pressure_masks_router)
 
+# Админ-карта (пользовательские объекты на карте)
+from backend.routers.admin_map import router as admin_map_api_router
+from backend.routers.admin_map import pages_router as admin_map_pages_router
+app.include_router(admin_map_api_router)
+app.include_router(admin_map_pages_router)
+
 # ------------------------------------------------------------
 # 1) SAFE helpers: FormData -> string
 # ------------------------------------------------------------
@@ -567,6 +573,7 @@ async def login_submit(request: Request, db: Session = Depends(get_db)):
     request.session["user_id"] = user.id  # удобно для БД
     request.session["username"] = user.username  # если где-то используется
     request.session["is_admin"] = bool(user.is_admin)
+    request.session["can_view_map"] = bool(getattr(user, "can_view_map", False))
     # ============================================================
     # обновляем поле last_login_at у пользователя
     user.last_login_at = _now_db()
@@ -2091,18 +2098,60 @@ def admin_reagents_page(
         last_inv_date = balance_info.get("last_inventory_date")
         last_inv_date_str = last_inv_date.isoformat() if last_inv_date else None
 
+        # Остання поставка + розхід з моменту поставки
+        last_supply = (
+            db.query(ReagentSupply)
+            .filter(ReagentSupply.reagent == reagent.name)
+            .order_by(ReagentSupply.received_at.desc())
+            .first()
+        )
+        last_supply_qty = float(last_supply.qty) if last_supply else 0
+        last_supply_date = last_supply.received_at.strftime("%d.%m.%Y") if last_supply and last_supply.received_at else None
+
+        # Залишок одразу після останньої поставки =
+        # поточний залишок + розхід з моменту поставки
+        stock_after_supply = float(balance_info["current_balance"])
+        if last_supply and last_supply.received_at:
+            consumed_since = db.query(func.sum(Event.qty)).filter(
+                Event.reagent == reagent.name,
+                Event.event_type == "reagent",
+                Event.event_time >= last_supply.received_at,
+            ).scalar()
+            if consumed_since:
+                stock_after_supply += float(consumed_since if isinstance(consumed_since, Decimal) else Decimal(str(consumed_since)))
+
         reagents_data.append({
             "name": reagent.name,
             "unit": reagent.default_unit,
             "stock": float(balance_info["current_balance"]),
             "avg_daily": avg_daily,
             "consumption_today": float(consumption_today),
-            "last_inventory_date": last_inv_date,  # datetime для Jinja2 шаблону
-            "last_inventory_date_str": last_inv_date_str,  # строка для JSON
-            "calculation_method": balance_info["calculation_method"]
+            "last_inventory_date": last_inv_date,
+            "last_inventory_date_str": last_inv_date_str,
+            "calculation_method": balance_info["calculation_method"],
+            "last_supply_qty": last_supply_qty,
+            "last_supply_date": last_supply_date,
+            "stock_after_supply": stock_after_supply,
         })
 
         total_stock += balance_info["current_balance"]
+
+    # Добовий розхід по реагентах і скважинах (сьогодні)
+    today_start = datetime.combine(date.today(), time(0, 0, 0))
+    today_events_raw = (
+        db.query(Event.reagent, Event.well, func.sum(Event.qty))
+        .filter(
+            Event.event_type == "reagent",
+            Event.event_time >= today_start,
+        )
+        .group_by(Event.reagent, Event.well)
+        .order_by(Event.reagent, Event.well)
+        .all()
+    )
+    today_consumption_detail = [
+        {"reagent": r, "well": str(w) if w else "—", "qty": float(q)}
+        for r, w, q in today_events_raw if q
+    ]
 
     # Історія поставок
     supplies_all = (
@@ -2263,8 +2312,8 @@ def admin_reagents_page(
 
             "stock_labels": stock_labels,
             "stock_values": stock_values,
-            # У return templates.TemplateResponse додайте:
             "stock_units": stock_units,
+            "today_consumption_detail": today_consumption_detail,
 
             # 🔧 ВИПРАВЛЕНО: передаємо кольори та події
             "reagent_colors": reagent_colors,
@@ -2531,6 +2580,27 @@ def admin_toggle_reagents_access(
 
     # Можно и себе дать/забрать доступ — это не критично, в отличие от is_admin.
     user.can_view_reagents = not bool(user.can_view_reagents)
+    db.commit()
+
+    return RedirectResponse("/admin/users", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/admin/users/{user_id}/toggle-map")
+def admin_toggle_map_access(
+        user_id: int,
+        request: Request,
+        db: Session = Depends(get_db),
+        current_admin: str = Depends(get_current_admin),
+):
+    """
+    Включает/выключает флаг can_view_map для пользователя.
+    Доступно только админам.
+    """
+    user = db.query(DashboardUser).filter(DashboardUser.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    user.can_view_map = not bool(user.can_view_map)
     db.commit()
 
     return RedirectResponse("/admin/users", status_code=status.HTTP_303_SEE_OTHER)
@@ -3983,11 +4053,24 @@ def admin_reagents_import(
     # Приводим названия к нормальному виду
     df["record_type"] = df["record_type"].str.lower().str.strip()
 
+    # Строим словарь каталога (case-insensitive) для нормализации имен
+    catalog_items = db.query(ReagentCatalog).filter(ReagentCatalog.is_active == True).all()
+    catalog_lower = {r.name.lower(): r for r in catalog_items}
+
     for _, row in df.iterrows():
         rec_type = row["record_type"]
         dt = pd.to_datetime(row["date"])
-        reagent = str(row["reagent"]).strip()
+        reagent_raw = str(row["reagent"]).strip()
         qty = float(row["qty"])
+
+        # Нормализуем имя реагента через каталог (case-insensitive)
+        cat_entry = catalog_lower.get(reagent_raw.lower())
+        if cat_entry:
+            reagent = cat_entry.name  # каноническое имя из каталога
+            reagent_id = cat_entry.id
+        else:
+            reagent = reagent_raw
+            reagent_id = None
 
         unit = str(row.get("unit") or "шт").strip()
         location = str(row.get("location") or "").strip() or None
@@ -3997,6 +4080,7 @@ def admin_reagents_import(
         if rec_type == "supply":
             obj = ReagentSupply(
                 reagent=reagent,
+                reagent_id=reagent_id,
                 qty=qty,
                 unit=unit,
                 received_at=dt.to_pydatetime(),
@@ -4009,6 +4093,7 @@ def admin_reagents_import(
         elif rec_type == "inventory":
             obj = ReagentInventorySnapshot(
                 reagent=reagent,
+                reagent_id=reagent_id,
                 qty=qty,
                 unit=unit,
                 snapshot_at=dt.to_pydatetime(),
@@ -4017,7 +4102,6 @@ def admin_reagents_import(
             )
             db.add(obj)
         else:
-            # Можно логировать/пропускать, можно падать ошибкой
             continue
 
     db.commit()

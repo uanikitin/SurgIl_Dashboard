@@ -210,17 +210,11 @@ def detect_anomalies(
     days: int = 30,
     dp_threshold_sigma: float = 3.0,
     min_duration_min: int = 30,
+    exclude_windows: list[tuple[datetime, datetime]] | None = None,
 ) -> list[dict]:
     """
     Базовая эвристика: ищет участки с аномальным ΔP.
-
-    Алгоритм:
-    1. Загрузить почасовые данные
-    2. Рассчитать ΔP = p_tube - p_line
-    3. Скользящая медиана ΔP (окно 6 часов)
-    4. MAD (median absolute deviation)
-    5. Участки где |ΔP - rolling_median| > threshold * MAD > min_duration
-    6. Определить affected_sensor по направлению отклонения
+    exclude_windows — список (dt_start, dt_end) окон продувок, которые НЕ считаются аномалиями.
 
     Returns
     -------
@@ -256,6 +250,20 @@ def detect_anomalies(
     if df.empty:
         return []
 
+    # Маскируем окна продувок — заменяем на NaN чтобы не влияли на статистику
+    if exclude_windows:
+        for w_start, w_end in exclude_windows:
+            purge_mask = (df.index >= w_start) & (df.index <= w_end)
+            df.loc[purge_mask, ["p_tube", "p_line"]] = np.nan
+
+    # Интерполируем NaN (от продувок) для расчёта ΔP
+    df["p_tube"] = df["p_tube"].interpolate(method="linear")
+    df["p_line"] = df["p_line"].interpolate(method="linear")
+    df = df.dropna(subset=["p_tube", "p_line"])
+
+    if df.empty:
+        return []
+
     df["dp"] = df["p_tube"] - df["p_line"]
 
     # Скользящая медиана ΔP (окно 6 часов = 72 точки при 5 мин)
@@ -272,6 +280,14 @@ def detect_anomalies(
 
     # Маска аномалий
     df["is_anomaly"] = df["dp_dev"] > threshold
+
+    # Исключить окна продувок (ещё раз — на случай если интерполяция оставила артефакты)
+    # Margin 30 мин — продувка влияет на давление: стабилизация после stop + набор давления
+    if exclude_windows:
+        for w_start, w_end in exclude_windows:
+            margin = timedelta(minutes=30)
+            purge_mask = (df.index >= w_start - margin) & (df.index <= w_end + margin)
+            df.loc[purge_mask, "is_anomaly"] = False
 
     # Группировка последовательных аномалий
     anomalies = []
@@ -341,7 +357,227 @@ def detect_anomalies(
         })
 
     log.info(
-        "[detect_anomalies] well=%d days=%d found=%d anomalies",
+        "[detect_anomalies] well=%d days=%d found=%d anomalies (excluded %d purge windows)",
+        well_id, days, len(results), len(exclude_windows or []),
+    )
+    return results
+
+
+# ──────────────────── Авто-создание масок ────────────────────
+
+
+KUNGRAD_OFFSET = timedelta(hours=5)
+
+
+def _detect_purge_events(well_id: int, days: int) -> list[dict]:
+    """
+    Загружает маркированные продувки из events для скважины.
+    Группирует start→stop в сессии и возвращает маски.
+
+    events.event_time хранится в локальном времени (Кунград, UTC+5).
+    Возвращает dt_start/dt_end в **UTC** (для совместимости с pressure_raw).
+    """
+    # events хранятся в локальном времени — запрашиваем с запасом
+    dt_end_local = datetime.utcnow() + KUNGRAD_OFFSET
+    dt_start_local = dt_end_local - timedelta(days=days)
+
+    with pg_engine.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT e.event_time, e.purge_phase, e.p_tube, e.p_line
+                FROM events e
+                JOIN wells w ON e.well = w.number::text
+                WHERE e.event_type = 'purge'
+                  AND e.purge_phase IN ('start', 'press', 'stop')
+                  AND w.id = :well_id
+                  AND e.event_time >= :dt_start
+                ORDER BY e.event_time
+            """),
+            {"well_id": well_id, "dt_start": dt_start_local},
+        ).fetchall()
+
+    if not rows:
+        return []
+
+    # Группируем start → stop (press опционален)
+    MAX_GAP = timedelta(hours=4)
+    results = []
+    current_start = None
+
+    for event_time, phase, p_tube, p_line in rows:
+        if phase == "start":
+            if current_start is not None:
+                results.append({
+                    "dt_start": current_start - KUNGRAD_OFFSET,  # → UTC
+                    "dt_end": current_start + timedelta(hours=1) - KUNGRAD_OFFSET,
+                    "reason": "Продувка (незакрытая)",
+                })
+            current_start = event_time
+
+        elif phase == "stop":
+            if current_start is not None and (event_time - current_start) < MAX_GAP:
+                results.append({
+                    "dt_start": current_start - KUNGRAD_OFFSET,  # → UTC
+                    "dt_end": event_time - KUNGRAD_OFFSET,       # → UTC
+                    "reason": "Продувка",
+                })
+                current_start = None
+
+    if current_start is not None:
+        results.append({
+            "dt_start": current_start - KUNGRAD_OFFSET,
+            "dt_end": current_start + timedelta(hours=1) - KUNGRAD_OFFSET,
+            "reason": "Продувка (незакрытая)",
+        })
+
+    log.info(
+        "[_detect_purge_events] well=%d days=%d found=%d purges",
         well_id, days, len(results),
     )
     return results
+
+
+def auto_create_masks(
+    well_id: int,
+    days: int = 7,
+    source: str = "auto",
+) -> dict:
+    """
+    Запускает все детекторы и создаёт записи PressureMask:
+    1. detect_anomalies (ΔP — сбои датчиков)
+    2. _detect_purge_events (продувки из маркеров событий)
+
+    Не создаёт дубликаты (проверяет пересечение с существующими масками).
+    Returns: {created: N, skipped_overlap: M, batch_id: str}
+    """
+    import uuid
+    from backend.db import SessionLocal
+    from backend.models.pressure_mask import PressureMask
+
+    # 1. Продувки из маркеров событий (только для exclude_windows в ΔP-детекции)
+    purge_events = _detect_purge_events(well_id, days=days)
+    purge_windows = [(p["dt_start"], p["dt_end"]) for p in purge_events]
+
+    # 2. ΔP аномалии (сбои датчиков), исключая окна маркированных продувок
+    dp_anomalies = detect_anomalies(
+        well_id, days=days, exclude_windows=purge_windows,
+    )
+
+    # Только sensor_fault — продувки НЕ создаются автоматически
+    candidates = []
+
+    for a in dp_anomalies:
+        candidates.append({
+            "dt_start": datetime.fromisoformat(a["dt_start"]),
+            "dt_end": datetime.fromisoformat(a["dt_end"]),
+            "problem_type": "sensor_fault",
+            "affected_sensor": a["affected_sensor"],
+            "correction_method": a.get("suggested_method", "delta_reconstruct"),
+            "confidence": a.get("confidence"),
+            "reason": f"ΔP deviation {a.get('dp_deviation', '?')} atm, "
+                      f"duration {a.get('duration_hours', '?')}h",
+        })
+
+    if not candidates:
+        return {"created": 0, "skipped_overlap": 0, "batch_id": None}
+
+    batch_id = str(uuid.uuid4())[:8]
+    db = SessionLocal()
+    try:
+        # Загрузить существующие активные маски для проверки пересечений
+        existing = (
+            db.query(PressureMask)
+            .filter(
+                PressureMask.well_id == well_id,
+                PressureMask.is_active == True,
+            )
+            .all()
+        )
+
+        created = 0
+        skipped = 0
+
+        for c in candidates:
+            dt_start = c["dt_start"]
+            dt_end = c["dt_end"]
+
+            # Проверка пересечения с существующими масками того же типа
+            overlaps = False
+            for ex in existing:
+                if ex.dt_start < dt_end and ex.dt_end > dt_start:
+                    overlaps = True
+                    break
+
+            if overlaps:
+                skipped += 1
+                continue
+
+            m = PressureMask(
+                well_id=well_id,
+                problem_type=c["problem_type"],
+                affected_sensor=c["affected_sensor"],
+                correction_method=c["correction_method"],
+                dt_start=dt_start,
+                dt_end=dt_end,
+                is_active=True,
+                is_verified=c["problem_type"] == "purge",  # продувки из маркеров = verified
+                source=source,
+                detection_confidence=c.get("confidence"),
+                batch_id=batch_id,
+                reason=c["reason"],
+            )
+            db.add(m)
+            existing.append(m)
+            created += 1
+
+        db.commit()
+
+        log.info(
+            "[auto_create_masks] well=%d created=%d skipped=%d batch=%s",
+            well_id, created, skipped, batch_id,
+        )
+        return {
+            "created": created,
+            "skipped_overlap": skipped,
+            "batch_id": batch_id if created > 0 else None,
+        }
+    finally:
+        db.close()
+
+
+# ──────────────────── Сводка масок за период ────────────────────
+
+
+def get_mask_summary_for_period(
+    well_id: int,
+    dt_start: datetime,
+    dt_end: datetime,
+) -> dict:
+    """Сводка масок за период для отчётов."""
+    masks = load_active_masks(well_id, dt_start, dt_end)
+
+    if not masks:
+        return {
+            "total_masks": 0,
+            "by_type": {},
+            "total_corrected_hours": 0,
+        }
+
+    by_type: dict[str, dict] = {}
+    total_hours = 0.0
+
+    for m in masks:
+        ptype = m["problem_type"]
+        duration_h = (m["dt_end"] - m["dt_start"]).total_seconds() / 3600
+
+        if ptype not in by_type:
+            by_type[ptype] = {"count": 0, "total_hours": 0.0}
+        by_type[ptype]["count"] += 1
+        by_type[ptype]["total_hours"] = round(by_type[ptype]["total_hours"] + duration_h, 1)
+        total_hours += duration_h
+
+    return {
+        "total_masks": len(masks),
+        "by_type": by_type,
+        "total_corrected_hours": round(total_hours, 1),
+    }

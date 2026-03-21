@@ -467,7 +467,7 @@ def _chart_from_pg(
         dt_start = sensor_start
 
     # ── Маски коррекции давления ──
-    # Всегда загружаем ВСЕ маски (для отображения зон на графике)
+    # Загружаем ВСЕ маски один раз (для зон + коррекции)
     all_masks = []
     try:
         from backend.services.pressure_mask_service import load_active_masks
@@ -488,15 +488,10 @@ def _chart_from_pg(
             "reason": m.get("reason"),
         })
 
-    # Коррекции данных — только при apply_masks=True
-    # Для коррекции используем только верифицированные маски
+    # Коррекции данных — только verified маски из уже загруженных
+    active_masks = []
     if apply_masks:
-        try:
-            active_masks = load_active_masks(well_id, dt_start, dt_end, verified_only=True)
-        except Exception:
-            active_masks = []
-    else:
-        active_masks = []
+        active_masks = [m for m in all_masks if m.get("is_verified")]
 
     # Если маски есть — принудительно идём через pandas-путь (filters_active)
     filters_active = any([filter_zeros, filter_spikes, spike_threshold > 0, fill_mode != "none"])
@@ -548,10 +543,11 @@ def _chart_from_pg(
                 masks_applied = mask_corrected > 0
 
                 # Перестраиваем raw_rows из скорректированного DataFrame
-                raw_rows = [
-                    (idx, row["p_tube"], row["p_line"])
-                    for idx, row in mask_df.iterrows()
-                ]
+                raw_rows = list(zip(
+                    mask_df.index,
+                    mask_df["p_tube"].values,
+                    mask_df["p_line"].values,
+                ))
             except Exception as e:
                 log.warning("[_chart_from_pg] failed to apply masks: %s", e)
 

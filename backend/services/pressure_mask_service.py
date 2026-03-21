@@ -43,7 +43,7 @@ def load_active_masks(
             text(f"""
                 SELECT id, well_id, problem_type, affected_sensor,
                        correction_method, dt_start, dt_end,
-                       manual_delta_p, reason
+                       manual_delta_p, reason, is_verified
                 FROM pressure_mask
                 WHERE well_id = :well_id
                   AND is_active = true
@@ -71,6 +71,7 @@ def load_active_masks(
             "dt_end": r[6],
             "manual_delta_p": r[7],
             "reason": r[8],
+            "is_verified": r[9],
         })
     return masks
 

@@ -51,7 +51,7 @@ def hampel_filter(
 ) -> tuple[pd.Series, int]:
     """
     Hampel identifier — робастный фильтр для обнаружения выбросов
-    во временных рядах.
+    во временных рядах (векторизованная реализация).
 
     Алгоритм:
       Для каждой точки x[i]:
@@ -61,11 +61,6 @@ def hampel_filter(
         4. σ_est = 1.4826 * MAD (масштаб к нормальному распределению)
         5. Если |x[i] - m| > n_sigma * σ_est → спайк → заменить на m
 
-    Преимущества Hampel:
-      - Робастен к выбросам (использует медиану, а не среднее)
-      - Не реагирует на продувки (плавный тренд не создаёт отклонения)
-      - Ловит мгновенные спайки (1-2 точки)
-
     Args:
         series: временной ряд давления
         window_half: полуширина окна (полное окно = 2*window_half + 1)
@@ -74,56 +69,34 @@ def hampel_filter(
     Returns:
         (отфильтрованная Series, количество обнаруженных спайков)
     """
-    if len(series) < 2 * window_half + 1:
+    window_size = 2 * window_half + 1
+    if len(series) < window_size:
         return series, 0
 
+    K = 1.4826          # MAD → σ scale factor
+    min_abs_dev = 1.0   # минимальный абсолютный порог (атм)
+
+    # Rolling median и MAD — vectorized через pandas
+    rolling_median = series.rolling(window=window_size, center=True, min_periods=3).median()
+
+    # MAD = median(|x - median|) — нужен .apply, но на маленьком окне это быстро
+    # Альтернатива: вычислить отклонение и применить rolling median к нему
+    deviation = (series - rolling_median).abs()
+    rolling_mad = deviation.rolling(window=window_size, center=True, min_periods=3).median()
+
+    # Порог: max(n_sigma * K * MAD, min_abs_dev)
+    sigma_est = K * rolling_mad
+    threshold = sigma_est.clip(lower=min_abs_dev / n_sigma) * n_sigma
+
+    # Спайки: отклонение от медианы больше порога
+    is_spike = deviation > threshold
+    # Не считаем NaN спайками
+    is_spike = is_spike & series.notna() & rolling_median.notna()
+
+    spike_count = int(is_spike.sum())
     result = series.copy()
-    values = series.values.astype(float)
-    n = len(values)
-    spike_count = 0
-
-    # Константа пересчёта MAD → σ для нормального распределения
-    K = 1.4826
-
-    for i in range(window_half, n - window_half):
-        # Окно вокруг точки i
-        window = values[max(0, i - window_half): i + window_half + 1]
-
-        # Убираем NaN из окна
-        valid = window[~np.isnan(window)]
-        if len(valid) < 3:
-            continue
-
-        median_val = np.median(valid)
-        mad = np.median(np.abs(valid - median_val))
-
-        # Текущее значение
-        current = values[i]
-        if np.isnan(current):
-            continue
-
-        deviation = abs(current - median_val)
-
-        # Минимальный абсолютный порог (атм).
-        # Отклонения < min_abs_dev не считаются спайками,
-        # даже если MAD очень мал. Это защищает от ложных срабатываний
-        # на нормальном шуме квантования LoRa-датчиков (шаг 0.1 атм).
-        min_abs_dev = 1.0  # атм
-
-        if mad < 1e-10:
-            # MAD ≈ 0 — почти все значения в окне одинаковые.
-            # Используем абсолютный порог
-            if deviation > min_abs_dev:
-                result.iloc[i] = median_val
-                spike_count += 1
-        else:
-            sigma_est = K * mad
-            threshold = max(n_sigma * sigma_est, min_abs_dev)
-
-            # Проверяем отклонение
-            if deviation > threshold:
-                result.iloc[i] = median_val
-                spike_count += 1
+    if spike_count > 0:
+        result[is_spike] = rolling_median[is_spike]
 
     return result, spike_count
 
@@ -155,33 +128,35 @@ def instant_spike_filter(
     if len(series) < 3 or max_delta <= 0:
         return series, 0
 
-    result = series.copy()
-    values = result.values.astype(float)
-    n = len(values)
-    spike_count = 0
+    values = series.values.astype(float)
 
-    for i in range(1, n - 1):
-        curr = values[i]
-        prev = values[i - 1]
-        nxt = values[i + 1]
+    # Vectorized: сдвиги на 1 назад и вперёд
+    prev_vals = np.roll(values, 1)
+    next_vals = np.roll(values, -1)
 
-        # Пропускаем NaN
-        if np.isnan(curr) or np.isnan(prev) or np.isnan(nxt):
-            continue
+    # Границы не проверяем
+    prev_vals[0] = np.nan
+    next_vals[-1] = np.nan
 
-        delta_prev = abs(curr - prev)
-        delta_next = abs(curr - nxt)
+    delta_prev = np.abs(values - prev_vals)
+    delta_next = np.abs(values - next_vals)
 
-        # Спайк: резкий скачок от обоих соседей
-        if delta_prev > max_delta and delta_next > max_delta:
-            # Заменяем средним соседей
-            values[i] = (prev + nxt) / 2.0
-            spike_count += 1
+    # Спайк: резкий скачок от обоих соседей, все три не NaN
+    is_spike = (
+        (delta_prev > max_delta)
+        & (delta_next > max_delta)
+        & ~np.isnan(values)
+        & ~np.isnan(prev_vals)
+        & ~np.isnan(next_vals)
+    )
 
+    spike_count = int(is_spike.sum())
     if spike_count > 0:
-        result = pd.Series(values, index=series.index, name=series.name)
+        replaced = values.copy()
+        replaced[is_spike] = (prev_vals[is_spike] + next_vals[is_spike]) / 2.0
+        return pd.Series(replaced, index=series.index, name=series.name), spike_count
 
-    return result, spike_count
+    return series, spike_count
 
 
 # ═══════════════════════════════════════════════════════════
@@ -398,36 +373,36 @@ def aggregate_filtered(
     # Убираем интервалы без данных
     agg = agg.dropna(how="all", subset=["p_tube_avg", "p_line_avg"])
 
-    import math
+    if agg.empty:
+        return []
 
-    def _safe(v):
-        if v is None:
-            return None
-        try:
-            f = float(v)
-        except (TypeError, ValueError):
-            return None
-        if math.isnan(f) or math.isinf(f):
-            return None
-        return round(f, 2)
+    # Vectorized: округляем и заменяем NaN/inf на None
+    for col in ("p_tube_avg", "p_tube_min", "p_tube_max",
+                "p_line_avg", "p_line_min", "p_line_max"):
+        s = agg[col].round(2)
+        # replace inf with NaN, then NaN → None happens via .where
+        agg[col] = s.replace([np.inf, -np.inf], np.nan)
+
+    agg["cnt"] = agg["cnt"].fillna(0).astype(int)
+    agg.index = agg.index.strftime("%Y-%m-%dT%H:%M:%S")
+
+    # Bulk convert to list of dicts — much faster than iterrows
+    records = agg.reset_index().rename(columns={"index": "t"}).to_dict("records")
 
     results = []
-    for bucket_ts, row in agg.iterrows():
-        # Пропускаем бакеты где оба давления None/NA
-        tube_na = pd.isna(row["p_tube_avg"]) if row["p_tube_avg"] is not None else True
-        line_na = pd.isna(row["p_line_avg"]) if row["p_line_avg"] is not None else True
-        if tube_na and line_na:
+    for r in records:
+        # Skip buckets where both pressures are NaN
+        if pd.isna(r.get("p_tube_avg")) and pd.isna(r.get("p_line_avg")):
             continue
-
         results.append({
-            "t": bucket_ts.isoformat(),
-            "p_tube_avg": _safe(row["p_tube_avg"]),
-            "p_tube_min": _safe(row["p_tube_min"]),
-            "p_tube_max": _safe(row["p_tube_max"]),
-            "p_line_avg": _safe(row["p_line_avg"]),
-            "p_line_min": _safe(row["p_line_min"]),
-            "p_line_max": _safe(row["p_line_max"]),
-            "count": int(row["cnt"]) if not pd.isna(row["cnt"]) else 0,
+            "t": r["t"],
+            "p_tube_avg": None if pd.isna(r["p_tube_avg"]) else r["p_tube_avg"],
+            "p_tube_min": None if pd.isna(r["p_tube_min"]) else r["p_tube_min"],
+            "p_tube_max": None if pd.isna(r["p_tube_max"]) else r["p_tube_max"],
+            "p_line_avg": None if pd.isna(r["p_line_avg"]) else r["p_line_avg"],
+            "p_line_min": None if pd.isna(r["p_line_min"]) else r["p_line_min"],
+            "p_line_max": None if pd.isna(r["p_line_max"]) else r["p_line_max"],
+            "count": r["cnt"],
         })
 
     return results

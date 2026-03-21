@@ -26,20 +26,28 @@ def load_active_masks(
     well_id: int,
     dt_start: datetime,
     dt_end: datetime,
+    verified_only: bool = False,
 ) -> list:
     """
     Загружает активные маски для скважины, пересекающиеся с периодом.
     Возвращает список объектов-словарей (не ORM, чтобы не тянуть сессию).
+
+    Parameters
+    ----------
+    verified_only : bool
+        Если True — возвращает только подтверждённые маски (is_verified = true).
     """
+    verified_clause = "AND is_verified = true" if verified_only else ""
     with pg_engine.connect() as conn:
         rows = conn.execute(
-            text("""
+            text(f"""
                 SELECT id, well_id, problem_type, affected_sensor,
                        correction_method, dt_start, dt_end,
                        manual_delta_p, reason
                 FROM pressure_mask
                 WHERE well_id = :well_id
                   AND is_active = true
+                  {verified_clause}
                   AND dt_start < :period_end
                   AND dt_end > :period_start
                 ORDER BY dt_start

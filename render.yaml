@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: surgil-dashboard
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+      - key: TZ
+        value: Asia/Tashkent

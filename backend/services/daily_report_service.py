@@ -146,9 +146,26 @@ def _get_latex_env() -> Environment:
     )
 
 
+def _find_xelatex() -> str:
+    """Find xelatex binary: system PATH, then TinyTeX user install."""
+    import shutil
+    path = shutil.which("xelatex")
+    if path:
+        return path
+    # TinyTeX installs to ~/. TinyTeX/bin/x86_64-linux/
+    tinytex = Path.home() / ".TinyTeX" / "bin" / "x86_64-linux" / "xelatex"
+    if tinytex.exists():
+        return str(tinytex)
+    raise FileNotFoundError(
+        "xelatex not found. Install texlive-xetex or TinyTeX."
+    )
+
+
 def _compile_latex(tex_source: str, base_name: str) -> Path:
     """Compile LaTeX → PDF via xelatex (2 passes)."""
     _ensure_dirs()
+
+    xelatex_bin = _find_xelatex()
 
     tex_file = TEMP_DIR / f"{base_name}.tex"
     tex_file.write_text(tex_source, encoding="utf-8")
@@ -160,7 +177,7 @@ def _compile_latex(tex_source: str, base_name: str) -> Path:
 
     for pass_num in range(2):
         result = subprocess.run(
-            ["xelatex", "-interaction=nonstopmode",
+            [xelatex_bin, "-interaction=nonstopmode",
              f"-output-directory={abs_temp}", abs_tex],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

@@ -1,0 +1,50 @@
+# Virtual environments
+.venv/
+venv/
+
+# Secrets
+.env
+.env.*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS
+.DS_Store
+
+# Data files (LoRa sensor dumps)
+data/
+
+# Generated artifacts (will be created at runtime)
+backend/static/generated/
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+
+# Documentation / dev files
+docs/
+*.md
+!requirements.txt
+
+# Claude Code config
+.claude/
+
+# SQLite databases
+*.db
+
+# Misc
+Telegram Events.session.sql

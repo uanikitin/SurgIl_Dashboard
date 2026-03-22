@@ -82,6 +82,13 @@ from backend.config.equipment_config import get_equipment_config, EQUIPMENT_TYPE
 templates = Jinja2Templates(directory="backend/templates")
 
 app = FastAPI(title=settings.APP_TITLE)
+
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
+
+
 app.include_router(equipment_documents.router)
 # --- sessions (обязательно, иначе request.session не работает) ---
 app.add_middleware(

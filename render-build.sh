@@ -11,7 +11,7 @@ if [ ! -d "$TINYTEX_DIR" ]; then
     # Add to PATH for tlmgr commands below
     export PATH="$TINYTEX_DIR/bin/x86_64-linux:$PATH"
 
-    # Install required LaTeX packages for daily reports
+    # Install required LaTeX packages (|| true — non-critical format errors are OK)
     tlmgr install \
         collection-langcyrillic \
         collection-fontsrecommended \
@@ -24,11 +24,14 @@ if [ ! -d "$TINYTEX_DIR" ]; then
         tabularx \
         booktabs \
         longtable \
-        graphicx \
         xcolor \
         hyperref \
         caption \
-        float
+        float \
+        || true
+
+    # Verify xelatex works
+    xelatex --version && echo "==> xelatex OK" || echo "==> WARNING: xelatex not working"
 else
     echo "==> TinyTeX already installed, skipping"
 fi

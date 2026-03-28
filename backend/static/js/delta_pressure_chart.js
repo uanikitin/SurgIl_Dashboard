@@ -323,7 +323,10 @@
       return yVal < criticalThreshold ? COLORS.critical : COLORS.delta;
     };
 
-    const defaultMax = criticalThreshold * 4;
+    // Автомасштабирование: max Y = максимальное значение ΔP + 10% запас,
+    // но не менее criticalThreshold * 2 чтобы порог всегда был виден
+    const maxDelta = Math.max(...deltaData.filter(d => d.y !== null).map(d => d.y));
+    const defaultMax = Math.max(maxDelta * 1.1, criticalThreshold * 2);
 
     const datasets = [
       {
@@ -645,12 +648,21 @@
   const yLabel  = document.getElementById('delta-y-label');
 
   function getDefaultYMax() {
-    return Math.round((criticalThreshold * 4) * 10) / 10; // округление до 0.1
+    // Используем максимум из данных + 10%, но не менее criticalThreshold * 2
+    if (currentDeltaData.length > 0) {
+      const maxVal = Math.max(...currentDeltaData.filter(d => d.y !== null).map(d => d.y));
+      return Math.round(Math.max(maxVal * 1.1, criticalThreshold * 2) * 10) / 10;
+    }
+    return Math.round((criticalThreshold * 4) * 10) / 10;
   }
 
   function syncYSlider() {
     if (!ySlider) return;
     const def = getDefaultYMax();
+    // Расширяем диапазон слайдера если данные превышают текущий max
+    if (def > parseFloat(ySlider.max)) {
+      ySlider.max = Math.ceil(def * 1.2);
+    }
     ySlider.value = def;
     if (yLabel) yLabel.textContent = def.toFixed(1);
   }

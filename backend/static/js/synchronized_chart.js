@@ -3495,7 +3495,7 @@ Pshl (шлейф): ${pshlStats.count} точек
    * @param {string|null} start - ISO-строка начала периода (Кунград) или null
    * @param {string|null} end - ISO-строка конца периода (Кунград) или null
    */
-  window.updateAllCharts = function (days, interval, start, end) {
+  window.updateAllCharts = async function (days, interval, start, end) {
     // Обновляем глобальный диапазон
     if (start !== undefined) currentStart = start;
     if (end !== undefined) currentEnd = end;
@@ -3531,15 +3531,15 @@ Pshl (шлейф): ${pshlStats.count} точек
       });
     }
 
-    // Обновляем synchronized chart (который также обновляет delta chart)
-    loadChart(days, interval, start, end);
+    // Сначала загружаем давление — дебит рассчитывается на его основе
+    await loadChart(days, interval, start, end);
 
     // Обновляем график событий если есть
     if (window.eventsChartReload) {
       window.eventsChartReload();
     }
 
-    // Обновляем график дебита если есть
+    // Обновляем график дебита ПОСЛЕ давления
     console.log('[coordinator] flowRateChartReload exists:', !!window.flowRateChartReload, 'days:', days, 'start:', start, 'end:', end);
     if (window.flowRateChartReload) {
       window.flowRateChartReload(days, currentStart, currentEnd);

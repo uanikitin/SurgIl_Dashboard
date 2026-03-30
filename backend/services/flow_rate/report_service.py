@@ -17,6 +17,7 @@ from jinja2 import Environment, FileSystemLoader
 from sqlalchemy.orm import Session
 
 from backend.models.flow_analysis import FlowScenario, FlowResult, FlowCorrection
+from backend.utils.latex import find_xelatex as _find_xelatex
 
 log = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ def _compile_latex(tex_source: str, base_name: str) -> Path:
 
     for pass_num in range(2):
         result = subprocess.run(
-            ["xelatex", "-interaction=nonstopmode",
+            [_find_xelatex(), "-interaction=nonstopmode",
              f"-output-directory={TEMP_DIR}", str(tex_file)],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

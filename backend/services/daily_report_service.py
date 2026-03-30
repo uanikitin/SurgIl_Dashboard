@@ -147,18 +147,8 @@ def _get_latex_env() -> Environment:
 
 
 def _find_xelatex() -> str:
-    """Find xelatex binary: system PATH, then TinyTeX user install."""
-    import shutil
-    path = shutil.which("xelatex")
-    if path:
-        return path
-    # TinyTeX installs to ~/. TinyTeX/bin/x86_64-linux/
-    tinytex = Path.home() / ".TinyTeX" / "bin" / "x86_64-linux" / "xelatex"
-    if tinytex.exists():
-        return str(tinytex)
-    raise FileNotFoundError(
-        "xelatex not found. Install texlive-xetex or TinyTeX."
-    )
+    from backend.utils.latex import find_xelatex
+    return find_xelatex()
 
 
 def _compile_latex(tex_source: str, base_name: str) -> Path:

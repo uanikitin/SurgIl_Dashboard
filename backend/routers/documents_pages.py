@@ -13,6 +13,7 @@ from datetime import datetime, date
 from calendar import monthrange
 
 from backend.db import get_db
+from backend.utils.latex import find_xelatex as _find_xelatex
 from backend.web.templates import templates, base_context
 
 from backend.models.wells import Well
@@ -1247,7 +1248,7 @@ def document_generate_pdf(
     # --- компиляция xelatex ---
     try:
         cmd = [
-            "xelatex",
+            _find_xelatex(),
             "-interaction=nonstopmode",
             "-halt-on-error",
             f"-output-directory={str(out_dir)}",

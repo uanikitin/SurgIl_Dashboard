@@ -11,6 +11,7 @@ from jinja2 import Template, Environment, FileSystemLoader
 from datetime import date
 
 from .models import Document
+from backend.utils.latex import find_xelatex as _find_xelatex
 
 
 class DocumentGenerator:
@@ -192,7 +193,7 @@ class DocumentGenerator:
         # Запускаем дважды для правильных ссылок
         for _ in range(2):
             result = subprocess.run(
-                ['xelatex', '-interaction=nonstopmode', f'-output-directory={temp_dir}', str(tex_file)],
+                [_find_xelatex(), '-interaction=nonstopmode', f'-output-directory={temp_dir}', str(tex_file)],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 cwd=str(temp_dir)

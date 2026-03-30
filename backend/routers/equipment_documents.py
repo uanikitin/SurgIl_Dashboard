@@ -13,6 +13,8 @@ import re
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
+
+from backend.utils.latex import find_xelatex as _find_xelatex
 from typing import List, Optional, Tuple
 
 import sqlalchemy as sa
@@ -997,7 +999,7 @@ def equipment_doc_generate_pdf(
     try:
         result = subprocess.run(
             [
-                "xelatex",
+                _find_xelatex(),
                 "-interaction=nonstopmode",
                 "-halt-on-error",
                 f"{safe_name}.tex",  # Только имя файла, так как cwd=output_dir

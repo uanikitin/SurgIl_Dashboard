@@ -13,6 +13,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from starlette.responses import RedirectResponse
 
 from backend.db import get_db
+from backend.utils.latex import find_xelatex as _find_xelatex
 from backend.web.templates import templates, base_context
 from backend.models.wells import Well
 from backend.documents.models import Document, DocumentType
@@ -805,7 +806,7 @@ def well_handover_generate_pdf(doc_id: int, db: Session = Depends(get_db)):
 
     try:
         cmd = [
-            "xelatex",
+            _find_xelatex(),
             "-interaction=nonstopmode",
             "-halt-on-error",
             f"-output-directory={str(out_dir)}",

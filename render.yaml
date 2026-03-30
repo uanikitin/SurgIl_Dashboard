@@ -10,3 +10,5 @@ services:
         sync: false
       - key: TZ
         value: Asia/Tashkent
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false

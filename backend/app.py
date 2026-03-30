@@ -581,6 +581,7 @@ async def login_submit(request: Request, db: Session = Depends(get_db)):
     request.session["username"] = user.username  # если где-то используется
     request.session["is_admin"] = bool(user.is_admin)
     request.session["can_view_map"] = bool(getattr(user, "can_view_map", False))
+    request.session["can_send_telegram"] = bool(getattr(user, "can_send_telegram", False))
     # ============================================================
     # обновляем поле last_login_at у пользователя
     user.last_login_at = _now_db()
@@ -2608,6 +2609,24 @@ def admin_toggle_map_access(
         raise HTTPException(status_code=404, detail="Пользователь не найден")
 
     user.can_view_map = not bool(user.can_view_map)
+    db.commit()
+
+    return RedirectResponse("/admin/users", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/admin/users/{user_id}/toggle-telegram")
+def admin_toggle_telegram_access(
+        user_id: int,
+        request: Request,
+        db: Session = Depends(get_db),
+        current_admin: str = Depends(get_current_admin),
+):
+    """Включает/выключает флаг can_send_telegram для пользователя."""
+    user = db.query(DashboardUser).filter(DashboardUser.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    user.can_send_telegram = not bool(user.can_send_telegram)
     db.commit()
 
     return RedirectResponse("/admin/users", status_code=status.HTTP_303_SEE_OTHER)

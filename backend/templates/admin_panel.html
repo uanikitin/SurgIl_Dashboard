@@ -50,7 +50,8 @@
                         data-role="{{ 'admin' if u.is_admin else 'operator' }}"
                         data-active="{{ '1' if u.is_active else '0' }}"
                         data-can-reagents="{{ '1' if u.can_view_reagents else '0' }}"
-                        data-can-map="{{ '1' if u.can_view_map else '0' }}">
+                        data-can-map="{{ '1' if u.can_view_map else '0' }}"
+                        data-can-telegram="{{ '1' if u.can_send_telegram else '0' }}">
                     <td>{{ u.id }}</td>
                     <td class="cell-username">{{ u.username }}</td>
                     <td>{{ u.full_name or "—" }}</td>
@@ -99,6 +100,12 @@
                 Дать доступ к карте
             </button>
         </form>
+
+        <form method="post" id="action-telegram" action="">
+            <button type="submit" class="admin-pill-btn">
+                Дать доступ к Telegram
+            </button>
+        </form>
     </div>
 </div>
 {% endblock %}
@@ -137,6 +144,8 @@
     const reagentsBtn   = reagentsForm ? reagentsForm.querySelector('button') : null;
     const mapForm       = document.getElementById('action-map');
     const mapBtn        = mapForm ? mapForm.querySelector('button') : null;
+    const telegramForm  = document.getElementById('action-telegram');
+    const telegramBtn   = telegramForm ? telegramForm.querySelector('button') : null;
 
     rows.forEach(row => {
         row.addEventListener('click', () => {
@@ -152,14 +161,15 @@
             const status   = row.children[5].textContent.trim();
             const canReagents = row.dataset.canReagents === '1';
             const canMap      = row.dataset.canMap === '1';
+            const canTelegram = row.dataset.canTelegram === '1';
 
             // Обновляем подпись и показываем панель
             label.textContent = 'Пользователь: ' + username;
             actionBar.classList.remove('hidden');
 
             // Проставляем URL действий
-            adminForm.action  = `/admin/users/${id}/toggle_admin`;
-            activeForm.action = `/admin/users/${id}/toggle_active`;
+            adminForm.action  = `/admin/users/${id}/toggle-admin`;
+            activeForm.action = `/admin/users/${id}/toggle-active`;
             deleteForm.action = `/admin/users/${id}/delete`;
 
             if (reagentsForm) {
@@ -177,6 +187,15 @@
                     mapBtn.textContent = canMap
                         ? 'Забрать доступ к карте'
                         : 'Дать доступ к карте';
+                }
+            }
+
+            if (telegramForm) {
+                telegramForm.action = `/admin/users/${id}/toggle-telegram`;
+                if (telegramBtn) {
+                    telegramBtn.textContent = canTelegram
+                        ? 'Забрать доступ к Telegram'
+                        : 'Дать доступ к Telegram';
                 }
             }
 

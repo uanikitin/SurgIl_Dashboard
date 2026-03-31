@@ -4,10 +4,13 @@ set -o errexit
 # ── TinyTeX: install into project dir so it persists on Render ──
 TINYTEX_DIR="/opt/render/project/src/.tinytex"
 
-# Force reinstall if ragged2e is missing (added after initial install)
-if [ -x "$TINYTEX_DIR/bin/x86_64-linux/xelatex" ] && ! kpsewhich ragged2e.sty >/dev/null 2>&1; then
-    echo "==> ragged2e missing, reinstalling TinyTeX..."
-    rm -rf "$TINYTEX_DIR"
+# Force reinstall if key packages are missing
+if [ -x "$TINYTEX_DIR/bin/x86_64-linux/xelatex" ]; then
+    export PATH="$TINYTEX_DIR/bin/x86_64-linux:$PATH"
+    if ! kpsewhich titlesec.sty >/dev/null 2>&1; then
+        echo "==> titlesec missing, reinstalling TinyTeX..."
+        rm -rf "$TINYTEX_DIR"
+    fi
 fi
 
 if [ ! -x "$TINYTEX_DIR/bin/x86_64-linux/xelatex" ]; then
@@ -40,6 +43,14 @@ if [ ! -x "$TINYTEX_DIR/bin/x86_64-linux/xelatex" ]; then
         caption \
         float \
         ragged2e \
+        pdflscape \
+        titlesec \
+        needspace \
+        ltablex \
+        colortbl \
+        grffile \
+        amsmath \
+        graphics \
         || true
 
     xelatex --version && echo "==> xelatex OK" || echo "==> WARNING: xelatex not working"

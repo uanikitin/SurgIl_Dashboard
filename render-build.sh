@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
 set -o errexit
 
-# ── TinyTeX: user-space TeX installation (no root required) ──
-TINYTEX_DIR="$HOME/.TinyTeX"
+# ── TinyTeX: install into project dir so it persists on Render ──
+TINYTEX_DIR="/opt/render/project/src/.tinytex"
 
-if [ ! -d "$TINYTEX_DIR" ]; then
-    echo "==> Installing TinyTeX..."
+if [ ! -x "$TINYTEX_DIR/bin/x86_64-linux/xelatex" ]; then
+    echo "==> Installing TinyTeX to $TINYTEX_DIR ..."
+    rm -rf "$TINYTEX_DIR"
+
+    # Download and install TinyTeX to HOME first (installer requires it)
     wget -qO- "https://yihui.org/tinytex/install-bin-unix.sh" | sh
 
-    # Add to PATH for tlmgr commands below
+    # Move from HOME to project dir
+    mv "$HOME/.TinyTeX" "$TINYTEX_DIR"
+
     export PATH="$TINYTEX_DIR/bin/x86_64-linux:$PATH"
 
     # Install required LaTeX packages (|| true — non-critical format errors are OK)
@@ -30,10 +35,9 @@ if [ ! -d "$TINYTEX_DIR" ]; then
         float \
         || true
 
-    # Verify xelatex works
     xelatex --version && echo "==> xelatex OK" || echo "==> WARNING: xelatex not working"
 else
-    echo "==> TinyTeX already installed, skipping"
+    echo "==> TinyTeX already installed at $TINYTEX_DIR, skipping"
 fi
 
 # ── Python dependencies ──

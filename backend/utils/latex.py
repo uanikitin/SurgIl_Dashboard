@@ -18,10 +18,15 @@ def find_xelatex() -> str:
         _cached_path = path
         return path
 
-    tinytex = Path.home() / ".TinyTeX" / "bin" / "x86_64-linux" / "xelatex"
-    if tinytex.exists():
-        _cached_path = str(tinytex)
-        return _cached_path
+    # Search known TinyTeX locations
+    candidates = [
+        Path.home() / ".TinyTeX" / "bin" / "x86_64-linux" / "xelatex",
+        Path("/opt/render/project/src/.tinytex/bin/x86_64-linux/xelatex"),
+    ]
+    for tinytex in candidates:
+        if tinytex.exists():
+            _cached_path = str(tinytex)
+            return _cached_path
 
     raise FileNotFoundError(
         "xelatex not found. Install texlive-xetex or TinyTeX."

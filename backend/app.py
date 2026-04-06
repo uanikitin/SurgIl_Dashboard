@@ -162,7 +162,9 @@ app.include_router(chart_annotations_router)
 
 # Маски коррекции давления
 from backend.routers.pressure_masks import router as pressure_masks_router
+from backend.routers.pressure_masks import pages_router as pressure_masks_pages_router
 app.include_router(pressure_masks_router)
+app.include_router(pressure_masks_pages_router)
 
 # Админ-карта (пользовательские объекты на карте)
 from backend.routers.admin_map import router as admin_map_api_router
@@ -2670,25 +2672,16 @@ def well_page(
     # По умолчанию - текущая неделя с понедельника
     preset = preset or "week"
 
-    # 1) Скважина
-    # 1) Скважина
+    # 1) Скважина — сначала по ID, потом по номеру
     well = None
 
-    # Сначала пробуем найти по номеру (преобразуем в int)
     try:
-        well_number = int(well_identifier)
-        well = db.query(Well).filter(Well.number == well_number).first()
+        val = int(well_identifier)
+        well = db.query(Well).filter(Well.id == val).first()
+        if not well:
+            well = db.query(Well).filter(Well.number == val).first()
     except ValueError:
-        # Если не получилось преобразовать в int
         pass
-
-    # Если не нашли по номеру, пробуем как ID
-    if not well:
-        try:
-            well_id_int = int(well_identifier)
-            well = db.query(Well).filter(Well.id == well_id_int).first()
-        except ValueError:
-            well = None
 
     if not well:
         raise HTTPException(status_code=404, detail="Скважина не найдена")

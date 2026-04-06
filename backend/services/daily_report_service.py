@@ -830,6 +830,16 @@ def build_well_day_data(
         stoppage_events.sort(key=lambda x: x["_sort_ts"])
 
         # ── 5. Flow rate ──
+        # Init flow comparison vars early (used in return dict regardless of path)
+        week_avg_flow = None
+        week_median_flow = None
+        month_cumulative = None
+        month_avg_flow = None
+        month_median_flow = None
+        month_working_days = 0
+        delta_q_month = None
+        delta_q_month_pct = None
+
         # Always compute df_flow for charts if possible
         df_flow_for_chart = None
         if choke_mm and not df.empty:

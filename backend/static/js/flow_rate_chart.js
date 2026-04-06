@@ -154,6 +154,18 @@
     };
   }
 
+  // Цвета для подсветки выбранных участков
+  var SEG_OVERLAY_COLORS = [
+    { bg: 'rgba(59,130,246,0.14)',  border: '#3b82f6',  trend: '#1d4ed8',  name: 'blue'   },
+    { bg: 'rgba(239,68,68,0.14)',   border: '#ef4444',  trend: '#b91c1c',  name: 'red'    },
+    { bg: 'rgba(16,185,129,0.14)',  border: '#10b981',  trend: '#047857',  name: 'green'  },
+    { bg: 'rgba(245,158,11,0.14)',  border: '#f59e0b',  trend: '#b45309',  name: 'amber'  },
+    { bg: 'rgba(139,92,246,0.14)',  border: '#8b5cf6',  trend: '#6d28d9',  name: 'violet' },
+    { bg: 'rgba(236,72,153,0.14)',  border: '#ec4899',  trend: '#be185d',  name: 'pink'   },
+    { bg: 'rgba(20,184,166,0.14)',  border: '#14b8a6',  trend: '#0f766e',  name: 'teal'   },
+    { bg: 'rgba(251,146,60,0.14)',  border: '#fb923c',  trend: '#c2410c',  name: 'orange' },
+  ];
+
   // ═══════════════════ Цвета ═══════════════════
   var COLORS = {
     flowRate:    '#ff9800',
@@ -864,6 +876,9 @@
       flowChart.options.plugins.zoom.pan.enabled = false;
       flowChart.update('none');
     }
+
+    // Восстанавливаем подсветку выбранных участков после перестроения графика
+    updateSegmentOverlaysOnChart();
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -1754,9 +1769,10 @@
       tr.style.cssText = 'border-bottom:1px solid #f0f0f0;';
       tr.dataset.segId = seg.id;
 
+      var segColor = SEG_OVERLAY_COLORS[i % SEG_OVERLAY_COLORS.length];
       tr.innerHTML =
         '<td style="padding:5px 6px; text-align:center;"><input type="checkbox" class="seg-check" data-seg-idx="' + i + '"></td>' +
-        '<td style="padding:5px 6px; font-weight:600;">' + escHtml(seg.name) + '</td>' +
+        '<td style="padding:5px 6px; font-weight:600;"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:' + segColor.border + ';margin-right:5px;vertical-align:middle;"></span>' + escHtml(seg.name) + '</td>' +
         '<td style="padding:5px 6px; font-size:11px; color:#666;">' + formatSegDate(seg.dt_start) + ' \u2014 ' + formatSegDate(seg.dt_end) + '</td>' +
         '<td style="padding:5px 6px; text-align:right; font-family:monospace;">' + fmtV(st.mean_flow, 3) + '</td>' +
         '<td style="padding:5px 6px; text-align:right; font-family:monospace;">' + fmtV(st.median_flow, 3) + '</td>' +
@@ -1770,26 +1786,34 @@
       tbody.appendChild(tr);
     }
 
-    // Event delegation для удаления и чекбоксов
-    tbody.onclick = function (e) {
-      var delBtn = e.target.closest('.seg-delete-btn');
-      if (delBtn) {
+    // Bind delete buttons
+    var delBtns = tbody.querySelectorAll('.seg-delete-btn');
+    for (var d = 0; d < delBtns.length; d++) {
+      delBtns[d].addEventListener('click', function (e) {
         e.preventDefault();
-        deleteSegment(parseInt(delBtn.dataset.segId));
-        return;
-      }
-      updateCompareButton();
-    };
+        deleteSegment(parseInt(this.dataset.segId));
+      });
+    }
+
+    // Bind checkboxes — use change event for reliable state
+    var checkBoxes = tbody.querySelectorAll('.seg-check');
+    for (var cb = 0; cb < checkBoxes.length; cb++) {
+      checkBoxes[cb].addEventListener('change', function () {
+        updateCompareButton();
+        updateSegmentOverlaysOnChart();
+      });
+    }
 
     // Check-all
     var checkAll = document.getElementById('seg-check-all');
     if (checkAll) {
       checkAll.checked = false;
-      checkAll.onchange = function () {
+      checkAll.addEventListener('change', function () {
         var boxes = tbody.querySelectorAll('.seg-check');
         for (var j = 0; j < boxes.length; j++) boxes[j].checked = checkAll.checked;
         updateCompareButton();
-      };
+        updateSegmentOverlaysOnChart();
+      });
     }
   }
 
@@ -1894,6 +1918,94 @@
     html += '</tbody>';
     table.innerHTML = html;
     wrap.style.display = '';
+  }
+
+  // ═══════════════════ Подсветка выбранных участков на графике ═══════════════════
+
+  function updateSegmentOverlaysOnChart() {
+    if (!flowChart) return;
+    if (!flowChart.options.plugins.annotation) return;
+    var ann = flowChart.options.plugins.annotation.annotations;
+    if (!ann) return;
+
+    // Удаляем все старые seg-overlay и seg-trend аннотации
+    var keys = Object.keys(ann);
+    for (var k = 0; k < keys.length; k++) {
+      if (keys[k].indexOf('seg_overlay_') === 0 || keys[k].indexOf('seg_otrend_') === 0) {
+        delete ann[keys[k]];
+      }
+    }
+
+    var checked = document.querySelectorAll('#flow-segments-tbody .seg-check:checked');
+    if (!checked || !checked.length) {
+      flowChart.update('none');
+      return;
+    }
+
+    for (var i = 0; i < checked.length; i++) {
+      var idx = parseInt(checked[i].dataset.segIdx);
+      var seg = savedSegments[idx];
+      if (!seg) continue;
+
+      var color = SEG_OVERLAY_COLORS[i % SEG_OVERLAY_COLORS.length];
+      var stats = seg.stats || {};
+
+      // 1. Закрашенная область с названием участка
+      ann['seg_overlay_' + idx] = {
+        type: 'box',
+        xMin: seg.dt_start,
+        xMax: seg.dt_end,
+        backgroundColor: color.bg,
+        borderColor: color.border,
+        borderWidth: 2,
+        drawTime: 'beforeDatasetsDraw',
+        label: {
+          display: true,
+          content: seg.name,
+          position: { x: 'center', y: 'start' },
+          font: { size: 11, weight: 'bold' },
+          color: color.border,
+          backgroundColor: 'rgba(255,255,255,0.9)',
+          padding: { top: 2, bottom: 2, left: 6, right: 6 },
+        },
+      };
+
+      // 2. Тренд-линия для участка
+      var tf = stats.trend_flow;
+      if (tf && tf.intercept != null && tf.slope_per_day != null) {
+        var startDate = new Date(seg.dt_start);
+        var endDate = new Date(seg.dt_end);
+        var durH = (endDate - startDate) / 3600000;
+        var y1 = tf.intercept;
+        var y2 = tf.intercept + (tf.slope_per_day / 24) * durH;
+
+        var arrow = tf.direction === 'down' ? '\u2193' : tf.direction === 'up' ? '\u2191' : '\u2192';
+
+        ann['seg_otrend_' + idx] = {
+          type: 'line',
+          xMin: seg.dt_start,
+          xMax: seg.dt_end,
+          yMin: y1,
+          yMax: Math.max(y2, 0),
+          yScaleID: 'y',
+          borderColor: color.trend,
+          borderWidth: 2.5,
+          borderDash: [8, 4],
+          label: {
+            display: true,
+            content: arrow + ' ' + Math.abs(tf.slope_per_day).toFixed(2) + '/сут',
+            position: 'end',
+            font: { size: 10, weight: 'bold' },
+            backgroundColor: color.trend,
+            color: '#fff',
+            padding: 3,
+          },
+        };
+      }
+    }
+
+    flowChart.update('none');
+    console.log('[flow_rate_chart] Segment overlays updated:', checked.length, 'segments highlighted');
   }
 
   // ═══════════════════ Сброс зума ═══════════════════
@@ -2034,6 +2146,96 @@
       e.preventDefault();
       var wrap = document.getElementById('flow-segment-compare');
       if (wrap) wrap.style.display = 'none';
+    });
+  }
+
+  // ═══════════════════ Экспорт PDF ═══════════════════
+  var segExportPdf = document.getElementById('seg-export-pdf');
+  console.log('[flow_rate_chart] seg-export-pdf element:', !!segExportPdf);
+  if (segExportPdf) {
+    segExportPdf.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      console.log('[flow_rate_chart] Export PDF button clicked');
+      exportSegmentsPdf();
+    });
+  }
+
+  var segPdfOverlay = document.getElementById('seg-pdf-overlay');
+  var segPdfFrame = document.getElementById('seg-pdf-frame');
+  var segPdfDownload = document.getElementById('seg-pdf-download');
+  var segPdfClose = document.getElementById('seg-pdf-close');
+
+  if (segPdfClose) {
+    segPdfClose.addEventListener('click', function () {
+      segPdfOverlay.style.display = 'none';
+      segPdfFrame.src = 'about:blank';
+    });
+  }
+  if (segPdfOverlay) {
+    segPdfOverlay.addEventListener('click', function (e) {
+      if (e.target === segPdfOverlay) {
+        segPdfOverlay.style.display = 'none';
+        segPdfFrame.src = 'about:blank';
+      }
+    });
+  }
+
+  function exportSegmentsPdf() {
+    var checked = document.querySelectorAll('#flow-segments-tbody .seg-check:checked');
+    if (checked.length < 1) { alert('Выберите участки для анализа'); return; }
+
+    var selected = [];
+    for (var i = 0; i < checked.length; i++) {
+      var idx = parseInt(checked[i].dataset.segIdx);
+      if (savedSegments[idx]) selected.push(savedSegments[idx]);
+    }
+
+    // Подготовка данных для backend
+    var payload = {
+      well_id: parseInt(wellId),
+      segments: selected.map(function (seg) {
+        return {
+          id: seg.id,
+          name: seg.name,
+          dt_start: seg.dt_start,
+          dt_end: seg.dt_end,
+          stats: seg.stats,
+        };
+      }),
+    };
+
+    console.log('[segment] Exporting PDF for', selected.length, 'segments:', payload);
+    segExportPdf.disabled = true;
+    segExportPdf.innerHTML = '&#9203; Формируем...';
+
+    fetch('/api/flow-rate/segments/compare-report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    .then(function (r) {
+      if (!r.ok) return r.json().then(function (err) { throw new Error(err.detail || 'HTTP ' + r.status); });
+      return r.json();
+    })
+    .then(function (data) {
+      segExportPdf.disabled = false;
+      segExportPdf.innerHTML = '&#128196; Сохранить анализ';
+      console.log('[segment] PDF response:', data);
+      if (data.pdf_url) {
+        var url = '/static/' + data.pdf_url;
+        if (segPdfFrame) segPdfFrame.src = url;
+        if (segPdfDownload) segPdfDownload.href = url;
+        if (segPdfOverlay) segPdfOverlay.style.display = 'flex';
+      } else {
+        alert('PDF сгенерирован, но URL не получен');
+      }
+    })
+    .catch(function (err) {
+      segExportPdf.disabled = false;
+      segExportPdf.innerHTML = '&#128196; Сохранить анализ';
+      alert('Ошибка генерации отчёта: ' + err.message);
+      console.error('[segment] PDF export error:', err);
     });
   }
 

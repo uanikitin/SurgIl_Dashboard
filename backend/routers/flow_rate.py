@@ -500,6 +500,65 @@ def api_list_segments(well_id: int = Query(...)):
         db.close()
 
 
+@router.post("/segments/compare-report")
+async def api_segment_compare_report(request_data: dict):
+    """Генерация PDF сравнительного отчёта по выбранным участкам."""
+    from backend.db import SessionLocal
+    from backend.models.wells import Well
+
+    well_id = request_data.get("well_id")
+    segment_inputs = request_data.get("segments", [])
+    if not well_id or not segment_inputs:
+        raise HTTPException(400, "well_id and segments required")
+
+    db = SessionLocal()
+    try:
+        well = db.query(Well).filter(Well.id == well_id).first()
+        well_number = str(well.number) if well else str(well_id)
+        well_name = well.name if well else ""
+
+        segments_for_report = []
+        for seg_in in segment_inputs:
+            dt_start = seg_in.get("dt_start")
+            dt_end = seg_in.get("dt_end")
+            name = seg_in.get("name", "Участок")
+            stats = seg_in.get("stats", {})
+
+            try:
+                calc_result = _run_calculation(well_id, dt_start, dt_end)
+                chart_data = calc_result.get("chart", {})
+            except Exception as e:
+                log.warning("Failed to calculate segment %s: %s", name, e)
+                chart_data = {}
+
+            segments_for_report.append({
+                "name": name,
+                "start_iso": dt_start,
+                "end_iso": dt_end,
+                "stats": stats,
+                "timestamps": chart_data.get("timestamps", []),
+                "flow_rate": chart_data.get("flow_rate", []),
+                "cumulative_flow": chart_data.get("cumulative_flow", []),
+                "p_tube": chart_data.get("p_tube", []),
+                "p_line": chart_data.get("p_line", []),
+            })
+
+        from backend.services.flow_rate.segment_report_service import generate_segment_comparison_report
+        pdf_rel_path = generate_segment_comparison_report(
+            segments=segments_for_report,
+            well_number=well_number,
+            well_name=well_name or "",
+        )
+
+        return {"ok": True, "pdf_url": pdf_rel_path}
+
+    except Exception as e:
+        log.error("Segment compare report failed: %s", e, exc_info=True)
+        raise HTTPException(500, f"Ошибка генерации отчёта: {e}")
+    finally:
+        db.close()
+
+
 @router.delete("/segments/{segment_id}")
 def api_delete_segment(segment_id: int):
     """Удалить сегмент."""

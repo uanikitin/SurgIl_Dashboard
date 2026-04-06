@@ -135,22 +135,28 @@ def aggregate_to_daily(
         q = group["flow_rate"]
         n = len(group)
 
-        # Накопленный дебит за день (трапеция, 1 мин = 1/1440 сут)
-        dt = 1.0 / 1440.0
+        # Накопленный дебит за день (трапеция, реальные интервалы)
         q_vals = q.values
+        time_idx = pd.to_datetime(group.index)
+        dt_seconds = np.diff(time_idx.asi8 // 10**9, prepend=time_idx.asi8[0] // 10**9)
+        dt_days = dt_seconds / 86400.0
+        dt_days[0] = 0.0
         q_prev = np.roll(q_vals, 1)
         q_prev[0] = q_vals[0]
-        cum_day = float(np.sum((q_prev + q_vals) * dt / 2.0))
+        cum_day = float(np.sum((q_prev + q_vals) * dt_days / 2.0))
 
-        # Потери при стравливании за день
+        # Реальные интервалы в минутах для каждой точки
+        dt_min_arr = dt_days * 1440.0
+
+        # Потери при стравливании за день (с учётом реальных интервалов)
         purge_loss_day = 0.0
         if "purge_loss_per_min" in group.columns:
-            purge_loss_day = float(group["purge_loss_per_min"].sum())
+            purge_loss_day = float((group["purge_loss_per_min"].values * dt_min_arr).sum())
 
-        # Простои (минуты с purge_flag=1 или p_tube < p_line)
+        # Простои (реальные минуты с purge_flag=1)
         downtime_min = 0.0
         if "purge_flag" in group.columns:
-            downtime_min = float(group["purge_flag"].sum())
+            downtime_min = float((group["purge_flag"].values * dt_min_arr).sum())
 
         # Доля скорректированных точек (пропорционально дню)
         corr_day = int(round(corrected_points * n / total_points)) if total_points > 0 else 0

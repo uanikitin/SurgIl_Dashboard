@@ -1,0 +1,126 @@
+\documentclass[11pt]{article}
+\usepackage{fontspec}
+\IfFontExistsTF{Times New Roman}{\setmainfont{Times New Roman}}{\setmainfont{Liberation Serif}}
+\usepackage[russian]{babel}
+\usepackage{geometry}
+\geometry{a4paper, left=1.5cm, right=1.5cm, top=2cm, bottom=1.5cm}
+
+\usepackage{longtable, array, booktabs, tabularx}
+\usepackage{ragged2e}
+\usepackage{graphicx}
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{calc}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{3pt}
+\setlength{\floatsep}{3pt}
+\setlength{\textfloatsep}{3pt}
+\setlength{\intextsep}{3pt}
+\setlength{\LTpre}{4pt}
+\setlength{\LTpost}{4pt}
+\setlength{\tabcolsep}{4pt}
+
+\titlespacing*{\section}{0pt}{8pt}{3pt}
+\titlespacing*{\subsection}{0pt}{5pt}{2pt}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small Сравнительный анализ -- Скважина \VAR{well_number}}
+\fancyhead[R]{\small \thepage/\pageref{LastPage}}
+\fancyfoot[C]{\footnotesize \VAR{generated_at}}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\begin{document}
+\thispagestyle{empty}
+
+\begin{center}
+\vspace*{2cm}
+{\LARGE\bfseries Сравнительный анализ участков}\\[0.3em]
+{\LARGE\bfseries дебита газа}\\[0.8em]
+{\large Скважина \VAR{well_number}\BLOCK{ if well_name } --- \VAR{well_name}\BLOCK{ endif }}\\[1.5em]
+\BLOCK{ for seg in segments }
+\textbf{\VAR{seg.name}}: \VAR{seg.period_start} --- \VAR{seg.period_end}\\[0.1em]
+\BLOCK{ endfor }
+\vspace{2cm}
+{\normalsize \VAR{generated_at}}
+\end{center}
+
+\newpage
+
+% ═══════ ИНДИВИДУАЛЬНЫЕ УЧАСТКИ
+\BLOCK{ for seg in segments }
+\section*{\VAR{loop.index}. \VAR{seg.name}}
+
+{\small\setlength{\tabcolsep}{3pt}
+\begin{longtable}{|p{0.26\textwidth}|p{0.20\textwidth}|p{0.26\textwidth}|p{0.20\textwidth}|}
+\hline
+Период & \multicolumn{3}{l|}{\VAR{seg.period_start} --- \VAR{seg.period_end}} \\
+\hline
+Длительность & \VAR{seg.duration_h} ч (\VAR{seg.duration_d} сут) & Рабочее время & \VAR{seg.working_h} ч \\
+\hline
+Простои & \VAR{seg.downtime_h} ч & КИВ & \VAR{seg.utilization_pct}\% \\
+\hline\hline
+Q средний, тыс.м$^3$/сут & \VAR{seg.mean_flow} & Q медианный & \VAR{seg.median_flow} \\
+\hline
+Q эффективный & \VAR{seg.effective_flow} & Накоплено, тыс.м$^3$ & \VAR{seg.cum_flow} \\
+\hline
+Q мин & \VAR{seg.min_flow} & Q макс & \VAR{seg.max_flow} \\
+\hline\hline
+P трубн. ср, кгс/см$^2$ & \VAR{seg.mean_p_tube} & P линейн. ср & \VAR{seg.mean_p_line} \\
+\hline
+$\Delta P$ среднее & \VAR{seg.mean_dp} & Продувок & \VAR{seg.purge_count} \\
+\hline\hline
+Тренд Q (/сут) & \VAR{seg.trend_q_slope} & $R^2$ (Q) & \VAR{seg.trend_r2} \\
+\hline
+Тренд $\Delta P$ (/сут) & \VAR{seg.trend_dp_slope} & Тренд P тр. (/сут) & \VAR{seg.trend_pt_slope} \\
+\hline
+Точек данных & \VAR{seg.data_points} & & \\
+\hline
+\end{longtable}
+}
+
+\BLOCK{ if seg.chart_path }
+\begin{center}
+\includegraphics[width=\textwidth]{\VAR{seg.chart_path}}
+\end{center}
+\BLOCK{ endif }
+
+{\small \VAR{seg.description}}
+
+\BLOCK{ endfor }
+
+% ═══════ КОМБИНИРОВАННЫЙ ГРАФИК
+\BLOCK{ if combined_chart_path }
+\section*{Комбинированный график}
+\begin{center}
+\includegraphics[width=\textwidth]{\VAR{combined_chart_path}}
+\end{center}
+\BLOCK{ endif }
+
+% ═══════ СРАВНИТЕЛЬНАЯ ТАБЛИЦА
+\BLOCK{ if diff_rows }
+\section*{Сравнительная таблица}
+
+{\small\setlength{\tabcolsep}{3pt}
+\begin{longtable}{|p{0.36\textwidth}|\BLOCK{ for seg in segments }p{0.20\textwidth}|\BLOCK{ endfor }p{0.14\textwidth}|}
+\hline
+\textbf{Метрика} \BLOCK{ for seg in segments }& \textbf{\VAR{seg.name}} \BLOCK{ endfor }& \textbf{$\Delta$} \\
+\hline
+\endhead
+\BLOCK{ for row in diff_rows }
+\VAR{row.label} \BLOCK{ for v in row.vals }& \VAR{v} \BLOCK{ endfor }& \VAR{row.diff} \\
+\hline
+\BLOCK{ endfor }
+\end{longtable}
+}
+\BLOCK{ endif }
+
+% ═══════ ВЫВОДЫ
+\section*{Выводы}
+
+{\small \VAR{conclusions}}
+
+\end{document}

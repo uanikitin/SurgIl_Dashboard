@@ -40,12 +40,13 @@ class PressureMask(Base):
     # Какой датчик неисправен
     affected_sensor = Column(
         String(10), nullable=False,
-    )  # 'p_tube' | 'p_line'
+    )  # 'p_tube' | 'p_line' | 'both'
 
     # Метод коррекции
     correction_method = Column(
         String(20), nullable=False,
-    )  # 'median_1d' | 'median_3d' | 'delta_reconstruct' | 'interpolate' | 'exclude'
+    )  # 'median_1d' | 'median_3d' | 'delta_reconstruct' | 'delta_noise'
+      # | 'interpolate' | 'interpolate_noise' | 'exclude' | 'zero_flow'
 
     # Временной диапазон (UTC)
     dt_start = Column(DateTime, nullable=False)
@@ -72,18 +73,22 @@ class PressureMask(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "affected_sensor IN ('p_tube', 'p_line')",
-            name="chk_mask_sensor",
+            "affected_sensor IN ('p_tube', 'p_line', 'both')",
+            name="chk_mask_sensor_v2",
         ),
         CheckConstraint(
             "correction_method IN ("
-            "'median_1d', 'median_3d', 'delta_reconstruct', 'interpolate', 'exclude'"
+            "'median_1d', 'median_3d', 'delta_reconstruct', 'delta_noise', "
+            "'interpolate', 'interpolate_noise', 'exclude', 'zero_flow'"
             ")",
-            name="chk_mask_method",
+            name="chk_mask_method_v2",
         ),
         CheckConstraint(
-            "problem_type IN ('hydrate', 'comm_loss', 'sensor_fault', 'manual', 'degradation', 'purge')",
-            name="chk_mask_problem_type",
+            "problem_type IN ("
+            "'hydrate', 'comm_loss', 'sensor_fault', 'manual', 'degradation', 'purge', "
+            "'pipeline_maintenance', 'gsp_switch', 'well_shutdown'"
+            ")",
+            name="chk_mask_problem_type_v2",
         ),
         CheckConstraint("dt_end > dt_start", name="chk_mask_range"),
         Index("ix_pressure_mask_range", "well_id", "dt_start", "dt_end"),

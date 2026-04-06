@@ -18,10 +18,16 @@ def find_xelatex() -> str:
         _cached_path = path
         return path
 
-    # Search known TinyTeX locations
+    # Search known TinyTeX / MacTeX locations
     candidates = [
         Path.home() / ".TinyTeX" / "bin" / "x86_64-linux" / "xelatex",
         Path("/opt/render/project/src/.tinytex/bin/x86_64-linux/xelatex"),
+        # macOS MacTeX
+        Path("/Library/TeX/texbin/xelatex"),
+        Path("/usr/local/texlive/2024/bin/universal-darwin/xelatex"),
+        Path("/usr/local/texlive/2025/bin/universal-darwin/xelatex"),
+        # macOS TinyTeX
+        Path.home() / "Library" / "TinyTeX" / "bin" / "universal-darwin" / "xelatex",
     ]
     for tinytex in candidates:
         if tinytex.exists():

@@ -1,17 +1,73 @@
 """
 /api/pressure-masks — CRUD для масок коррекции давления + авто-детекция.
+/pressure-masks     — HTML-страница управления масками.
 """
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+
+from backend.deps import get_current_user
 
 router = APIRouter(prefix="/api/pressure-masks", tags=["pressure-masks"])
+pages_router = APIRouter(tags=["pressure-masks-pages"])
 log = logging.getLogger(__name__)
 
 KUNGRAD_OFFSET = timedelta(hours=5)
+
+templates = Jinja2Templates(directory="backend/templates")
+
+# ──────────────────── Справочники ────────────────────
+
+VALID_SENSORS = ("p_tube", "p_line", "both")
+VALID_METHODS = (
+    "median_1d", "median_3d", "delta_reconstruct", "delta_noise",
+    "interpolate", "interpolate_noise", "exclude", "zero_flow",
+)
+VALID_PROBLEM_TYPES = (
+    "hydrate", "comm_loss", "sensor_fault", "manual", "degradation", "purge",
+    "pipeline_maintenance", "gsp_switch", "well_shutdown",
+)
+
+
+# ──────────────────── HTML PAGE ────────────────────
+
+
+@pages_router.get("/pressure-masks", response_class=HTMLResponse)
+def pressure_masks_page(
+    request: Request,
+    current_user: str = Depends(get_current_user),
+):
+    from backend.settings import settings
+    from backend.db import SessionLocal
+    from backend.models.wells import Well
+
+    is_admin = current_user == settings.ADMIN_USERNAME
+
+    db = SessionLocal()
+    try:
+        wells = (
+            db.query(Well.id, Well.name, Well.number)
+            .order_by(Well.number)
+            .all()
+        )
+        wells_list = [{"id": w.id, "name": w.name, "number": w.number} for w in wells]
+    finally:
+        db.close()
+
+    return templates.TemplateResponse(
+        "pressure_masks.html",
+        {
+            "request": request,
+            "current_user": current_user,
+            "is_admin": is_admin,
+            "wells": wells_list,
+        },
+    )
 
 
 def _mask_to_dict(m) -> dict:
@@ -216,18 +272,15 @@ def create_mask(data: dict):
         if not data.get(field):
             raise HTTPException(400, f"{field} is required")
 
-    valid_sensors = ("p_tube", "p_line")
-    if data["affected_sensor"] not in valid_sensors:
-        raise HTTPException(400, f"affected_sensor must be one of: {valid_sensors}")
+    if data["affected_sensor"] not in VALID_SENSORS:
+        raise HTTPException(400, f"affected_sensor must be one of: {VALID_SENSORS}")
 
-    valid_methods = ("median_1d", "median_3d", "delta_reconstruct", "interpolate", "exclude")
-    if data["correction_method"] not in valid_methods:
-        raise HTTPException(400, f"correction_method must be one of: {valid_methods}")
+    if data["correction_method"] not in VALID_METHODS:
+        raise HTTPException(400, f"correction_method must be one of: {VALID_METHODS}")
 
-    valid_types = ("hydrate", "comm_loss", "sensor_fault", "manual", "degradation", "purge")
     problem_type = data.get("problem_type", "manual")
-    if problem_type not in valid_types:
-        raise HTTPException(400, f"problem_type must be one of: {valid_types}")
+    if problem_type not in VALID_PROBLEM_TYPES:
+        raise HTTPException(400, f"problem_type must be one of: {VALID_PROBLEM_TYPES}")
 
     # Фронтенд передаёт время в Кунграде — конвертируем в UTC
     try:

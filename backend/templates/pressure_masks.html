@@ -1,0 +1,307 @@
+{% extends "base.html" %}
+
+{% block title %}СУРГИЛ · Маски давлений{% endblock %}
+
+{% block extra_head %}
+<style>
+/* ═══════ Layout ═══════ */
+.pm-page { display:flex; flex-direction:column; gap:10px; padding:10px 0; }
+
+.pm-toolbar {
+    display:flex; flex-wrap:wrap; align-items:center; gap:8px;
+    background:#fff; border:1px solid #e5e7eb; border-radius:8px;
+    padding:10px 14px;
+}
+.pm-toolbar select, .pm-toolbar input[type="date"] {
+    padding:6px 10px; border:1px solid #d1d5db; border-radius:6px;
+    font-size:13px; background:#fff;
+}
+.pm-toolbar select { min-width:160px; }
+.pm-toolbar .btn { padding:6px 14px; border:none; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; }
+.pm-toolbar .btn-primary { background:#3b82f6; color:#fff; }
+.pm-toolbar .btn-primary:hover { background:#2563eb; }
+.pm-toolbar .btn-success { background:#16a34a; color:#fff; }
+.pm-toolbar .btn-success:hover { background:#15803d; }
+.pm-toolbar .btn-warning { background:#f59e0b; color:#fff; }
+.pm-toolbar .btn-warning:hover { background:#d97706; }
+.pm-toolbar .btn-outline { background:#fff; color:#374151; border:1px solid #d1d5db; }
+.pm-toolbar .btn-outline:hover { background:#f3f4f6; }
+.pm-toolbar .btn-outline.active { background:#dbeafe; border-color:#3b82f6; color:#1d4ed8; }
+.pm-toolbar .sep { width:1px; height:24px; background:#d1d5db; margin:0 4px; }
+
+.pm-body { display:flex; gap:10px; min-height:550px; }
+
+/* Chart area */
+.pm-chart-wrap {
+    flex:1; background:#fff; border:1px solid #e5e7eb; border-radius:8px;
+    padding:12px; position:relative; min-height:400px;
+}
+.pm-chart-wrap canvas { width:100%!important; }
+
+/* Right sidebar */
+.pm-sidebar {
+    width:320px; min-width:300px;
+    display:flex; flex-direction:column; gap:8px;
+}
+.pm-panel {
+    background:#fff; border:1px solid #e5e7eb; border-radius:8px;
+    padding:12px; font-size:12px;
+}
+.pm-panel h3 {
+    font-size:12px; text-transform:uppercase; letter-spacing:0.05em;
+    color:#6b7280; margin:0 0 8px 0; padding-bottom:6px; border-bottom:1px solid #e5e7eb;
+}
+
+/* Tabs */
+.pm-tabs { display:flex; gap:0; margin-bottom:8px; }
+.pm-tab {
+    flex:1; padding:6px 8px; text-align:center; font-size:11px; font-weight:600;
+    cursor:pointer; border:1px solid #e5e7eb; background:#f9fafb; color:#6b7280;
+}
+.pm-tab:first-child { border-radius:6px 0 0 6px; }
+.pm-tab:last-child  { border-radius:0 6px 6px 0; }
+.pm-tab.active { background:#fff; color:#1d4ed8; border-color:#3b82f6; }
+.pm-tab-content { display:none; }
+.pm-tab-content.active { display:block; }
+
+/* Mask cards */
+.pm-mask-card {
+    display:flex; align-items:flex-start; gap:8px;
+    padding:8px; margin-bottom:4px; border:1px solid #e5e7eb; border-radius:6px;
+    cursor:pointer; transition:background 0.15s;
+}
+.pm-mask-card:hover { background:#f0f9ff; }
+.pm-mask-card.selected { background:#dbeafe; border-color:#3b82f6; }
+.pm-mask-card .mc-color {
+    width:4px; min-height:32px; border-radius:2px; flex-shrink:0;
+}
+.pm-mask-card .mc-info { flex:1; min-width:0; }
+.pm-mask-card .mc-time { font-size:11px; font-weight:600; color:#111827; }
+.pm-mask-card .mc-type { font-size:10px; color:#6b7280; }
+.pm-mask-card .mc-method { font-size:10px; color:#9ca3af; }
+.pm-mask-card .mc-actions { display:flex; gap:4px; flex-shrink:0; }
+.pm-mask-card .mc-btn {
+    padding:2px 6px; font-size:10px; border:1px solid #d1d5db; border-radius:4px;
+    background:#fff; cursor:pointer; color:#374151;
+}
+.pm-mask-card .mc-btn:hover { background:#f3f4f6; }
+.pm-mask-card .mc-btn.danger { color:#dc2626; border-color:#fca5a5; }
+.pm-mask-card .mc-btn.danger:hover { background:#fef2f2; }
+
+/* Mask list scroll */
+.pm-mask-list { max-height:400px; overflow-y:auto; }
+
+/* Detail panel (bottom) */
+.pm-detail {
+    background:#fff; border:1px solid #e5e7eb; border-radius:8px;
+    padding:14px; display:none;
+}
+.pm-detail.open { display:block; }
+.pm-detail-grid {
+    display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:8px;
+    align-items:end;
+}
+.pm-detail-grid .field { display:flex; flex-direction:column; gap:2px; }
+.pm-detail-grid .field label { font-size:11px; color:#6b7280; font-weight:600; }
+.pm-detail-grid .field input,
+.pm-detail-grid .field select,
+.pm-detail-grid .field textarea {
+    padding:5px 8px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;
+}
+.pm-detail-grid .field.wide { grid-column: span 2; }
+.pm-detail-actions {
+    display:flex; gap:8px; margin-top:10px; padding-top:8px; border-top:1px solid #e5e7eb;
+}
+
+/* Color legend */
+.pm-legend { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+.pm-legend-item { display:flex; align-items:center; gap:4px; font-size:10px; color:#6b7280; }
+.pm-legend-item .dot { width:10px; height:10px; border-radius:2px; }
+
+/* Status bar */
+.pm-status { font-size:11px; color:#6b7280; padding:4px 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pm-page">
+
+  <!-- ─── Toolbar ─── -->
+  <div class="pm-toolbar">
+    <select id="pmWell">
+      <option value="">-- Скважина --</option>
+      {% for w in wells %}
+      <option value="{{ w.id }}">{{ w.name }}</option>
+      {% endfor %}
+    </select>
+
+    <input type="date" id="pmDateFrom">
+    <span style="color:#9ca3af">—</span>
+    <input type="date" id="pmDateTo">
+
+    <button class="btn btn-primary" id="pmLoad" disabled>Загрузить</button>
+
+    <div class="sep"></div>
+
+    {% if is_admin %}
+    <button class="btn btn-warning" id="pmAutoDetect" disabled title="Запустить автодетекцию аномалий">Автодетекция</button>
+    <button class="btn btn-outline" id="pmSelectMode" disabled title="Выделить участок мышью">Выделить участок</button>
+    {% endif %}
+
+    <div class="sep"></div>
+
+    <button class="btn btn-outline" id="pmResetZoom" disabled>Сбросить зум</button>
+  </div>
+
+  <!-- ─── Body: chart + sidebar ─── -->
+  <div class="pm-body">
+
+    <!-- Chart -->
+    <div class="pm-chart-wrap">
+      <div class="pm-legend" id="pmLegend"></div>
+      <canvas id="pmChart"></canvas>
+      <div class="pm-status" id="pmStatus">Выберите скважину и период</div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="pm-sidebar">
+      <div class="pm-panel">
+        <div class="pm-tabs">
+          <div class="pm-tab active" data-tab="masks">Маски</div>
+          <div class="pm-tab" data-tab="candidates">Кандидаты</div>
+          <div class="pm-tab" data-tab="settings">Настройки</div>
+        </div>
+
+        <!-- Tab: Active masks -->
+        <div class="pm-tab-content active" id="tab-masks">
+          <div class="pm-mask-list" id="pmMaskList">
+            <div style="color:#9ca3af; text-align:center; padding:20px;">
+              Загрузите данные для просмотра масок
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab: Candidates (after auto-detect) -->
+        <div class="pm-tab-content" id="tab-candidates">
+          <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
+            <label style="font-size:11px; color:#6b7280;">Объединять если gap &lt;</label>
+            <input type="number" id="pmMergeGap" value="30" min="5" max="360"
+                   style="width:50px; padding:3px 6px; border:1px solid #d1d5db; border-radius:4px; font-size:11px;">
+            <span style="font-size:11px; color:#6b7280;">мин</span>
+            <button class="btn btn-outline" id="pmRegroup" style="padding:3px 8px; font-size:10px;">Перегруппировать</button>
+          </div>
+          {% if is_admin %}
+          <div style="display:flex; gap:4px; margin-bottom:8px;">
+            <button class="btn btn-outline" id="pmSelectAll" style="padding:3px 8px; font-size:10px;">Выбрать все</button>
+            <button class="btn btn-success" id="pmApproveSelected" style="padding:3px 8px; font-size:10px;" disabled>Утвердить</button>
+            <button class="btn btn-outline" id="pmRejectSelected" style="padding:3px 8px; font-size:10px;" disabled>Отклонить</button>
+          </div>
+          {% endif %}
+          <div class="pm-mask-list" id="pmCandidateList">
+            <div style="color:#9ca3af; text-align:center; padding:20px;">
+              Нажмите «Автодетекция» для поиска аномалий
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab: Detection settings -->
+        <div class="pm-tab-content" id="tab-settings">
+          <div style="display:flex; flex-direction:column; gap:6px;">
+            <div class="field">
+              <label style="font-size:11px; color:#6b7280;">Порог скачка (атм)</label>
+              <input type="number" id="pmThresholdSpike" value="3.0" step="0.5" min="0.5" max="20"
+                     style="padding:4px 8px; border:1px solid #d1d5db; border-radius:4px; font-size:12px; width:80px;">
+            </div>
+            <div class="field">
+              <label style="font-size:11px; color:#6b7280;">Мин. длительность (мин)</label>
+              <input type="number" id="pmMinDuration" value="5" min="1" max="120"
+                     style="padding:4px 8px; border:1px solid #d1d5db; border-radius:4px; font-size:12px; width:80px;">
+            </div>
+            <div class="field">
+              <label style="font-size:11px; color:#6b7280;">Sigma (MAD)</label>
+              <input type="number" id="pmSigma" value="3.0" step="0.5" min="1" max="10"
+                     style="padding:4px 8px; border:1px solid #d1d5db; border-radius:4px; font-size:12px; width:80px;">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Detail Panel (bottom, for creating/editing mask) ─── -->
+  <div class="pm-detail" id="pmDetail">
+    <h3 style="font-size:12px; text-transform:uppercase; color:#6b7280; margin:0 0 10px 0;">
+      <span id="pmDetailTitle">Новая маска</span>
+    </h3>
+    <div class="pm-detail-grid">
+      <div class="field">
+        <label>С (местное время)</label>
+        <input type="datetime-local" id="pmDtStart" step="60">
+      </div>
+      <div class="field">
+        <label>По (местное время)</label>
+        <input type="datetime-local" id="pmDtEnd" step="60">
+      </div>
+      <div class="field">
+        <label>Тип проблемы</label>
+        <select id="pmProblemType">
+          <option value="sensor_fault">Неисправность датчика</option>
+          <option value="comm_loss">Потеря связи</option>
+          <option value="pipeline_maintenance">Профилактика трубопровода</option>
+          <option value="gsp_switch">Переключение ГСП</option>
+          <option value="well_shutdown">Скважина не работала</option>
+          <option value="hydrate">Гидраты</option>
+          <option value="purge">Продувка</option>
+          <option value="degradation">Деградация датчика</option>
+          <option value="manual">Ручная коррекция</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Датчик</label>
+        <select id="pmSensor">
+          <option value="both">Оба</option>
+          <option value="p_tube">Трубное (p_tube)</option>
+          <option value="p_line">Линейное (p_line)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Метод коррекции</label>
+        <select id="pmMethod">
+          <option value="interpolate_noise">Интерполяция + шум</option>
+          <option value="interpolate">Линейная интерполяция</option>
+          <option value="delta_reconstruct">По хорошему датчику + dP</option>
+          <option value="delta_noise">По хорошему датчику + dP + шум</option>
+          <option value="exclude">Исключить (NaN)</option>
+          <option value="zero_flow">Дебит = 0</option>
+          <option value="median_3d">Медиана (3 дня)</option>
+          <option value="median_1d">Медиана (1 день)</option>
+        </select>
+      </div>
+      <div class="field wide">
+        <label>Причина / комментарий</label>
+        <input type="text" id="pmReason" placeholder="Профилактика ГСП, переключение...">
+      </div>
+    </div>
+    <div class="pm-detail-actions">
+      <input type="hidden" id="pmMaskId" value="">
+      <button class="btn btn-success" id="pmSaveMask">Сохранить маску</button>
+      <button class="btn btn-outline" id="pmCancelMask">Отмена</button>
+      <button class="btn btn-outline danger" id="pmDeleteMask" style="margin-left:auto; color:#dc2626; border-color:#fca5a5; display:none;">Удалить</button>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1"></script>
+<script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
+<script>
+  const IS_ADMIN = {{ is_admin|tojson }};
+</script>
+<script src="{{ url_for('static', path='/js/pressure_masks.js') }}?v={{ time() }}"></script>
+{% endblock %}

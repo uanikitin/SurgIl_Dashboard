@@ -50,8 +50,13 @@ def build_summary(
     cum_flow = float(df["cumulative_flow"].iloc[-1])
     actual_avg = cum_flow / T_obs
 
-    # Простои (минуты, где purge_flag = 1)
-    dt_min = int(df["purge_flag"].sum())
+    # Простои: сумма реальных интервалов (в минутах) с purge_flag=1
+    import numpy as np
+    time_idx = pd.to_datetime(df.index)
+    dt_sec = np.diff(time_idx.asi8 // 10**9, prepend=time_idx.asi8[0] // 10**9)
+    dt_sec[0] = 0.0
+    dt_min_arr = dt_sec / 60.0
+    dt_min = float((df["purge_flag"].values * dt_min_arr).sum())
     dt_hours = dt_min / 60.0
     dt_days = dt_hours / 24.0
 
@@ -61,8 +66,7 @@ def build_summary(
 
     # Потери при продувках (стравливание в атмосферу)
     purge_total = float(df["cumulative_purge_loss"].iloc[-1])
-    n = len(df)
-    purge_daily = float(df["purge_loss_per_min"].sum()) * 1440.0 / n if n > 0 else 0.0
+    purge_daily = float((df["purge_loss_per_min"].values * dt_min_arr).sum()) / T_obs if T_obs > 0 else 0.0
 
     # Суммарные потери
     total_loss_daily = downtime_loss_daily + purge_daily
@@ -78,8 +82,9 @@ def build_summary(
     effective_flow = actual_avg
 
     # КИВ — коэффициент использования времени (% активной работы)
-    active_minutes = n - dt_min
-    utilization_pct = (active_minutes / n * 100.0) if n > 0 else 0.0
+    total_minutes = float(dt_min_arr.sum())
+    active_minutes = total_minutes - dt_min
+    utilization_pct = (active_minutes / total_minutes * 100.0) if total_minutes > 0 else 0.0
 
     # Прогноз прироста от ТППАВ
     forecast_gain = q3_flow - median_flow

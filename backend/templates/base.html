@@ -43,6 +43,7 @@
     <a href="/flow-analysis" class="top-nav-item{{ ' active' if p.startswith('/flow-analysis') }}">Анализ дебита</a>
     <a href="/daily-report" class="top-nav-item{{ ' active' if p == '/daily-report' }}">Суточный отчёт</a>
     <a href="/lora/sensors" class="top-nav-item{{ ' active' if p.startswith('/lora') }}">Датчики</a>
+    <a href="/pressure-masks" class="top-nav-item{{ ' active' if p.startswith('/pressure-masks') }}">Маски давлений</a>
     {% if is_admin or can_view_map %}
     <a href="/admin/map" class="top-nav-item{{ ' active' if p.startswith('/admin/map') }}">Карта</a>
     {% endif %}

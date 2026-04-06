@@ -61,13 +61,19 @@ def calculate_cumulative(df: pd.DataFrame) -> pd.DataFrame:
     Накопленный дебит методом трапеций.
     Добавляет: cumulative_flow (тыс. м³).
     """
-    dt = 1.0 / 1440.0  # 1 минута = 1/1440 суток
     q = df["flow_rate"].values
+
+    # Реальные интервалы между замерами (в долях суток)
+    time_idx = pd.to_datetime(df.index)
+    dt_seconds = np.diff(time_idx.asi8 // 10**9, prepend=time_idx.asi8[0] // 10**9)
+    dt_days = dt_seconds / 86400.0
+    dt_days[0] = 0.0  # первая точка — нулевой вклад
+
     q_prev = np.roll(q, 1)
     q_prev[0] = 0.0
 
     df = df.copy()
-    df["cumulative_flow"] = np.cumsum((q_prev + q) * dt / 2.0)
+    df["cumulative_flow"] = np.cumsum((q_prev + q) * dt_days / 2.0)
     return df
 
 
@@ -115,5 +121,11 @@ def calculate_purge_loss(
     df = df.copy()
     df["purge_flag"] = is_purge.astype(int)
     df["purge_loss_per_min"] = loss_per_min
-    df["cumulative_purge_loss"] = np.cumsum(loss_per_min * is_purge)
+
+    # Реальные интервалы в минутах
+    time_idx = pd.to_datetime(df.index)
+    dt_sec = np.diff(time_idx.asi8 // 10**9, prepend=time_idx.asi8[0] // 10**9)
+    dt_min = dt_sec / 60.0
+    dt_min[0] = 0.0
+    df["cumulative_purge_loss"] = np.cumsum(loss_per_min * is_purge * dt_min)
     return df

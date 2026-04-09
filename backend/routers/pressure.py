@@ -139,6 +139,7 @@ def get_pressure_chart(
     max_gap: int = Query(10, ge=1, le=60, description="Макс. пропуск для заполнения (мин)"),
     gap_break: int = Query(120, ge=5, le=1440, description="Разрыв линии при пропуске > N минут"),
     apply_masks: bool = Query(False, description="Применить маски коррекции давления"),
+    include_raw: bool = Query(False, description="Вернуть points_raw — сырые данные до фильтров и масок (для overlay)"),
     mode: Optional[str] = Query(None, description="Режим: raw|filtered|masked (переопределяет остальные параметры)"),
 ):
     """
@@ -213,6 +214,7 @@ def get_pressure_chart(
         dt_start_override=dt_start_utc,
         dt_end_override=dt_end_utc,
         apply_masks=apply_masks,
+        include_raw=include_raw,
     )
     if mode:
         result["mode"] = mode
@@ -434,6 +436,7 @@ def _chart_from_pg(
     dt_start_override: Optional[datetime] = None,
     dt_end_override: Optional[datetime] = None,
     apply_masks: bool = False,
+    include_raw: bool = False,
 ) -> dict:
     """
     График из PostgreSQL pressure_raw.
@@ -523,6 +526,9 @@ def _chart_from_pg(
                 "points": [], "count": 0, "tz": "UTC+5", "source": "raw_pg",
             }
 
+        # Снапшот сырых строк ДО любых коррекций — для include_raw overlay
+        raw_rows_original = list(raw_rows) if include_raw else None
+
         # ── Применение масок коррекции давления (до фильтрации) ──
         masks_applied = False
         mask_corrected = 0
@@ -596,6 +602,35 @@ def _chart_from_pg(
         if masks_applied:
             result["masks_applied"] = True
             result["mask_corrected_points"] = mask_corrected
+
+        # ── Сырой overlay (без фильтров и масок) — для визуального сравнения ──
+        if include_raw and raw_rows_original:
+            raw_filtered = filter_pressure_pair(
+                p_tube=[r[1] for r in raw_rows_original],
+                p_line=[r[2] for r in raw_rows_original],
+                timestamps=[r[0].strftime("%Y-%m-%d %H:%M:%S") if isinstance(r[0], datetime) else str(r[0]) for r in raw_rows_original],
+                filter_zeros=False,
+                filter_spikes=False,
+                fill_mode="none",
+                max_gap_min=max_gap,
+                spike_threshold=0.0,
+            )
+            raw_aggregated = aggregate_filtered(
+                p_tube=raw_filtered["p_tube"],
+                p_line=raw_filtered["p_line"],
+                timestamps=raw_filtered["timestamps"],
+                interval_min=interval,
+            )
+            raw_data = []
+            for point in raw_aggregated:
+                try:
+                    dt_utc = datetime.fromisoformat(point["t"])
+                    point["t"] = (dt_utc + KUNKRAD_OFFSET).strftime("%Y-%m-%dT%H:%M:%S")
+                except (ValueError, TypeError):
+                    continue
+                raw_data.append(point)
+            result["points_raw"] = raw_data
+
         return result
 
     # ── Стандартный путь: SQL-агрегация (без фильтров) ──

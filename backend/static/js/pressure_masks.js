@@ -370,48 +370,61 @@
     chart.update("none");
   }
 
-  // ─── Drag-select plugin ───
-
+  // ─── Click-click range selection plugin ───
+  // В режиме selectMode первый клик по графику фиксирует НАЧАЛО диапазона,
+  // второй клик — КОНЕЦ. Между кликами курсор показывает полупрозрачную зону
+  // "от начала до текущей позиции". Это надёжнее drag-select, так как не
+  // конфликтует с zoom-плагином (оба слушают mousedown/up).
   const dragSelectPlugin = {
     id: "dragSelect",
     beforeEvent(chart, args) {
       if (!selectMode || !IS_ADMIN) return;
       const evt = args.event;
       const area = chart.chartArea;
+      const inArea = evt.x >= area.left && evt.x <= area.right
+                  && evt.y >= area.top  && evt.y <= area.bottom;
 
-      if (evt.type === "mousedown" && evt.x >= area.left && evt.x <= area.right) {
-        dragStart = chart.scales.x.getValueForPixel(evt.x);
-        return;
-      }
-
-      if (evt.type === "mouseup" && dragStart !== null) {
-        const dragEnd = chart.scales.x.getValueForPixel(evt.x);
-        const minT = Math.min(dragStart, dragEnd);
-        const maxT = Math.max(dragStart, dragEnd);
-        dragStart = null;
-
-        // Open detail panel with selected range
-        const dtFrom = new Date(minT);
-        const dtTo   = new Date(maxT);
-        if ((maxT - minT) > 60000) { // at least 1 minute
-          openDetailForNew(dtFrom, dtTo);
+      // Первый или второй клик — используем click (не mousedown), чтобы не
+      // драться с zoom-плагином за mousedown-событие.
+      if (evt.type === "click" && inArea) {
+        const valAtClick = chart.scales.x.getValueForPixel(evt.x);
+        if (dragStart === null) {
+          // Первый клик: фиксируем начало, рисуем вертикальную линию
+          dragStart = valAtClick;
+          chart.options.plugins.annotation.annotations._dragsel = {
+            type: "line",
+            xMin: dragStart,
+            xMax: dragStart,
+            borderColor: "#dc2626",
+            borderWidth: 2,
+          };
+          chart.update("none");
+        } else {
+          // Второй клик: фиксируем конец, открываем форму если диапазон > 1 мин
+          const minT = Math.min(dragStart, valAtClick);
+          const maxT = Math.max(dragStart, valAtClick);
+          dragStart = null;
+          delete chart.options.plugins.annotation.annotations._dragsel;
+          chart.update("none");
+          if ((maxT - minT) > 60000) {
+            openDetailForNew(new Date(minT), new Date(maxT));
+          }
         }
-        // Remove selection overlay
-        delete chart.options.plugins.annotation.annotations._dragsel;
-        chart.update("none");
         return;
       }
 
-      if (evt.type === "mousemove" && dragStart !== null) {
+      // Пока ожидаем второй клик — рисуем полупрозрачную зону от первого клика
+      // до текущей позиции курсора.
+      if (evt.type === "mousemove" && dragStart !== null && inArea) {
         const curX = chart.scales.x.getValueForPixel(evt.x);
         chart.options.plugins.annotation.annotations._dragsel = {
           type: "box",
           xMin: Math.min(dragStart, curX),
           xMax: Math.max(dragStart, curX),
-          backgroundColor: "rgba(220,38,38,0.12)",
+          backgroundColor: "rgba(220,38,38,0.15)",
           borderColor: "#dc2626",
           borderWidth: 2,
-          borderDash: [3, 3],
+          borderDash: [4, 4],
         };
         chart.update("none");
       }
@@ -423,6 +436,14 @@
     $selectMode.classList.toggle("active", selectMode);
     $canvas.style.cursor = selectMode ? "crosshair" : "";
 
+    // Сбрасываем незавершённое выделение при выходе из режима
+    if (!selectMode) {
+      dragStart = null;
+      if (chart) {
+        delete chart.options.plugins.annotation.annotations._dragsel;
+      }
+    }
+
     // Disable zoom in select mode to avoid conflict
     if (chart) {
       chart.options.plugins.zoom.pan.enabled = !selectMode;
@@ -430,6 +451,17 @@
       chart.update("none");
     }
   }
+
+  // Escape отменяет незавершённое выделение (после первого клика)
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && selectMode && dragStart !== null) {
+      dragStart = null;
+      if (chart) {
+        delete chart.options.plugins.annotation.annotations._dragsel;
+        chart.update("none");
+      }
+    }
+  });
 
   // ─── Mask list (sidebar) ───
 

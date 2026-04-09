@@ -263,7 +263,7 @@ def get_mask(mask_id: int):
 
 
 @router.post("")
-def create_mask(data: dict):
+def create_mask(data: dict, current_user: str = Depends(get_current_user)):
     from backend.db import SessionLocal
     from backend.models.pressure_mask import PressureMask
 
@@ -292,6 +292,13 @@ def create_mask(data: dict):
     if dt_end <= dt_start:
         raise HTTPException(400, "dt_end must be after dt_start")
 
+    # Ручная маска от оператора: сразу помечаем как verified,
+    # чтобы она применялась к графику и расчёту дебита без дополнительного шага approve.
+    # Автодетектор создаёт маски через auto_create_masks() в сервисе — там своя логика
+    # is_verified=False + ручной approve. Этот endpoint — только для ручного ввода.
+    # Клиент может явно передать is_verified=false, если хочет сохранить черновик.
+    is_verified = bool(data.get("is_verified", True))
+
     db = SessionLocal()
     try:
         m = PressureMask(
@@ -304,6 +311,10 @@ def create_mask(data: dict):
             manual_delta_p=data.get("manual_delta_p"),
             is_active=data.get("is_active", True),
             reason=data.get("reason"),
+            source="manual",
+            is_verified=is_verified,
+            verified_by=current_user if is_verified else None,
+            verified_at=datetime.utcnow() if is_verified else None,
         )
         db.add(m)
         db.commit()

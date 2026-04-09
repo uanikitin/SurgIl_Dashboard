@@ -438,6 +438,8 @@
     const mode = modeSelect ? modeSelect.value : '';
     if (mode) {
       s += `&mode=${mode}`;
+      // В режиме masked просим бэкенд вернуть ещё и сырые данные — для пунктирного overlay
+      if (mode === 'masked') s += '&include_raw=true';
     } else {
       // Legacy: individual filter params
       if (zeros  && zeros.checked)  s += '&filter_zeros=true';
@@ -533,7 +535,7 @@
 
   // ══════════════════ Построение датасетов ══════════════════
 
-  function buildDatasets(points, evData, visibleTypes) {
+  function buildDatasets(points, evData, visibleTypes, pointsRaw) {
     const ds = [];
 
     // ── Определяем временной диапазон давления ──
@@ -601,6 +603,80 @@
       order: 2,
       spanGaps: false,
     });
+
+    // ── 2.5) Пунктирный overlay сырых данных (до применения масок/фильтров) ──
+    // Показываем ТОЛЬКО если бэкенд прислал points_raw И они реально отличаются
+    // от скорректированных (чтобы не рисовать две одинаковые линии впустую).
+    if (pointsRaw && pointsRaw.length > 0) {
+      const tubeRaw = [];
+      const lineRaw = [];
+      let diffCount = 0;
+      // Индекс скорректированных по t для сравнения
+      const correctedIdx = new Map();
+      for (const p of points) {
+        if (p && p.t && !p._gap) correctedIdx.set(p.t, p);
+      }
+      for (const pr of pointsRaw) {
+        if (!pr || !pr.t) continue;
+        pr.t = normalizeTime(pr.t);
+        const ct = correctedIdx.get(pr.t);
+        if (ct) {
+          // Считаем «различающимися» если любая из двух величин отличается > 0.01 атм
+          const dt = (pr.p_tube_avg ?? null);
+          const dl = (pr.p_line_avg ?? null);
+          const ctDt = (ct.p_tube_avg ?? null);
+          const ctDl = (ct.p_line_avg ?? null);
+          if ((dt !== null && ctDt !== null && Math.abs(dt - ctDt) > 0.01) ||
+              (dl !== null && ctDl !== null && Math.abs(dl - ctDl) > 0.01)) {
+            diffCount++;
+          }
+        }
+        if (pr.p_tube_avg !== null && pr.p_tube_avg !== undefined) {
+          tubeRaw.push({ x: pr.t, y: pr.p_tube_avg });
+        }
+        if (pr.p_line_avg !== null && pr.p_line_avg !== undefined) {
+          lineRaw.push({ x: pr.t, y: pr.p_line_avg });
+        }
+      }
+      // Рисуем overlay только если есть реальные отличия — иначе визуально бессмысленно
+      if (diffCount > 0) {
+        console.log('[sync_chart] Raw overlay: drawing, diff points:', diffCount);
+        ds.push({
+          label: 'Ptr (сырые)',
+          data: tubeRaw,
+          borderColor: COLORS.tube,
+          backgroundColor: 'transparent',
+          borderWidth: 1,
+          borderDash: [4, 4],
+          pointRadius: 0,
+          pointHoverRadius: 0,
+          tension: 0.3,
+          fill: false,
+          yAxisID: 'y',
+          order: 5,
+          spanGaps: false,
+          _isRawOverlay: true,
+        });
+        ds.push({
+          label: 'Pshl (сырые)',
+          data: lineRaw,
+          borderColor: COLORS.line,
+          backgroundColor: 'transparent',
+          borderWidth: 1,
+          borderDash: [4, 4],
+          pointRadius: 0,
+          pointHoverRadius: 0,
+          tension: 0.3,
+          fill: false,
+          yAxisID: 'y',
+          order: 6,
+          spanGaps: false,
+          _isRawOverlay: true,
+        });
+      } else {
+        console.log('[sync_chart] Raw overlay: no visible differences — skipping');
+      }
+    }
 
     // ── Диагностика: сравниваем диапазоны давления и событий ──
     const eventColors = evData.eventColors || {};
@@ -1618,11 +1694,16 @@
       }
       const json = await resp.json();
       const points = json.points || [];
+      // Сырые данные для пунктирного overlay (только когда backend их прислал)
+      const pointsRaw = json.points_raw || null;
 
       // 1.5) Маски коррекции давления
       currentMaskZones = json.mask_zones || [];
       if (json.masks_applied) {
         console.log('[sync_chart] Masks applied:', json.mask_corrected_points, 'points,', currentMaskZones.length, 'zones');
+      }
+      if (pointsRaw) {
+        console.log('[sync_chart] Raw overlay received:', pointsRaw.length, 'pts');
       }
 
       // 2) Получаем события и фильтруем по текущему периоду
@@ -1674,7 +1755,7 @@
       }
 
       // 3) Строим датасеты
-      const result = buildDatasets(points, evData, visibleTypes);
+      const result = buildDatasets(points, evData, visibleTypes, pointsRaw);
       const datasets = result.datasets;
 
       // 4) Статистика событий в диапазоне и сводка

@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import logging
+import time as time_module
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query, HTTPException, Request
@@ -20,6 +21,9 @@ log = logging.getLogger(__name__)
 KUNGRAD_OFFSET = timedelta(hours=5)
 
 templates = Jinja2Templates(directory="backend/templates")
+# base.html использует {{ time() }} для cache-busting CSS/JS.
+# Каждый Jinja2Templates-экземпляр независим — регистрируем глобал локально.
+templates.env.globals["time"] = lambda: int(time_module.time())
 
 # ──────────────────── Справочники ────────────────────
 

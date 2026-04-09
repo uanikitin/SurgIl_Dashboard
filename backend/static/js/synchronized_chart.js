@@ -3042,6 +3042,23 @@ Pshl (шлейф): ${pshlStats.count} точек
     masksManageBtn.addEventListener('click', () => {
       masksModal.style.display = 'flex';
       loadMasksList();
+      // Обновляем href ссылки "↗ В новом окне" под текущую скважину и период
+      const openEditorLink = document.getElementById('masks-open-editor');
+      if (openEditorLink) {
+        const params = new URLSearchParams({ well_id: String(wellId) });
+        if (currentStart) params.set('start', currentStart);
+        if (currentEnd) params.set('end', currentEnd);
+        else if (currentDays) params.set('days', String(currentDays));
+        openEditorLink.href = '/pressure-masks?' + params.toString();
+      }
+    });
+  }
+  // При клике по "↗ В новом окне" — закрываем modal, чтобы при возврате на эту вкладку
+  // график скважины был сразу виден без затемнения.
+  const openEditorLink = document.getElementById('masks-open-editor');
+  if (openEditorLink) {
+    openEditorLink.addEventListener('click', () => {
+      if (masksModal) masksModal.style.display = 'none';
     });
   }
   function closeMasksModal() {

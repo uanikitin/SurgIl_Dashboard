@@ -71,6 +71,7 @@
 
   // ─── Init ───
   setDefaultDates();
+  applyUrlParams();
   $well.addEventListener("change", onWellChange);
   $load.addEventListener("click", loadData);
   $resetZoom.addEventListener("click", () => { if (chart) chart.resetZoom(); });
@@ -116,6 +117,40 @@
     weekAgo.setDate(weekAgo.getDate() - 7);
     $dateTo.value = fmt(today);
     $dateFrom.value = fmt(weekAgo);
+  }
+
+  /** Если страница открыта с параметрами в URL (well_id, start, end, days) —
+   *  проставляем соответствующие поля и автоматически загружаем данные.
+   *  Используется при открытии из страницы скважины через "↗ В новом окне". */
+  function applyUrlParams() {
+    const qs = new URLSearchParams(window.location.search);
+    const wellIdParam = qs.get("well_id");
+    if (wellIdParam) {
+      // Проверяем что такая опция есть в селекте — если нет, просто игнорируем
+      const opt = Array.from($well.options).find(o => o.value === wellIdParam);
+      if (opt) $well.value = wellIdParam;
+    }
+    const startParam = qs.get("start");
+    const endParam = qs.get("end");
+    if (startParam) $dateFrom.value = startParam.slice(0, 10);
+    if (endParam) $dateTo.value = endParam.slice(0, 10);
+    // days имеет приоритет только если start/end не заданы
+    if (!startParam && !endParam) {
+      const daysParam = parseInt(qs.get("days") || "", 10);
+      if (Number.isFinite(daysParam) && daysParam > 0) {
+        const today = new Date();
+        const since = new Date(today);
+        since.setDate(since.getDate() - daysParam);
+        $dateTo.value = fmt(today);
+        $dateFrom.value = fmt(since);
+      }
+    }
+    if (wellIdParam && $well.value === wellIdParam) {
+      // Enable кнопки как после onWellChange и сразу стартуем загрузку
+      onWellChange();
+      // Даём DOM дорисоваться, затем грузим
+      setTimeout(() => loadData().catch(err => console.error("[pm] auto-load failed:", err)), 50);
+    }
   }
 
   function fmt(d) {

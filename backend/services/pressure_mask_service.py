@@ -284,7 +284,9 @@ def _apply_seasonal_reconstruct(
         return
 
     # Параметры из маски
-    offset_atm = (mask or {}).get("manual_delta_p") or 0.0  # ручное смещение (атм)
+    noise_factor = (mask or {}).get("manual_delta_p")
+    if noise_factor is None or noise_factor < 0:
+        noise_factor = 1.0
 
     # ── 1. Период из вбросов реагентов ──
     period_5min = 144  # fallback: 12ч
@@ -378,8 +380,9 @@ def _apply_seasonal_reconstruct(
     if np.isnan(resid_std) or resid_std < 0.01:
         resid_std = 0.05
     resid_std = min(resid_std, 0.5)
+    resid_std *= noise_factor  # масштаб от ползунка шума
 
-    white = np.random.normal(0, resid_std * 0.3, n_gap_5min)
+    white = np.random.normal(0, resid_std * 0.3, n_gap_5min) if resid_std > 0.001 else np.zeros(n_gap_5min)
     corr_noise = np.cumsum(white)
     for i in range(15, len(corr_noise), 15):
         corr_noise[i:] -= corr_noise[i]
@@ -387,7 +390,7 @@ def _apply_seasonal_reconstruct(
         corr_noise = corr_noise / corr_noise.std() * resid_std
 
     # ── 7. Собираем реконструкцию (5-мин) ──
-    recon_5min = gap_trend + gap_seasonal + corr_noise + offset_atm
+    recon_5min = gap_trend + gap_seasonal + corr_noise
 
     # ── 8. Интерполируем обратно к исходной частоте (1-мин) ──
     gap_idx = df.index[time_mask]

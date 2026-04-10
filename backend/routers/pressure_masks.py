@@ -317,7 +317,7 @@ def create_mask(data: dict, current_user: str = Depends(get_current_user)):
             dt_start=dt_start,
             dt_end=dt_end,
             manual_delta_p=data.get("noise_factor",
-                           data.get("offset_atm",
+                           data.get("seasonal_noise",
                            data.get("manual_delta_p"))),
             is_active=data.get("is_active", True),
             reason=data.get("reason"),

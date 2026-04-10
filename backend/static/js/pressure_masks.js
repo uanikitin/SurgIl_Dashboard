@@ -75,13 +75,34 @@
   setDefaultDates();
   applyUrlParams();
   const METHOD_HINTS = {
-    interpolate_noise: "Соединяет границы выделенного участка прямой линией и добавляет реалистичный шум, рассчитанный по 6 часам чистых данных перед маской. Результат выглядит как естественный сигнал.",
-    interpolate: "Соединяет границы участка прямой линией (без шума). Кривая получается гладкой — подходит для коротких пропусков.",
-    delta_reconstruct: "Восстанавливает неисправный датчик по показаниям второго + медиана перепада давления за сутки до начала проблемы. Эффективен когда один из двух датчиков работает корректно.",
-    exclude: "Полностью убирает данные на выделенном участке (NaN). Оставшиеся пропуски заполняются ближайшим известным значением. Используйте для явно ошибочных данных.",
-    median_3d: "Заменяет весь выделенный участок одним значением — медианой за 3 дня до начала проблемы. Подходит для длительных аномалий.",
-    median_1d: "Заменяет участок медианой за 1 день до начала проблемы. Подходит для кратковременных сбоев.",
-    seasonal_reconstruct: "Разложение сигнала на тренд + сезонность (STL). Период цикла определяется автоматически по интервалам вбросов реагентов. Восстановленная кривая повторяет характерный ритм работы скважины. Лучший метод для длительных пропусков (>12ч).",
+    interpolate_noise:
+      "Прямая линия между границами участка + реалистичный шум.\n" +
+      "Шум оценивается по 6ч чистых данных перед маской (MAD, робастно).\n" +
+      "Параметр «Шум»: 0 = гладкая линия, 1 = естественный уровень, 2-3 = усиленный.\n" +
+      "Рекомендуется для: коротких пропусков (до 6-12ч), потеря связи.",
+    interpolate:
+      "Прямая линия между границами (без шума). Максимально гладкая.\n" +
+      "Рекомендуется для: очень коротких пропусков (<1ч), интервалы между замерами.",
+    delta_reconstruct:
+      "Восстанавливает один датчик через второй + медиана ΔP (перепад давления).\n" +
+      "Медиана ΔP рассчитывается за 24ч до проблемы.\n" +
+      "Рекомендуется для: сбой одного из двух датчиков, когда второй работает корректно.",
+    seasonal_reconstruct:
+      "STL-разложение: тренд + сезонность + шум.\n" +
+      "Тренд: привязан к реальным значениям на границах маски.\n" +
+      "Сезонность: период автоматически из интервалов вбросов реагентов.\n" +
+      "Параметр «Шум»: 0 = только тренд + цикл, 1 = с естественным шумом.\n" +
+      "Параметр «Смещение»: сдвиг всей кривой вверх/вниз (атм).\n" +
+      "Рекомендуется для: длительных пропусков (>12ч), где важно сохранить ритм скважины.",
+    exclude:
+      "Полностью убирает данные (NaN). Пропуски заполняются ближайшим значением.\n" +
+      "Рекомендуется для: явно ошибочные данные, которые нельзя восстановить.",
+    median_3d:
+      "Заменяет весь участок одним значением — медианой за 3 дня до проблемы.\n" +
+      "Рекомендуется для: длительные аномалии с примерно постоянным уровнем давления.",
+    median_1d:
+      "Заменяет участок медианой за 1 день до проблемы.\n" +
+      "Рекомендуется для: кратковременные сбои (до 6ч).",
   };
   const $noiseGroup  = document.getElementById("pmNoiseGroup");
   const $noiseFactor = document.getElementById("pmNoiseFactor");
@@ -93,8 +114,11 @@
   const $offsetLabel   = document.getElementById("pmOffsetLabel");
 
   function updateMethodHint() {
-    if ($methodHint) $methodHint.textContent = METHOD_HINTS[$method.value] || "";
-    const showNoise = $method.value === "interpolate_noise";
+    if ($methodHint) {
+      const hint = METHOD_HINTS[$method.value] || "";
+      $methodHint.innerHTML = hint.replace(/\n/g, "<br>");
+    }
+    const showNoise = ($method.value === "interpolate_noise" || $method.value === "seasonal_reconstruct");
     const showSeasonal = $method.value === "seasonal_reconstruct";
     if ($noiseGroup) $noiseGroup.style.display = showNoise ? "" : "none";
     if ($seasonalGroup) $seasonalGroup.style.display = showSeasonal ? "" : "none";
@@ -480,6 +504,7 @@
   // полупрозрачную зону напрямую на canvas (afterDraw), БЕЗ chart.update()
   // — иначе перерисовка 4000+ точек на каждый mousemove тормозит.
   let _selMouseX = null;  // текущая позиция курсора (пиксели canvas)
+  let _selFixed = null;   // {start, end} — зафиксированное выделение (между 2-м кликом и закрытием формы)
 
   const dragSelectPlugin = {
     id: "dragSelect",
@@ -503,6 +528,7 @@
           // Второй клик — фиксируем конец
           const minT = Math.min(dragStart, valAtClick);
           const maxT = Math.max(dragStart, valAtClick);
+          _selFixed = { start: minT, end: maxT };  // сохраняем для afterDraw
           dragStart = null;
           _selMouseX = null;
           chartInstance.draw();
@@ -523,6 +549,21 @@
 
     afterDraw(chartInstance) {
       // Рисуем selection overlay напрямую на canvas — дешёво, без пересчёта datasets.
+      // 1. Зафиксированное выделение (после второго клика, пока форма открыта)
+      if (_selFixed) {
+        const area = chartInstance.chartArea;
+        const ctx = chartInstance.ctx;
+        const left = chartInstance.scales.x.getPixelForValue(_selFixed.start);
+        const right = chartInstance.scales.x.getPixelForValue(_selFixed.end);
+        ctx.save();
+        ctx.fillStyle = "rgba(123, 31, 162, 0.12)";
+        ctx.fillRect(left, area.top, right - left, area.bottom - area.top);
+        ctx.strokeStyle = "#7b1fa2";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(left, area.top, right - left, area.bottom - area.top);
+        ctx.restore();
+      }
+      // 2. Незавершённое выделение (после первого клика)
       if (!selectMode || dragStart === null) return;
       const area = chartInstance.chartArea;
       const ctx = chartInstance.ctx;
@@ -680,9 +721,9 @@
       $noiseFactor.value = m.manual_delta_p != null ? m.manual_delta_p : 1.0;
       if ($noiseLabel) $noiseLabel.textContent = parseFloat($noiseFactor.value).toFixed(1) + "x";
     }
-    if ($offset && m.correction_method === "seasonal_reconstruct") {
-      $offset.value = m.manual_delta_p != null ? m.manual_delta_p : 0;
-      if ($offsetLabel) $offsetLabel.textContent = parseFloat($offset.value).toFixed(1);
+    if ($noiseFactor && m.correction_method === "seasonal_reconstruct") {
+      $noiseFactor.value = m.manual_delta_p != null ? m.manual_delta_p : 1.0;
+      if ($noiseLabel) $noiseLabel.textContent = parseFloat($noiseFactor.value).toFixed(1) + "x";
     }
     updateMethodHint();
     $deleteMask.style.display = "inline-block";
@@ -697,6 +738,7 @@
     $detail.classList.remove("open");
     $maskId.value = "";
     selectedMaskId = null;
+    _selFixed = null;  // убрать выделение
     renderMaskList();
     updateAnnotations();
   }
@@ -727,8 +769,8 @@
       body.noise_factor = parseFloat($noiseFactor.value);
     }
     if ($method.value === "seasonal_reconstruct") {
-      if ($trainWindow) body.train_window_hours = parseInt($trainWindow.value) || 72;
       if ($offset) body.offset_atm = parseFloat($offset.value) || 0;
+      if ($noiseFactor) body.seasonal_noise = parseFloat($noiseFactor.value);
     }
 
     const maskId = $maskId.value;

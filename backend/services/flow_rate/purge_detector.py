@@ -134,6 +134,7 @@ class PurgeDetector:
         df: pd.DataFrame,
         events_df: pd.DataFrame | None = None,
         exclude_ids: set[str] | None = None,
+        algo_detection: bool = True,
     ) -> list[PurgeCycle]:
         """
         Полная детекция продувок.
@@ -163,9 +164,13 @@ class PurgeDetector:
             cycles.extend(marker_cycles)
             log.info("Marker detection: %d cycles", len(marker_cycles))
 
-        # 2) Алгоритмическая детекция
-        algo_cycles = self._detect_from_curve(df)
-        log.info("Algorithm detection: %d candidates", len(algo_cycles))
+        # 2) Алгоритмическая детекция (опционально)
+        algo_cycles = []
+        if algo_detection:
+            algo_cycles = self._detect_from_curve(df)
+            log.info("Algorithm detection: %d candidates", len(algo_cycles))
+        else:
+            log.info("Algorithm detection: DISABLED (only marker-based purges)")
 
         # 3) Убираем перекрытия с маркерными
         if marker_cycles and algo_cycles:

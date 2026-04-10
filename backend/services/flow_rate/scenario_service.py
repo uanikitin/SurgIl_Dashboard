@@ -231,6 +231,7 @@ def run_scenario_calculation(
         from backend.services.pressure_mask_service import load_active_masks, apply_masks as apply_pressure_masks
         pressure_masks = load_active_masks(
             scenario.well_id, scenario.period_start, scenario.period_end,
+            verified_only=True,
         )
         if pressure_masks:
             df, mask_corrected = apply_pressure_masks(df, pressure_masks)
@@ -274,7 +275,11 @@ def run_scenario_calculation(
 
     events_df = get_purge_events(scenario.well_id, dt_start, dt_end)
     detector = PurgeDetector()
-    purge_cycles = detector.detect(df, events_df, exclude_ids)
+    # Алгоритмическая детекция продувок отключена по умолчанию —
+    # только подтверждённые маркеры из events (Telegram-бот).
+    # Автодетекция по кривой давления включается явно через сценарий.
+    algo_enabled = getattr(scenario, "auto_purge_detection", False)
+    purge_cycles = detector.detect(df, events_df, exclude_ids, algo_detection=algo_enabled)
 
     # 9. Пересчёт потерь: ТОЛЬКО в фазах venting
     df = recalculate_purge_loss_with_cycles(df, purge_cycles)

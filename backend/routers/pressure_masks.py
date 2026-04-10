@@ -30,9 +30,13 @@ templates.env.globals["time"] = lambda: int(time_module.time())
 # NB: "both" задан в модели ORM, но НЕ в check constraint на БД (миграция v2 не применена).
 # Пока constraint не обновлён — "both" убран из валидации, иначе INSERT падает с CheckViolation.
 VALID_SENSORS = ("p_tube", "p_line")
+# NB: delta_noise, interpolate_noise, zero_flow задуманы для v2, но:
+#   a) DB check constraint (chk_mask_method) их не знает — миграция v2 не применена;
+#   b) apply_masks() их не обрабатывает — игнорирует без ошибки.
+# Пока constraint и код не обновлены — разрешаем только рабочие методы.
 VALID_METHODS = (
-    "median_1d", "median_3d", "delta_reconstruct", "delta_noise",
-    "interpolate", "interpolate_noise", "exclude", "zero_flow",
+    "median_1d", "median_3d", "delta_reconstruct",
+    "interpolate", "exclude",
 )
 VALID_PROBLEM_TYPES = (
     "hydrate", "comm_loss", "sensor_fault", "manual", "degradation", "purge",

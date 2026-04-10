@@ -174,6 +174,16 @@
     if ($autoDetect) $autoDetect.disabled = true;
     if ($selectMode) $selectMode.disabled = true;
     $resetZoom.disabled = true;
+    // Кнопка «← Скважина»
+    const backBtn = document.getElementById("pmBackToWell");
+    if (backBtn) {
+      if (hasWell) {
+        backBtn.href = "/well/" + $well.value;
+        backBtn.style.display = "";
+      } else {
+        backBtn.style.display = "none";
+      }
+    }
   }
 
   // ─── Load data (chart + masks) ───
@@ -223,6 +233,8 @@
       end:   $dateTo.value + "T23:59:59",
       interval: "5",
       filter_zeros: "true",
+      apply_masks: "true",
+      include_raw: "true",
     });
     const r = await fetch(`${API_CHART}/${wellId}?${params}`);
     if (!r.ok) throw new Error(await r.text());
@@ -247,37 +259,80 @@
 
   function renderChart(data) {
     const points = data.points || [];
+    const pointsRaw = data.points_raw || null;
     const labels = points.map(p => p.t);
     const pTube  = points.map(p => p.p_tube_avg);
     const pLine  = points.map(p => p.p_line_avg);
 
     if (chart) chart.destroy();
 
+    // Строим datasets: скорректированные (сплошные) + сырые (пунктир) если есть
+    const datasets = [
+      {
+        label: "P труб (атм)",
+        data: pTube,
+        borderColor: "#ef4444",
+        backgroundColor: "rgba(239,68,68,0.1)",
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.1,
+      },
+      {
+        label: "P лин (атм)",
+        data: pLine,
+        borderColor: "#3b82f6",
+        backgroundColor: "rgba(59,130,246,0.1)",
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.1,
+      },
+    ];
+
+    // Пунктирный сырой overlay
+    if (pointsRaw && pointsRaw.length > 0) {
+      const rawByT = new Map(pointsRaw.map(p => [p.t, p]));
+      let hasDiff = false;
+      for (const p of points) {
+        const r = rawByT.get(p.t);
+        if (r && ((Math.abs((p.p_tube_avg||0) - (r.p_tube_avg||0)) > 0.01) ||
+                  (Math.abs((p.p_line_avg||0) - (r.p_line_avg||0)) > 0.01))) {
+          hasDiff = true; break;
+        }
+      }
+      if (hasDiff) {
+        datasets.push({
+          label: "P труб (сырые)",
+          data: pointsRaw.map(p => p.p_tube_avg),
+          borderColor: "rgba(239,68,68,0.4)",
+          borderWidth: 1,
+          borderDash: [4, 4],
+          pointRadius: 0,
+          tension: 0.1,
+          fill: false,
+        });
+        datasets.push({
+          label: "P лин (сырые)",
+          data: pointsRaw.map(p => p.p_line_avg),
+          borderColor: "rgba(59,130,246,0.4)",
+          borderWidth: 1,
+          borderDash: [4, 4],
+          pointRadius: 0,
+          tension: 0.1,
+          fill: false,
+        });
+      }
+    }
+
+    if (data.masks_applied) {
+      $status.textContent = `Точек: ${points.length}, масок: ${masks.length}, скорректировано: ${data.mask_corrected_points || 0}`;
+    }
+
     const ctx = $canvas.getContext("2d");
     chart = new Chart(ctx, {
       type: "line",
       data: {
         labels,
-        datasets: [
-          {
-            label: "P труб (атм)",
-            data: pTube,
-            borderColor: "#ef4444",
-            backgroundColor: "rgba(239,68,68,0.1)",
-            borderWidth: 1.5,
-            pointRadius: 0,
-            tension: 0.1,
-          },
-          {
-            label: "P лин (атм)",
-            data: pLine,
-            borderColor: "#3b82f6",
-            backgroundColor: "rgba(59,130,246,0.1)",
-            borderWidth: 1.5,
-            pointRadius: 0,
-            tension: 0.1,
-          },
-        ],
+        datasets,
       },
       options: {
         responsive: true,
@@ -562,8 +617,8 @@
     $dtStart.value = toLocalInput(dtFrom);
     $dtEnd.value = toLocalInput(dtTo);
     $problemType.value = "manual";
-    $sensor.value = "p_tube";
-    $method.value = "interpolate";
+    $sensor.value = "both";
+    $method.value = "interpolate_noise";
     $reason.value = "";
     $deleteMask.style.display = "none";
     $detail.classList.add("open");

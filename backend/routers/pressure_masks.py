@@ -27,9 +27,7 @@ templates.env.globals["time"] = lambda: int(time_module.time())
 
 # ──────────────────── Справочники ────────────────────
 
-# NB: "both" задан в модели ORM, но НЕ в check constraint на БД (миграция v2 не применена).
-# Пока constraint не обновлён — "both" убран из валидации, иначе INSERT падает с CheckViolation.
-VALID_SENSORS = ("p_tube", "p_line")
+VALID_SENSORS = ("p_tube", "p_line", "both")
 # NB: delta_noise, interpolate_noise, zero_flow задуманы для v2, но:
 #   a) DB check constraint (chk_mask_method) их не знает — миграция v2 не применена;
 #   b) apply_masks() их не обрабатывает — игнорирует без ошибки.

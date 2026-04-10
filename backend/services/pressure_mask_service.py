@@ -104,7 +104,7 @@ def apply_masks(
     total_corrected = 0
 
     for mask in masks:
-        affected = mask["affected_sensor"]  # 'p_tube' or 'p_line'
+        sensor = mask["affected_sensor"]  # 'p_tube', 'p_line', or 'both'
         method = mask["correction_method"]
         dt_start = mask["dt_start"]
         dt_end = mask["dt_end"]
@@ -115,49 +115,55 @@ def apply_masks(
         if n_affected == 0:
             continue
 
-        total_corrected += n_affected
+        # Если affected_sensor == 'both' — применяем ко обоим, иначе к одному
+        sensors_to_fix = ["p_tube", "p_line"] if sensor == "both" else [sensor]
 
-        if method == "median_1d":
-            _apply_median(df, time_mask, affected, dt_start, window_days=1)
+        for affected in sensors_to_fix:
+            total_corrected += n_affected
 
-        elif method == "median_3d":
-            _apply_median(df, time_mask, affected, dt_start, window_days=3)
+            if method == "median_1d":
+                _apply_median(df, time_mask, affected, dt_start, window_days=1)
 
-        elif method == "delta_reconstruct":
-            _apply_delta_reconstruct(
-                df, time_mask, affected, dt_start,
-                manual_delta_p=mask.get("manual_delta_p"),
+            elif method == "median_3d":
+                _apply_median(df, time_mask, affected, dt_start, window_days=3)
+
+            elif method == "delta_reconstruct":
+                _apply_delta_reconstruct(
+                    df, time_mask, affected, dt_start,
+                    manual_delta_p=mask.get("manual_delta_p"),
+                )
+
+            elif method == "interpolate":
+                df.loc[time_mask, affected] = np.nan
+                df[affected] = df[affected].interpolate(method="linear")
+
+            elif method == "interpolate_noise":
+                # Линейная интерполяция + реалистичный шум.
+                # σ из ЧИСТОГО участка ПЕРЕД маской, MAD (робаст).
+                clean_window = df.loc[df.index < dt_start, affected].dropna()
+                clean_window = clean_window.tail(6 * 60)  # 6ч перед маской
+                diffs = clean_window.diff().dropna()
+                if len(diffs) >= 10:
+                    mad = float(np.median(np.abs(diffs - np.median(diffs))))
+                    noise_std = mad * 1.4826  # MAD → σ
+                else:
+                    noise_std = 0.05
+                noise_std = min(noise_std, 0.3)  # макс 0.3 атм
+                if np.isnan(noise_std) or noise_std < 0.01:
+                    noise_std = 0.05
+
+                df.loc[time_mask, affected] = np.nan
+                df[affected] = df[affected].interpolate(method="linear")
+                noise = np.random.normal(0, noise_std, size=n_affected)
+                df.loc[time_mask, affected] += noise
+
+            elif method == "exclude":
+                df.loc[time_mask, affected] = np.nan
+
+            log.debug(
+                "mask %s: method=%s sensor=%s %d points",
+                mask["id"], method, affected, n_affected,
             )
-
-        elif method == "interpolate":
-            df.loc[time_mask, affected] = np.nan
-            df[affected] = df[affected].interpolate(method="linear")
-
-        elif method == "interpolate_noise":
-            # Линейная интерполяция + реалистичный шум на уровне соседних данных.
-            # Берём σ из 24ч ДО начала маски (или всего ряда как fallback),
-            # чтобы шум был соразмерен реальным колебаниям сигнала.
-            before = df.loc[df.index < dt_start, affected].dropna()
-            window = before.tail(24 * 60)  # ~24ч при 1-мин данных
-            if len(window) >= 10:
-                noise_std = float(window.diff().dropna().std())
-            else:
-                noise_std = float(df[affected].dropna().diff().dropna().std())
-            if np.isnan(noise_std) or noise_std < 0.001:
-                noise_std = 0.05  # минимальный шум ~0.05 атм
-
-            df.loc[time_mask, affected] = np.nan
-            df[affected] = df[affected].interpolate(method="linear")
-            noise = np.random.normal(0, noise_std, size=n_affected)
-            df.loc[time_mask, affected] += noise
-
-        elif method == "exclude":
-            df.loc[time_mask, affected] = np.nan
-
-        log.debug(
-            "mask %s: method=%s sensor=%s %d points",
-            mask["id"], method, affected, n_affected,
-        )
 
     # Заполняем оставшиеся NaN (от exclude / interpolate на краях)
     for col in ("p_tube", "p_line"):

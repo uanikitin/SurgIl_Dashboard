@@ -1147,29 +1147,29 @@
     // ── Обработчики: hover строки продувки → подсветка на графике ──
     var purgeRows = tbody.querySelectorAll('tr[data-purge-id]');
     for (var r = 0; r < purgeRows.length; r++) {
-      purgeRows[r].addEventListener('click', function () {
-        var pid = this.getAttribute('data-purge-id');
-        var wasActive = highlightedPurgeId === pid;
-        // Снять подсветку со всех строк
-        tbody.querySelectorAll('tr').forEach(function(t) { t.style.background = ''; });
-        if (wasActive) {
-          // Снять
-          highlightedPurgeId = null;
-          highlightPurgeOnChart(null);
-          document.dispatchEvent(new CustomEvent('highlightTimeRange', { detail: null }));
-        } else {
-          // Включить
-          this.style.background = '#e3f2fd';
-          highlightedPurgeId = pid;
-          highlightPurgeOnChart(pid);
-          var pc = _findPurgeCycle(pid);
-          if (pc) {
+      // Сохраняем данные прямо в строку чтобы не зависеть от _findPurgeCycle
+      (function(trEl, purgeData) {
+        trEl.addEventListener('click', function () {
+          var pid = purgeData.id;
+          var wasActive = highlightedPurgeId === pid;
+          tbody.querySelectorAll('tr').forEach(function(t) { t.style.background = ''; t.classList.remove('dt-active'); });
+          if (wasActive) {
+            highlightedPurgeId = null;
+            highlightPurgeOnChart(null);
+            document.dispatchEvent(new CustomEvent('highlightTimeRange', { detail: null }));
+          } else {
+            this.style.background = '#e3f2fd';
+            highlightedPurgeId = pid;
+            highlightPurgeOnChart(pid);
+            var start = purgeData.venting_start || purgeData.buildup_start;
+            var end = purgeData.buildup_end || purgeData.venting_end;
+            console.log('[flow_chart] highlight purge:', start, '→', end);
             document.dispatchEvent(new CustomEvent('highlightTimeRange', {
-              detail: { start: pc.venting_start || pc.buildup_start, end: pc.buildup_end || pc.venting_end, type: 'purge' }
+              detail: { start: start, end: end, type: 'purge' }
             }));
           }
-        }
-      });
+        });
+      })(tr, pc);
     }
 
     // ── Обработчики: клик строки простоя → подсветка на всех графиках ──
@@ -1189,6 +1189,7 @@
         } else {
           this.style.background = '#fff3e0';
           this.classList.add('dt-active');
+          console.log('[flow_chart] highlight downtime:', dtStart, '→', dtEnd);
           document.dispatchEvent(new CustomEvent('highlightTimeRange', {
             detail: { start: dtStart, end: dtEnd, type: 'downtime' }
           }));

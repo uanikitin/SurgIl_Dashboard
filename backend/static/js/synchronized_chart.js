@@ -3586,9 +3586,10 @@ Pshl (шлейф): ${pshlStats.count} точек
   // ══════════════════ Подсветка диапазонов из таблицы продувок/простоев ══════════════════
 
   document.addEventListener('highlightTimeRange', function (e) {
-    if (!syncChart) return;
+    console.log('[sync_chart] highlightTimeRange event:', e.detail);
+    if (!syncChart) { console.log('[sync_chart] no syncChart yet'); return; }
     var anns = syncChart.options.plugins.annotation.annotations;
-    if (!anns) return;
+    if (!anns) { console.log('[sync_chart] no annotations obj'); return; }
 
     if (!e.detail) {
       // Убрать подсветку

@@ -177,7 +177,7 @@ def apply_masks(
             elif method == "seasonal_reconstruct":
                 _apply_seasonal_reconstruct(
                     df, time_mask, affected, dt_start, dt_end,
-                    mask.get("well_id"),
+                    mask.get("well_id"), mask,
                 )
 
             elif method == "exclude":
@@ -265,6 +265,7 @@ def _apply_seasonal_reconstruct(
     dt_start: datetime,
     dt_end: datetime,
     well_id: int | None,
+    mask: dict | None = None,
 ) -> None:
     """Реконструкция участка через STL: тренд + сезонность + коррелированный шум.
 
@@ -281,6 +282,9 @@ def _apply_seasonal_reconstruct(
     n_gap = int(time_mask.sum())
     if n_gap == 0:
         return
+
+    # Параметры из маски
+    offset_atm = (mask or {}).get("manual_delta_p") or 0.0  # ручное смещение (атм)
 
     # ── 1. Период из вбросов реагентов ──
     period_5min = 144  # fallback: 12ч
@@ -351,18 +355,19 @@ def _apply_seasonal_reconstruct(
         df[affected] = df[affected].interpolate(method="linear")
         return
 
-    # ── 4. Экстраполяция тренда ──
-    trend_tail = stl_fit.trend.dropna().tail(period_5min)
-    if len(trend_tail) >= 2:
-        slope = np.polyfit(range(len(trend_tail)), trend_tail.values, 1)[0]
-    else:
-        slope = 0.0
-
-    # Количество 5-мин точек в пропуске
+    # ── 4. Anchored trend (привязка к реальным значениям на границах) ──
+    # Вместо слепой экстраполяции — берём реальные значения давления
+    # на входе и выходе маски и линейно интерполируем между ними.
+    # Это гарантирует, что реконструкция стыкуется с реальными данными.
     gap_duration_min = (dt_end - dt_start).total_seconds() / 60
     n_gap_5min = max(1, int(gap_duration_min / 5))
 
-    gap_trend = trend_tail.iloc[-1] + slope * np.arange(1, n_gap_5min + 1)
+    # Реальное давление на границах (медиана 5 точек для сглаживания)
+    val_before = before.tail(5).median()
+    after = df.loc[df.index > dt_end, affected].dropna()
+    val_after = after.head(5).median() if len(after) >= 3 else val_before
+    # Линейный тренд от val_before к val_after
+    gap_trend = np.linspace(val_before, val_after, n_gap_5min)
 
     # ── 5. Сезонность: повтор последнего цикла ──
     seasonal_cycle = stl_fit.seasonal.tail(period_5min).values
@@ -382,7 +387,7 @@ def _apply_seasonal_reconstruct(
         corr_noise = corr_noise / corr_noise.std() * resid_std
 
     # ── 7. Собираем реконструкцию (5-мин) ──
-    recon_5min = gap_trend + gap_seasonal + corr_noise
+    recon_5min = gap_trend + gap_seasonal + corr_noise + offset_atm
 
     # ── 8. Интерполируем обратно к исходной частоте (1-мин) ──
     gap_idx = df.index[time_mask]

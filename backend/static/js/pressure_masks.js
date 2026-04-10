@@ -87,11 +87,17 @@
   const $noiseFactor = document.getElementById("pmNoiseFactor");
   const $noiseLabel  = document.getElementById("pmNoiseLabel");
 
+  const $seasonalGroup = document.getElementById("pmSeasonalGroup");
+  const $trainWindow   = document.getElementById("pmTrainWindow");
+  const $offset        = document.getElementById("pmOffset");
+  const $offsetLabel   = document.getElementById("pmOffsetLabel");
+
   function updateMethodHint() {
     if ($methodHint) $methodHint.textContent = METHOD_HINTS[$method.value] || "";
-    // Показываем ползунок шума только для методов с шумом
     const showNoise = $method.value === "interpolate_noise";
+    const showSeasonal = $method.value === "seasonal_reconstruct";
     if ($noiseGroup) $noiseGroup.style.display = showNoise ? "" : "none";
+    if ($seasonalGroup) $seasonalGroup.style.display = showSeasonal ? "" : "none";
   }
   $method.addEventListener("change", updateMethodHint);
   updateMethodHint();
@@ -99,6 +105,11 @@
   if ($noiseFactor) {
     $noiseFactor.addEventListener("input", () => {
       if ($noiseLabel) $noiseLabel.textContent = parseFloat($noiseFactor.value).toFixed(1) + "x";
+    });
+  }
+  if ($offset) {
+    $offset.addEventListener("input", () => {
+      if ($offsetLabel) $offsetLabel.textContent = parseFloat($offset.value).toFixed(1);
     });
   }
 
@@ -664,10 +675,14 @@
     $sensor.value = m.affected_sensor;
     $method.value = m.correction_method;
     $reason.value = m.reason || "";
-    // Восстанавливаем noise_factor из manual_delta_p
+    // Восстанавливаем параметры из manual_delta_p (полиморфное поле)
     if ($noiseFactor && m.correction_method === "interpolate_noise") {
       $noiseFactor.value = m.manual_delta_p != null ? m.manual_delta_p : 1.0;
       if ($noiseLabel) $noiseLabel.textContent = parseFloat($noiseFactor.value).toFixed(1) + "x";
+    }
+    if ($offset && m.correction_method === "seasonal_reconstruct") {
+      $offset.value = m.manual_delta_p != null ? m.manual_delta_p : 0;
+      if ($offsetLabel) $offsetLabel.textContent = parseFloat($offset.value).toFixed(1);
     }
     updateMethodHint();
     $deleteMask.style.display = "inline-block";
@@ -710,6 +725,10 @@
     // Передаём noise_factor только для методов с шумом
     if ($method.value === "interpolate_noise" && $noiseFactor) {
       body.noise_factor = parseFloat($noiseFactor.value);
+    }
+    if ($method.value === "seasonal_reconstruct") {
+      if ($trainWindow) body.train_window_hours = parseInt($trainWindow.value) || 72;
+      if ($offset) body.offset_atm = parseFloat($offset.value) || 0;
     }
 
     const maskId = $maskId.value;

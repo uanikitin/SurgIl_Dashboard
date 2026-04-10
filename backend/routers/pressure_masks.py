@@ -34,7 +34,7 @@ VALID_SENSORS = ("p_tube", "p_line", "both")
 # Пока constraint и код не обновлены — разрешаем только рабочие методы.
 VALID_METHODS = (
     "median_1d", "median_3d", "delta_reconstruct",
-    "interpolate", "interpolate_noise", "exclude",
+    "interpolate", "interpolate_noise", "seasonal_reconstruct", "exclude",
 )
 VALID_PROBLEM_TYPES = (
     "hydrate", "comm_loss", "sensor_fault", "manual", "degradation", "purge",

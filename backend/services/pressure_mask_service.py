@@ -174,6 +174,12 @@ def apply_masks(
                         correlated = correlated / correlated.std() * noise_std
                     df.loc[time_mask, affected] += correlated
 
+            elif method == "seasonal_reconstruct":
+                _apply_seasonal_reconstruct(
+                    df, time_mask, affected, dt_start, dt_end,
+                    mask.get("well_id"),
+                )
+
             elif method == "exclude":
                 df.loc[time_mask, affected] = np.nan
 
@@ -250,6 +256,149 @@ def _apply_delta_reconstruct(
         df.loc[time_mask, "p_line"] = df.loc[time_mask, good_col] - median_dp
     else:
         df.loc[time_mask, "p_tube"] = df.loc[time_mask, good_col] + median_dp
+
+
+def _apply_seasonal_reconstruct(
+    df: pd.DataFrame,
+    time_mask: pd.Series,
+    affected: str,
+    dt_start: datetime,
+    dt_end: datetime,
+    well_id: int | None,
+) -> None:
+    """Реконструкция участка через STL: тренд + сезонность + коррелированный шум.
+
+    Период сезонности определяется по интервалам вбросов реагентов
+    (events.event_type='reagent'). Если вбросов нет — fallback к 12ч (144 точки).
+
+    Алгоритм:
+    1. Ресэмпл чистых данных ДО маски до 5-мин интервала
+    2. STL(robust=True, period=из_вбросов) → тренд, сезонность, остаток
+    3. Тренд: линейная экстраполяция
+    4. Сезонность: повтор последнего полного цикла
+    5. Шум: коррелированный, σ из остатка STL
+    """
+    n_gap = int(time_mask.sum())
+    if n_gap == 0:
+        return
+
+    # ── 1. Период из вбросов реагентов ──
+    period_5min = 144  # fallback: 12ч
+    if well_id is not None:
+        try:
+            from backend.db import SessionLocal
+            db = SessionLocal()
+            try:
+                # well_id → well number (events хранят номер как текст)
+                well_row = db.execute(
+                    text("SELECT number FROM wells WHERE id = :wid"),
+                    {"wid": well_id},
+                ).fetchone()
+                if well_row:
+                    well_num = str(well_row[0])
+                    evt_rows = db.execute(
+                        text("""
+                            SELECT event_time FROM events
+                            WHERE well = :w AND event_type = 'reagent'
+                            ORDER BY event_time
+                        """),
+                        {"w": well_num},
+                    ).fetchall()
+                    if len(evt_rows) >= 3:
+                        times = [r[0] for r in evt_rows]
+                        intervals_h = [
+                            (times[i + 1] - times[i]).total_seconds() / 3600
+                            for i in range(len(times) - 1)
+                        ]
+                        # Отсекаем дубли (<30 мин) и аномально длинные (>72ч)
+                        clean_intervals = [x for x in intervals_h if 0.5 < x < 72]
+                        if clean_intervals:
+                            med_h = float(np.median(clean_intervals))
+                            period_5min = max(12, int(med_h * 12))
+                            log.info(
+                                "[seasonal] well %d: median injection interval %.1fh → period=%d",
+                                well_id, med_h, period_5min,
+                            )
+            finally:
+                db.close()
+        except Exception as e:
+            log.warning("[seasonal] failed to get injection period: %s", e)
+
+    # ── 2. Подготовка чистых данных ДО маски ──
+    before = df.loc[df.index < dt_start, affected].dropna()
+    # Нужно минимум 2 полных цикла для STL
+    min_pts = period_5min * 2 + 10
+    # Ресэмплим до 5 мин
+    before_5 = before.resample("5min").mean().interpolate()
+    if len(before_5) < min_pts:
+        # Недостаточно данных — fallback к interpolate_noise
+        log.warning(
+            "[seasonal] well %d: only %d clean points (need %d), falling back to interpolate",
+            well_id or 0, len(before_5), min_pts,
+        )
+        df.loc[time_mask, affected] = np.nan
+        df[affected] = df[affected].interpolate(method="linear")
+        return
+
+    # ── 3. STL ──
+    try:
+        from statsmodels.tsa.seasonal import STL
+
+        stl_fit = STL(before_5.tail(period_5min * 5), period=period_5min, robust=True).fit()
+    except Exception as e:
+        log.warning("[seasonal] STL failed: %s — falling back to interpolate", e)
+        df.loc[time_mask, affected] = np.nan
+        df[affected] = df[affected].interpolate(method="linear")
+        return
+
+    # ── 4. Экстраполяция тренда ──
+    trend_tail = stl_fit.trend.dropna().tail(period_5min)
+    if len(trend_tail) >= 2:
+        slope = np.polyfit(range(len(trend_tail)), trend_tail.values, 1)[0]
+    else:
+        slope = 0.0
+
+    # Количество 5-мин точек в пропуске
+    gap_duration_min = (dt_end - dt_start).total_seconds() / 60
+    n_gap_5min = max(1, int(gap_duration_min / 5))
+
+    gap_trend = trend_tail.iloc[-1] + slope * np.arange(1, n_gap_5min + 1)
+
+    # ── 5. Сезонность: повтор последнего цикла ──
+    seasonal_cycle = stl_fit.seasonal.tail(period_5min).values
+    gap_seasonal = np.tile(seasonal_cycle, n_gap_5min // period_5min + 1)[:n_gap_5min]
+
+    # ── 6. Шум: коррелированный, σ из остатка STL ──
+    resid_std = float(stl_fit.resid.tail(period_5min).std())
+    if np.isnan(resid_std) or resid_std < 0.01:
+        resid_std = 0.05
+    resid_std = min(resid_std, 0.5)
+
+    white = np.random.normal(0, resid_std * 0.3, n_gap_5min)
+    corr_noise = np.cumsum(white)
+    for i in range(15, len(corr_noise), 15):
+        corr_noise[i:] -= corr_noise[i]
+    if corr_noise.std() > 0:
+        corr_noise = corr_noise / corr_noise.std() * resid_std
+
+    # ── 7. Собираем реконструкцию (5-мин) ──
+    recon_5min = gap_trend + gap_seasonal + corr_noise
+
+    # ── 8. Интерполируем обратно к исходной частоте (1-мин) ──
+    gap_idx = df.index[time_mask]
+    recon_5min_idx = pd.date_range(dt_start, periods=n_gap_5min, freq="5min")
+    recon_series = pd.Series(recon_5min, index=recon_5min_idx)
+    # Объединяем 5-мин и оригинальные timestamps, интерполируем
+    combined_idx = recon_5min_idx.union(gap_idx)
+    recon_full = recon_series.reindex(combined_idx).interpolate(method="linear")
+    # Берём значения только для оригинальных gap-timestamp'ов
+    recon_at_gap = recon_full.reindex(gap_idx).ffill().bfill()
+    df.loc[time_mask, affected] = recon_at_gap.values
+
+    log.info(
+        "[seasonal] well %d sensor=%s: period=%d, recon %d→%d pts, resid_std=%.3f",
+        well_id or 0, affected, period_5min, n_gap_5min, n_gap, resid_std,
+    )
 
 
 # ──────────────────── Авто-детекция аномалий ────────────────────

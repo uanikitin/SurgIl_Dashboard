@@ -372,7 +372,12 @@ def _apply_seasonal_reconstruct(
     gap_trend = np.linspace(val_before, val_after, n_gap_5min)
 
     # ── 5. Сезонность: повтор последнего цикла ──
-    seasonal_cycle = stl_fit.seasonal.tail(period_5min).values
+    # Клампим амплитуду сезонности: если STL «выучил» продувки как сезонность,
+    # амплитуда будет огромной. Ограничиваем до ±3*MAD сезонной компоненты.
+    seasonal_raw = stl_fit.seasonal.tail(period_5min).values
+    seasonal_mad = np.median(np.abs(seasonal_raw - np.median(seasonal_raw)))
+    seasonal_limit = max(seasonal_mad * 3 * 1.4826, 0.5)  # минимум ±0.5 атм
+    seasonal_cycle = np.clip(seasonal_raw, -seasonal_limit, seasonal_limit)
     gap_seasonal = np.tile(seasonal_cycle, n_gap_5min // period_5min + 1)[:n_gap_5min]
 
     # ── 6. Шум: коррелированный, σ из остатка STL ──

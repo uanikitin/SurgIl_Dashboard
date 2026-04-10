@@ -273,7 +273,8 @@
       },
       options: {
         responsive: true,
-        maintainAspectRatio: false,
+        maintainAspectRatio: true,
+        aspectRatio: 2.5,
         interaction: { mode: "index", intersect: false },
         scales: {
           x: {

@@ -29,16 +29,14 @@
 .pm-toolbar .btn-outline.active { background:#dbeafe; border-color:#3b82f6; color:#1d4ed8; }
 .pm-toolbar .sep { width:1px; height:24px; background:#d1d5db; margin:0 4px; }
 
-.pm-body { display:flex; gap:10px; height:560px; }
+.pm-body { display:flex; gap:10px; min-height:550px; }
 
 /* Chart area */
 .pm-chart-wrap {
     flex:1; background:#fff; border:1px solid #e5e7eb; border-radius:8px;
-    padding:12px; position:relative; height:100%; min-width:0; overflow:hidden;
+    padding:12px; position:relative;
 }
-/* Явная высота контейнера — иначе Chart.js с maintainAspectRatio:false
-   порождает бесконечный цикл resize → рост → resize. */
-.pm-chart-wrap canvas { width:100%!important; height:100%!important; display:block; }
+.pm-chart-wrap canvas { width:100%!important; }
 
 /* Right sidebar */
 .pm-sidebar {

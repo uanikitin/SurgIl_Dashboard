@@ -3598,8 +3598,8 @@ Pshl (шлейф): ${pshlStats.count} точек
     }
 
     var color = e.detail.type === 'purge'
-      ? { bg: 'rgba(239, 83, 80, 0.12)', border: '#ef5350' }
-      : { bg: 'rgba(255, 152, 0, 0.12)', border: '#ff9800' };
+      ? { bg: 'rgba(239, 83, 80, 0.25)', border: '#e53935' }
+      : { bg: 'rgba(255, 152, 0, 0.25)', border: '#f57c00' };
 
     anns._timeRangeHL = {
       type: 'box',
@@ -3607,15 +3607,7 @@ Pshl (шлейф): ${pshlStats.count} точек
       xMax: e.detail.end,
       backgroundColor: color.bg,
       borderColor: color.border,
-      borderWidth: 2,
-      borderDash: [4, 4],
-      label: {
-        display: true,
-        content: e.detail.type === 'purge' ? 'Продувка' : 'Простой',
-        position: 'start',
-        font: { size: 10 },
-        color: color.border,
-      },
+      borderWidth: 3,
     };
     syncChart.update('none');
   });

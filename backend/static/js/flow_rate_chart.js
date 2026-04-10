@@ -1147,41 +1147,52 @@
     // ── Обработчики: hover строки продувки → подсветка на графике ──
     var purgeRows = tbody.querySelectorAll('tr[data-purge-id]');
     for (var r = 0; r < purgeRows.length; r++) {
-      purgeRows[r].addEventListener('mouseenter', function () {
+      purgeRows[r].addEventListener('click', function () {
         var pid = this.getAttribute('data-purge-id');
-        this.style.background = '#e3f2fd';
-        highlightedPurgeId = pid;
-        highlightPurgeOnChart(pid);
-        // Транслируем диапазон на ВСЕ графики (давление, ΔP)
-        var pc = _findPurgeCycle(pid);
-        if (pc) {
-          var start = pc.venting_start || pc.buildup_start;
-          var end = pc.buildup_end || pc.venting_end;
-          document.dispatchEvent(new CustomEvent('highlightTimeRange', {
-            detail: { start: start, end: end, type: 'purge' }
-          }));
+        var wasActive = highlightedPurgeId === pid;
+        // Снять подсветку со всех строк
+        tbody.querySelectorAll('tr').forEach(function(t) { t.style.background = ''; });
+        if (wasActive) {
+          // Снять
+          highlightedPurgeId = null;
+          highlightPurgeOnChart(null);
+          document.dispatchEvent(new CustomEvent('highlightTimeRange', { detail: null }));
+        } else {
+          // Включить
+          this.style.background = '#e3f2fd';
+          highlightedPurgeId = pid;
+          highlightPurgeOnChart(pid);
+          var pc = _findPurgeCycle(pid);
+          if (pc) {
+            document.dispatchEvent(new CustomEvent('highlightTimeRange', {
+              detail: { start: pc.venting_start || pc.buildup_start, end: pc.buildup_end || pc.venting_end, type: 'purge' }
+            }));
+          }
         }
-      });
-      purgeRows[r].addEventListener('mouseleave', function () {
-        this.style.background = '';
-        highlightedPurgeId = null;
-        highlightPurgeOnChart(null);
-        document.dispatchEvent(new CustomEvent('highlightTimeRange', { detail: null }));
       });
     }
 
-    // ── Обработчики: hover строки простоя → подсветка на всех графиках ──
+    // ── Обработчики: клик строки простоя → подсветка на всех графиках ──
     var dtRows = tbody.querySelectorAll('tr[data-dt-start]');
     for (var d = 0; d < dtRows.length; d++) {
-      dtRows[d].addEventListener('mouseenter', function () {
-        this.style.background = '#fff3e0';
-        document.dispatchEvent(new CustomEvent('highlightTimeRange', {
-          detail: { start: this.getAttribute('data-dt-start'), end: this.getAttribute('data-dt-end'), type: 'downtime' }
-        }));
-      });
-      dtRows[d].addEventListener('mouseleave', function () {
-        this.style.background = '#fafafa';
-        document.dispatchEvent(new CustomEvent('highlightTimeRange', { detail: null }));
+      dtRows[d].addEventListener('click', function () {
+        var dtStart = this.getAttribute('data-dt-start');
+        var dtEnd = this.getAttribute('data-dt-end');
+        var key = dtStart + dtEnd;
+        var wasActive = this.classList.contains('dt-active');
+        // Снять подсветку со всех строк
+        tbody.querySelectorAll('tr').forEach(function(t) { t.style.background = ''; t.classList.remove('dt-active'); });
+        highlightedPurgeId = null;
+        highlightPurgeOnChart(null);
+        if (wasActive) {
+          document.dispatchEvent(new CustomEvent('highlightTimeRange', { detail: null }));
+        } else {
+          this.style.background = '#fff3e0';
+          this.classList.add('dt-active');
+          document.dispatchEvent(new CustomEvent('highlightTimeRange', {
+            detail: { start: dtStart, end: dtEnd, type: 'downtime' }
+          }));
+        }
       });
     }
 
@@ -2308,6 +2319,30 @@
     console.log('[flow_rate_chart] flowRateChartReload called with days:', days, 'start:', start, 'end:', end, 'currentDays was:', currentDays);
     loadChart(days, start, end);
   };
+
+  // Подсветка диапазонов на графике дебита через единый event
+  document.addEventListener('highlightTimeRange', function (e) {
+    if (!flowChart) return;
+    var anns = flowChart.options.plugins.annotation.annotations;
+    if (!anns) return;
+
+    if (!e.detail) {
+      delete anns._timeRangeHL;
+      flowChart.update('none');
+      return;
+    }
+
+    var color = e.detail.type === 'purge'
+      ? { bg: 'rgba(239, 83, 80, 0.25)', border: '#e53935' }
+      : { bg: 'rgba(255, 152, 0, 0.25)', border: '#f57c00' };
+
+    anns._timeRangeHL = {
+      type: 'box', xMin: e.detail.start, xMax: e.detail.end,
+      backgroundColor: color.bg, borderColor: color.border,
+      borderWidth: 3,
+    };
+    flowChart.update('none');
+  });
 
   window.flowRateChart = {
     syncZoom: syncZoom,

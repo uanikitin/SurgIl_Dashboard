@@ -62,6 +62,7 @@
   const $problemType = document.getElementById("pmProblemType");
   const $sensor      = document.getElementById("pmSensor");
   const $method      = document.getElementById("pmMethod");
+  const $methodHint  = document.getElementById("pmMethodHint");
   const $reason      = document.getElementById("pmReason");
   const $maskId      = document.getElementById("pmMaskId");
   const $detailTitle = document.getElementById("pmDetailTitle");
@@ -72,6 +73,20 @@
   // ─── Init ───
   setDefaultDates();
   applyUrlParams();
+  const METHOD_HINTS = {
+    interpolate_noise: "Соединяет границы выделенного участка прямой линией и добавляет реалистичный шум, рассчитанный по 6 часам чистых данных перед маской. Результат выглядит как естественный сигнал.",
+    interpolate: "Соединяет границы участка прямой линией (без шума). Кривая получается гладкой — подходит для коротких пропусков.",
+    delta_reconstruct: "Восстанавливает неисправный датчик по показаниям второго + медиана перепада давления за сутки до начала проблемы. Эффективен когда один из двух датчиков работает корректно.",
+    exclude: "Полностью убирает данные на выделенном участке (NaN). Оставшиеся пропуски заполняются ближайшим известным значением. Используйте для явно ошибочных данных.",
+    median_3d: "Заменяет весь выделенный участок одним значением — медианой за 3 дня до начала проблемы. Подходит для длительных аномалий.",
+    median_1d: "Заменяет участок медианой за 1 день до начала проблемы. Подходит для кратковременных сбоев.",
+  };
+  function updateMethodHint() {
+    if ($methodHint) $methodHint.textContent = METHOD_HINTS[$method.value] || "";
+  }
+  $method.addEventListener("change", updateMethodHint);
+  updateMethodHint();
+
   $well.addEventListener("change", onWellChange);
   $load.addEventListener("click", loadData);
   $resetZoom.addEventListener("click", () => { if (chart) chart.resetZoom(); });

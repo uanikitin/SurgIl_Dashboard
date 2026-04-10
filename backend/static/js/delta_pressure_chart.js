@@ -823,6 +823,30 @@
   // Начальная загрузка
   loadChart(7, 5);
 
+  // Подсветка диапазонов из таблицы продувок/простоев
+  document.addEventListener('highlightTimeRange', function (e) {
+    if (!deltaChart) return;
+    var anns = deltaChart.options.plugins.annotation.annotations;
+    if (!anns) { anns = {}; deltaChart.options.plugins.annotation.annotations = anns; }
+
+    if (!e.detail) {
+      delete anns._timeRangeHL;
+      deltaChart.update('none');
+      return;
+    }
+
+    var color = e.detail.type === 'purge'
+      ? { bg: 'rgba(239, 83, 80, 0.12)', border: '#ef5350' }
+      : { bg: 'rgba(255, 152, 0, 0.12)', border: '#ff9800' };
+
+    anns._timeRangeHL = {
+      type: 'box', xMin: e.detail.start, xMax: e.detail.end,
+      backgroundColor: color.bg, borderColor: color.border,
+      borderWidth: 2, borderDash: [4, 4],
+    };
+    deltaChart.update('none');
+  });
+
   // Экспортируем для внешнего доступа
   window.deltaChart = {
     reload: loadChart,

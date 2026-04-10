@@ -101,6 +101,7 @@
   var currentEnd = null;    // ISO string (Кунград) или null
   var highlightedPurgeId = null;  // ID подсвеченной продувки (hover из таблицы)
   var lastPurgeCycles = null;     // Последние данные для перерисовки подсветки
+  var lastDowntimePeriods = null;
 
   // Исключённые циклы — сохраняются в localStorage
   var storageKey = 'flow_exclude_' + wellId;
@@ -314,6 +315,7 @@
 
       var json = await resp.json();
       lastPurgeCycles = json.purge_cycles || [];
+      lastDowntimePeriods = json.downtime_periods || [];
       lastChartData = json.chart;
 
       updateStatsPanel(json.summary);
@@ -991,6 +993,14 @@
     }
   }
 
+  function _findPurgeCycle(pid) {
+    if (!lastPurgeCycles) return null;
+    for (var i = 0; i < lastPurgeCycles.length; i++) {
+      if (lastPurgeCycles[i].id === pid) return lastPurgeCycles[i];
+    }
+    return null;
+  }
+
   // ══════════════════════════════════════════════════════════════
   //         Таблица продувок и простоев (объединённая, по времени)
   // ══════════════════════════════════════════════════════════════
@@ -1107,6 +1117,9 @@
         // Простой (downtime)
         var dt = row.data;
         tr.style.background = '#fafafa';
+        tr.style.cursor = 'pointer';
+        tr.setAttribute('data-dt-start', dt.start);
+        tr.setAttribute('data-dt-end', dt.end);
 
         var dtTypeHtml = '<span style="background:#f5f5f5; color:#795548; padding:2px 8px; border-radius:4px; font-size:10px;">Простой</span>';
 
@@ -1139,11 +1152,36 @@
         this.style.background = '#e3f2fd';
         highlightedPurgeId = pid;
         highlightPurgeOnChart(pid);
+        // Транслируем диапазон на ВСЕ графики (давление, ΔP)
+        var pc = _findPurgeCycle(pid);
+        if (pc) {
+          var start = pc.venting_start || pc.buildup_start;
+          var end = pc.buildup_end || pc.venting_end;
+          document.dispatchEvent(new CustomEvent('highlightTimeRange', {
+            detail: { start: start, end: end, type: 'purge' }
+          }));
+        }
       });
       purgeRows[r].addEventListener('mouseleave', function () {
         this.style.background = '';
         highlightedPurgeId = null;
         highlightPurgeOnChart(null);
+        document.dispatchEvent(new CustomEvent('highlightTimeRange', { detail: null }));
+      });
+    }
+
+    // ── Обработчики: hover строки простоя → подсветка на всех графиках ──
+    var dtRows = tbody.querySelectorAll('tr[data-dt-start]');
+    for (var d = 0; d < dtRows.length; d++) {
+      dtRows[d].addEventListener('mouseenter', function () {
+        this.style.background = '#fff3e0';
+        document.dispatchEvent(new CustomEvent('highlightTimeRange', {
+          detail: { start: this.getAttribute('data-dt-start'), end: this.getAttribute('data-dt-end'), type: 'downtime' }
+        }));
+      });
+      dtRows[d].addEventListener('mouseleave', function () {
+        this.style.background = '#fafafa';
+        document.dispatchEvent(new CustomEvent('highlightTimeRange', { detail: null }));
       });
     }
 

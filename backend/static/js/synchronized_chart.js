@@ -3583,6 +3583,43 @@ Pshl (шлейф): ${pshlStats.count} точек
     },
   };
 
+  // ══════════════════ Подсветка диапазонов из таблицы продувок/простоев ══════════════════
+
+  document.addEventListener('highlightTimeRange', function (e) {
+    if (!syncChart) return;
+    var anns = syncChart.options.plugins.annotation.annotations;
+    if (!anns) return;
+
+    if (!e.detail) {
+      // Убрать подсветку
+      delete anns._timeRangeHL;
+      syncChart.update('none');
+      return;
+    }
+
+    var color = e.detail.type === 'purge'
+      ? { bg: 'rgba(239, 83, 80, 0.12)', border: '#ef5350' }
+      : { bg: 'rgba(255, 152, 0, 0.12)', border: '#ff9800' };
+
+    anns._timeRangeHL = {
+      type: 'box',
+      xMin: e.detail.start,
+      xMax: e.detail.end,
+      backgroundColor: color.bg,
+      borderColor: color.border,
+      borderWidth: 2,
+      borderDash: [4, 4],
+      label: {
+        display: true,
+        content: e.detail.type === 'purge' ? 'Продувка' : 'Простой',
+        position: 'start',
+        font: { size: 10 },
+        color: color.border,
+      },
+    };
+    syncChart.update('none');
+  });
+
   // ══════════════════ Глобальный координатор всех графиков ══════════════════
 
   /**

@@ -372,41 +372,36 @@
   }
 
   // ─── Click-click range selection plugin ───
-  // В режиме selectMode первый клик по графику фиксирует НАЧАЛО диапазона,
-  // второй клик — КОНЕЦ. Между кликами курсор показывает полупрозрачную зону
-  // "от начала до текущей позиции". Это надёжнее drag-select, так как не
-  // конфликтует с zoom-плагином (оба слушают mousedown/up).
+  // Первый клик = начало, второй = конец. Между кликами рисуем
+  // полупрозрачную зону напрямую на canvas (afterDraw), БЕЗ chart.update()
+  // — иначе перерисовка 4000+ точек на каждый mousemove тормозит.
+  let _selMouseX = null;  // текущая позиция курсора (пиксели canvas)
+
   const dragSelectPlugin = {
     id: "dragSelect",
-    beforeEvent(chart, args) {
+
+    beforeEvent(chartInstance, args) {
       if (!selectMode || !IS_ADMIN) return;
       const evt = args.event;
-      const area = chart.chartArea;
+      const area = chartInstance.chartArea;
       const inArea = evt.x >= area.left && evt.x <= area.right
                   && evt.y >= area.top  && evt.y <= area.bottom;
 
-      // Первый или второй клик — используем click (не mousedown), чтобы не
-      // драться с zoom-плагином за mousedown-событие.
       if (evt.type === "click" && inArea) {
-        const valAtClick = chart.scales.x.getValueForPixel(evt.x);
+        const valAtClick = chartInstance.scales.x.getValueForPixel(evt.x);
         if (dragStart === null) {
-          // Первый клик: фиксируем начало, рисуем вертикальную линию
+          // Первый клик — запоминаем начало
           dragStart = valAtClick;
-          chart.options.plugins.annotation.annotations._dragsel = {
-            type: "line",
-            xMin: dragStart,
-            xMax: dragStart,
-            borderColor: "#dc2626",
-            borderWidth: 2,
-          };
-          chart.update("none");
+          _selMouseX = evt.x;
+          // Лёгкий update чтобы afterDraw нарисовал линию старта
+          chartInstance.draw();
         } else {
-          // Второй клик: фиксируем конец, открываем форму если диапазон > 1 мин
+          // Второй клик — фиксируем конец
           const minT = Math.min(dragStart, valAtClick);
           const maxT = Math.max(dragStart, valAtClick);
           dragStart = null;
-          delete chart.options.plugins.annotation.annotations._dragsel;
-          chart.update("none");
+          _selMouseX = null;
+          chartInstance.draw();
           if ((maxT - minT) > 60000) {
             openDetailForNew(new Date(minT), new Date(maxT));
           }
@@ -414,21 +409,43 @@
         return;
       }
 
-      // Пока ожидаем второй клик — рисуем полупрозрачную зону от первого клика
-      // до текущей позиции курсора.
+      // Запоминаем позицию курсора — afterDraw использует её для отрисовки зоны.
+      // Никакого chart.update() — просто requestAnimationFrame для перерисовки overlay.
       if (evt.type === "mousemove" && dragStart !== null && inArea) {
-        const curX = chart.scales.x.getValueForPixel(evt.x);
-        chart.options.plugins.annotation.annotations._dragsel = {
-          type: "box",
-          xMin: Math.min(dragStart, curX),
-          xMax: Math.max(dragStart, curX),
-          backgroundColor: "rgba(220,38,38,0.15)",
-          borderColor: "#dc2626",
-          borderWidth: 2,
-          borderDash: [4, 4],
-        };
-        chart.update("none");
+        _selMouseX = evt.x;
+        chartInstance.draw();
       }
+    },
+
+    afterDraw(chartInstance) {
+      // Рисуем selection overlay напрямую на canvas — дешёво, без пересчёта datasets.
+      if (!selectMode || dragStart === null) return;
+      const area = chartInstance.chartArea;
+      const ctx = chartInstance.ctx;
+      const startPx = chartInstance.scales.x.getPixelForValue(dragStart);
+
+      ctx.save();
+      if (_selMouseX !== null && _selMouseX !== startPx) {
+        // Полупрозрачная зона от старта до курсора
+        const left = Math.max(area.left, Math.min(startPx, _selMouseX));
+        const right = Math.min(area.right, Math.max(startPx, _selMouseX));
+        ctx.fillStyle = "rgba(220, 38, 38, 0.12)";
+        ctx.fillRect(left, area.top, right - left, area.bottom - area.top);
+        // Пунктирные границы
+        ctx.strokeStyle = "#dc2626";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeRect(left, area.top, right - left, area.bottom - area.top);
+        ctx.setLineDash([]);
+      }
+      // Вертикальная линия старта (всегда)
+      ctx.strokeStyle = "#dc2626";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(startPx, area.top);
+      ctx.lineTo(startPx, area.bottom);
+      ctx.stroke();
+      ctx.restore();
     },
   };
 
@@ -440,9 +457,7 @@
     // Сбрасываем незавершённое выделение при выходе из режима
     if (!selectMode) {
       dragStart = null;
-      if (chart) {
-        delete chart.options.plugins.annotation.annotations._dragsel;
-      }
+      _selMouseX = null;
     }
 
     // Disable zoom in select mode to avoid conflict
@@ -457,10 +472,8 @@
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && selectMode && dragStart !== null) {
       dragStart = null;
-      if (chart) {
-        delete chart.options.plugins.annotation.annotations._dragsel;
-        chart.update("none");
-      }
+      _selMouseX = null;
+      if (chart) chart.draw();
     }
   });
 

@@ -139,12 +139,12 @@ def apply_masks(
 
             elif method == "interpolate_noise":
                 # Линейная интерполяция + коррелированный шум.
-                # Белый шум при 5-мин AVG агрегации на графике исчезает (√N сглаживание).
-                # Поэтому генерируем коррелированный шум: cumsum(white) с периодическим
-                # reset к 0, чтобы шум не убегал, но сохранял «волнистость» видимую
-                # после агрегации.
-                #
-                # σ оценивается по MAD значений (не diff!) за 6ч ПЕРЕД маской.
+                # noise_factor (из manual_delta_p): 0 = гладкая, 1 = естественный, >1 = усиленный
+                noise_factor = mask.get("manual_delta_p")
+                if noise_factor is None or noise_factor < 0:
+                    noise_factor = 1.0
+
+                # σ из MAD detrended значений за 6ч ПЕРЕД маской
                 clean_window = df.loc[df.index < dt_start, affected].dropna()
                 clean_window = clean_window.tail(6 * 60)
                 if len(clean_window) >= 20:
@@ -158,21 +158,21 @@ def apply_masks(
                 else:
                     noise_std = 0.05
                 noise_std = max(0.02, min(noise_std, 0.5))
+                noise_std *= noise_factor  # масштаб от ползунка
 
                 df.loc[time_mask, affected] = np.nan
                 df[affected] = df[affected].interpolate(method="linear")
 
-                # Коррелированный шум: cumsum белого шума, с reset каждые ~15 мин
-                white = np.random.normal(0, noise_std * 0.3, size=n_affected)
-                correlated = np.cumsum(white)
-                # Reset drift каждые 15 точек → убираем долговременный тренд
-                reset_len = 15
-                for i in range(reset_len, len(correlated), reset_len):
-                    correlated[i:] -= correlated[i]
-                # Масштабируем к целевому σ
-                if correlated.std() > 0:
-                    correlated = correlated / correlated.std() * noise_std
-                df.loc[time_mask, affected] += correlated
+                if noise_std > 0.001:
+                    # Коррелированный шум: cumsum с reset каждые ~15 точек
+                    white = np.random.normal(0, noise_std * 0.3, size=n_affected)
+                    correlated = np.cumsum(white)
+                    reset_len = 15
+                    for i in range(reset_len, len(correlated), reset_len):
+                        correlated[i:] -= correlated[i]
+                    if correlated.std() > 0:
+                        correlated = correlated / correlated.std() * noise_std
+                    df.loc[time_mask, affected] += correlated
 
             elif method == "exclude":
                 df.loc[time_mask, affected] = np.nan

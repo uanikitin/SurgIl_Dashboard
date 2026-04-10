@@ -281,6 +281,11 @@
         </select>
         <div id="pmMethodHint" style="font-size:11px; color:#6b7280; margin-top:4px; line-height:1.4;"></div>
       </div>
+      <div class="field" id="pmNoiseGroup" style="display:none;">
+        <label>Шум: <span id="pmNoiseLabel">1.0x</span></label>
+        <input type="range" id="pmNoiseFactor" min="0" max="3" step="0.1" value="1.0"
+          style="width:100%;" title="Множитель шума: 0 = гладкая интерполяция, 1 = естественный, 2-3 = усиленный">
+      </div>
       <div class="field wide">
         <label>Причина / комментарий</label>
         <input type="text" id="pmReason" placeholder="Профилактика ГСП, переключение...">

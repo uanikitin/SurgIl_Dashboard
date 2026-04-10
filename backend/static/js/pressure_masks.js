@@ -81,11 +81,24 @@
     median_3d: "Заменяет весь выделенный участок одним значением — медианой за 3 дня до начала проблемы. Подходит для длительных аномалий.",
     median_1d: "Заменяет участок медианой за 1 день до начала проблемы. Подходит для кратковременных сбоев.",
   };
+  const $noiseGroup  = document.getElementById("pmNoiseGroup");
+  const $noiseFactor = document.getElementById("pmNoiseFactor");
+  const $noiseLabel  = document.getElementById("pmNoiseLabel");
+
   function updateMethodHint() {
     if ($methodHint) $methodHint.textContent = METHOD_HINTS[$method.value] || "";
+    // Показываем ползунок шума только для методов с шумом
+    const showNoise = $method.value === "interpolate_noise";
+    if ($noiseGroup) $noiseGroup.style.display = showNoise ? "" : "none";
   }
   $method.addEventListener("change", updateMethodHint);
   updateMethodHint();
+
+  if ($noiseFactor) {
+    $noiseFactor.addEventListener("input", () => {
+      if ($noiseLabel) $noiseLabel.textContent = parseFloat($noiseFactor.value).toFixed(1) + "x";
+    });
+  }
 
   $well.addEventListener("change", onWellChange);
   $load.addEventListener("click", loadData);
@@ -649,6 +662,12 @@
     $sensor.value = m.affected_sensor;
     $method.value = m.correction_method;
     $reason.value = m.reason || "";
+    // Восстанавливаем noise_factor из manual_delta_p
+    if ($noiseFactor && m.correction_method === "interpolate_noise") {
+      $noiseFactor.value = m.manual_delta_p != null ? m.manual_delta_p : 1.0;
+      if ($noiseLabel) $noiseLabel.textContent = parseFloat($noiseFactor.value).toFixed(1) + "x";
+    }
+    updateMethodHint();
     $deleteMask.style.display = "inline-block";
     $detail.classList.add("open");
 
@@ -686,6 +705,10 @@
       correction_method: $method.value,
       reason: $reason.value || null,
     };
+    // Передаём noise_factor только для методов с шумом
+    if ($method.value === "interpolate_noise" && $noiseFactor) {
+      body.noise_factor = parseFloat($noiseFactor.value);
+    }
 
     const maskId = $maskId.value;
     try {

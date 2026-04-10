@@ -200,6 +200,14 @@
       if ($autoDetect) $autoDetect.disabled = false;
       if ($selectMode) $selectMode.disabled = false;
       $resetZoom.disabled = false;
+
+      // Если selectMode был активен до перезагрузки — восстанавливаем состояние
+      // (новый chart создаётся с zoom/pan enabled по умолчанию)
+      if (selectMode && chart) {
+        chart.options.plugins.zoom.pan.enabled = false;
+        chart.options.plugins.zoom.zoom.wheel.enabled = false;
+        chart.update("none");
+      }
       $status.textContent = `Точек: ${chartData.points.length}, масок: ${masks.length}`;
     } catch (e) {
       $status.textContent = "Ошибка: " + e.message;
@@ -554,8 +562,8 @@
     $dtStart.value = toLocalInput(dtFrom);
     $dtEnd.value = toLocalInput(dtTo);
     $problemType.value = "manual";
-    $sensor.value = "both";
-    $method.value = "interpolate_noise";
+    $sensor.value = "p_tube";
+    $method.value = "interpolate";
     $reason.value = "";
     $deleteMask.style.display = "none";
     $detail.classList.add("open");
@@ -784,7 +792,7 @@
     if (!c) return;
     // Open detail panel pre-filled
     openDetailForNew(new Date(c.dt_start), new Date(c.dt_end));
-    $sensor.value = c.affected_sensor || "both";
+    $sensor.value = c.affected_sensor || "p_tube";
     $method.value = c.suggested_method || "interpolate_noise";
     $problemType.value = "sensor_fault";
   };
@@ -824,7 +832,7 @@
               dt_start: c.dt_start,
               dt_end: c.dt_end,
               problem_type: "sensor_fault",
-              affected_sensor: c.affected_sensor || "both",
+              affected_sensor: c.affected_sensor || "p_tube",
               correction_method: c.suggested_method || "interpolate_noise",
               reason: `Авто: ${c.dp_deviation || ''} атм, ${c.duration_hours || ''}ч`,
             }),

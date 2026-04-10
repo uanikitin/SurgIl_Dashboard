@@ -133,6 +133,24 @@ def apply_masks(
             df.loc[time_mask, affected] = np.nan
             df[affected] = df[affected].interpolate(method="linear")
 
+        elif method == "interpolate_noise":
+            # Линейная интерполяция + реалистичный шум на уровне соседних данных.
+            # Берём σ из 24ч ДО начала маски (или всего ряда как fallback),
+            # чтобы шум был соразмерен реальным колебаниям сигнала.
+            before = df.loc[df.index < dt_start, affected].dropna()
+            window = before.tail(24 * 60)  # ~24ч при 1-мин данных
+            if len(window) >= 10:
+                noise_std = float(window.diff().dropna().std())
+            else:
+                noise_std = float(df[affected].dropna().diff().dropna().std())
+            if np.isnan(noise_std) or noise_std < 0.001:
+                noise_std = 0.05  # минимальный шум ~0.05 атм
+
+            df.loc[time_mask, affected] = np.nan
+            df[affected] = df[affected].interpolate(method="linear")
+            noise = np.random.normal(0, noise_std, size=n_affected)
+            df.loc[time_mask, affected] += noise
+
         elif method == "exclude":
             df.loc[time_mask, affected] = np.nan
 

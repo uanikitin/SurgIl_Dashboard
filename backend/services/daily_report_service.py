@@ -1358,6 +1358,49 @@ def generate_daily_report_pdf(doc, db: Session) -> str:
     return f"generated/pdf/{base_name}.pdf"
 
 
+# ── Shared helper: load masked pressure for a period ───────
+
+def _load_masked_hourly(
+    well_id: int, utc_start: datetime, utc_end: datetime,
+) -> pd.DataFrame:
+    """Load pressure_raw, apply clean + verified masks, resample to hourly.
+
+    Returns DataFrame indexed by hour with columns p_tube, p_line (hourly means).
+    Empty DataFrame if no data.
+    """
+    from backend.services.flow_rate.data_access import get_pressure_data
+    from backend.services.flow_rate.cleaning import clean_pressure
+
+    df_raw = get_pressure_data(well_id, utc_start.isoformat(), utc_end.isoformat())
+    if df_raw.empty:
+        return pd.DataFrame()
+
+    df = clean_pressure(df_raw)
+    if df.empty:
+        return pd.DataFrame()
+
+    # Apply verified masks (same pipeline as build_well_day_data)
+    try:
+        from backend.services.pressure_mask_service import (
+            load_active_masks, apply_masks as _apply_masks,
+        )
+        masks = load_active_masks(well_id, utc_start, utc_end, verified_only=True)
+        if masks:
+            df, _ = _apply_masks(df, masks)
+    except Exception as exc:
+        log.warning("[_load_masked_hourly] mask apply error: %s", exc)
+
+    # Filter false zeros
+    df["p_tube"] = df["p_tube"].where(df["p_tube"] > 0)
+    df["p_line"] = df["p_line"].where(df["p_line"] > 0)
+
+    # Resample to hourly averages (matching previous pressure_hourly granularity)
+    hourly = df[["p_tube", "p_line"]].resample("1h").mean().dropna(
+        subset=["p_tube"], how="all",
+    )
+    return hourly
+
+
 # ── Loss base Q: working-hours-only median ─────────────────
 
 # Minimum Q (тыс.м³/сут) to count hour as "working"
@@ -1370,8 +1413,8 @@ def _compute_loss_base_q(
 ) -> float | None:
     """Compute base Q for loss estimation: median of working hours only.
 
+    Uses masked pressure data (pressure_raw + verified masks → hourly resample).
     Looks back `window_hours` from `period_end`, takes only hours where Q > threshold.
-    If no working hours found, returns None.
     """
     if not choke_mm or choke_mm <= 0:
         return None
@@ -1379,26 +1422,19 @@ def _compute_loss_base_q(
     from backend.services.flow_rate.config import DEFAULT_FLOW as cfg
 
     period_start = period_end - timedelta(hours=window_hours)
-    rows = db.execute(text("""
-        SELECT NULLIF(p_tube_avg, 0) AS pt, NULLIF(p_line_avg, 0) AS pl
-        FROM pressure_hourly
-        WHERE well_id = :wid
-          AND hour_start >= :sd AND hour_start < :ed
-          AND NULLIF(p_tube_avg, 0) IS NOT NULL
-          AND NULLIF(p_line_avg, 0) IS NOT NULL
-        ORDER BY hour_start
-    """), {"wid": well_id, "sd": period_start, "ed": period_end}).fetchall()
+    hourly = _load_masked_hourly(well_id, period_start, period_end)
 
-    if not rows:
+    if hourly.empty:
         return None
 
     choke_sq = (choke_mm / cfg.C2) ** 2
     working_q = []
 
-    for r in rows:
-        pt, pl = float(r[0]), float(r[1])
-        if pt <= pl or pt <= 0:
+    for _, row in hourly.iterrows():
+        pt, pl = row["p_tube"], row["p_line"]
+        if pd.isna(pt) or pd.isna(pl) or pt <= pl or pt <= 0:
             continue
+        pt, pl = float(pt), float(pl)
         ratio = (pt - pl) / pt
         if ratio < cfg.critical_ratio:
             q = cfg.C1 * choke_sq * pt * (1.0 - ratio / 1.5) * (ratio / cfg.C3) ** 0.5
@@ -1415,61 +1451,59 @@ def _compute_loss_base_q(
     return float(np.median(working_q))
 
 
-# ── Daily avg flow from pressure_hourly ────────────────────
+# ── Daily avg flow from masked pressure data ──────────────
 
 def _get_daily_avg_flow(
     db: Session, well_id: int, choke_mm: float | None,
     start_date: date, end_date: date,
 ) -> list[tuple[date, float]]:
-    """Compute avg daily flow rate from pressure_hourly.
+    """Compute avg daily flow rate from masked pressure data.
 
-    Returns list of (date, avg_q_per_day) where avg_q = cumulative_flow / 24.
-    Uses flow formula on median hourly pressures per day.
+    Uses pressure_raw + verified masks → hourly resample → flow formula.
+    Returns list of (date, avg_q_per_day).
     """
     if not choke_mm or choke_mm <= 0:
         return []
 
     from backend.services.flow_rate.config import DEFAULT_FLOW as cfg
 
-    # Only hours where both pressures valid AND p_tube > p_line (well flowing)
-    rows = db.execute(text("""
-        SELECT hour_start::date AS d,
-               AVG(p_tube_avg) AS pt,
-               AVG(p_line_avg) AS pl,
-               COUNT(*) AS cnt
-        FROM pressure_hourly
-        WHERE well_id = :wid
-          AND hour_start >= :sd AND hour_start < :ed + INTERVAL '1 day'
-          AND NULLIF(p_tube_avg, 0) IS NOT NULL
-          AND NULLIF(p_line_avg, 0) IS NOT NULL
-          AND p_tube_avg > p_line_avg
-          AND (p_tube_avg - p_line_avg) > 0.1
-        GROUP BY d
-        HAVING COUNT(*) >= 3
-        ORDER BY d
-    """), {"wid": well_id, "sd": start_date, "ed": end_date}).fetchall()
+    utc_start = datetime.combine(start_date, time(0, 0)) - KUNGRAD_OFFSET
+    utc_end = datetime.combine(end_date, time(23, 59, 59)) - KUNGRAD_OFFSET
 
-    result = []
+    hourly = _load_masked_hourly(well_id, utc_start, utc_end)
+    if hourly.empty:
+        return []
+
     choke_sq = (choke_mm / cfg.C2) ** 2
+    # Shift to Kungrad time for date grouping
+    hourly_local = hourly.copy()
+    hourly_local.index = hourly_local.index + KUNGRAD_OFFSET
 
-    for r in rows:
-        d, pt, pl = r[0], r[1], r[2]
-        if pt is None or pl is None or pt <= 0:
+    # Group by calendar day (Kungrad)
+    daily_groups: dict[date, list[float]] = {}
+    for ts, row in hourly_local.iterrows():
+        pt, pl = row["p_tube"], row["p_line"]
+        if pd.isna(pt) or pd.isna(pl) or pt <= 0 or pt <= pl:
+            continue
+        dp = float(pt) - float(pl)
+        if dp <= 0.1:
             continue
         pt, pl = float(pt), float(pl)
-        if pt <= pl:
-            continue  # skip — no valid flow
-
-        ratio = (pt - pl) / pt
+        ratio = dp / pt
         if ratio < cfg.critical_ratio:
             q = cfg.C1 * choke_sq * pt * (1.0 - ratio / 1.5) * (ratio / cfg.C3) ** 0.5
         else:
             q = 0.667 * cfg.C1 * choke_sq * pt * (0.5 / cfg.C3) ** 0.5
-
         q = max(q * cfg.multiplier, 0.0)
-        # q is instantaneous тыс.м³/сут — already daily rate
-        # avg daily flow = this value (it's rate, not volume)
-        result.append((d, round(q, 2)))
+
+        d = ts.date() if hasattr(ts, 'date') else ts
+        daily_groups.setdefault(d, []).append(q)
+
+    result = []
+    for d in sorted(daily_groups):
+        vals = daily_groups[d]
+        if len(vals) >= 3:
+            result.append((d, round(float(np.mean(vals)), 2)))
 
     return result
 
@@ -1846,9 +1880,9 @@ def _compute_multiday_trend(
     db: Session, well_id: int, well_number: str, choke_mm: float | None,
     report_date: date, trend_days: int, trend_target: str,
 ) -> dict | None:
-    """Compute trend from hourly data over N days.
+    """Compute trend from masked pressure data over N days.
 
-    Uses hourly pressure_hourly rows → compute Q per hour → linear regression.
+    Uses pressure_raw + verified masks → hourly resample → Q or ΔP → linear regression.
     Also computes % change: (Q_today - Q_yesterday) / Q_yesterday × 100.
 
     Returns dict with slope_per_day, direction, r_squared, delta_pct, or None.
@@ -1857,51 +1891,41 @@ def _compute_multiday_trend(
 
     start_date = report_date - timedelta(days=trend_days - 1)
 
-    # Get hourly data for the full period
-    rows = db.execute(text("""
-        SELECT hour_start,
-               NULLIF(p_tube_avg, 0) AS pt,
-               NULLIF(p_line_avg, 0) AS pl
-        FROM pressure_hourly
-        WHERE well_id = :wid
-          AND hour_start >= :sd AND hour_start < :ed + INTERVAL '1 day'
-          AND NULLIF(p_tube_avg, 0) IS NOT NULL
-        ORDER BY hour_start
-    """), {"wid": well_id, "sd": start_date, "ed": report_date}).fetchall()
+    # Load masked hourly data for the full period
+    utc_start = datetime.combine(start_date, time(0, 0)) - KUNGRAD_OFFSET
+    utc_end = datetime.combine(report_date, time(23, 59, 59)) - KUNGRAD_OFFSET
 
-    if len(rows) < 6:
+    hourly = _load_masked_hourly(well_id, utc_start, utc_end)
+    if len(hourly) < 6:
         return None
 
+    hours = []
+    values = []
+    t0 = hourly.index[0]
+
     if trend_target == "flow" and choke_mm and choke_mm > 0:
-        # Compute hourly Q from pressures
         choke_sq = (choke_mm / cfg.C2) ** 2
-        hours = []
-        values = []
-        t0 = rows[0][0]
-        for r in rows:
-            pt, pl = r[1], r[2]
-            if pt is None or pl is None or pt <= 0 or pt <= pl:
+        for ts, row in hourly.iterrows():
+            pt, pl = row["p_tube"], row["p_line"]
+            if pd.isna(pt) or pd.isna(pl) or pt <= 0 or pt <= pl:
                 continue
+            pt, pl = float(pt), float(pl)
             ratio = (pt - pl) / pt
             if ratio < cfg.critical_ratio:
                 q = cfg.C1 * choke_sq * pt * (1.0 - ratio / 1.5) * (ratio / cfg.C3) ** 0.5
             else:
                 q = 0.667 * cfg.C1 * choke_sq * pt * (0.5 / cfg.C3) ** 0.5
             q = max(q * cfg.multiplier, 0.0)
-            t_h = (r[0] - t0).total_seconds() / 3600.0
+            t_h = (ts - t0).total_seconds() / 3600.0
             hours.append(t_h)
             values.append(q)
     else:
-        # ΔP trend from hourly data
-        hours = []
-        values = []
-        t0 = rows[0][0]
-        for r in rows:
-            pt, pl = r[1], r[2]
-            if pt is None or pl is None:
+        for ts, row in hourly.iterrows():
+            pt, pl = row["p_tube"], row["p_line"]
+            if pd.isna(pt) or pd.isna(pl):
                 continue
             dp = max(float(pt) - float(pl), 0.0)
-            t_h = (r[0] - t0).total_seconds() / 3600.0
+            t_h = (ts - t0).total_seconds() / 3600.0
             hours.append(t_h)
             values.append(dp)
 
@@ -2201,25 +2225,27 @@ def _aggregate_monthly_well(
     """), {"wno": well_number}).fetchone()
     horizon = _tex_escape(str(row[0]).replace("\n", ", ")) if row and row[0] else "---"
 
-    # Pressure stats (monthly medians from hourly data)
-    pr = db.execute(text("""
-        SELECT
-            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY NULLIF(p_tube_avg, 0)),
-            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY NULLIF(p_line_avg, 0)),
-            PERCENTILE_CONT(0.5) WITHIN GROUP (
-                ORDER BY NULLIF(p_tube_avg, 0) - NULLIF(p_line_avg, 0)
-            )
-        FROM pressure_hourly
-        WHERE well_id = :wid
-          AND hour_start >= :sd AND hour_start < :ed + INTERVAL '1 day'
-          AND NULLIF(p_tube_avg, 0) IS NOT NULL
-    """), {"wid": well.id, "sd": eff_start, "ed": eff_end}).fetchone()
+    # Pressure stats + utilization from masked hourly data
+    utc_start = datetime.combine(eff_start, time(0, 0)) - KUNGRAD_OFFSET
+    utc_end = datetime.combine(eff_end, time(23, 59, 59)) - KUNGRAD_OFFSET
+    hourly = _load_masked_hourly(well.id, utc_start, utc_end)
 
-    s_p_tube_median = _fmt(float(pr[0])) if pr and pr[0] else "---"
-    s_p_line_median = _fmt(float(pr[1])) if pr and pr[1] else "---"
-    s_dp_median = _fmt(float(pr[2])) if pr and pr[2] else "---"
+    if not hourly.empty:
+        pt_valid = hourly["p_tube"].dropna()
+        pl_valid = hourly["p_line"].dropna()
+        dp_valid = (hourly["p_tube"] - hourly["p_line"]).dropna()
+        s_p_tube_median = _fmt(float(pt_valid.median())) if len(pt_valid) > 0 else "---"
+        s_p_line_median = _fmt(float(pl_valid.median())) if len(pl_valid) > 0 else "---"
+        s_dp_median = _fmt(float(dp_valid.median())) if len(dp_valid) > 0 else "---"
+        # For purge loss estimate later
+        pr_p_tube_median = float(pt_valid.median()) if len(pt_valid) > 0 else None
+    else:
+        s_p_tube_median = "---"
+        s_p_line_median = "---"
+        s_dp_median = "---"
+        pr_p_tube_median = None
 
-    # Flow stats from daily averages
+    # Flow stats from daily averages (already uses masked data)
     daily_flow = _get_daily_avg_flow(db, well.id, choke_mm, eff_start, eff_end)
     q_values = [d[1] for d in daily_flow if d[1] > 0]
 
@@ -2231,21 +2257,18 @@ def _aggregate_monthly_well(
     cumulative = sum(q_values) if q_values else 0
     s_month_cumulative = _fmt(cumulative) if cumulative > 0 else "---"
 
-    # Working hours / downtime based on actual flow (ΔP > 0.1 = working)
-    util_row = db.execute(text("""
-        SELECT
-            COUNT(*) AS hours_with_data,
-            COUNT(*) FILTER (
-                WHERE NULLIF(p_tube_avg, 0) IS NOT NULL
-                  AND NULLIF(p_line_avg, 0) IS NOT NULL
-                  AND (NULLIF(p_tube_avg, 0) - NULLIF(p_line_avg, 0)) > 0.1
-            ) AS working_hours
-        FROM pressure_hourly
-        WHERE well_id = :wid
-          AND hour_start >= :sd AND hour_start < :ed + INTERVAL '1 day'
-    """), {"wid": well.id, "sd": eff_start, "ed": eff_end}).fetchone()
-    hours_with_data = int(util_row[0]) if util_row else 0
-    working_hours = int(util_row[1]) if util_row else 0
+    # Working hours / downtime from masked hourly data (ΔP > 0.1 = working)
+    if not hourly.empty:
+        hours_with_data = len(hourly)
+        working_mask = (
+            hourly["p_tube"].notna() &
+            hourly["p_line"].notna() &
+            ((hourly["p_tube"] - hourly["p_line"]) > 0.1)
+        )
+        working_hours = int(working_mask.sum())
+    else:
+        hours_with_data = 0
+        working_hours = 0
     downtime_hours = max(hours_with_data - working_hours, 0)
     utilization = (working_hours / hours_with_data * 100) if hours_with_data > 0 else 0
 
@@ -2273,8 +2296,8 @@ def _aggregate_monthly_well(
         for sess in ps["sessions"]:
             if sess.get("duration_min", 0) <= 0:
                 continue
-            # Use avg P_tube for the well as rough estimate
-            p_avg_kgs = float(pr[0]) if pr and pr[0] else 0
+            # Use median P_tube for the well as rough estimate
+            p_avg_kgs = pr_p_tube_median if pr_p_tube_median else 0
             if p_avg_kgs <= 0:
                 continue
             p_mpa = p_avg_kgs * _pcfg.kgscm2_to_MPa

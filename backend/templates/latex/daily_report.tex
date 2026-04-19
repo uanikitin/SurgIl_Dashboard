@@ -74,6 +74,9 @@
 \BLOCK{ endif }
 
 \BLOCK{ if w.events }
+{\scriptsize Табл.~\VAR{loop.index}.1. Журнал событий за сутки.}
+\vspace{0.2em}
+
 {\footnotesize
 \begin{tabularx}{\textwidth}{|C{1cm}|P{2.2cm}|X|R{1.2cm}|R{1.2cm}|}
 \hline
@@ -101,6 +104,9 @@
 \subsection*{2. Реагенты}
 
 \BLOCK{ if w.reagent_stats }
+{\scriptsize Табл.~\VAR{loop.index}.2. Расход реагентов.}
+\vspace{0.2em}
+
 {\footnotesize
 \begin{tabularx}{\textwidth}{|X|R{2cm}|R{2.5cm}|R{2.5cm}|}
 \hline
@@ -128,6 +134,9 @@
 \subsection*{3. Давления}
 
 \BLOCK{ if w.pressure_stats }
+{\scriptsize Табл.~\VAR{loop.index}.3. Статистика давлений за сутки.}
+\vspace{0.2em}
+
 {\footnotesize
 \begin{tabularx}{\textwidth}{|X|R{2.2cm}|R{2.2cm}|R{2.2cm}|}
 \hline
@@ -156,7 +165,7 @@ $\Delta$P, кгс/см\textsuperscript{2} & \VAR{w.pressure_stats.dp_avg} & \VAR
 \vspace{0.1em}
 \begin{center}
 \includegraphics[width=\textwidth]{\VAR{w.dp_chart_path}}\\[-0.3em]
-{\scriptsize Рис.~0. $\Delta$P за сутки с линией тренда.}
+{\scriptsize Рис.~\VAR{loop.index}.1. $\Delta$P за сутки с линией тренда.}
 \end{center}
 \BLOCK{ endif }
 
@@ -174,6 +183,9 @@ $\Delta$P, кгс/см\textsuperscript{2} & \VAR{w.pressure_stats.dp_avg} & \VAR
 
 % ── 4. Простои / Продувки ──
 \subsection*{4. Простои / Продувки}
+
+{\scriptsize Табл.~\VAR{loop.index}.4. Простои и продувки.}
+\vspace{0.2em}
 
 {\footnotesize
 \begin{tabularx}{\textwidth}{|C{0.5cm}|P{1.5cm}|C{1.8cm}|R{1.2cm}|X|R{1.8cm}|}
@@ -209,6 +221,9 @@ $\Delta$P, кгс/см\textsuperscript{2} & \VAR{w.pressure_stats.dp_avg} & \VAR
 \subsection*{5. Дебит}
 
 \BLOCK{ if w.flow_stats }
+{\scriptsize Табл.~\VAR{loop.index}.5. Показатели дебита.}
+\vspace{0.2em}
+
 {\footnotesize
 \begin{tabularx}{\textwidth}{|X|R{2.5cm}|X|R{2.5cm}|}
 \hline
@@ -265,7 +280,7 @@ $C_d{=}\VAR{w.flow_formula.purge_Cd}$, $d{=}\VAR{w.flow_formula.purge_d_mm}$\,м
 \BLOCK{ if w.chart_path }
 \begin{center}
 \includegraphics[width=\textwidth]{\VAR{w.chart_path}}\\[-0.3em]
-{\scriptsize Рис.~1. Давления P\,трубное / P\,линейное за сутки.\BLOCK{ if w.event_type_stats } Маркеры: пунктир --- продувки, точки --- реагенты.\BLOCK{ endif }}
+{\scriptsize Рис.~\VAR{loop.index}.2. Давления P\,трубное / P\,линейное за сутки.\BLOCK{ if w.event_type_stats } Маркеры: пунктир --- продувки, точки --- реагенты.\BLOCK{ endif }}
 \end{center}
 \vspace{0.1em}
 \BLOCK{ endif }
@@ -273,7 +288,7 @@ $C_d{=}\VAR{w.flow_formula.purge_Cd}$, $d{=}\VAR{w.flow_formula.purge_d_mm}$\,м
 \BLOCK{ if w.flow_chart_path }
 \begin{center}
 \includegraphics[width=\textwidth]{\VAR{w.flow_chart_path}}\\[-0.3em]
-{\scriptsize Рис.~2. Мгновенный дебит газа Q(t), тыс.\,м\textsuperscript{3}/сут.}
+{\scriptsize Рис.~\VAR{loop.index}.3. Мгновенный дебит газа Q(t), тыс.\,м\textsuperscript{3}/сут.}
 \end{center}
 \BLOCK{ endif }
 

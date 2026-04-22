@@ -1065,8 +1065,8 @@
         title="Режим: Сырые — без обработки; Фильтр — нули+спайки; Маски — фильтр + верифицированные коррекции">
         <option value="">По параметрам</option>
         <option value="raw">Сырые</option>
-        <option value="filtered" selected>Фильтр</option>
-        <option value="masked">Маски</option>
+        <option value="filtered">Фильтр</option>
+        <option value="masked" selected>Маски</option>
       </select>
       <button type="button" id="sync-masks-manage"
         style="background:none; border:1px solid #7b1fa2; color:#7b1fa2; border-radius:4px;
@@ -2636,6 +2636,152 @@
 {% endif %}
 
 </div> {# конец полноширинных секций #}
+
+{# ========== ЭФФЕКТИВНОСТЬ РЕАГЕНТА ========== #}
+<div class="card" id="reagent-eff-section" style="width:100%; margin-bottom:20px;">
+  <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+    <div>
+      <h2 style="margin:0;">Эффективность реагента</h2>
+      <small style="color:#6c757d;">Анализ интервалов между вбросами, Score по реагентам</small>
+    </div>
+    <button id="ra-toggle-btn" type="button" style="
+      padding:6px 12px; border:1px solid #dee2e6; border-radius:6px;
+      background:#f8f9fa; color:#666; font-size:12px; cursor:pointer;
+    ">Свернуть</button>
+  </div>
+
+  <div id="ra-widget-body" style="padding:14px;">
+    {# Toolbar #}
+    <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:12px;">
+      <input type="date" id="ra-w-date-from" style="padding:5px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;">
+      <input type="date" id="ra-w-date-to" style="padding:5px 8px; border:1px solid #d1d5db; border-radius:6px; font-size:12px;">
+      <span style="color:#9ca3af;">|</span>
+      <label style="font-size:11px; color:#6b7280;">Группировка:</label>
+      <input type="range" id="ra-w-merge" min="0.5" max="24" step="0.5" value="4" style="width:100px;">
+      <span id="ra-w-merge-val" style="font-size:11px; font-weight:600; min-width:28px;">4 ч</span>
+      <span style="color:#9ca3af;">|</span>
+      <label style="font-size:11px; color:#6b7280;">Grace:</label>
+      <input type="range" id="ra-w-grace" min="0" max="120" step="5" value="30" style="width:80px;">
+      <span id="ra-w-grace-val" style="font-size:11px; font-weight:600; min-width:28px;">30 м</span>
+      <button id="ra-w-btn" style="padding:5px 14px; border:none; border-radius:6px; background:#3b82f6; color:#fff; font-size:12px; font-weight:600; cursor:pointer;">Анализ</button>
+      <button id="ra-w-excel" style="display:none; padding:5px 12px; border:1px solid #d1d5db; border-radius:6px; background:#fff; color:#374151; font-size:12px; cursor:pointer;">Excel</button>
+    </div>
+
+    {# Warnings #}
+    <div id="ra-w-warnings"></div>
+
+    {# Loading #}
+    <div id="ra-w-loading" style="display:none; text-align:center; padding:20px; color:#6b7280; font-size:13px;">
+      <span style="display:inline-block; width:16px; height:16px; border:2px solid #e5e7eb; border-top-color:#3b82f6; border-radius:50%; animation:ra-spin 0.8s linear infinite; margin-right:6px;"></span> Идёт расчёт...
+    </div>
+    <style>@keyframes ra-spin { to { transform:rotate(360deg); } }</style>
+
+    {# Results #}
+    <div id="ra-w-results" style="display:none;">
+
+      {# Best + summary cards #}
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+        <div id="ra-w-best-card" style="flex:1; min-width:180px; background:linear-gradient(135deg,#ecfdf5,#d1fae5); border:1px solid #6ee7b7; border-radius:8px; padding:10px 14px;">
+          <div style="font-size:10px; text-transform:uppercase; color:#6b7280; letter-spacing:0.05em;">Лучший реагент</div>
+          <div id="ra-w-best-name" style="font-size:18px; font-weight:700; color:#059669;">-</div>
+          <div id="ra-w-best-sub" style="font-size:11px; color:#6b7280;">-</div>
+        </div>
+        <div style="flex:1; min-width:120px; background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px 14px;">
+          <div style="font-size:10px; text-transform:uppercase; color:#6b7280;">Вбросов</div>
+          <div id="ra-w-total" style="font-size:18px; font-weight:700;">-</div>
+          <div id="ra-w-merged" style="font-size:11px; color:#6b7280;">-</div>
+        </div>
+        <div style="flex:1; min-width:100px; background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px 14px;">
+          <div style="font-size:10px; text-transform:uppercase; color:#6b7280;">Штуцер</div>
+          <div id="ra-w-choke" style="font-size:18px; font-weight:700;">-</div>
+          <div style="font-size:11px; color:#6b7280;">мм</div>
+        </div>
+      </div>
+
+      {# Help block #}
+      <details style="margin-bottom:10px;">
+        <summary style="cursor:pointer; font-size:11px; color:#6b7280;">Описание параметров</summary>
+        <div style="font-size:11px; color:#4b5563; background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px; padding:10px 14px; margin-top:4px; line-height:1.6;">
+          <b>ИРВ</b> &mdash; интервал реагентного воздействия: период от вброса до следующего вброса или продувки.<br>
+          <b>Группировка</b> &mdash; вбросы ближе заданного интервала объединяются в один (суммируется кол-во).<br>
+          <b>Grace period</b> &mdash; время после вброса, которое исключается из расчёта (реагент ещё не растворился).<br>
+          <b>Baseline &Delta;P</b> &mdash; медиана перепада давления (p_tube &minus; p_line) за 2 часа ДО вброса. Эталон &laquo;без реагента&raquo;.<br>
+          <b>Пик &Delta;P</b> &mdash; максимальное значение сглаженного &Delta;P внутри ИРВ.<br>
+          <b>До пика</b> &mdash; время от начала ИРВ до достижения пика (минуты).<br>
+          <b>&Delta;P прирост</b> &mdash; медиана &Delta;P за весь ИРВ минус Baseline. Показывает средний рост перепада от реагента.<br>
+          <b>Затухание</b> &mdash; наклон линейного тренда &Delta;P после пика (кгс/см&sup2;/ч). Отрицательный = давление падает.<br>
+          <b>Эффект</b> &mdash; сколько часов &Delta;P держится выше порога (Baseline + 0.3 кгс/см&sup2;). От первого превышения до первого падения.<br>
+          <b>Q/шт</b> &mdash; накопленный дебит за ИРВ делённый на количество реагента. Чем больше, тем эффективнее.<br>
+          <b>M5 (%)</b> &mdash; доля рабочих минут в ИРВ. Если &lt; 50% &mdash; слишком много простоев, ИРВ исключается из Score.<br>
+          <b>Score</b> &mdash; 0&hellip;1, рассчитывается как: медиана(Q/шт)&times;0.5 + норм(&Delta;P прирост)&times;0.3 + норм(Эффект)&times;0.2<br>
+          <b>Уровень</b> &mdash; шкала: Высокая (&ge;0.80), Хорошая (&ge;0.60), Средняя (&ge;0.40), Слабая (&ge;0.20), Не работает (&lt;0.20)<br>
+          <b>Overlay</b> &mdash; все кривые &Delta;P одного реагента наложены на одну ось (X = часы от вброса). Видно типичный паттерн.<br>
+          <b>Сегменты (рост/плато/спад)</b> &mdash; при клике на строку ИРВ показывается график &Delta;P с цветными зонами.
+          Зелёная = рост (наклон &gt; +0.1), синяя = плато (|наклон| &le; 0.1), красная = спад (&lt; &minus;0.1).
+          Сегменты короче 30 минут сливаются с соседями, чтобы игнорировать краткосрочные спайки.
+        </div>
+      </details>
+
+      {# Scores table #}
+      <div style="overflow-x:auto; margin-bottom:12px;">
+        <table style="width:100%; border-collapse:collapse; font-size:11px;">
+          <thead>
+            <tr style="background:#f9fafb; border-bottom:2px solid #e5e7eb;">
+              <th style="text-align:left; padding:5px 8px; font-size:10px; text-transform:uppercase; color:#6b7280;">Реагент</th>
+              <th style="padding:5px 8px; font-size:10px; text-transform:uppercase; color:#6b7280;" title="Количество интервалов (после группировки)">Вбросов</th>
+              <th style="padding:5px 8px; font-size:10px; text-transform:uppercase; color:#6b7280;" title="Медиана накопленного дебита на 1 шт реагента (тыс. м³/шт)">Q/шт</th>
+              <th style="padding:5px 8px; font-size:10px; text-transform:uppercase; color:#6b7280;" title="Медиана прироста ΔP относительно baseline (кгс/см²)">&Delta;P прирост</th>
+              <th style="padding:5px 8px; font-size:10px; text-transform:uppercase; color:#6b7280;" title="Медиана длительности эффекта: сколько часов ΔP выше порога">Эффект</th>
+              <th style="padding:5px 8px; font-size:10px; text-transform:uppercase; color:#6b7280;" title="Score = Q/шт×0.5 + ΔP×0.3 + Эффект×0.2 (нормализовано 0..1)">Score</th>
+              <th style="padding:5px 8px; font-size:10px; text-transform:uppercase; color:#6b7280;" title="Высокая ≥0.80, Хорошая ≥0.60, Средняя ≥0.40, Слабая ≥0.20, Не работает <0.20">Уровень</th>
+              <th style="padding:5px 8px; font-size:10px; text-transform:uppercase; color:#6b7280;">Флаги</th>
+            </tr>
+          </thead>
+          <tbody id="ra-w-scores"></tbody>
+        </table>
+      </div>
+
+      {# Overlay ΔP chart (все ИРВ одного реагента наложены) #}
+      <div id="ra-w-overlay-wrap" style="margin-bottom:12px; display:none;">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+          <span style="font-size:12px; font-weight:600; color:#374151;">&Delta;P по вбросам (overlay)</span>
+          <select id="ra-w-overlay-reagent" style="padding:3px 8px; border:1px solid #d1d5db; border-radius:4px; font-size:11px;"></select>
+        </div>
+        <div style="position:relative; height:280px;"><canvas id="ra-w-overlay-chart"></canvas></div>
+      </div>
+
+      {# M2 chart #}
+      <div id="ra-w-chart-wrap" style="margin-bottom:12px;">
+        <div style="position:relative; height:220px;"><canvas id="ra-w-chart"></canvas></div>
+      </div>
+
+      {# IRV table with phases #}
+      <details>
+        <summary style="cursor:pointer; font-size:12px; font-weight:600; color:#374151; margin-bottom:6px;">Все ИРВ (интервалы)</summary>
+        <div style="overflow-x:auto;">
+          <table style="width:100%; border-collapse:collapse; font-size:11px;">
+            <thead>
+              <tr style="background:#f9fafb; border-bottom:1px solid #e5e7eb;">
+                <th style="text-align:left; padding:4px 6px;">Дата</th>
+                <th style="padding:4px 6px;">Реагент</th>
+                <th style="padding:4px 6px;" title="Количество реагента (шт)">Кол-во</th>
+                <th style="padding:4px 6px;" title="Длительность ИРВ">Длит.</th>
+                <th style="padding:4px 6px;" title="Медиана ΔP за 2ч ДО вброса">Baseline &Delta;P</th>
+                <th style="padding:4px 6px;" title="Максимум сглаженного ΔP внутри ИРВ">Пик &Delta;P</th>
+                <th style="padding:4px 6px;" title="Время от начала ИРВ до пика ΔP">До пика</th>
+                <th style="padding:4px 6px;" title="Наклон тренда ΔP после пика (кгс/см²/ч)">Затухание</th>
+                <th style="padding:4px 6px;" title="Сколько часов ΔP держится выше Baseline+0.3">Эффект</th>
+                <th style="padding:4px 6px;" title="Накопленный дебит / кол-во реагента (тыс. м³/шт)">Q/шт</th>
+                <th style="padding:4px 6px;" title="Доля рабочих минут в ИРВ (%)">M5</th>
+              </tr>
+            </thead>
+            <tbody id="ra-w-irvs"></tbody>
+          </table>
+        </div>
+      </details>
+    </div>{# /ra-w-results #}
+  </div>{# /ra-widget-body #}
+</div>
 
 <div class="well-layout">
   {# Левая часть: карточки информации #}
@@ -4757,5 +4903,464 @@ document.getElementById('chokeInput').addEventListener('keydown', function(e) {
   if (e.key === 'Enter') { e.preventDefault(); chokeSave(); }
   if (e.key === 'Escape') { e.preventDefault(); chokeCancel(); }
 });
+</script>
+
+{# ========== Reagent Effectiveness Widget JS ========== #}
+<script>
+(function() {
+  'use strict';
+  const WELL_ID = {{ well.id }};
+  const API = '/api/reagent-analysis';
+  let raChart = null;
+
+  // Init dates
+  const now = new Date();
+  const from = new Date(now); from.setDate(from.getDate() - 90);
+  document.getElementById('ra-w-date-to').value = now.toISOString().slice(0,10);
+  document.getElementById('ra-w-date-from').value = from.toISOString().slice(0,10);
+
+  // Sliders
+  const mergeS = document.getElementById('ra-w-merge');
+  const mergeV = document.getElementById('ra-w-merge-val');
+  mergeS.addEventListener('input', () => { mergeV.textContent = mergeS.value + ' ч'; });
+  const graceS = document.getElementById('ra-w-grace');
+  const graceV = document.getElementById('ra-w-grace-val');
+  graceS.addEventListener('input', () => { graceV.textContent = graceS.value + ' м'; });
+
+  // Toggle
+  const toggleBtn = document.getElementById('ra-toggle-btn');
+  const body = document.getElementById('ra-widget-body');
+  toggleBtn.addEventListener('click', () => {
+    const hidden = body.style.display === 'none';
+    body.style.display = hidden ? '' : 'none';
+    toggleBtn.textContent = hidden ? 'Свернуть' : 'Развернуть';
+  });
+
+  // Analyze
+  document.getElementById('ra-w-btn').addEventListener('click', runRA);
+
+  // Excel
+  document.getElementById('ra-w-excel').addEventListener('click', async () => {
+    try {
+      const res = await fetch(API + '/export-excel', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(buildReq()),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+      a.download = 'reagent_well' + WELL_ID + '.xlsx'; a.click();
+    } catch(e) { alert('Ошибка: ' + e.message); }
+  });
+
+  function buildReq() {
+    return {
+      well_id: WELL_ID,
+      period_start: document.getElementById('ra-w-date-from').value + 'T00:00:00',
+      period_end: document.getElementById('ra-w-date-to').value + 'T23:59:59',
+      merge_window_hours: +mergeS.value,
+      grace_period_min: +graceS.value,
+    };
+  }
+
+  async function runRA() {
+    document.getElementById('ra-w-loading').style.display = 'block';
+    document.getElementById('ra-w-results').style.display = 'none';
+    document.getElementById('ra-w-warnings').innerHTML = '';
+    document.getElementById('ra-w-excel').style.display = 'none';
+
+    try {
+      const res = await fetch(API + '/analyze', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(buildReq()),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      renderRA(data);
+    } catch(e) {
+      showWarn(e.message);
+    } finally {
+      document.getElementById('ra-w-loading').style.display = 'none';
+    }
+  }
+
+  function renderRA(data) {
+    const warnEl = document.getElementById('ra-w-warnings');
+    (data.warnings || []).forEach(w => {
+      const d = document.createElement('div');
+      d.style.cssText = 'background:#fffbeb;border:1px solid #fcd34d;border-radius:6px;padding:6px 10px;font-size:11px;color:#92400e;margin-bottom:4px;';
+      d.textContent = w;
+      warnEl.appendChild(d);
+    });
+
+    if (!data.irv_results || data.irv_results.length === 0) {
+      showWarn('Нет вбросов реагента за выбранный период');
+      return;
+    }
+
+    document.getElementById('ra-w-results').style.display = 'block';
+    document.getElementById('ra-w-excel').style.display = 'inline-block';
+
+    // Cards
+    document.getElementById('ra-w-total').textContent = data.injections_total;
+    document.getElementById('ra-w-merged').textContent = data.merged_injections + ' (группир.)';
+    document.getElementById('ra-w-choke').textContent = data.choke_mm != null ? data.choke_mm.toFixed(1) : 'н/д';
+
+    if (data.best_reagent) {
+      const b = data.best_reagent;
+      document.getElementById('ra-w-best-name').textContent = b.reagent;
+      const p = [];
+      if (b.median_q_per_unit != null) p.push(b.median_q_per_unit.toFixed(2) + ' тыс.м\u00B3/шт');
+      if (b.median_effect_hours != null) p.push('эффект ' + b.median_effect_hours.toFixed(1) + 'ч');
+      p.push('Score ' + b.score.toFixed(2));
+      document.getElementById('ra-w-best-sub').textContent = p.join(' | ');
+    }
+
+    // Scores table
+    const sb = document.getElementById('ra-w-scores');
+    sb.innerHTML = '';
+    const lvlColors = {5:'#16a34a',4:'#65a30d',3:'#ca8a04',2:'#ea580c',1:'#dc2626'};
+    const flagCls = {'деградация':'#fee2e2','нестабильный':'#fef3c7','мало данных':'#e5e7eb'};
+    (data.scores || []).forEach(s => {
+      const tr = document.createElement('tr');
+      tr.style.borderBottom = '1px solid #f3f4f6';
+      tr.innerHTML = `
+        <td style="padding:4px 8px;font-weight:600;">${esc(s.reagent)}</td>
+        <td style="padding:4px 8px;text-align:center;">${s.irv_count}</td>
+        <td style="padding:4px 8px;text-align:center;">${vv(s.median_q_per_unit,3)}</td>
+        <td style="padding:4px 8px;text-align:center;">${vv(s.median_dp_gain,2)}</td>
+        <td style="padding:4px 8px;text-align:center;">${vv(s.median_effect_hours,1)} ч</td>
+        <td style="padding:4px 8px;text-align:center;font-weight:700;">${s.score.toFixed(2)}</td>
+        <td style="padding:4px 8px;text-align:center;"><span style="display:inline-block;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:700;color:#fff;background:${lvlColors[s.level]||'#999'}">${s.level_name}</span></td>
+        <td style="padding:4px 8px;">${(s.flags||[]).map(f=>'<span style="display:inline-block;padding:1px 5px;border-radius:4px;font-size:9px;font-weight:600;margin-right:2px;background:'+(flagCls[f]||'#e5e7eb')+';color:#374151">'+esc(f)+'</span>').join('')}</td>
+      `;
+      sb.appendChild(tr);
+    });
+
+    // Charts
+    renderRAChart(data.irv_results);
+
+    // Overlay: populate reagent selector + load first
+    const overlaySel = document.getElementById('ra-w-overlay-reagent');
+    overlaySel.innerHTML = '';
+    const reagents = [...new Set(data.irv_results.map(r => r.reagent))];
+    reagents.forEach(rg => {
+      const opt = document.createElement('option');
+      opt.value = rg; opt.textContent = rg;
+      overlaySel.appendChild(opt);
+    });
+    overlaySel.onchange = () => loadOverlay(overlaySel.value);
+    if (reagents.length > 0) loadOverlay(reagents[0]);
+
+    // IRV table with phases + inline ΔP chart per row
+    const ib = document.getElementById('ra-w-irvs');
+    ib.innerHTML = '';
+    data.irv_results.forEach((r, idx) => {
+      const m = r.metrics;
+      const ph = m.phases || {};
+      const tr = document.createElement('tr');
+      tr.style.borderBottom = '1px solid #f3f4f6';
+      tr.style.cursor = 'pointer';
+      if (m.invalid_reason) tr.style.color = '#9ca3af';
+      tr.innerHTML = `
+        <td style="padding:3px 6px;">${fmtDt(r.event_time)}</td>
+        <td style="padding:3px 6px;">${esc(r.reagent)}${r.merged_count>1?' <small>('+r.merged_count+')</small>':''}</td>
+        <td style="padding:3px 6px;text-align:center;">${r.qty!=null?r.qty:'н/д'}</td>
+        <td style="padding:3px 6px;text-align:center;">${r.duration_hours}ч</td>
+        <td style="padding:3px 6px;text-align:center;">${vv(m.baseline_dp,2)}</td>
+        <td style="padding:3px 6px;text-align:center;font-weight:600;">${vv(ph.peak_dp,2)}</td>
+        <td style="padding:3px 6px;text-align:center;">${ph.time_to_peak_min!=null?Math.round(ph.time_to_peak_min)+'м':'н/д'}</td>
+        <td style="padding:3px 6px;text-align:center;">${ph.decay_slope!=null?(ph.decay_slope>0?'+':'')+ph.decay_slope.toFixed(3)+'/ч':'н/д'}</td>
+        <td style="padding:3px 6px;text-align:center;">${vv(m.effect_duration_hours,1)}ч</td>
+        <td style="padding:3px 6px;text-align:center;">${vv(m.q_per_unit,3)}</td>
+        <td style="padding:3px 6px;text-align:center;">${vv(m.utilisation_pct,0)}%</td>
+      `;
+      ib.appendChild(tr);
+
+      // Expandable chart row with segments table
+      const chartRow = document.createElement('tr');
+      chartRow.style.display = 'none';
+      chartRow.innerHTML = '<td colspan="11" style="padding:8px 6px;">'
+        + '<div style="position:relative;height:240px;"><canvas id="ra-irv-chart-'+idx+'"></canvas></div>'
+        + '<div id="ra-irv-loading-'+idx+'" style="text-align:center;font-size:11px;color:#9ca3af;padding:4px;">Загрузка...</div>'
+        + '<div id="ra-irv-segs-'+idx+'" style="margin-top:6px;"></div>'
+        + '</td>';
+      ib.appendChild(chartRow);
+
+      tr.addEventListener('click', () => {
+        const visible = chartRow.style.display !== 'none';
+        chartRow.style.display = visible ? 'none' : '';
+        if (!visible && !chartRow._loaded) {
+          chartRow._loaded = true;
+          loadIRVChart(idx, r.event_time);
+        }
+      });
+    });
+  }
+
+  // ── Per-IRV ΔP chart ──
+  const irvCharts = {};
+  async function loadIRVChart(idx, eventTime) {
+    const loadEl = document.getElementById('ra-irv-loading-' + idx);
+    try {
+      const url = `${API}/irv-detail?well_id=${WELL_ID}&event_time=${encodeURIComponent(eventTime)}&merge_window_hours=${mergeS.value}&grace_period_min=${graceS.value}`;
+      const res = await fetch(url);
+      if (!res.ok) { loadEl.textContent = 'Ошибка'; return; }
+      const data = await res.json();
+      loadEl.style.display = 'none';
+
+      if (!data.dp_curve) { loadEl.textContent = 'Нет данных ΔP'; loadEl.style.display = ''; return; }
+
+      const dc = data.dp_curve;
+      const datasets = [
+        {
+          label: '\u0394P сглаж.',
+          data: dc.hours_from_injection.map((h,i) => ({x:h, y:dc.dp_smooth[i]})),
+          borderColor: '#3b82f6', borderWidth: 2, pointRadius: 0, fill: false, tension: 0.3,
+        },
+        {
+          label: '\u0394P сырой',
+          data: dc.hours_from_injection.map((h,i) => ({x:h, y:dc.dp[i]})),
+          borderColor: '#93c5fd', borderWidth: 0.5, pointRadius: 0, fill: false,
+        },
+      ];
+
+      // Baseline line
+      const bl = data.metrics && data.metrics.baseline_dp;
+      if (bl != null) {
+        const maxH = Math.max(...dc.hours_from_injection);
+        datasets.push({
+          label: 'Baseline', data: [{x:0,y:bl},{x:maxH,y:bl}],
+          borderColor: '#f59e0b', borderWidth: 1.5, borderDash: [5,3],
+          pointRadius: 0, fill: false,
+        });
+      }
+
+      // Peak marker
+      const ph = data.metrics && data.metrics.phases;
+      if (ph && ph.peak_dp != null && ph.time_to_peak_min != null) {
+        datasets.push({
+          label: 'Пик ' + ph.peak_dp.toFixed(2),
+          data: [{x: ph.time_to_peak_min/60, y: ph.peak_dp}],
+          borderColor: '#ef4444', backgroundColor: '#ef4444',
+          pointRadius: 6, pointStyle: 'triangle', showLine: false,
+        });
+      }
+
+      // Segment backgrounds (plotted as filled area datasets)
+      const segs = data.segments || [];
+      const segColors = {rise:'#bbf7d0', plateau:'#bfdbfe', decay:'#fecaca'};
+      const yMin = Math.min(...dc.dp_smooth.filter(v => v != null)) - 0.5;
+      const yMax = Math.max(...dc.dp_smooth.filter(v => v != null)) + 0.5;
+      segs.forEach((seg, si) => {
+        const color = segColors[seg.type] || '#e5e7eb';
+        datasets.push({
+          label: '_seg',  // скрыть из легенды фильтром ниже
+          data: [
+            {x: seg.start_hours, y: yMin}, {x: seg.start_hours, y: yMax},
+            {x: seg.end_hours, y: yMax}, {x: seg.end_hours, y: yMin},
+          ],
+          backgroundColor: color + '66',
+          borderColor: 'transparent',
+          borderWidth: 0,
+          fill: true,
+          showLine: true,
+          pointRadius: 0,
+          order: 99,
+          _isSegment: true,
+        });
+      });
+
+      if (irvCharts[idx]) irvCharts[idx].destroy();
+      irvCharts[idx] = new Chart(document.getElementById('ra-irv-chart-' + idx), {
+        type: 'scatter', data: {datasets},
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false,
+          scales: {
+            x: {type:'linear', title:{display:true,text:'Часы от вброса',font:{size:10}}, min:0},
+            y: {title:{display:true,text:'\u0394P (кгс/см\u00B2)',font:{size:10}}, min:yMin, max:yMax},
+          },
+          plugins: {
+            legend: {
+              position:'top',
+              labels: {
+                font:{size:9}, boxWidth:10,
+                filter: (item) => !item.text.startsWith('_seg'),
+              }
+            }
+          },
+        },
+      });
+
+      // Segments table
+      renderSegmentsTable(idx, segs);
+    } catch(e) {
+      loadEl.textContent = 'Ошибка: ' + e.message;
+    }
+  }
+
+  function renderSegmentsTable(idx, segs) {
+    const el = document.getElementById('ra-irv-segs-' + idx);
+    if (!segs || segs.length === 0) { el.innerHTML = ''; return; }
+    const typeNames = {rise:'Рост', plateau:'Плато', decay:'Спад'};
+    const typeColors = {rise:'#16a34a', plateau:'#2563eb', decay:'#dc2626'};
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:10px;">';
+    html += '<thead><tr style="background:#f3f4f6;">'
+      + '<th style="padding:3px 6px;text-align:left;">Сегмент</th>'
+      + '<th style="padding:3px 6px;">Начало (ч)</th>'
+      + '<th style="padding:3px 6px;">Конец (ч)</th>'
+      + '<th style="padding:3px 6px;">Длит. (ч)</th>'
+      + '<th style="padding:3px 6px;">Наклон /ч</th>'
+      + '<th style="padding:3px 6px;">&Delta;P начало→конец</th>'
+      + '</tr></thead><tbody>';
+    segs.forEach(s => {
+      const c = typeColors[s.type] || '#666';
+      html += '<tr style="border-bottom:1px solid #f3f4f6;">'
+        + '<td style="padding:3px 6px;"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:'+c+';margin-right:4px;vertical-align:middle;"></span>'+(typeNames[s.type]||s.type)+'</td>'
+        + '<td style="padding:3px 6px;text-align:center;">'+s.start_hours.toFixed(2)+'</td>'
+        + '<td style="padding:3px 6px;text-align:center;">'+s.end_hours.toFixed(2)+'</td>'
+        + '<td style="padding:3px 6px;text-align:center;">'+s.duration_hours.toFixed(2)+'</td>'
+        + '<td style="padding:3px 6px;text-align:center;">'+(s.slope>=0?'+':'')+s.slope.toFixed(3)+'</td>'
+        + '<td style="padding:3px 6px;text-align:center;">'+s.start_dp.toFixed(2)+' → '+s.end_dp.toFixed(2)+'</td>'
+        + '</tr>';
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  }
+
+  function renderRAChart(irvs) {
+    const valid = irvs.filter(r => r.metrics.q_per_unit != null);
+    const wrap = document.getElementById('ra-w-chart-wrap');
+    if (valid.length === 0) { wrap.style.display = 'none'; return; }
+    wrap.style.display = '';
+
+    const byR = {};
+    valid.forEach(r => {
+      if (!byR[r.reagent]) byR[r.reagent] = [];
+      byR[r.reagent].push({x: r.event_time, y: r.metrics.q_per_unit});
+    });
+    const colors = ['#3b82f6','#ef4444','#16a34a','#f59e0b','#8b5cf6','#ec4899'];
+    const ds = Object.keys(byR).map((rg,i) => ({
+      label: rg, data: byR[rg],
+      borderColor: colors[i%colors.length], backgroundColor: colors[i%colors.length]+'33',
+      pointRadius: 4, pointHoverRadius: 6, showLine: true, tension: 0.3,
+    }));
+
+    if (raChart) raChart.destroy();
+    raChart = new Chart(document.getElementById('ra-w-chart'), {
+      type: 'scatter', data: {datasets: ds},
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        scales: {
+          x: {type:'time', time:{unit:'day'}, title:{display:true,text:'Дата',font:{size:10}}},
+          y: {title:{display:true,text:'Q/шт (тыс.м\u00B3/шт)',font:{size:10}}, beginAtZero:true},
+        },
+        plugins: {legend:{position:'top',labels:{font:{size:10}}}},
+      },
+    });
+  }
+
+  // ── Overlay ΔP chart ──
+  let overlayChart = null;
+
+  async function loadOverlay(reagent) {
+    const wrap = document.getElementById('ra-w-overlay-wrap');
+    wrap.style.display = '';
+    try {
+      const res = await fetch(API + '/overlay?reagent=' + encodeURIComponent(reagent), {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(buildReq()),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      renderOverlay(data);
+    } catch(e) { console.error('overlay error', e); }
+  }
+
+  function renderOverlay(data) {
+    if (!data.curves || data.curves.length === 0) {
+      document.getElementById('ra-w-overlay-wrap').style.display = 'none';
+      return;
+    }
+
+    const colors = ['#3b82f6','#ef4444','#16a34a','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#f97316'];
+    const datasets = data.curves.map((c, i) => ({
+      label: c.label,
+      data: c.hours.map((h, j) => ({x: h, y: c.dp_smooth[j]})),
+      borderColor: colors[i % colors.length],
+      borderWidth: 1.5,
+      pointRadius: 0,
+      fill: false,
+      tension: 0.3,
+    }));
+
+    // Baseline line (average)
+    const baselines = data.curves.filter(c => c.baseline_dp != null).map(c => c.baseline_dp);
+    if (baselines.length > 0) {
+      const avgBaseline = baselines.reduce((a,b)=>a+b,0) / baselines.length;
+      const maxH = Math.max(...data.curves.map(c => Math.max(...c.hours)));
+      datasets.push({
+        label: 'Baseline \u0394P',
+        data: [{x:0, y:avgBaseline}, {x:maxH, y:avgBaseline}],
+        borderColor: '#9ca3af',
+        borderWidth: 1.5,
+        borderDash: [6, 3],
+        pointRadius: 0,
+        fill: false,
+      });
+    }
+
+    if (overlayChart) overlayChart.destroy();
+    overlayChart = new Chart(document.getElementById('ra-w-overlay-chart'), {
+      type: 'scatter',
+      data: {datasets},
+      options: {
+        animation: false,
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: {
+            type: 'linear',
+            title: {display:true, text:'Часы от вброса', font:{size:10}},
+            min: 0,
+          },
+          y: {title: {display:true, text:'\u0394P (кгс/см\u00B2)', font:{size:10}}},
+        },
+        plugins: {
+          legend: {position:'top', labels:{font:{size:9}, boxWidth:12}},
+          tooltip: {
+            callbacks: {
+              label: function(ctx) {
+                const c = data.curves[ctx.datasetIndex];
+                if (!c || !c.phases) return ctx.dataset.label;
+                const ph = c.phases;
+                return [
+                  ctx.dataset.label,
+                  ph.peak_dp != null ? 'Пик: ' + ph.peak_dp.toFixed(2) : '',
+                  ph.time_to_peak_min != null ? 'До пика: ' + Math.round(ph.time_to_peak_min) + 'м' : '',
+                  ph.decay_slope != null ? 'Затухание: ' + ph.decay_slope.toFixed(3) + '/ч' : '',
+                ].filter(Boolean);
+              }
+            }
+          }
+        },
+      },
+    });
+  }
+
+  function showWarn(msg) {
+    const el = document.getElementById('ra-w-warnings');
+    const d = document.createElement('div');
+    d.style.cssText = 'background:#fee2e2;border:1px solid #fca5a5;border-radius:6px;padding:6px 10px;font-size:11px;color:#991b1b;margin-bottom:4px;';
+    d.textContent = msg;
+    el.appendChild(d);
+  }
+
+  function vv(val, dec) { return val == null ? 'н/д' : Number(val).toFixed(dec); }
+  function esc(s) { if(!s) return ''; const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+  function fmtDt(iso) {
+    if(!iso)return'';const d=new Date(iso);
+    return String(d.getDate()).padStart(2,'0')+'.'+String(d.getMonth()+1).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+  }
+})();
 </script>
 {% endblock %}

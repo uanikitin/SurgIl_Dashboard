@@ -134,45 +134,32 @@ def apply_masks(
                 )
 
             elif method == "interpolate":
-                df.loc[time_mask, affected] = np.nan
-                df[affected] = df[affected].interpolate(method="linear")
+                _apply_bridge(
+                    df, time_mask, affected, dt_start, dt_end,
+                    noise_factor=0.0, anchor_window_min=30,
+                )
 
             elif method == "interpolate_noise":
-                # Линейная интерполяция + коррелированный шум.
                 # noise_factor (из manual_delta_p): 0 = гладкая, 1 = естественный, >1 = усиленный
                 noise_factor = mask.get("manual_delta_p")
                 if noise_factor is None or noise_factor < 0:
                     noise_factor = 1.0
+                _apply_bridge(
+                    df, time_mask, affected, dt_start, dt_end,
+                    noise_factor=float(noise_factor), anchor_window_min=30,
+                )
 
-                # σ из MAD detrended значений за 6ч ПЕРЕД маской
-                clean_window = df.loc[df.index < dt_start, affected].dropna()
-                clean_window = clean_window.tail(6 * 60)
-                if len(clean_window) >= 20:
-                    detrended = clean_window - clean_window.rolling(30, center=True, min_periods=5).mean()
-                    detrended = detrended.dropna()
-                    if len(detrended) >= 10:
-                        mad = float(np.median(np.abs(detrended)))
-                        noise_std = mad * 1.4826
-                    else:
-                        noise_std = 0.05
-                else:
-                    noise_std = 0.05
-                noise_std = max(0.02, min(noise_std, 0.5))
-                noise_std *= noise_factor  # масштаб от ползунка
-
-                df.loc[time_mask, affected] = np.nan
-                df[affected] = df[affected].interpolate(method="linear")
-
-                if noise_std > 0.001:
-                    # Коррелированный шум: cumsum с reset каждые ~15 точек
-                    white = np.random.normal(0, noise_std * 0.3, size=n_affected)
-                    correlated = np.cumsum(white)
-                    reset_len = 15
-                    for i in range(reset_len, len(correlated), reset_len):
-                        correlated[i:] -= correlated[i]
-                    if correlated.std() > 0:
-                        correlated = correlated / correlated.std() * noise_std
-                    df.loc[time_mask, affected] += correlated
+            elif method == "bridge_median":
+                # Робастный мост: медиана чистых данных (без нулей/спайков)
+                # по обе стороны маски + линейная интерполяция + лёгкий шум.
+                # Устойчив к ложным нулям LoRa у границ маски.
+                noise_factor = mask.get("manual_delta_p")
+                if noise_factor is None or noise_factor < 0:
+                    noise_factor = 1.0
+                _apply_bridge(
+                    df, time_mask, affected, dt_start, dt_end,
+                    noise_factor=float(noise_factor), anchor_window_min=60,
+                )
 
             elif method == "seasonal_reconstruct":
                 _apply_seasonal_reconstruct(
@@ -194,6 +181,120 @@ def apply_masks(
             df[col] = df[col].ffill().bfill()
 
     return df, total_corrected
+
+
+def _robust_anchor(
+    df: pd.DataFrame,
+    affected: str,
+    dt_ref: datetime,
+    side: str,
+    window_min: int = 30,
+    zero_thr: float = 0.1,
+) -> Optional[float]:
+    """
+    Робастный якорь для интерполяции: медиана чистых (> zero_thr, не-NaN,
+    без спайков) значений за `window_min` минут с заданной стороны маски.
+
+    side: 'left' — окно [dt_ref - window; dt_ref), 'right' — (dt_ref; dt_ref + window].
+    Если в окне нет валидных точек — расширяет до 3×window. Возвращает None,
+    если всё равно пусто (нет чистых данных с этой стороны).
+    """
+    def _window_data(w_min: int) -> pd.Series:
+        if side == "left":
+            m = (df.index >= dt_ref - timedelta(minutes=w_min)) & (df.index < dt_ref)
+        else:
+            m = (df.index > dt_ref) & (df.index <= dt_ref + timedelta(minutes=w_min))
+        return df.loc[m, affected].dropna()
+
+    s = _window_data(window_min)
+    s = s[s > zero_thr]
+    if len(s) == 0:
+        s = _window_data(window_min * 3)
+        s = s[s > zero_thr]
+        if len(s) == 0:
+            return None
+
+    med = float(s.median())
+    if len(s) >= 5:
+        mad = float(np.median(np.abs(s - med)))
+        if mad > 0:
+            clean = s[np.abs(s - med) <= 3 * mad * 1.4826]
+            if len(clean) >= 3:
+                med = float(clean.median())
+    return med
+
+
+def _estimate_noise_std(
+    df: pd.DataFrame,
+    affected: str,
+    dt_start: datetime,
+    zero_thr: float = 0.1,
+) -> float:
+    """σ шума из MAD detrended значений за 6ч ПЕРЕД маской (ложные нули отфильтрованы)."""
+    clean_window = df.loc[df.index < dt_start, affected].dropna()
+    clean_window = clean_window[clean_window > zero_thr]
+    clean_window = clean_window.tail(6 * 60)
+    if len(clean_window) < 20:
+        return 0.05
+    detrended = clean_window - clean_window.rolling(30, center=True, min_periods=5).mean()
+    detrended = detrended.dropna()
+    if len(detrended) < 10:
+        return 0.05
+    mad = float(np.median(np.abs(detrended)))
+    return max(0.02, min(mad * 1.4826, 0.5))
+
+
+def _apply_bridge(
+    df: pd.DataFrame,
+    time_mask: pd.Series,
+    affected: str,
+    dt_start: datetime,
+    dt_end: datetime,
+    noise_factor: float = 1.0,
+    anchor_window_min: int = 30,
+) -> None:
+    """
+    Мост через пропуск: робастная медиана по обе стороны + линия + шум.
+
+    noise_factor = 0 → чистая прямая; 1 → естественный шум (σ из MAD за 6ч);
+    >1 — усиленный. Якорь игнорирует нули и спайки, устойчив к ложным нулям LoRa.
+    Если с одной стороны нет чистых данных — якорь зеркалится с другой стороны.
+    Если нет ни с одной — fallback к обычному linear interpolate по всему столбцу.
+    """
+    n_affected = int(time_mask.sum())
+    if n_affected == 0:
+        return
+
+    anchor_left = _robust_anchor(df, affected, dt_start, side="left", window_min=anchor_window_min)
+    anchor_right = _robust_anchor(df, affected, dt_end, side="right", window_min=anchor_window_min)
+
+    if anchor_left is None and anchor_right is None:
+        log.warning(
+            "[bridge] %s: no clean anchors for %s..%s — fallback to whole-column interpolate",
+            affected, dt_start, dt_end,
+        )
+        df.loc[time_mask, affected] = np.nan
+        df[affected] = df[affected].interpolate(method="linear")
+        return
+
+    if anchor_left is None:
+        anchor_left = anchor_right
+    if anchor_right is None:
+        anchor_right = anchor_left
+
+    df.loc[time_mask, affected] = np.linspace(anchor_left, anchor_right, n_affected)
+
+    if noise_factor and noise_factor > 0:
+        noise_std = _estimate_noise_std(df, affected, dt_start) * noise_factor
+        if noise_std > 0.001:
+            white = np.random.normal(0, noise_std * 0.3, size=n_affected)
+            correlated = np.cumsum(white)
+            reset_len = 15
+            for i in range(reset_len, len(correlated), reset_len):
+                correlated[i:] -= correlated[i]
+            if correlated.std() > 0:
+                correlated = correlated / correlated.std() * noise_std
+            df.loc[time_mask, affected] += correlated
 
 
 def _apply_median(

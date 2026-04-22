@@ -23,6 +23,7 @@
 
   const METHOD_LABELS = {
     interpolate_noise: "Интерполяция + шум",
+    bridge_median:     "Мост по медиане (робастно)",
     interpolate:       "Линейная интерполяция",
     delta_reconstruct: "По хорошему датчику + ΔP",
     delta_noise:       "По хорошему датчику + ΔP + шум",
@@ -76,12 +77,19 @@
   applyUrlParams();
   const METHOD_HINTS = {
     interpolate_noise:
-      "Прямая линия между границами участка + реалистичный шум.\n" +
+      "Прямая линия между робастными якорями (медиана 30 мин чистых данных) + шум.\n" +
+      "Нули и спайки у границ маски отбрасываются — устойчиво к ложным нулям LoRa.\n" +
       "Шум оценивается по 6ч чистых данных перед маской (MAD, робастно).\n" +
       "Параметр «Шум»: 0 = гладкая линия, 1 = естественный уровень, 2-3 = усиленный.\n" +
       "Рекомендуется для: коротких пропусков (до 6-12ч), потеря связи.",
+    bridge_median:
+      "Мост по медиане: робастная медиана 60 мин чистых данных с каждой стороны\n" +
+      "+ линейная интерполяция + лёгкий шум. Игнорирует нули и спайки в буфере.\n" +
+      "Шире окно якоря → надёжнее при грязных границах (частые ложные нули LoRa).\n" +
+      "Рекомендуется для: когда «Интерполяция + шум» даёт провалы из-за мусора у границ.",
     interpolate:
-      "Прямая линия между границами (без шума). Максимально гладкая.\n" +
+      "Прямая линия между робастными якорями (без шума). Максимально гладкая.\n" +
+      "Нули и спайки у границ маски отбрасываются автоматически.\n" +
       "Рекомендуется для: очень коротких пропусков (<1ч), интервалы между замерами.",
     delta_reconstruct:
       "Восстанавливает один датчик через второй + медиана ΔP (перепад давления).\n" +
@@ -118,7 +126,9 @@
       const hint = METHOD_HINTS[$method.value] || "";
       $methodHint.innerHTML = hint.replace(/\n/g, "<br>");
     }
-    const showNoise = ($method.value === "interpolate_noise" || $method.value === "seasonal_reconstruct");
+    const showNoise = ($method.value === "interpolate_noise"
+                    || $method.value === "bridge_median"
+                    || $method.value === "seasonal_reconstruct");
     const showSeasonal = $method.value === "seasonal_reconstruct";
     if ($noiseGroup) $noiseGroup.style.display = showNoise ? "" : "none";
     if ($seasonalGroup) $seasonalGroup.style.display = showSeasonal ? "" : "none";
@@ -717,11 +727,10 @@
     $method.value = m.correction_method;
     $reason.value = m.reason || "";
     // Восстанавливаем параметры из manual_delta_p (полиморфное поле)
-    if ($noiseFactor && m.correction_method === "interpolate_noise") {
-      $noiseFactor.value = m.manual_delta_p != null ? m.manual_delta_p : 1.0;
-      if ($noiseLabel) $noiseLabel.textContent = parseFloat($noiseFactor.value).toFixed(1) + "x";
-    }
-    if ($noiseFactor && m.correction_method === "seasonal_reconstruct") {
+    if ($noiseFactor && (
+         m.correction_method === "interpolate_noise"
+      || m.correction_method === "bridge_median"
+      || m.correction_method === "seasonal_reconstruct")) {
       $noiseFactor.value = m.manual_delta_p != null ? m.manual_delta_p : 1.0;
       if ($noiseLabel) $noiseLabel.textContent = parseFloat($noiseFactor.value).toFixed(1) + "x";
     }
@@ -765,7 +774,7 @@
       reason: $reason.value || null,
     };
     // Передаём noise_factor только для методов с шумом
-    if ($method.value === "interpolate_noise" && $noiseFactor) {
+    if (($method.value === "interpolate_noise" || $method.value === "bridge_median") && $noiseFactor) {
       body.noise_factor = parseFloat($noiseFactor.value);
     }
     if ($method.value === "seasonal_reconstruct") {

@@ -15,9 +15,18 @@ import json
 import os
 import signal
 import sys
+import time
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+# Максимальное время работы пайплайна (секунды).
+# Если процесс работает дольше — он будет убит сигналом SIGALRM.
+MAX_PIPELINE_SECONDS = 600  # 10 минут
+
+# Если lock-файл старше этого порога — считаем его протухшим
+# и забираем блокировку (процесс-владелец, вероятно, завис без очистки).
+STALE_LOCK_SECONDS = 900  # 15 минут
 
 # Кунград (Каракалпакстан) — UTC+5
 TZ_KUNGRAD = timezone(timedelta(hours=5))
@@ -94,9 +103,23 @@ def _acquire_lock() -> bool:
         try:
             pid = int(LOCK_FILE.read_text().strip())
             if _is_process_alive(pid):
-                return False  # Another instance is running
+                # Процесс жив — но может быть, он завис.
+                # Проверяем возраст lock-файла.
+                lock_age = time.time() - LOCK_FILE.stat().st_mtime
+                if lock_age < STALE_LOCK_SECONDS:
+                    return False  # Нормальная работа — ждём
+                # Lock протух — убиваем зависший процесс
+                log.warning(
+                    f"Stale lock: PID {pid} alive but lock age {lock_age:.0f}s "
+                    f"> {STALE_LOCK_SECONDS}s. Killing."
+                )
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+            # Процесс мёртв или был убит — забираем lock
         except (ValueError, OSError):
-            pass  # Corrupt PID file or stale — take over
+            pass  # Corrupt PID file — take over
 
     LOCK_FILE.write_text(str(os.getpid()))
     return True
@@ -114,13 +137,29 @@ def _release_lock():
         LOCK_FILE.unlink(missing_ok=True)
 
 
+def _timeout_handler(signum, frame):
+    """Вызывается при превышении MAX_PIPELINE_SECONDS."""
+    log.error(
+        f"=== Pipeline TIMEOUT ({MAX_PIPELINE_SECONDS}s) — принудительное завершение ==="
+    )
+    _release_lock()
+    sys.exit(2)
+
+
 def main():
     if not _acquire_lock():
         return  # Another instance is already running
 
+    # Устанавливаем таймаут на весь процесс (SIGALRM, только Unix)
+    if hasattr(signal, "SIGALRM"):
+        signal.signal(signal.SIGALRM, _timeout_handler)
+        signal.alarm(MAX_PIPELINE_SECONDS)
+
     try:
         _run()
     finally:
+        if hasattr(signal, "SIGALRM"):
+            signal.alarm(0)  # Отменяем таймер
         _release_lock()
 
 

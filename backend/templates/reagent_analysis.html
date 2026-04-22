@@ -1,0 +1,263 @@
+{% extends "base.html" %}
+
+{% block title %}СУРГИЛ · Эффективность реагента{% endblock %}
+
+{% block extra_head %}
+<style>
+/* ═══════ Layout ═══════ */
+.ra-page { display:flex; flex-direction:column; gap:10px; padding:10px 0; }
+
+.ra-toolbar {
+    display:flex; flex-wrap:wrap; align-items:center; gap:8px;
+    background:#fff; border:1px solid #e5e7eb; border-radius:8px;
+    padding:10px 14px;
+}
+.ra-toolbar select, .ra-toolbar input[type="date"] {
+    padding:6px 10px; border:1px solid #d1d5db; border-radius:6px;
+    font-size:13px; background:#fff;
+}
+.ra-toolbar select { min-width:160px; }
+.ra-toolbar .btn { padding:6px 14px; border:none; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; }
+.ra-toolbar .btn-primary { background:#3b82f6; color:#fff; }
+.ra-toolbar .btn-primary:hover { background:#2563eb; }
+.ra-toolbar .btn-outline { background:#fff; color:#374151; border:1px solid #d1d5db; }
+.ra-toolbar .btn-outline:hover { background:#f3f4f6; }
+.ra-toolbar .sep { width:1px; height:24px; background:#d1d5db; margin:0 4px; }
+
+/* Slider */
+.ra-slider-group { display:flex; align-items:center; gap:6px; }
+.ra-slider-group label { font-size:12px; color:#6b7280; white-space:nowrap; }
+.ra-slider-group input[type="range"] { width:120px; }
+.ra-slider-group .ra-slider-val { font-size:12px; font-weight:600; min-width:30px; text-align:center; }
+
+/* Body */
+.ra-body { display:flex; flex-direction:column; gap:10px; }
+
+/* Cards row */
+.ra-cards { display:flex; gap:10px; flex-wrap:wrap; }
+.ra-card {
+    background:#fff; border:1px solid #e5e7eb; border-radius:8px;
+    padding:14px 18px; min-width:200px; flex:1;
+}
+.ra-card h3 { font-size:12px; text-transform:uppercase; letter-spacing:0.05em; color:#6b7280; margin:0 0 6px 0; }
+.ra-card .value { font-size:22px; font-weight:700; color:#111827; }
+.ra-card .sub { font-size:12px; color:#6b7280; margin-top:2px; }
+
+/* Best reagent card */
+.ra-best {
+    background:linear-gradient(135deg, #ecfdf5, #d1fae5);
+    border:1px solid #6ee7b7;
+}
+.ra-best .value { color:#059669; }
+
+/* Score badge */
+.score-badge {
+    display:inline-block; padding:2px 8px; border-radius:10px;
+    font-size:11px; font-weight:700; color:#fff;
+}
+.score-5 { background:#16a34a; }
+.score-4 { background:#65a30d; }
+.score-3 { background:#ca8a04; }
+.score-2 { background:#ea580c; }
+.score-1 { background:#dc2626; }
+
+/* Table */
+.ra-table-wrap {
+    background:#fff; border:1px solid #e5e7eb; border-radius:8px;
+    padding:12px; overflow-x:auto;
+}
+.ra-table-wrap h3 {
+    font-size:13px; font-weight:600; margin:0 0 10px 0; color:#374151;
+}
+.ra-table {
+    width:100%; border-collapse:collapse; font-size:12px;
+}
+.ra-table th {
+    text-align:left; padding:6px 10px; background:#f9fafb;
+    border-bottom:2px solid #e5e7eb; font-weight:600; color:#6b7280;
+    font-size:11px; text-transform:uppercase; letter-spacing:0.03em;
+}
+.ra-table td {
+    padding:6px 10px; border-bottom:1px solid #f3f4f6;
+}
+.ra-table tr:hover td { background:#f9fafb; }
+.ra-table tr.invalid td { color:#9ca3af; }
+
+/* Chart containers */
+.ra-chart-wrap {
+    background:#fff; border:1px solid #e5e7eb; border-radius:8px;
+    padding:12px;
+}
+.ra-chart-wrap h3 {
+    font-size:13px; font-weight:600; margin:0 0 10px 0; color:#374151;
+}
+.ra-chart-wrap canvas { width:100%; height:300px; }
+
+/* Warnings */
+.ra-warnings { display:flex; flex-direction:column; gap:4px; }
+.ra-warning {
+    background:#fffbeb; border:1px solid #fcd34d; border-radius:6px;
+    padding:8px 12px; font-size:12px; color:#92400e;
+}
+
+/* Flags */
+.ra-flag {
+    display:inline-block; padding:1px 6px; border-radius:4px;
+    font-size:10px; font-weight:600; margin-right:4px;
+}
+.ra-flag-degradation { background:#fee2e2; color:#991b1b; }
+.ra-flag-unstable { background:#fef3c7; color:#92400e; }
+.ra-flag-lowdata { background:#e5e7eb; color:#6b7280; }
+
+/* Detail modal */
+.ra-modal-overlay {
+    display:none; position:fixed; top:0; left:0; width:100%; height:100%;
+    background:rgba(0,0,0,0.4); z-index:1000;
+    justify-content:center; align-items:center;
+}
+.ra-modal-overlay.active { display:flex; }
+.ra-modal {
+    background:#fff; border-radius:12px; width:90%; max-width:1100px;
+    max-height:90vh; overflow-y:auto; padding:20px;
+}
+.ra-modal-close {
+    float:right; background:none; border:none; font-size:20px; cursor:pointer; color:#6b7280;
+}
+
+/* Loading */
+.ra-loading { text-align:center; padding:40px; color:#6b7280; font-size:14px; }
+.ra-spin { display:inline-block; width:20px; height:20px; border:3px solid #e5e7eb;
+    border-top-color:#3b82f6; border-radius:50%; animation:ra-spin 0.8s linear infinite; margin-right:8px; }
+@keyframes ra-spin { to { transform:rotate(360deg); } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="ra-page">
+
+    <!-- Toolbar -->
+    <div class="ra-toolbar">
+        <select id="ra-well"></select>
+        <input type="date" id="ra-date-from">
+        <input type="date" id="ra-date-to">
+        <div class="sep"></div>
+
+        <div class="ra-slider-group">
+            <label>Группировка вбросов:</label>
+            <input type="range" id="ra-merge-window" min="0.5" max="24" step="0.5" value="4">
+            <span class="ra-slider-val" id="ra-merge-val">4 ч</span>
+        </div>
+        <div class="sep"></div>
+
+        <div class="ra-slider-group">
+            <label>Grace period:</label>
+            <input type="range" id="ra-grace" min="0" max="120" step="5" value="30">
+            <span class="ra-slider-val" id="ra-grace-val">30 м</span>
+        </div>
+        <div class="sep"></div>
+
+        <button class="btn btn-primary" id="ra-btn-analyze">Анализ</button>
+        <button class="btn btn-outline" id="ra-btn-excel" style="display:none;">Excel</button>
+    </div>
+
+    <!-- Warnings -->
+    <div class="ra-warnings" id="ra-warnings"></div>
+
+    <!-- Best reagent + summary cards -->
+    <div class="ra-cards" id="ra-cards" style="display:none;">
+        <div class="ra-card ra-best" id="ra-best-card">
+            <h3>Лучший реагент</h3>
+            <div class="value" id="ra-best-name">-</div>
+            <div class="sub" id="ra-best-detail">-</div>
+        </div>
+        <div class="ra-card">
+            <h3>Всего вбросов</h3>
+            <div class="value" id="ra-total-inj">-</div>
+            <div class="sub" id="ra-merged-inj">-</div>
+        </div>
+        <div class="ra-card">
+            <h3>Штуцер</h3>
+            <div class="value" id="ra-choke">-</div>
+            <div class="sub">мм</div>
+        </div>
+    </div>
+
+    <!-- Scores table -->
+    <div class="ra-table-wrap" id="ra-scores-block" style="display:none;">
+        <h3>Шкала эффективности реагентов</h3>
+        <table class="ra-table">
+            <thead>
+                <tr>
+                    <th>Реагент</th>
+                    <th>Вбросов</th>
+                    <th>Валидных</th>
+                    <th>Q/шт (мед.)</th>
+                    <th>&Delta;P прирост</th>
+                    <th>Длит. эффекта</th>
+                    <th>Score</th>
+                    <th>Уровень</th>
+                    <th>Флаги</th>
+                </tr>
+            </thead>
+            <tbody id="ra-scores-body"></tbody>
+        </table>
+    </div>
+
+    <!-- Chart: M2 over time -->
+    <div class="ra-chart-wrap" id="ra-chart-block" style="display:none;">
+        <h3>Q/шт по вбросам во времени</h3>
+        <canvas id="ra-chart-m2"></canvas>
+    </div>
+
+    <!-- IRV table -->
+    <div class="ra-table-wrap" id="ra-irv-block" style="display:none;">
+        <h3>Интервалы реагентного воздействия (ИРВ)</h3>
+        <table class="ra-table">
+            <thead>
+                <tr>
+                    <th>Дата</th>
+                    <th>Реагент</th>
+                    <th>Кол-во</th>
+                    <th>Длит. (ч)</th>
+                    <th>Q_cum</th>
+                    <th>Q/шт</th>
+                    <th>&Delta;P прирост</th>
+                    <th>Эффект (ч)</th>
+                    <th>M5 (%)</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="ra-irv-body"></tbody>
+        </table>
+    </div>
+
+    <!-- Loading -->
+    <div class="ra-loading" id="ra-loading" style="display:none;">
+        <span class="ra-spin"></span> Идёт расчёт...
+    </div>
+
+</div>
+
+<!-- Detail modal -->
+<div class="ra-modal-overlay" id="ra-detail-modal">
+    <div class="ra-modal">
+        <button class="ra-modal-close" id="ra-modal-close">&times;</button>
+        <h2 id="ra-detail-title">Детали ИРВ</h2>
+        <div class="ra-cards" id="ra-detail-metrics" style="margin:12px 0;"></div>
+        <div class="ra-chart-wrap" style="margin-bottom:12px;">
+            <h3>Давление</h3>
+            <canvas id="ra-detail-pressure" style="height:250px;"></canvas>
+        </div>
+        <div class="ra-chart-wrap">
+            <h3>Дебит</h3>
+            <canvas id="ra-detail-flow" style="height:250px;"></canvas>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="/static/js/reagent_analysis.js?v={{ time() }}"></script>
+{% endblock %}

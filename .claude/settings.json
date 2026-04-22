@@ -26,10 +26,13 @@
       "Bash(.venv/bin/alembic upgrade:*)",
       "Bash(brew services:*)",
       "Bash(pg_isready:*)",
-      "Bash(pgrep:*)"
+      "Bash(pgrep:*)",
+      "Bash(xxd)",
+      "Bash(ps -p 36670 -o pid,pcpu,pmem,state,command)"
     ],
     "additionalDirectories": [
-      "/Users/volodymyrnikitin/Documents/PythonFiles/SurgIl_Dashboard/data/lora"
+      "/Users/volodymyrnikitin/Documents/PythonFiles/SurgIl_Dashboard/data/lora",
+      "/Users/volodymyrnikitin"
     ]
   },
   "mcpServers": {

@@ -147,6 +147,12 @@ from backend.routers.flow_analysis import pages_router as flow_analysis_pages_ro
 app.include_router(flow_analysis_router)
 app.include_router(flow_analysis_pages_router)
 
+# Reagent effectiveness analysis
+from backend.routers.reagent_analysis import router as reagent_analysis_router
+from backend.routers.reagent_analysis import pages_router as reagent_analysis_pages_router
+app.include_router(reagent_analysis_router)
+app.include_router(reagent_analysis_pages_router)
+
 # Widget API (SwiftBar, etc.)
 from backend.routers.widget_api import router as widget_api_router
 app.include_router(widget_api_router)
@@ -155,6 +161,22 @@ app.include_router(widget_api_router)
 from backend.routers.daily_report import router as daily_report_router, pages_router as daily_report_pages
 app.include_router(daily_report_router)
 app.include_router(daily_report_pages)
+
+# Отчёт об адаптации скважины
+from backend.routers.adaptation_report import (
+    router as adaptation_report_router,
+    pages_router as adaptation_report_pages_router,
+)
+app.include_router(adaptation_report_router)
+app.include_router(adaptation_report_pages_router)
+
+# Анализ данных заказчика (УзКорГаз: парсинг суточных сводок xlsx → well_daily)
+from backend.routers.customer_daily import (
+    router as customer_daily_router,
+    pages_router as customer_daily_pages_router,
+)
+app.include_router(customer_daily_router)
+app.include_router(customer_daily_pages_router)
 
 # Аннотации на графиках
 from backend.routers.chart_annotations import router as chart_annotations_router
@@ -3507,7 +3529,7 @@ def delete_well_status(
     """
     st = (
         db.query(WellStatus)
-        .filter(WellStatus.id == status_id, WellStatus.well_id == well.id)
+        .filter(WellStatus.id == status_id, WellStatus.well_id == well_id)
         .first()
     )
     if not st:

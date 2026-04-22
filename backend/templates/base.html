@@ -42,7 +42,8 @@
     <a href="/equipment" class="top-nav-item{{ ' active' if p.startswith('/equipment') }}">Оборудование</a>
     <a href="/flow-analysis" class="top-nav-item{{ ' active' if p.startswith('/flow-analysis') }}">Анализ дебита</a>
     <a href="/daily-report" class="top-nav-item{{ ' active' if p == '/daily-report' }}">Суточный отчёт</a>
-    <a href="/lora/sensors" class="top-nav-item{{ ' active' if p.startswith('/lora') }}">Датчики</a>
+    <a href="/adaptation-report" class="top-nav-item{{ ' active' if p == '/adaptation-report' }}">Отчёт адаптации</a>
+    <a href="/admin/lora-sensors" class="top-nav-item{{ ' active' if p.startswith('/admin/lora-sensors') }}">Датчики</a>
     <a href="/pressure-masks" class="top-nav-item{{ ' active' if p.startswith('/pressure-masks') }}">Маски давлений</a>
     {% if is_admin or can_view_map %}
     <a href="/admin/map" class="top-nav-item{{ ' active' if p.startswith('/admin/map') }}">Карта</a>

@@ -27,6 +27,7 @@ from .reagents import ReagentSupply  # ВОТ ТУТ, а не в backend/__init_
 from .pressure_hourly import PressureHourly
 from .pressure_latest import PressureLatest
 from .lora_sensor import LoRaSensor, SensorInstallation
+from .sensor_assignment import SensorAssignment
 from .well_sub_status import WellSubStatus
 from .chat_message_log import ChatMessageLog
 from .chat_subgroup import ChatSubgroup, chat_subgroup_member
@@ -36,3 +37,5 @@ from .pressure_mask import PressureMask
 from .map_object import MapObject
 from .well_antenna_distance import WellAntennaDistance
 from .sensor_daily_report import SensorDailyReport
+from .well_daily import WellDaily
+from .customer_baseline import CustomerBaseline

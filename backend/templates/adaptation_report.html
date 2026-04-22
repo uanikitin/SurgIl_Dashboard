@@ -329,6 +329,12 @@
             <input type="datetime-local" id="optimal-to">
           </div>
         </div>
+        <button id="btn-clear-optimal" type="button"
+                style="margin-top:0.3rem; padding:0.25rem 0.6rem; font-size:0.78rem;
+                       background:#f5f5f5; border:1px solid #bbb; border-radius:4px;
+                       cursor:pointer; color:#555;">
+          ✕ Сбросить выбор
+        </button>
       </div>
 
       <div style="margin: 1rem 0;">
@@ -727,6 +733,9 @@
 
   // ─────────────────────────── Interactive Q/ΔP chart with top-3 bands ──────
   let chartDP = null;
+  // Какой кандидат сейчас визуализируется на графике (по умолчанию #1).
+  // Меняется при hover/клике на карточку «Топ-3 кандидата».
+  let currentCandidateIdx = 0;
   let currentAdaptData = null;
   let currentEvents = [];
   let currentCandidates = [];
@@ -772,26 +781,78 @@
     const dur = days > 0
       ? (remH > 0 ? `${days} сут. ${remH} ч` : `${days} сут.`)
       : `${hrs} ч`;
-    box.innerHTML = `<b>Выбрано:</b> ${fmtDateTime(f)} → ${fmtDateTime(t)} · <b>${dur}</b>`;
+
+    // Метрики окна — считаем прямо из chart_data адаптации (то же что
+    // нарисовано на графике). Это превью без обращения к серверу;
+    // финальные значения подставит «Пересчитать».
+    const tFromMs = new Date(f).getTime();
+    const tToMs = new Date(t).getTime();
+    const points = (currentAdaptData || []).filter(d => {
+      const tt = new Date(d.t).getTime();
+      return tt >= tFromMs && tt <= tToMs;
+    });
+    const median = (arr) => {
+      if (!arr.length) return null;
+      const a = [...arr].sort((x, y) => x - y);
+      return a[Math.floor(a.length / 2)];
+    };
+    const qVals = points.map(p => p.q).filter(v => v !== null && v !== undefined && !isNaN(v));
+    const dpVals = points.map(p => p.dp).filter(v => v !== null && v !== undefined && !isNaN(v));
+    const qWorking = qVals.filter(v => v > 0);
+    const utilPct = qVals.length ? (qWorking.length / qVals.length * 100) : null;
+
+    const qMed = median(qVals);
+    const dpMed = median(dpVals);
+
+    let metricsHtml = '';
+    if (points.length > 0) {
+      const parts = [];
+      if (qMed !== null) parts.push(`Q мед = <b>${qMed.toFixed(2)}</b> тыс.м³/сут`);
+      if (dpMed !== null) parts.push(`ΔP мед = <b>${dpMed.toFixed(2)}</b> кгс/см²`);
+      if (utilPct !== null) parts.push(`КИВ ≈ <b>${utilPct.toFixed(0)}</b>%`);
+      parts.push(`точек: ${points.length}`);
+      metricsHtml = `<br><span style="color:#555">${parts.join(' · ')}</span>`;
+    } else {
+      metricsHtml = `<br><span style="color:#999">нет точек в окне</span>`;
+    }
+
+    box.innerHTML =
+      `<b>Выбрано:</b> ${fmtDateTime(f)} → ${fmtDateTime(t)} · <b>${dur}</b>` +
+      metricsHtml;
   }
 
   function buildCandidateAnnotations(selectedFrom, selectedTo) {
     const annotations = {};
     const toMs = (v) => v ? new Date(v).getTime() : null;
-    currentCandidates.slice(0, 3).forEach((c, i) => {
-      annotations[`cand${i}`] = {
+
+    // Показываем ТОЛЬКО ОДНОГО кандидата за раз (по currentCandidateIdx).
+    // Hover на карточку под левой панелью переключает индекс.
+    // Полоса — на всю высоту графика, с понятной подписью «#1 19.04—21.04 (3 сут)».
+    const c = currentCandidates[currentCandidateIdx];
+    if (c) {
+      const fromMs = toMs(c.start);
+      const toMs2 = toMs(c.end);
+      const days = Math.round((toMs2 - fromMs) / 86400000);
+      const fmt = (ms) => {
+        const d = new Date(ms);
+        return `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}`;
+      };
+      const labelText = `#${currentCandidateIdx + 1}  ${fmt(fromMs)}—${fmt(toMs2)}  (${days} сут)`;
+      annotations.activeCandidate = {
         type: 'box',
-        xMin: toMs(c.start), xMax: toMs(c.end),
-        backgroundColor: BAND_COLORS[i],
-        borderWidth: 0,
+        xMin: fromMs, xMax: toMs2,
+        backgroundColor: BAND_COLORS[currentCandidateIdx],
+        borderColor: 'rgba(0,0,0,0.18)',
+        borderWidth: 1,
         label: {
-          content: `#${i+1}`, display: true,
-          position: {x: 'start', y: 'start'},
-          font: {size: 10, weight: 'bold'}, color: '#555',
-          backgroundColor: 'rgba(255,255,255,0.7)', padding: 2,
+          content: labelText, display: true,
+          position: {x: 'center', y: 'start'},
+          font: {size: 11, weight: 'bold'}, color: '#222',
+          backgroundColor: 'rgba(255,255,255,0.85)', padding: 4,
+          yAdjust: 6,
         },
       };
-    });
+    }
     if (selectedFrom && selectedTo) {
       annotations.selected = {
         type: 'box',
@@ -920,22 +981,19 @@
 
     let dragStartX = null, dragStartTime = null;
 
-    // Клик по band — выбор
+    // Клик по band активного кандидата — выбор. Прочие невидимы → не реагируем.
     ctx.onclick = (evt) => {
-      // Не реагируем если это был drag (проверяем расстояние)
       if (dragStartX !== null) return;
+      const c = currentCandidates[currentCandidateIdx];
+      if (!c) return;
       const rect = ctx.getBoundingClientRect();
       const x = evt.clientX - rect.left;
       const scale = chart.scales.x;
       const time = scale.getValueForPixel(x);
-      for (let i = 0; i < currentCandidates.length && i < 3; i++) {
-        const c = currentCandidates[i];
-        const start = new Date(c.start).getTime();
-        const end = new Date(c.end).getTime();
-        if (time >= start && time <= end) {
-          selectWindow(c.start, c.end);
-          return;
-        }
+      const start = new Date(c.start).getTime();
+      const end = new Date(c.end).getTime();
+      if (time >= start && time <= end) {
+        selectWindow(c.start, c.end);
       }
     };
 
@@ -979,8 +1037,11 @@
       const endVal = getTimeAtX(e.clientX);
       const t1 = Math.min(startVal, endVal);
       const t2 = Math.max(startVal, endVal);
-      const iso1 = new Date(t1).toISOString().slice(0, 16);
-      const iso2 = new Date(t2).toISOString().slice(0, 16);
+      // ВАЖНО: toISOString() даёт UTC и сдвигает время на 5 часов в Кунграде.
+      // Chart.js рисует ось по local-TZ браузера; toDTLocal() формирует
+      // строку в той же TZ → значения в полях совпадают с осью графика.
+      const iso1 = toDTLocal(new Date(t1));
+      const iso2 = toDTLocal(new Date(t2));
       selectWindow(iso1, iso2);
     };
 
@@ -999,8 +1060,9 @@
     if (!adaptRange.to) return;
     const toMs = adaptRange.to;
     const fromMs = Math.max(adaptRange.from, toMs - days * 86400000);
-    const iso1 = new Date(fromMs).toISOString().slice(0, 16);
-    const iso2 = new Date(toMs).toISOString().slice(0, 16);
+    // local-TZ строки — чтобы значения в полях совпадали с тем, что на оси графика
+    const iso1 = toDTLocal(new Date(fromMs));
+    const iso2 = toDTLocal(new Date(toMs));
     selectWindow(iso1, iso2);
     // Подсветить активный пресет
     document.querySelectorAll('.ar-preset-btn').forEach(b => {
@@ -1128,12 +1190,15 @@
     }
     let html = `<h3 style="margin-top: 0.8rem;">Топ-3 кандидата окна</h3>
       <div style="font-size: 0.78rem; color: #888; margin-bottom: 0.3rem;">
-      Кликните, чтобы выбрать окно вручную.</div>`;
+      Наведите — увидите соответствующую полосу на графике.
+      Кликните — выберите окно вручную.</div>`;
     for (let i = 0; i < cands.length; i++) {
       const c = cands[i];
       const rank = i + 1;
-      html += `<div class="ar-source-option" data-from="${c.start}" data-to="${c.end}"
-           style="margin-bottom: 0.3rem;">
+      // data-idx — для hover-синхронизации с полосой на графике
+      html += `<div class="ar-source-option" data-idx="${i}"
+           data-from="${c.start}" data-to="${c.end}"
+           style="margin-bottom: 0.3rem; border-left: 4px solid ${BAND_COLORS[i]};">
         <div class="ar-source-title">
           <span><b>#${rank}</b> · ${fmtDateTime(c.start)} → ${fmtDateTime(c.end)}</span>
           <span style="color: #2e7d32;">Score ${fmtNum(c.score, 2)}</span>
@@ -1146,14 +1211,31 @@
       </div>`;
     }
     box.innerHTML = html;
-    // Обработчики клика
+
+    // Подсветка активной карточки + hover-переключение полосы на графике
+    function highlightActive() {
+      box.querySelectorAll('.ar-source-option').forEach(el => {
+        const idx = parseInt(el.dataset.idx);
+        el.classList.toggle('selected', idx === currentCandidateIdx);
+      });
+    }
+    highlightActive();
+
     box.querySelectorAll('.ar-source-option').forEach(el => {
+      const idx = parseInt(el.dataset.idx);
+      // Наведение → переключаем активного кандидата → перерисовываем полосу
+      el.addEventListener('mouseenter', () => {
+        currentCandidateIdx = idx;
+        highlightActive();
+        if (chartDP) buildMetricChart();
+      });
+      // Клик → переключаем в ручной режим, подставляем даты, рисуем «Выбор»
       el.addEventListener('click', () => {
-        // Переключаем в ручной режим, подставляем даты
+        currentCandidateIdx = idx;
+        highlightActive();
         document.querySelector('input[name="optimal-mode"][value="manual"]').checked = true;
         toggleOptimalMode();
-        $('optimal-from').value = isoToDTLocal(el.dataset.from);
-        $('optimal-to').value = isoToDTLocal(el.dataset.to);
+        selectWindow(el.dataset.from, el.dataset.to);
       });
     });
   }
@@ -1477,6 +1559,14 @@
   // ─────────────────────────── Init ───────────────────────────
   $('well-select').addEventListener('change', onWellChange);
   $('btn-recompute').addEventListener('click', recompute);
+
+  // Сброс ручного выбора окна
+  $('btn-clear-optimal').addEventListener('click', () => {
+    $('optimal-from').value = '';
+    $('optimal-to').value = '';
+    document.querySelectorAll('.ar-preset-btn').forEach(b => b.classList.remove('active'));
+    refreshAllSelectionViews();
+  });
   $('btn-preview').addEventListener('click', previewPdf);
 
   // Кнопка «Анализ данных заказчика» — открывает /customer-daily в новом окне.

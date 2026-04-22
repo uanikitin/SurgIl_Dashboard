@@ -31,6 +31,8 @@ from backend.services.adaptation_report_service import (
     _fmt_num,
     DEFAULT_ADAPT_DURATION_DAYS,
 )
+from backend.services import customer_baseline_service as bsvc
+from backend.models.wells import Well as _Well
 
 log = logging.getLogger(__name__)
 
@@ -279,6 +281,127 @@ def compute_with_custom_dates(
     if data.get("ok") and req.with_charts:
         _attach_chart_urls(data)
     return _json_safe(data)
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Customer baseline endpoints (для главы «Анализ исходных данных»)
+# ═══════════════════════════════════════════════════════════════════
+
+def _is_admin(request: Request) -> bool:
+    return bool(request.session.get("is_admin", False))
+
+
+@router.get("/baselines")
+def api_baselines_list(
+    well_id: int = Query(...),
+    db: Session = Depends(get_db),
+):
+    """Список baseline-ов для скважины."""
+    return {"well_id": well_id, "baselines": bsvc.list_baselines(db, well_id)}
+
+
+class PeriodAnalysisRequest(BaseModel):
+    well_id: int
+    period_from: date
+    period_to: date
+    description: str | None = None
+
+
+@router.post("/source-analysis")
+def api_source_analysis(
+    req: PeriodAnalysisRequest,
+    db: Session = Depends(get_db),
+):
+    """Полный анализ периода по данным заказчика (well_daily)."""
+    well = db.query(_Well).filter(_Well.id == req.well_id).first()
+    if not well:
+        raise HTTPException(404, "Скважина не найдена")
+    data = bsvc.compute_period_analysis(
+        db, str(well.number), req.period_from, req.period_to, req.description,
+    )
+    # Добавим сравнение с baseline-ами
+    baselines = bsvc.list_baselines(db, req.well_id)
+    data["baselines_comparison"] = bsvc.compare_to_baselines(data, baselines)
+    data["well"] = {"id": well.id, "number": str(well.number), "name": well.name}
+    return _json_safe(data)
+
+
+class BaselineCreateRequest(BaseModel):
+    well_id: int
+    name: str
+    period_from: date
+    period_to: date
+    source: str = "customer"
+    notes: str | None = None
+    is_pinned: bool = False
+
+
+@router.post("/baselines")
+def api_baseline_create(
+    req: BaselineCreateRequest,
+    request: Request,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Создать baseline (только админ)."""
+    if not _is_admin(request):
+        raise HTTPException(403, "Сохранение baseline доступно только администратору")
+    try:
+        bl = bsvc.save_baseline(
+            db,
+            well_id=req.well_id,
+            name=req.name.strip() or "Базовый",
+            period_from=req.period_from,
+            period_to=req.period_to,
+            source=req.source,
+            notes=req.notes,
+            created_by=current_user,
+            is_pinned=req.is_pinned,
+        )
+        return {"ok": True, "baseline": bl}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+class BaselineUpdateRequest(BaseModel):
+    name: str | None = None
+    notes: str | None = None
+    is_pinned: bool | None = None
+
+
+@router.patch("/baselines/{baseline_id}")
+def api_baseline_update(
+    baseline_id: int,
+    req: BaselineUpdateRequest,
+    request: Request,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Обновить метаданные baseline (только админ)."""
+    if not _is_admin(request):
+        raise HTTPException(403, "Изменение baseline доступно только администратору")
+    bl = bsvc.update_baseline(
+        db, baseline_id,
+        name=req.name, notes=req.notes, is_pinned=req.is_pinned,
+    )
+    if not bl:
+        raise HTTPException(404, "Baseline не найден")
+    return {"ok": True, "baseline": bl}
+
+
+@router.delete("/baselines/{baseline_id}")
+def api_baseline_delete(
+    baseline_id: int,
+    request: Request,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Удалить baseline (только админ)."""
+    if not _is_admin(request):
+        raise HTTPException(403, "Удаление baseline доступно только администратору")
+    if not bsvc.delete_baseline(db, baseline_id):
+        raise HTTPException(404, "Baseline не найден")
+    return {"ok": True}
 
 
 @router.get("/monthly-stats")

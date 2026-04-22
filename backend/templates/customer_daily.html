@@ -1,0 +1,1067 @@
+{% extends "base.html" %}
+
+{% block title %}СУРГИЛ · Анализ данных заказчика{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<style>
+.cd-page { display: flex; flex-direction: column; gap: 12px; padding: 12px; }
+
+.cd-section {
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 8px;
+    padding: 12px 14px;
+}
+.cd-section h2 { margin: 0 0 8px 0; font-size: 1.05rem; color: #1f2937; }
+.cd-section h3 { margin: 12px 0 6px 0; font-size: 0.92rem; color: #374151; }
+
+/* Контекст из отчёта */
+.cd-context {
+    font-size: 0.9rem; color: #475569; padding: 8px 12px;
+    background: #eff6ff; border-left: 3px solid #2563eb; border-radius: 4px;
+}
+.cd-context b { color: #1e40af; }
+
+/* Toolbar */
+.cd-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.cd-row label { font-size: 0.82rem; color: #6b7280; }
+.cd-row select, .cd-row input[type="date"] {
+    padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px;
+    font-size: 0.85rem; background: #fff;
+}
+.cd-row select { min-width: 220px; }
+
+.cd-btn {
+    padding: 7px 14px; border: none; border-radius: 6px; cursor: pointer;
+    font-size: 0.85rem; font-weight: 500;
+}
+.cd-btn-primary { background: #2563eb; color: #fff; }
+.cd-btn-primary:hover { background: #1d4ed8; }
+.cd-btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
+.cd-btn-secondary { background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; }
+.cd-btn-secondary:hover { background: #e5e7eb; }
+.cd-btn-danger { background: #ef4444; color: #fff; }
+.cd-btn-danger:hover { background: #dc2626; }
+.cd-btn-success { background: #10b981; color: #fff; }
+.cd-btn-success:hover { background: #059669; }
+
+/* Pill (preset) */
+.cd-pill {
+    padding: 4px 10px; border: 1px solid #d1d5db; background: #f9fafb;
+    border-radius: 999px; font-size: 0.75rem; cursor: pointer; color: #374151;
+}
+.cd-pill:hover { background: #e5e7eb; }
+.cd-pill.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+
+/* Availability card */
+.cd-avail {
+    display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+    padding: 12px 14px; border-radius: 8px; margin-top: 10px;
+}
+.cd-avail-yes { background: #d1fae5; border: 1px solid #6ee7b7; }
+.cd-avail-no  { background: #fee2e2; border: 1px solid #fca5a5; }
+.cd-avail-icon { font-size: 1.4rem; }
+.cd-avail-text { flex: 1; font-size: 0.88rem; color: #1f2937; }
+.cd-avail-text b { color: #064e3b; }
+.cd-avail-no .cd-avail-text b { color: #991b1b; }
+
+/* Drag-drop */
+.cd-drop-zone {
+    border: 2px dashed #cbd5e1; border-radius: 10px;
+    padding: 20px; text-align: center; color: #6b7280;
+    background: #f8fafc; cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+.cd-drop-zone.dragover { background: #e0f2fe; border-color: #0ea5e9; color: #0369a1; }
+.cd-drop-zone p { margin: 4px 0; font-size: 0.9rem; }
+.cd-drop-zone .hint { font-size: 0.78rem; color: #94a3b8; }
+
+/* Alerts */
+.cd-alert {
+    padding: 10px 14px; border-radius: 6px; margin: 6px 0; font-size: 0.85rem;
+}
+.cd-alert-info    { background: #dbeafe; color: #1e3a8a; border-left: 3px solid #2563eb; }
+.cd-alert-success { background: #d1fae5; color: #065f46; border-left: 3px solid #10b981; }
+.cd-alert-warn    { background: #fef3c7; color: #92400e; border-left: 3px solid #f59e0b; }
+.cd-alert-error   { background: #fee2e2; color: #991b1b; border-left: 3px solid #ef4444; }
+
+/* Stats badges (meta) */
+.cd-stats-row { display: flex; flex-wrap: wrap; gap: 16px; }
+.cd-stat { display: flex; flex-direction: column; gap: 2px; min-width: 100px; }
+.cd-stat .label { font-size: 0.72rem; color: #6b7280; text-transform: uppercase; }
+.cd-stat .value { font-size: 1.1rem; font-weight: 600; color: #1f2937; }
+
+/* Tables */
+.cd-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.cd-table th, .cd-table td {
+    padding: 5px 8px; border-bottom: 1px solid #e5e7eb; text-align: right;
+}
+.cd-table th:first-child, .cd-table td:first-child { text-align: left; color: #4b5563; }
+.cd-table th { background: #f9fafb; font-weight: 500; color: #6b7280;
+    text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.03em; }
+.cd-table tr:hover td { background: #f9fafb; }
+
+/* Charts grid */
+.cd-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 1100px) { .cd-charts { grid-template-columns: 1fr; } }
+.cd-chart {
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 6px;
+    padding: 6px;
+    min-height: 380px;
+}
+
+/* Monthly description */
+.cd-month-list { display: flex; flex-direction: column; gap: 8px; }
+.cd-month-item {
+    background: #f9fafb; border-left: 3px solid #2563eb;
+    padding: 8px 12px; border-radius: 4px;
+    font-size: 0.85rem;
+}
+.cd-month-item .label { font-weight: 600; color: #1f2937; margin-bottom: 2px; }
+.cd-month-item .text { color: #4b5563; line-height: 1.4; }
+
+/* Compare toggle */
+.cd-compare {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+    background: #fef9c3; border: 1px solid #fde68a; border-radius: 6px;
+    padding: 8px 12px; font-size: 0.86rem;
+}
+.cd-compare label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.cd-compare .cd-compare-info { color: #6b7280; font-size: 0.78rem; margin-left: auto; }
+
+/* Modal */
+.cd-modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+    display: none; align-items: center; justify-content: center;
+    z-index: 2000;
+}
+.cd-modal-backdrop.open { display: flex; }
+.cd-modal {
+    background: #fff; border-radius: 10px; padding: 22px 26px;
+    max-width: 540px; width: calc(100% - 30px); max-height: 80vh;
+    overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+}
+.cd-modal h3 { margin: 0 0 10px 0; font-size: 1.1rem; color: #1f2937; }
+.cd-modal p { font-size: 0.9rem; color: #4b5563; margin: 6px 0; }
+.cd-modal-list {
+    background: #fef3c7; border: 1px solid #fde68a; border-radius: 6px;
+    padding: 8px 12px; font-size: 0.78rem; max-height: 180px; overflow-y: auto;
+    margin: 8px 0; font-family: ui-monospace, monospace;
+}
+.cd-modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+
+/* Loader */
+.cd-loader {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid #e5e7eb; border-top-color: #2563eb;
+    border-radius: 50%; animation: cd-spin 0.8s linear infinite;
+    vertical-align: middle;
+}
+@keyframes cd-spin { to { transform: rotate(360deg); } }
+
+.cd-collapsible > summary {
+    cursor: pointer; user-select: none;
+    font-size: 0.92rem; color: #374151; padding: 4px 0;
+}
+.cd-collapsible[open] > summary { margin-bottom: 8px; }
+
+.cd-hint { font-size: 0.78rem; color: #6b7280; margin-top: 4px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="cd-page">
+
+  <!-- ═══ 0. Контекст (если открыт из отчёта об адаптации) ═══ -->
+  <div id="cd-context-block" style="display:none;">
+    <div class="cd-context" id="cd-context"></div>
+  </div>
+
+  <!-- ═══ 1. Загрузка xlsx (всегда доступна, парсит ВСЕ скважины) ═══ -->
+  <div class="cd-section">
+    <h2>1. Загрузить файл сводки заказчика</h2>
+    <div class="cd-hint" style="margin-bottom:8px;">
+      Парсятся <b>все скважины</b> и все листы файла «Суточная сводка &lt;МЕСЯЦ ГОД&gt;г.xlsx».
+      Загрузка обновляет данные для всех скважин, не только текущей.
+      При совпадении (date, ГСП, скв.) программа спросит, перезаписать или добавить только новое.
+    </div>
+    <div class="cd-drop-zone" id="cd-drop">
+      <p><b>Перетащите .xlsx-файл сюда</b> или кликните для выбора</p>
+      <p class="hint">.xlsx / .xlsm</p>
+      <input type="file" id="cd-file-input" accept=".xlsx,.xlsm" style="display:none">
+    </div>
+    <div id="cd-upload-status"></div>
+  </div>
+
+  <!-- ═══ 2. Хранилище (общая статистика) ═══ -->
+  <div class="cd-section">
+    <h2>Хранилище данных заказчика</h2>
+    <div class="cd-stats-row">
+      <div class="cd-stat"><span class="label">Записей</span><span class="value" id="meta-rows">—</span></div>
+      <div class="cd-stat"><span class="label">Скважин</span><span class="value" id="meta-wells">—</span></div>
+      <div class="cd-stat"><span class="label">ГСП</span><span class="value" id="meta-ggus">—</span></div>
+      <div class="cd-stat"><span class="label">Период</span><span class="value" id="meta-period">—</span></div>
+      <div class="cd-stat"><span class="label">Последняя загрузка</span><span class="value" id="meta-loaded">—</span></div>
+    </div>
+  </div>
+
+  <!-- ═══ 3. Выбор скважины — что есть в БД? ═══ -->
+  <div class="cd-section">
+    <h2>2. Выбор скважины и проверка доступности</h2>
+    <div class="cd-row">
+      <label>Скважина:</label>
+      <select id="cd-well-select">
+        <option value="">— нет данных —</option>
+      </select>
+    </div>
+    <div id="cd-avail-block"></div>
+  </div>
+
+  <!-- ═══ 4. Период анализа ═══ -->
+  <div class="cd-section" id="cd-period-section" style="display:none;">
+    <h2>3. Период анализа</h2>
+    <div class="cd-row">
+      <label>С:</label> <input type="date" id="cd-date-from">
+      <label>по:</label> <input type="date" id="cd-date-to">
+      <button class="cd-btn cd-btn-primary" id="cd-analyse-btn">Показать аналитику</button>
+    </div>
+    <div class="cd-row" style="margin-top:8px; gap:6px;">
+      <span class="cd-hint">Быстрый выбор:</span>
+      <span class="cd-pill" data-preset="all">Всё что есть</span>
+      <span class="cd-pill" data-preset="30">Последние 30 дней</span>
+      <span class="cd-pill" data-preset="90">90 дней</span>
+      <span class="cd-pill" data-preset="180">180 дней</span>
+      <span class="cd-pill" data-preset="365">Год</span>
+      <span class="cd-pill" data-preset="preset">Период из отчёта</span>
+    </div>
+  </div>
+
+  <!-- ═══ 5. Сравнение с нашими данными ═══ -->
+  <div class="cd-section" id="cd-compare-section" style="display:none;">
+    <div class="cd-compare">
+      <label><input type="checkbox" id="cd-compare-toggle"> <b>Наложить наши данные</b></label>
+      <span class="cd-compare-info">
+        Конвейер идентичен <b>/well</b>, <b>daily_report</b> и
+        <b>adaptation_report</b>: pressure_raw → clean → verified-маски →
+        calc_flow → aggregate_to_daily. ΔP и Q берутся из одного расчёта,
+        противоречий между графиками быть не может.
+      </span>
+    </div>
+    <div id="cd-compare-status" style="margin-top:6px;"></div>
+  </div>
+
+  <!-- ═══ 6. Графики ═══ -->
+  <div class="cd-section" id="cd-charts-section" style="display:none;">
+    <h2>Графики</h2>
+    <div class="cd-charts">
+      <div class="cd-chart" id="cd-chart-pressures"></div>
+      <div class="cd-chart" id="cd-chart-dp"></div>
+      <div class="cd-chart" id="cd-chart-rates"></div>
+      <div class="cd-chart" id="cd-chart-monthly"></div>
+    </div>
+  </div>
+
+  <!-- ═══ 7. Описательная статистика ═══ -->
+  <div class="cd-section" id="cd-describe-section" style="display:none;">
+    <h2>Описательная статистика за период</h2>
+    <table class="cd-table" id="cd-describe-table"></table>
+  </div>
+
+  <!-- ═══ 8. Помесячно ═══ -->
+  <div class="cd-section" id="cd-monthly-section" style="display:none;">
+    <h2>Помесячная агрегация и тренды</h2>
+    <table class="cd-table" id="cd-monthly-table"></table>
+    <h3>Описание по месяцам</h3>
+    <div class="cd-month-list" id="cd-monthly-desc"></div>
+  </div>
+
+  <!-- ═══ 9. Сравнение произвольных периодов ═══ -->
+  <div class="cd-section">
+    <h2>4. Сравнение произвольных периодов</h2>
+    <div class="cd-hint" style="margin-bottom:8px;">
+      Наложить две любых выборки — из данных заказчика, с наших датчиков (pressure_hourly)
+      или из нашего расчётного дебита (flow_result baseline). Период A и B могут быть
+      из разных месяцев, разных источников и даже разных скважин. Ось X — день от начала
+      периода, чтобы оценить динамику независимо от даты.
+    </div>
+
+    <div class="cd-row" style="gap:14px; margin-bottom:8px;">
+      <label>Метрика:</label>
+      <select id="cmp-metric">
+        <option value="dp">ΔP = устье − шлейф</option>
+        <option value="q_total">Q общий, тыс.м³/сут</option>
+        <option value="q_working">Q рабочий, тыс.м³/сут</option>
+        <option value="p_wellhead">P устье</option>
+        <option value="p_flowline">P шлейф</option>
+      </select>
+      <label>Режим оси X:</label>
+      <select id="cmp-xaxis">
+        <option value="offset">День от начала периода (0, 1, 2…)</option>
+        <option value="date">Фактические даты (не наложить)</option>
+      </select>
+    </div>
+
+    <!-- Период A -->
+    <div style="border:1px solid #bfdbfe; background:#eff6ff; padding:10px 12px;
+                border-radius:8px; margin-bottom:8px;">
+      <div style="font-weight:600; color:#1e3a8a; margin-bottom:6px;">Период A</div>
+      <div class="cd-row">
+        <label>Источник:</label>
+        <select class="cmp-source" data-ab="a">
+          <option value="customer">Заказчик (well_daily)</option>
+          <option value="our_pressure">Наши датчики (pressure_hourly)</option>
+          <option value="our_flow">Наш расчёт (flow_result)</option>
+        </select>
+        <label>Скв. №:</label>
+        <input type="text" class="cmp-well" data-ab="a" style="width:100px; padding:6px 10px; border:1px solid #d1d5db; border-radius:6px;">
+        <label>с:</label> <input type="date" class="cmp-from" data-ab="a">
+        <label>по:</label> <input type="date" class="cmp-to" data-ab="a">
+      </div>
+    </div>
+
+    <!-- Период B -->
+    <div style="border:1px solid #fed7aa; background:#fff7ed; padding:10px 12px;
+                border-radius:8px; margin-bottom:8px;">
+      <div style="font-weight:600; color:#9a3412; margin-bottom:6px;">Период B</div>
+      <div class="cd-row">
+        <label>Источник:</label>
+        <select class="cmp-source" data-ab="b">
+          <option value="customer">Заказчик (well_daily)</option>
+          <option value="our_pressure" selected>Наши датчики (pressure_hourly)</option>
+          <option value="our_flow">Наш расчёт (flow_result)</option>
+        </select>
+        <label>Скв. №:</label>
+        <input type="text" class="cmp-well" data-ab="b" style="width:100px; padding:6px 10px; border:1px solid #d1d5db; border-radius:6px;">
+        <label>с:</label> <input type="date" class="cmp-from" data-ab="b">
+        <label>по:</label> <input type="date" class="cmp-to" data-ab="b">
+      </div>
+    </div>
+
+    <div class="cd-row">
+      <button class="cd-btn cd-btn-primary" id="cmp-build-btn">Построить сравнение</button>
+      <button class="cd-btn cd-btn-secondary" id="cmp-open-win-btn" title="Открыть в отдельном окне">↗ В отдельном окне</button>
+    </div>
+    <div id="cmp-status" style="margin-top:8px;"></div>
+    <div class="cd-chart" id="cmp-chart" style="min-height:420px; margin-top:8px; display:none;"></div>
+    <div id="cmp-stats" style="margin-top:8px;"></div>
+  </div>
+
+</div>
+
+<!-- ═══ Modal: подтверждение перезаписи ═══ -->
+<div class="cd-modal-backdrop" id="cd-modal-bd">
+  <div class="cd-modal">
+    <h3>В файле есть данные, уже загруженные в БД</h3>
+    <p id="cd-modal-text"></p>
+    <div class="cd-modal-list" id="cd-modal-list"></div>
+    <p>Что сделать с дубликатами?</p>
+    <div class="cd-modal-actions">
+      <button class="cd-btn cd-btn-secondary" id="cd-modal-cancel">Отмена</button>
+      <button class="cd-btn cd-btn-success"   id="cd-modal-skip">Только новые</button>
+      <button class="cd-btn cd-btn-danger"    id="cd-modal-overwrite">Перезаписать всё</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+
+  const PRESET_WELL = {{ preset_well|tojson if preset_well else "null" }};
+  const PRESET_FROM = {{ preset_from|tojson if preset_from else "null" }};
+  const PRESET_TO   = {{ preset_to|tojson   if preset_to   else "null" }};
+
+  let pendingFile = null;
+  let lastWellData = null;   // ответ /api/customer-daily/well/{well}
+  let lastOurData = null;    // ответ /api/customer-daily/our-data/{well}
+  let availability = null;   // ответ /api/customer-daily/availability/{well}
+
+  // ─────────────────────────── Helpers ───────────────────────────
+  function alertBox(parent, type, html) {
+    const el = document.createElement('div');
+    el.className = 'cd-alert cd-alert-' + type;
+    el.innerHTML = html;
+    parent.appendChild(el);
+    return el;
+  }
+  function clearChildren(parent) { while (parent.firstChild) parent.removeChild(parent.firstChild); }
+  function fmtNum(v, d = 2) {
+    if (v === null || v === undefined || isNaN(v)) return '—';
+    return Number(v).toFixed(d);
+  }
+
+  function hideAll() {
+    $('cd-period-section').style.display = 'none';
+    $('cd-compare-section').style.display = 'none';
+    $('cd-charts-section').style.display = 'none';
+    $('cd-describe-section').style.display = 'none';
+    $('cd-monthly-section').style.display = 'none';
+  }
+
+  // ─────────────────────────── Meta + wells ───────────────────────────
+  async function loadMeta() {
+    const r = await fetch('/api/customer-daily/meta');
+    const d = await r.json();
+    $('meta-rows').textContent = d.rows || 0;
+    $('meta-wells').textContent = d.wells || 0;
+    $('meta-ggus').textContent = d.ggus || 0;
+    $('meta-period').textContent = (d.date_min && d.date_max) ? `${d.date_min} … ${d.date_max}` : '—';
+    $('meta-loaded').textContent = d.last_loaded || '—';
+  }
+
+  async function loadWells() {
+    const r = await fetch('/api/customer-daily/wells');
+    const d = await r.json();
+    const sel = $('cd-well-select');
+    const cur = sel.value;
+    clearChildren(sel);
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = (d.wells && d.wells.length)
+      ? '— выберите скважину —' : '— нет данных в БД —';
+    sel.appendChild(placeholder);
+    for (const w of (d.wells || [])) {
+      const o = document.createElement('option');
+      o.value = w.well;
+      o.textContent = `№ ${w.well}  (${w.ggu || '—'}, ${w.days} сут.)`;
+      sel.appendChild(o);
+    }
+    // Восстанавливаем выбор / применяем preset
+    if (PRESET_WELL && Array.from(sel.options).some(o => o.value === String(PRESET_WELL))) {
+      sel.value = String(PRESET_WELL);
+    } else if (PRESET_WELL && !cur) {
+      // Preset скважины нет в БД — добавим её отдельно (чтобы пользователь увидел «нет данных»)
+      const o = document.createElement('option');
+      o.value = String(PRESET_WELL);
+      o.textContent = `№ ${PRESET_WELL}  (нет в БД)`;
+      sel.appendChild(o);
+      sel.value = o.value;
+    } else if (cur) {
+      sel.value = cur;
+    }
+
+    if (PRESET_WELL && PRESET_FROM && PRESET_TO) {
+      $('cd-context').innerHTML =
+        `Открыто из <b>отчёта об адаптации</b>: скв. <b>№ ${PRESET_WELL}</b>, ` +
+        `период отчёта <b>${PRESET_FROM.slice(0, 10)}</b> … <b>${PRESET_TO.slice(0, 10)}</b>. ` +
+        `Здесь можно проанализировать любой период (не обязательно совпадающий с отчётом).`;
+      $('cd-context-block').style.display = '';
+    }
+
+    if (sel.value) onWellChange();
+  }
+
+  // ─────────────────────────── Скважина выбрана → доступность ──────
+  async function onWellChange() {
+    const well = $('cd-well-select').value;
+    hideAll();
+    clearChildren($('cd-avail-block'));
+    if (!well) return;
+
+    $('cd-avail-block').appendChild(makeLoader('Проверяю наличие данных по скв. № ' + well + '…'));
+
+    try {
+      const r = await fetch('/api/customer-daily/availability/' + encodeURIComponent(well));
+      const a = await r.json();
+      availability = a;
+      renderAvailability(a);
+      if (a.has_data) {
+        // Подставляем диапазон по умолчанию = всё
+        $('cd-date-from').value = a.date_min;
+        $('cd-date-to').value   = a.date_max;
+        $('cd-period-section').style.display = '';
+        $('cd-compare-section').style.display = '';
+      }
+    } catch (e) {
+      clearChildren($('cd-avail-block'));
+      alertBox($('cd-avail-block'), 'error', 'Ошибка: ' + e.message);
+    }
+  }
+
+  function makeLoader(text) {
+    const div = document.createElement('div');
+    div.className = 'cd-alert cd-alert-info';
+    div.innerHTML = '<span class="cd-loader"></span> ' + text;
+    return div;
+  }
+
+  function renderAvailability(a) {
+    const block = $('cd-avail-block');
+    clearChildren(block);
+    const card = document.createElement('div');
+    if (!a.has_data) {
+      card.className = 'cd-avail cd-avail-no';
+      card.innerHTML =
+        '<div class="cd-avail-icon">📭</div>' +
+        '<div class="cd-avail-text">' +
+          '<b>Данных по скв. № ' + a.well + ' в БД нет.</b><br>' +
+          'Загрузите файл сводки заказчика выше — парсятся все скважины файла, ' +
+          'и при наличии этой скважины данные появятся.' +
+        '</div>';
+    } else {
+      const gapInfo = (a.gaps_count > 0)
+        ? ` (есть <b>${a.gaps_count}</b> пропущенных дней внутри диапазона)` : '';
+      card.className = 'cd-avail cd-avail-yes';
+      card.innerHTML =
+        '<div class="cd-avail-icon">✅</div>' +
+        '<div class="cd-avail-text">' +
+          `<b>Данные по скв. № ${a.well} (${a.ggu || '—'}) есть.</b><br>` +
+          `Загружено <b>${a.days}</b> суток. ` +
+          `Период с <b>${a.date_min}</b> по <b>${a.date_max}</b>${gapInfo}.<br>` +
+          `Выберите ниже окно анализа (можно любой подинтервал).` +
+        '</div>';
+    }
+    block.appendChild(card);
+  }
+
+  // ─────────────────────────── Period presets ──────────────────────
+  function applyPreset(kind) {
+    if (!availability || !availability.has_data) return;
+    const dMaxStr = availability.date_max;
+    const dMax = new Date(dMaxStr + 'T00:00');
+    let dFromStr;
+    if (kind === 'all') {
+      dFromStr = availability.date_min;
+    } else if (kind === 'preset' && PRESET_FROM && PRESET_TO) {
+      $('cd-date-from').value = PRESET_FROM.slice(0, 10);
+      $('cd-date-to').value   = PRESET_TO.slice(0, 10);
+      return;
+    } else {
+      const days = parseInt(kind);
+      const d = new Date(dMax); d.setDate(d.getDate() - (days - 1));
+      const minDate = new Date(availability.date_min + 'T00:00');
+      if (d < minDate) dFromStr = availability.date_min;
+      else dFromStr = d.toISOString().slice(0, 10);
+    }
+    $('cd-date-from').value = dFromStr;
+    $('cd-date-to').value = dMaxStr;
+  }
+
+  // ─────────────────────────── Run analytics ───────────────────────
+  async function runAnalytics() {
+    const well = $('cd-well-select').value;
+    const dFrom = $('cd-date-from').value;
+    const dTo = $('cd-date-to').value;
+    if (!well) return;
+    if (!dFrom || !dTo) { alert('Укажите период.'); return; }
+    if (dFrom > dTo) { alert('Начало периода позже конца.'); return; }
+
+    $('cd-analyse-btn').disabled = true;
+    $('cd-analyse-btn').innerHTML = '<span class="cd-loader"></span> Загрузка…';
+
+    try {
+      const params = new URLSearchParams({ date_from: dFrom, date_to: dTo });
+      const r = await fetch(`/api/customer-daily/well/${encodeURIComponent(well)}?${params}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      lastWellData = await r.json();
+      lastOurData = null;  // сбрасываем сравнение
+
+      if (!lastWellData.rows) {
+        alertBox($('cd-avail-block'), 'warn',
+          'За выбранный период данных у заказчика нет. Сместите окно.');
+        $('cd-charts-section').style.display = 'none';
+        $('cd-describe-section').style.display = 'none';
+        $('cd-monthly-section').style.display = 'none';
+        return;
+      }
+
+      renderCharts(lastWellData);
+      renderDescribe(lastWellData.describe);
+      renderMonthly(lastWellData.monthly, lastWellData.monthly_desc);
+
+      // Если включено сравнение — подгружаем наши данные и накладываем
+      if ($('cd-compare-toggle').checked) await loadAndOverlayOurData();
+    } catch (e) {
+      alertBox($('cd-avail-block'), 'error', 'Ошибка: ' + e.message);
+    } finally {
+      $('cd-analyse-btn').disabled = false;
+      $('cd-analyse-btn').textContent = 'Показать аналитику';
+    }
+  }
+
+  // ─────────────────────────── Compare with our data ───────────────
+  async function loadAndOverlayOurData() {
+    const well = $('cd-well-select').value;
+    const dFrom = $('cd-date-from').value;
+    const dTo = $('cd-date-to').value;
+    if (!well || !dFrom || !dTo) return;
+
+    const status = $('cd-compare-status');
+    clearChildren(status);
+    status.appendChild(makeLoader('Загружаю наши данные (pressure_hourly + flow_result)…'));
+
+    try {
+      const params = new URLSearchParams({ date_from: dFrom, date_to: dTo });
+      const r = await fetch(`/api/customer-daily/our-data/${encodeURIComponent(well)}?${params}`);
+      lastOurData = await r.json();
+      clearChildren(status);
+      if (!lastOurData.ok) {
+        alertBox(status, 'warn', lastOurData.error || 'Не удалось получить наши данные.');
+        return;
+      }
+      const d = lastOurData;
+      const nRows = (d.pressure && d.pressure.dates) ? d.pressure.dates.length : 0;
+      const parts = [];
+      parts.push(`<b>${nRows}</b> суток`);
+      if (d.has_flow) parts.push('дебит посчитан');
+      else            parts.push('<i>дебит не посчитан</i> (нет штуцера)');
+
+      let diag = '';
+      if (d.well) {
+        diag += `Сопоставлено: <b>wells.id=${d.well.id}</b>, number=${d.well.number ?? '—'}, name=${d.well.name ?? '—'}<br>`;
+      }
+      if (d.sensor_first_date)
+        diag += `Дата первого измерения в pressure_raw: <b>${d.sensor_first_date}</b> (ряд обрезан этой датой снизу)<br>`;
+      else
+        diag += `<span style="color:#991b1b">pressure_raw пуст по этой скважине — датчиков не было.</span><br>`;
+      if (d.choke_mm) {
+        const src = d.choke_source ? ` (источник: ${d.choke_source})` : '';
+        diag += `Штуцер: <b>${d.choke_mm} мм</b>${src}<br>`;
+      } else {
+        diag += `<span style="color:#92400e">Штуцер не найден ни в well_construction, ни в сводке заказчика — дебит не рассчитан.</span><br>`;
+      }
+      diag += `Применено verified-масок (исправлено точек): <b>${d.mask_count || 0}</b><br>`;
+      diag += `<i style="color:#64748b">Конвейер: pressure_raw → clean → masks → calc_flow → cumulative → aggregate_to_daily (тот же что /well, daily_report, adaptation_report).</i>`;
+
+      alertBox(status, 'info', 'Наши данные: ' + parts.join(', ') + '.<br>' + diag);
+
+      // Перерисовать графики с overlay
+      if (lastWellData) renderCharts(lastWellData);
+    } catch (e) {
+      clearChildren(status);
+      alertBox(status, 'error', 'Сетевая ошибка: ' + e.message);
+    }
+  }
+
+  // ─────────────────────────── Plotly ──────────────────────────────
+  const PLOTLY_LAYOUT = {
+    margin: { l: 50, r: 30, t: 40, b: 50 },
+    hovermode: 'x unified',
+    font: { size: 11 },
+    legend: { orientation: 'h', y: -0.18 },
+  };
+  const PLOTLY_CONFIG = { displaylogo: false, responsive: true };
+
+  function renderCharts(data) {
+    $('cd-charts-section').style.display = '';
+    const c = data.chart;
+    const ourOn = $('cd-compare-toggle').checked && lastOurData && lastOurData.ok;
+    const our = ourOn ? lastOurData : null;
+
+    // 1) Давления
+    const pressureTraces = [
+      { x: c.dates, y: c.p_wellhead, name: 'Заказчик: устье',     mode: 'lines+markers', marker:{size:5}, line:{width:1.4} },
+      { x: c.dates, y: c.p_annular,  name: 'Заказчик: затрубное', mode: 'lines+markers', marker:{size:5}, line:{width:1.4} },
+      { x: c.dates, y: c.p_flowline, name: 'Заказчик: шлейф',     mode: 'lines+markers', marker:{size:5}, line:{width:1.4} },
+      { x: c.dates, y: c.p_static,   name: 'Заказчик: статич.',   mode: 'lines+markers', marker:{size:5}, line:{width:1.4} },
+    ];
+    if (our && our.has_pressure) {
+      pressureTraces.push(
+        { x: our.pressure.dates, y: our.pressure.p_tube, name: 'Наше: P_tube (LoRa)',
+          mode: 'lines', line: { color: '#ea580c', width: 2.2, dash: 'dot' } },
+        { x: our.pressure.dates, y: our.pressure.p_line, name: 'Наше: P_line (LoRa)',
+          mode: 'lines', line: { color: '#7c3aed', width: 2.2, dash: 'dot' } },
+      );
+    }
+    Plotly.newPlot('cd-chart-pressures', pressureTraces,
+      { ...PLOTLY_LAYOUT, title: 'Давления, кгс/см²' }, PLOTLY_CONFIG);
+
+    // 2) ΔP
+    const dpTraces = [
+      { x: c.dates, y: c.dp, name: 'Заказчик: ΔP', mode: 'lines+markers',
+        marker:{size:5,color:'#dc2626'}, line:{color:'#dc2626',width:1.6} },
+    ];
+    if (our && our.has_pressure) {
+      dpTraces.push({
+        x: our.pressure.dates, y: our.pressure.dp, name: 'Наше: ΔP (LoRa)',
+        mode: 'lines', line: { color: '#ea580c', width: 2, dash: 'dot' },
+      });
+    }
+    Plotly.newPlot('cd-chart-dp', dpTraces,
+      { ...PLOTLY_LAYOUT, title: 'Перепад давления, кгс/см²',
+        shapes: [{ type:'line', xref:'paper', x0:0, x1:1, y0:0, y1:0,
+                   line:{color:'#94a3b8', width:1, dash:'dot'} }] },
+      PLOTLY_CONFIG);
+
+    // 3) Дебиты + простой
+    const rateTraces = [
+      { x: c.dates, y: c.q_gas_total,   name: 'Заказчик: Q общий',
+        mode:'lines+markers', marker:{size:5,color:'#1d4ed8'},
+        line:{color:'#1d4ed8',width:1.5}, yaxis:'y' },
+      { x: c.dates, y: c.q_gas_working, name: 'Заказчик: Q рабочий',
+        mode:'lines+markers', marker:{size:5,color:'#16a34a'},
+        line:{color:'#16a34a',width:1.5}, yaxis:'y' },
+      { x: c.dates, y: c.shutdown_min,  name: 'Заказчик: простой, мин',
+        type:'bar', marker:{color:'rgba(220,38,38,0.35)'}, yaxis:'y2' },
+    ];
+    if (our && our.has_flow) {
+      rateTraces.push({
+        x: our.flow.dates, y: our.flow.avg_flow_rate, name: 'Наше: avg Q (расчёт)',
+        mode: 'lines', line: { color: '#ea580c', width: 2.2, dash: 'dot' }, yaxis: 'y',
+      });
+    }
+    Plotly.newPlot('cd-chart-rates', rateTraces, {
+      ...PLOTLY_LAYOUT, title: 'Дебиты и простой',
+      yaxis: { title: 'Q, тыс.м³/сут' },
+      yaxis2: { title: 'Простой, мин', overlaying: 'y', side: 'right',
+                showgrid: false, rangemode: 'tozero' },
+      barmode: 'overlay',
+    }, PLOTLY_CONFIG);
+
+    // 4) Помесячно (Q общий и рабочий)
+    if (data.monthly && data.monthly.length) {
+      const m = data.monthly;
+      const x = m.map(r => r.month_label);
+      Plotly.newPlot('cd-chart-monthly', [
+        { x, y: m.map(r => r.mean_q_total),     name:'Q общ. ср.',    type:'bar', marker:{color:'#1d4ed8'} },
+        { x, y: m.map(r => r.median_q_total),   name:'Q общ. мед.',   type:'bar', marker:{color:'#93c5fd'} },
+        { x, y: m.map(r => r.mean_q_working),   name:'Q раб. ср.',    type:'bar', marker:{color:'#16a34a'} },
+        { x, y: m.map(r => r.median_q_working), name:'Q раб. мед.',   type:'bar', marker:{color:'#86efac'} },
+      ], { ...PLOTLY_LAYOUT, title: 'Помесячно: Q общий и рабочий', barmode:'group',
+           yaxis:{title:'Q, тыс.м³/сут'} }, PLOTLY_CONFIG);
+    } else {
+      Plotly.purge('cd-chart-monthly');
+    }
+  }
+
+  // ─────────────────────────── Tables ──────────────────────────────
+  function renderDescribe(rows) {
+    if (!rows || !rows.length) { $('cd-describe-section').style.display = 'none'; return; }
+    $('cd-describe-section').style.display = '';
+    const tbl = $('cd-describe-table');
+    tbl.innerHTML = '<thead><tr>'
+      + '<th>Параметр</th><th>N</th><th>Среднее</th><th>СКО</th>'
+      + '<th>Мин</th><th>Q25</th><th>Медиана</th><th>Q75</th><th>Макс</th>'
+      + '</tr></thead><tbody></tbody>';
+    const tb = tbl.querySelector('tbody');
+    for (const r of rows) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${r.label}</td>`
+        + `<td>${r.n}</td><td>${fmtNum(r.mean)}</td><td>${fmtNum(r.std)}</td>`
+        + `<td>${fmtNum(r.min)}</td><td>${fmtNum(r.q25)}</td><td>${fmtNum(r.median)}</td>`
+        + `<td>${fmtNum(r.q75)}</td><td>${fmtNum(r.max)}</td>`;
+      tb.appendChild(tr);
+    }
+  }
+
+  function renderMonthly(months, descs) {
+    if (!months || !months.length) {
+      $('cd-monthly-section').style.display = 'none'; return;
+    }
+    $('cd-monthly-section').style.display = '';
+    const tbl = $('cd-monthly-table');
+    tbl.innerHTML = '<thead><tr>'
+      + '<th>Месяц</th><th>Дней</th>'
+      + '<th>Q общ. ср.</th><th>Q общ. мед.</th>'
+      + '<th>Q раб. ср.</th><th>Q раб. мед.</th>'
+      + '<th>ΔP ср.</th><th>ΔP мед.</th>'
+      + '<th>Тренд Q,/сут</th><th>Тренд ΔP,/сут</th>'
+      + '<th>P уст. ср.</th><th>Простой,мин/сут</th>'
+      + '</tr></thead><tbody></tbody>';
+    const tb = tbl.querySelector('tbody');
+    for (const r of months) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${r.month_label}</td><td>${r.days}</td>`
+        + `<td>${fmtNum(r.mean_q_total)}</td><td>${fmtNum(r.median_q_total)}</td>`
+        + `<td>${fmtNum(r.mean_q_working)}</td><td>${fmtNum(r.median_q_working)}</td>`
+        + `<td>${fmtNum(r.mean_dp)}</td><td>${fmtNum(r.median_dp)}</td>`
+        + `<td>${fmtNum(r.trend_q_total, 3)}</td><td>${fmtNum(r.trend_dp, 3)}</td>`
+        + `<td>${fmtNum(r.mean_p_wellhead)}</td><td>${fmtNum(r.mean_shutdown, 1)}</td>`;
+      tb.appendChild(tr);
+    }
+    const list = $('cd-monthly-desc');
+    clearChildren(list);
+    for (const d of (descs || [])) {
+      const div = document.createElement('div');
+      div.className = 'cd-month-item';
+      div.innerHTML = `<div class="label">${d.label}</div><div class="text">${d.text}</div>`;
+      list.appendChild(div);
+    }
+  }
+
+  // ─────────────────────────── File upload (глобально) ─────────────
+  const drop = $('cd-drop');
+  const fileInput = $('cd-file-input');
+
+  drop.addEventListener('click', () => fileInput.click());
+  drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('dragover'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
+  drop.addEventListener('drop', (e) => {
+    e.preventDefault();
+    drop.classList.remove('dragover');
+    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length) handleFile(e.target.files[0]);
+  });
+
+  async function handleFile(file) {
+    const status = $('cd-upload-status');
+    clearChildren(status);
+    if (!file.name.match(/\.(xlsx|xlsm)$/i)) {
+      alertBox(status, 'error', 'Поддерживаются только .xlsx / .xlsm');
+      return;
+    }
+    pendingFile = file;
+    const a = alertBox(status, 'info',
+      `<span class="cd-loader"></span> Парсинг файла «${file.name}» (все скважины, все листы)…`);
+
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const r = await fetch('/api/customer-daily/upload-check', { method: 'POST', body: fd });
+      const d = await r.json();
+      a.remove();
+      if (!r.ok) {
+        alertBox(status, 'error', 'Ошибка: ' + (d.detail || r.status));
+        return;
+      }
+      const summary = `Распарсено: <b>${d.rows}</b> строк, ${d.wells} скв., ${d.ggus} ГСП, период ${d.date_min} … ${d.date_max}.`;
+      if (d.duplicates_count > 0) showDuplicatesModal(d, summary);
+      else                        await uploadFile(file, false, status, summary);
+    } catch (e) {
+      a.remove();
+      alertBox(status, 'error', 'Сетевая ошибка: ' + e.message);
+    }
+  }
+
+  function showDuplicatesModal(checkData, summary) {
+    $('cd-modal-text').innerHTML =
+      `${summary}<br>В БД уже есть <b>${checkData.duplicates_count}</b> ` +
+      `записей с такими же (date, ГСП, скв.).`;
+    const list = $('cd-modal-list');
+    clearChildren(list);
+    for (const d of (checkData.duplicates_sample || [])) {
+      const line = document.createElement('div');
+      line.textContent = `${d.date}  ·  ${d.ggu}  ·  скв. ${d.well}`;
+      list.appendChild(line);
+    }
+    if (checkData.duplicates_count > checkData.duplicates_sample.length) {
+      const more = document.createElement('div');
+      more.style.color = '#92400e';
+      more.textContent = `… и ещё ${checkData.duplicates_count - checkData.duplicates_sample.length}`;
+      list.appendChild(more);
+    }
+    $('cd-modal-bd').classList.add('open');
+  }
+
+  $('cd-modal-cancel').addEventListener('click', () => {
+    $('cd-modal-bd').classList.remove('open');
+    pendingFile = null;
+    clearChildren($('cd-upload-status'));
+  });
+  $('cd-modal-skip').addEventListener('click', async () => {
+    $('cd-modal-bd').classList.remove('open');
+    if (pendingFile) await uploadFile(pendingFile, false, $('cd-upload-status'));
+  });
+  $('cd-modal-overwrite').addEventListener('click', async () => {
+    $('cd-modal-bd').classList.remove('open');
+    if (pendingFile) await uploadFile(pendingFile, true, $('cd-upload-status'));
+  });
+
+  async function uploadFile(file, overwrite, statusEl, prefix) {
+    clearChildren(statusEl);
+    const a = alertBox(statusEl, 'info',
+      `<span class="cd-loader"></span> Записываю в БД (${overwrite ? 'перезапись' : 'только новые'})…`);
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('overwrite', overwrite ? 'true' : 'false');
+    try {
+      const r = await fetch('/api/customer-daily/upload', { method: 'POST', body: fd });
+      const d = await r.json();
+      a.remove();
+      if (!r.ok) {
+        alertBox(statusEl, 'error', 'Ошибка: ' + (d.detail || r.status));
+        return;
+      }
+      alertBox(statusEl, 'success',
+        `${prefix || ''} Загружено: <b>${d.inserted}</b> добавлено, ` +
+        `<b>${d.updated}</b> обновлено, <b>${d.skipped}</b> пропущено. ` +
+        `Файл затрагивал <b>${d.wells}</b> скважин.`);
+      pendingFile = null;
+      await loadMeta();
+      await loadWells();
+      // Если уже выбрана скважина — обновим её доступность
+      if ($('cd-well-select').value) onWellChange();
+    } catch (e) {
+      a.remove();
+      alertBox(statusEl, 'error', 'Сетевая ошибка: ' + e.message);
+    }
+  }
+
+  // ─────────────────────────── Init ───────────────────────────
+  $('cd-well-select').addEventListener('change', onWellChange);
+  $('cd-analyse-btn').addEventListener('click', runAnalytics);
+  $('cd-compare-toggle').addEventListener('change', async () => {
+    if ($('cd-compare-toggle').checked) await loadAndOverlayOurData();
+    else if (lastWellData) renderCharts(lastWellData);
+  });
+  document.querySelectorAll('.cd-pill').forEach(p => {
+    p.addEventListener('click', () => {
+      document.querySelectorAll('.cd-pill').forEach(x => x.classList.remove('active'));
+      p.classList.add('active');
+      applyPreset(p.dataset.preset);
+    });
+  });
+
+  // ─────────────────────────── Compare periods ────────────────────
+  // Если открыта скважина в основном анализе — подставим её номер по умолчанию
+  function syncCmpDefaults() {
+    const w = $('cd-well-select').value;
+    document.querySelectorAll('.cmp-well').forEach(el => {
+      if (!el.value && w) el.value = w;
+    });
+    // Период по умолчанию: A — то что выбрано в основном анализе,
+    // B — на месяц назад от A.
+    const fromMain = $('cd-date-from').value;
+    const toMain = $('cd-date-to').value;
+    const aFrom = document.querySelector('.cmp-from[data-ab="a"]');
+    const aTo   = document.querySelector('.cmp-to[data-ab="a"]');
+    const bFrom = document.querySelector('.cmp-from[data-ab="b"]');
+    const bTo   = document.querySelector('.cmp-to[data-ab="b"]');
+    if (!aFrom.value && fromMain) aFrom.value = fromMain;
+    if (!aTo.value && toMain)     aTo.value   = toMain;
+    if (!bFrom.value && fromMain && toMain) {
+      const d1 = new Date(fromMain + 'T00:00');
+      const d2 = new Date(toMain + 'T00:00');
+      const lenDays = Math.round((d2 - d1) / 86400000);
+      const bFromD = new Date(d1); bFromD.setDate(bFromD.getDate() - lenDays - 1);
+      const bToD   = new Date(d1); bToD.setDate(bToD.getDate() - 1);
+      bFrom.value = bFromD.toISOString().slice(0, 10);
+      bTo.value   = bToD.toISOString().slice(0, 10);
+    }
+  }
+  // Заполнить дефолты при изменении основной скважины/периода
+  $('cd-well-select').addEventListener('change', syncCmpDefaults);
+  $('cd-date-from').addEventListener('change', syncCmpDefaults);
+  $('cd-date-to').addEventListener('change', syncCmpDefaults);
+
+  function fmtMetricYAxis() {
+    const m = $('cmp-metric').value;
+    if (m === 'dp') return 'ΔP, кгс/см²';
+    if (m.startsWith('q_')) return 'Q, тыс.м³/сут';
+    return 'P, кгс/см²';
+  }
+
+  async function fetchSeries(letter) {
+    const source = document.querySelector(`.cmp-source[data-ab="${letter}"]`).value;
+    const well   = document.querySelector(`.cmp-well[data-ab="${letter}"]`).value.trim();
+    const dFrom  = document.querySelector(`.cmp-from[data-ab="${letter}"]`).value;
+    const dTo    = document.querySelector(`.cmp-to[data-ab="${letter}"]`).value;
+    const metric = $('cmp-metric').value;
+    if (!well || !dFrom || !dTo) {
+      throw new Error(`Период ${letter.toUpperCase()}: укажите скважину и обе даты.`);
+    }
+    if (dFrom > dTo) throw new Error(`Период ${letter.toUpperCase()}: «с» позже «по».`);
+    const params = new URLSearchParams({
+      source, well, metric, date_from: dFrom, date_to: dTo,
+    });
+    const r = await fetch('/api/customer-daily/series?' + params);
+    const d = await r.json();
+    if (!r.ok || !d.ok) {
+      throw new Error(`Период ${letter.toUpperCase()}: ${d.error || ('HTTP ' + r.status)}`);
+    }
+    return d;
+  }
+
+  function statsOf(values) {
+    const v = (values || []).filter(x => x !== null && x !== undefined && !isNaN(x));
+    if (!v.length) return { n: 0 };
+    const sum = v.reduce((a, b) => a + b, 0);
+    const mean = sum / v.length;
+    const sorted = [...v].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    return { n: v.length, mean, median, min: sorted[0], max: sorted[sorted.length - 1] };
+  }
+
+  async function buildCompare() {
+    const status = $('cmp-status');
+    clearChildren(status);
+    $('cmp-chart').style.display = 'none';
+    $('cmp-build-btn').disabled = true;
+    $('cmp-build-btn').innerHTML = '<span class="cd-loader"></span> Загрузка…';
+    try {
+      const [a, b] = await Promise.all([fetchSeries('a'), fetchSeries('b')]);
+      renderCompare(a, b);
+    } catch (e) {
+      alertBox(status, 'error', e.message);
+    } finally {
+      $('cmp-build-btn').disabled = false;
+      $('cmp-build-btn').textContent = 'Построить сравнение';
+    }
+  }
+
+  function renderCompare(a, b) {
+    const xMode = $('cmp-xaxis').value;
+    const status = $('cmp-status');
+
+    // Информация о сопоставлении wells.id (если использовалось)
+    let infoHtml = '';
+    if (a.well) infoHtml += `<b>A</b>: ${a.label} (wells.id=${a.well.id}, number=${a.well.number ?? '—'})<br>`;
+    else        infoHtml += `<b>A</b>: ${a.label}<br>`;
+    if (b.well) infoHtml += `<b>B</b>: ${b.label} (wells.id=${b.well.id}, number=${b.well.number ?? '—'})`;
+    else        infoHtml += `<b>B</b>: ${b.label}`;
+    alertBox(status, 'info', infoHtml);
+
+    // Статистика
+    const sA = statsOf(a.values);
+    const sB = statsOf(b.values);
+    $('cmp-stats').innerHTML =
+      '<table class="cd-table" style="margin-top:6px;">'
+      + '<thead><tr><th>Период</th><th>N точек</th><th>Среднее</th>'
+      + '<th>Медиана</th><th>Мин</th><th>Макс</th></tr></thead><tbody>'
+      + `<tr><td>A — ${a.label}</td><td>${sA.n}</td><td>${fmtNum(sA.mean)}</td>`
+      + `<td>${fmtNum(sA.median)}</td><td>${fmtNum(sA.min)}</td><td>${fmtNum(sA.max)}</td></tr>`
+      + `<tr><td>B — ${b.label}</td><td>${sB.n}</td><td>${fmtNum(sB.mean)}</td>`
+      + `<td>${fmtNum(sB.median)}</td><td>${fmtNum(sB.min)}</td><td>${fmtNum(sB.max)}</td></tr>`
+      + '</tbody></table>';
+
+    // Данные графика
+    let xA, xB, xLabel;
+    if (xMode === 'offset') {
+      xA = a.dates.map((_, i) => i);
+      xB = b.dates.map((_, i) => i);
+      xLabel = 'День от начала периода';
+    } else {
+      xA = a.dates; xB = b.dates;
+      xLabel = 'Дата';
+    }
+
+    Plotly.newPlot('cmp-chart', [
+      {
+        x: xA, y: a.values, name: 'A: ' + a.label,
+        mode: 'lines+markers',
+        marker: { size: 5, color: '#1d4ed8' },
+        line:   { color: '#1d4ed8', width: 2 },
+        customdata: a.dates,
+        hovertemplate: '%{y:.2f} (%{customdata})<extra>A</extra>',
+      },
+      {
+        x: xB, y: b.values, name: 'B: ' + b.label,
+        mode: 'lines+markers',
+        marker: { size: 5, color: '#ea580c' },
+        line:   { color: '#ea580c', width: 2 },
+        customdata: b.dates,
+        hovertemplate: '%{y:.2f} (%{customdata})<extra>B</extra>',
+      },
+    ], {
+      ...PLOTLY_LAYOUT,
+      title: 'Сравнение периодов: ' + ($('cmp-metric').selectedOptions[0].textContent),
+      xaxis: { title: xLabel },
+      yaxis: { title: fmtMetricYAxis() },
+    }, PLOTLY_CONFIG);
+
+    $('cmp-chart').style.display = '';
+  }
+
+  $('cmp-build-btn').addEventListener('click', buildCompare);
+  $('cmp-open-win-btn').addEventListener('click', () => {
+    // Открыть тот же URL текущей страницы в отдельном окне (чтобы тут оставаться).
+    const u = new URL(window.location.href);
+    window.open(u.pathname + u.search + '#compare', 'customer-daily-compare',
+                'width=1280,height=900');
+  });
+
+  loadMeta().then(loadWells).then(syncCmpDefaults);
+})();
+</script>
+{% endblock %}

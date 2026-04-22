@@ -15,7 +15,9 @@ pressure_import_csv — импорт CSV файлов давлений из LoRa
 Архитектура импорта:
   1. Для каждой колонки CSV (Ptr_1, Pshl_1, ...) ищем датчик по (csv_group, csv_channel, csv_column)
   2. По equipment_installation → equipment → lora_sensors находим well_id на момент измерения
-  3. Position определяется прошивкой: csv_column 'Ptr' → p_tube, 'Pshl' → p_line
+  3. Position по умолчанию: csv_column 'Ptr' → p_tube, 'Pshl' → p_line.
+     Если для датчика есть активное SensorAssignment на момент измерения —
+     его role переопределяет дефолт (переприсвоение без смены прошивки CSV).
 
 Оптимизации:
   - Tail-only: для повторного импорта свежих файлов пропускаем уже обработанные строки
@@ -37,6 +39,10 @@ from sqlalchemy.orm import Session
 
 from backend.db_pressure import PressureSessionLocal, init_pressure_db
 from backend.models.csv_import_log import CsvImportLog
+from backend.services.sensor_assignment_service import (
+    load_assignment_cache,
+    resolve_role_at,
+)
 
 log = logging.getLogger(__name__)
 
@@ -186,6 +192,7 @@ def import_csv_file(
     db: Session,
     sensor_cache: dict,
     installation_cache: dict,
+    assignment_cache: Optional[dict] = None,
 ) -> dict:
     """
     Импортирует один CSV файл в pressure_readings.
@@ -317,9 +324,17 @@ def import_csv_file(
                 if installation is None:
                     continue
 
-                well_id, position = installation
-                well_data[well_id][position] = value
-                well_sensors[well_id][position] = sensor_id
+                well_id, default_position = installation
+                # Переопределение роли по SensorAssignment (если есть)
+                # сравнение в Кунградском локальном времени — как и _find_installation
+                role = resolve_role_at(
+                    sensor_id,
+                    dt_utc + TZ_OFFSET,
+                    assignment_cache,
+                    default_position,
+                )
+                well_data[well_id][role] = value
+                well_sensors[well_id][role] = sensor_id
                 well_channels[well_id] = (csv_group - 1) * 5 + csv_channel
 
         # Формируем параметры INSERT для каждой скважины
@@ -432,9 +447,10 @@ def import_all_csv(
     init_pressure_db()
     sensor_cache = _load_sensor_cache()
     installation_cache = _load_installation_cache()
+    assignment_cache = load_assignment_cache()
 
-    log.info("Loaded %d sensors, %d with installations",
-             len(sensor_cache), len(installation_cache))
+    log.info("Loaded %d sensors, %d with installations, %d with role assignments",
+             len(sensor_cache), len(installation_cache), len(assignment_cache))
 
     csv_files = sorted(csv_dir.glob("*_arc.csv"))
     if limit:
@@ -454,7 +470,7 @@ def import_all_csv(
 
     try:
         for i, fpath in enumerate(csv_files, 1):
-            result = import_csv_file(fpath, db, sensor_cache, installation_cache)
+            result = import_csv_file(fpath, db, sensor_cache, installation_cache, assignment_cache)
             status = result["status"]
             summary[status] = summary.get(status, 0) + 1
             total_rows += result.get("rows_imported", 0)

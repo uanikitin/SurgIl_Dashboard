@@ -1,0 +1,1555 @@
+{% extends "base.html" %}
+
+{% block title %}Отчёт об адаптации{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
+<style>
+  .ar-page { display: grid; grid-template-columns: 420px 1fr; gap: 1rem;
+             padding: 1rem; min-height: calc(100vh - 130px); }
+  @media (max-width: 1100px) { .ar-page { grid-template-columns: 1fr; } }
+
+  .ar-panel {
+    background: #fff; border: 1px solid #ddd; border-radius: 8px;
+    padding: 1rem;
+  }
+  .ar-panel-left { max-height: calc(100vh - 160px); overflow-y: auto; }
+
+  .ar-panel h2 { margin: 0 0 0.8rem; font-size: 1.1rem; color: #333; }
+  .ar-panel h3 { margin: 1rem 0 0.4rem; font-size: 0.95rem; color: #555;
+                 border-bottom: 1px solid #eee; padding-bottom: 0.3rem; }
+  .ar-panel h4 { margin: 0.6rem 0 0.3rem; font-size: 0.88rem; color: #666; }
+
+  .ar-field { margin-bottom: 0.7rem; }
+  .ar-field label { display: block; font-size: 0.8rem; color: #666; margin-bottom: 0.2rem; }
+  .ar-field input, .ar-field select {
+    width: 100%; padding: 0.4rem 0.55rem; border: 1px solid #ccc;
+    border-radius: 5px; font-size: 0.88rem; box-sizing: border-box;
+  }
+
+  .ar-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+
+  .ar-stage-badge {
+    display: inline-block; padding: 0.1rem 0.4rem; border-radius: 3px;
+    font-size: 0.7rem; margin-left: 0.3rem;
+  }
+  .ar-stage-ok { background: #c8e6c9; color: #2e7d32; }
+  .ar-stage-no { background: #ffcdd2; color: #c62828; }
+
+  /* Source selector */
+  .ar-source-block { margin-bottom: 0.8rem; }
+  .ar-source-options {
+    display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem;
+  }
+  .ar-source-option {
+    border: 1px solid #ddd; border-radius: 5px; padding: 0.4rem 0.6rem;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .ar-source-option:hover { border-color: #2196F3; }
+  .ar-source-option.selected { border-color: #2196F3; background: #e3f2fd; }
+  .ar-source-option.disabled { opacity: 0.5; cursor: not-allowed; }
+  .ar-source-option .ar-source-title {
+    font-weight: 500; display: flex; justify-content: space-between;
+  }
+  .ar-source-option .ar-source-detail {
+    font-size: 0.75rem; color: #666; margin-top: 0.2rem;
+  }
+  .ar-source-option .ar-source-rationale {
+    font-size: 0.72rem; color: #888; margin-top: 0.15rem; font-style: italic;
+  }
+
+  .ar-btn {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.5rem 1rem; color: #fff; border: none; border-radius: 5px;
+    font-size: 0.88rem; cursor: pointer; margin-right: 0.4rem;
+  }
+  .ar-btn-primary { background: #2196F3; }
+  .ar-btn-primary:hover { background: #1976D2; }
+  .ar-btn-primary:disabled { background: #90CAF9; cursor: not-allowed; }
+  .ar-btn-secondary { background: #757575; }
+  .ar-btn-secondary:hover { background: #616161; }
+
+  .ar-alert {
+    padding: 0.6rem 0.8rem; border-radius: 5px; margin-bottom: 0.6rem;
+    font-size: 0.85rem;
+  }
+  .ar-alert-error { background: #ffebee; color: #c62828; border-left: 3px solid #c62828; }
+  .ar-alert-warn  { background: #fff8e1; color: #f57f17; border-left: 3px solid #f57f17; }
+  .ar-alert-info  { background: #e3f2fd; color: #1565c0; border-left: 3px solid #1565c0; }
+
+  .ar-stats { font-size: 0.82rem; }
+  .ar-stats table { width: 100%; border-collapse: collapse; margin-top: 0.3rem; }
+  .ar-stats th, .ar-stats td {
+    padding: 0.3rem 0.5rem; border-bottom: 1px solid #eee; text-align: right;
+  }
+  .ar-stats th:first-child, .ar-stats td:first-child { text-align: left; color: #555; }
+  .ar-stats th { background: #fafafa; font-weight: 500; font-size: 0.78rem; color: #666; }
+  .ar-stats td.delta-pos { color: #2e7d32; font-weight: 500; }
+  .ar-stats td.delta-neg { color: #c62828; font-weight: 500; }
+
+  .ar-conclusions { font-size: 0.85rem; padding-left: 1.2rem; margin: 0.5rem 0; }
+  .ar-conclusions li { margin-bottom: 0.3rem; }
+
+  /* Правая панель: графики + PDF */
+  .ar-right { display: flex; flex-direction: column; gap: 1rem; }
+
+  .ar-charts-section { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 1rem; }
+  .ar-charts-section h3 { margin: 0.4rem 0 0.5rem; font-size: 0.95rem; color: #555; }
+
+  .ar-stage-charts {
+    display: grid; grid-template-columns: 1fr; gap: 0.6rem; margin-bottom: 0.8rem;
+  }
+  .ar-stage-charts img {
+    width: 100%; border: 1px solid #eee; border-radius: 4px; background: #fff;
+  }
+  .ar-charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 800px) { .ar-charts-grid { grid-template-columns: 1fr; } }
+
+  .ar-chart-title {
+    font-size: 0.78rem; color: #888; text-align: center; margin-top: 0.2rem;
+  }
+
+  /* Реагент */
+  .ar-reagent-card {
+    background: #f3e5f5; border-left: 3px solid #8e24aa;
+    padding: 0.5rem 0.8rem; border-radius: 4px; margin: 0.3rem 0;
+  }
+  .ar-best-reagent {
+    background: linear-gradient(90deg, #e8f5e9, #c8e6c9);
+    border-left: 3px solid #2e7d32;
+  }
+  .ar-reagent-row {
+    display: flex; justify-content: space-between; font-size: 0.85rem;
+    align-items: center; padding: 0.2rem 0;
+  }
+
+  .ar-preview-container {
+    background: #fff; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;
+    position: relative;
+  }
+  .ar-preview-iframe { width: 100%; height: 700px; border: none; display: block; }
+  .ar-preview-placeholder {
+    display: flex; align-items: center; justify-content: center;
+    height: 200px; color: #888; font-size: 0.95rem; padding: 2rem; text-align: center;
+  }
+  .ar-loading {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.9); font-size: 0.95rem; color: #555;
+  }
+  .ar-spinner {
+    width: 24px; height: 24px; border: 3px solid #eee;
+    border-top-color: #2196F3; border-radius: 50%;
+    animation: spin 1s linear infinite; margin-right: 0.5rem;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Preset buttons */
+  .ar-preset-btn {
+    padding: 0.25rem 0.6rem; background: #f5f5f5; border: 1px solid #ccc;
+    border-radius: 4px; font-size: 0.78rem; cursor: pointer; color: #333;
+  }
+  .ar-preset-btn:hover { background: #e8e8e8; border-color: #999; }
+  .ar-preset-btn.active { background: #2196F3; color: #fff; border-color: #1976D2; }
+
+  /* Timeline bands */
+  .ar-timeline-band {
+    position: absolute; top: 0; bottom: 0;
+    pointer-events: none;
+  }
+  .ar-timeline-click-area {
+    position: absolute; top: 0; bottom: 0;
+    cursor: pointer;
+  }
+  .ar-timeline-label {
+    position: absolute; top: 4px; font-size: 0.68rem; color: #555;
+    font-weight: 600; pointer-events: none;
+    text-shadow: 0 0 2px #fff;
+  }
+  .ar-timeline-selection {
+    position: absolute; top: -1px; bottom: -1px;
+    background: rgba(239,108,0,0.2);
+    border: 2px solid #ef6c00;
+    pointer-events: none;
+  }
+
+  /* Tabs */
+  .ar-tabs {
+    display: flex; gap: 0.2rem; border-bottom: 2px solid #e0e0e0;
+    margin-bottom: 0.8rem;
+  }
+  .ar-tab {
+    padding: 0.5rem 1rem; background: #f5f5f5; border: 1px solid #ddd;
+    border-bottom: none; border-radius: 5px 5px 0 0;
+    cursor: pointer; font-size: 0.88rem; color: #555;
+    margin-bottom: -2px; border-bottom: 2px solid transparent;
+  }
+  .ar-tab:hover { background: #eaeaea; }
+  .ar-tab.active {
+    background: #fff; color: #1976D2;
+    border-color: #e0e0e0; border-bottom: 2px solid #fff;
+    font-weight: 500;
+  }
+  .ar-tab-content { display: none; }
+  .ar-tab-content.active { display: block; }
+
+  /* Monthly table */
+  .ar-monthly-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  .ar-monthly-table th, .ar-monthly-table td {
+    padding: 0.35rem 0.5rem; border-bottom: 1px solid #eee; text-align: right;
+  }
+  .ar-monthly-table th:first-child, .ar-monthly-table td:first-child {
+    text-align: left;
+  }
+  .ar-monthly-table th {
+    background: #fafafa; font-weight: 500; font-size: 0.78rem;
+    color: #666; position: sticky; top: 0;
+  }
+  .ar-monthly-desc {
+    font-size: 0.8rem; color: #555; padding: 0.4rem 0.6rem;
+    background: #f8f9fa; border-left: 3px solid #1976D2;
+    margin: 0.4rem 0; border-radius: 3px;
+  }
+  .ar-monthly-desc .ym {
+    font-weight: 600; color: #1976D2; margin-right: 0.4rem;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="ar-page">
+
+  <!-- ═══════════════════════ ЛЕВАЯ ПАНЕЛЬ ═══════════════════════ -->
+  <div class="ar-panel ar-panel-left">
+    <h2>Настройка отчёта об адаптации</h2>
+
+    <div class="ar-field">
+      <label for="well-select">Скважина</label>
+      <select id="well-select">
+        <option value="">— выберите скважину —</option>
+      </select>
+    </div>
+
+    <div id="ar-alerts"></div>
+
+    <div id="ar-params" style="display: none;">
+
+      <!-- Источник дат этапов -->
+      <div class="ar-source-block">
+        <h3 style="margin-top: 0.5rem;">Источник дат этапов</h3>
+        <div class="ar-source-options" id="ar-source-options"></div>
+
+        <div class="ar-field" style="margin-top: 0.5rem;">
+          <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
+            <input type="checkbox" id="limit-adapt-duration" checked
+                   style="width: auto; margin: 0;">
+            <span style="font-size: 0.85rem;">
+              Ограничить адаптацию длительностью
+            </span>
+            <input type="number" id="adapt-days" min="1" max="365" value="10"
+                   style="width: 4.5rem; padding: 0.2rem 0.4rem;">
+            <span style="font-size: 0.85rem;">сут.</span>
+          </label>
+          <div style="font-size: 0.75rem; color: #888; margin-top: 0.2rem; margin-left: 1.4rem;">
+            Если отмечено — конец адаптации = начало + N сут. (приоритет над журналом статусов).
+            Иначе используется дата из источника или ручной ввод.
+          </div>
+        </div>
+      </div>
+
+      <h3>Этап наблюдения</h3>
+      <div class="ar-dates">
+        <div class="ar-field">
+          <label for="obs-from">Начало</label>
+          <input type="datetime-local" id="obs-from">
+        </div>
+        <div class="ar-field">
+          <label for="obs-to">Конец</label>
+          <input type="datetime-local" id="obs-to">
+        </div>
+      </div>
+      <div class="ar-field">
+        <label for="obs-description">Описание этапа наблюдения</label>
+        <textarea id="obs-description" rows="3"
+                  style="width:100%; padding:0.4rem; border:1px solid #ccc; border-radius:5px; font-size:0.85rem; box-sizing: border-box; resize: vertical;"
+                  placeholder="Краткое описание условий и работ на этапе наблюдения..."></textarea>
+      </div>
+
+      <h3>Этап адаптации</h3>
+      <div class="ar-dates">
+        <div class="ar-field">
+          <label for="adapt-from">Начало</label>
+          <input type="datetime-local" id="adapt-from">
+        </div>
+        <div class="ar-field">
+          <label for="adapt-to">Конец</label>
+          <input type="datetime-local" id="adapt-to">
+        </div>
+      </div>
+      <div class="ar-field">
+        <label for="adapt-description">Описание этапа адаптации</label>
+        <textarea id="adapt-description" rows="3"
+                  style="width:100%; padding:0.4rem; border:1px solid #ccc; border-radius:5px; font-size:0.85rem; box-sizing: border-box; resize: vertical;"
+                  placeholder="Краткое описание применённых реагентов, условий, наблюдений..."></textarea>
+      </div>
+
+      <!-- ══════ Оптимальный режим ══════ -->
+      <h3>Оптимальный режим работы</h3>
+      <div class="ar-field" style="font-size: 0.83rem; color: #666; margin-bottom: 0.5rem;">
+        Лучшее окно стабильной работы внутри адаптации.
+        Усреднение по всему этапу сглаживает достижения —
+        оптимальный режим выделяется отдельно.
+      </div>
+      <div class="ar-field">
+        <label>Режим</label>
+        <div style="display: flex; gap: 1rem; font-size: 0.85rem;">
+          <label><input type="radio" name="optimal-mode" value="auto" checked> Авто</label>
+          <label><input type="radio" name="optimal-mode" value="manual"> Вручную</label>
+          <label><input type="radio" name="optimal-mode" value="off"> Не выделять</label>
+        </div>
+      </div>
+      <div class="ar-field">
+        <label for="optimal-window-days">Ширина окна (для автодетекта)</label>
+        <input type="number" id="optimal-window-days" min="1" max="10" value="3"
+               style="width: 4.5rem;">
+        <span style="font-size: 0.8rem; color: #888;"> сут.</span>
+      </div>
+      <div id="optimal-manual-block" style="display: none;">
+        <div class="ar-dates">
+          <div class="ar-field">
+            <label for="optimal-from">Начало</label>
+            <input type="datetime-local" id="optimal-from">
+          </div>
+          <div class="ar-field">
+            <label for="optimal-to">Конец</label>
+            <input type="datetime-local" id="optimal-to">
+          </div>
+        </div>
+      </div>
+
+      <div style="margin: 1rem 0;">
+        <button id="btn-recompute" class="ar-btn ar-btn-secondary">Пересчитать</button>
+        <button id="btn-preview" class="ar-btn ar-btn-primary">Сформировать PDF</button>
+      </div>
+
+      <div style="margin: 0.6rem 0; padding: 0.6rem; background: #f1f8e9;
+                  border-left: 3px solid #689f38; border-radius: 4px;">
+        <div style="font-size: 0.85rem; color: #33691e; margin-bottom: 0.4rem;">
+          <b>Данные заказчика (УзКорГаз)</b><br>
+          <span style="font-size: 0.78rem; color: #555;">
+            Парсинг суточных сводок (xlsx) + предварительный анализ
+            давлений / дебитов / трендов перед формированием отчёта.
+          </span>
+        </div>
+        <button id="btn-customer-data" class="ar-btn"
+                style="background:#689f38; color:#fff;">
+          Анализ данных заказчика →
+        </button>
+      </div>
+
+      <div id="ar-optimal-candidates"></div>
+
+      <div id="ar-stats-block"></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════ ПРАВАЯ ПАНЕЛЬ ═══════════════════════ -->
+  <div class="ar-right">
+
+    <!-- Вкладки -->
+    <div class="ar-tabs">
+      <div class="ar-tab active" data-tab="stages">Сравнение этапов</div>
+      <div class="ar-tab" data-tab="monthly">Помесячная статистика</div>
+    </div>
+
+    <!-- Вкладка: Сравнение этапов -->
+    <div class="ar-tab-content active" id="tab-stages">
+
+    <div class="ar-charts-section" id="ar-charts">
+      <h2 style="margin: 0;">Графики этапов</h2>
+      <div class="ar-preview-placeholder">Графики появятся после расчёта.</div>
+    </div>
+
+    <!-- Интерактивный Q-график для выбора оптимального окна -->
+    <div class="ar-charts-section" id="ar-interactive-chart-section" style="display: none;">
+      <h2 style="margin: 0;">Выбор оптимального режима</h2>
+      <div style="font-size: 0.8rem; color: #666; margin: 0.3rem 0 0.6rem;">
+        На кривой дебита Q(t) подсвечены <b>3 окна с максимальным Q</b>.
+        <b>Клик</b> по цветной полосе — выбор кандидата.
+        <b>Протяните мышью</b> свой диапазон.
+        Треугольники сверху — вбросы реагента.
+      </div>
+      <div style="display: flex; gap: 0.3rem; margin-bottom: 0.4rem; font-size: 0.8rem;">
+        <span>Метрика:</span>
+        <label><input type="radio" name="ar-metric" value="q" checked> Q (дебит)</label>
+        <label><input type="radio" name="ar-metric" value="dp"> ΔP</label>
+      </div>
+
+      <!-- Пресеты + легенда -->
+      <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem;">
+        <span style="font-size: 0.8rem; color: #555;">Быстрый выбор:</span>
+        <button type="button" class="ar-preset-btn" data-days="1">Последние 1 сут.</button>
+        <button type="button" class="ar-preset-btn" data-days="2">Последние 2 сут.</button>
+        <button type="button" class="ar-preset-btn" data-days="3">Последние 3 сут.</button>
+        <button type="button" class="ar-preset-btn" data-days="5">5 сут.</button>
+        <button type="button" class="ar-preset-btn" data-days="7">7 сут.</button>
+        <span style="margin-left: auto; font-size: 0.75rem;">
+          <span style="padding: 0.1rem 0.4rem; background: rgba(102,187,106,0.45); border-radius: 3px;">#1</span>
+          <span style="padding: 0.1rem 0.4rem; background: rgba(255,167,38,0.45); border-radius: 3px;">#2</span>
+          <span style="padding: 0.1rem 0.4rem; background: rgba(66,165,245,0.45); border-radius: 3px;">#3</span>
+          <span style="padding: 0.1rem 0.4rem; background: rgba(239,108,0,0.4); border: 2px solid #ef6c00; border-radius: 3px;">выбор</span>
+        </span>
+      </div>
+
+      <!-- ΔP chart (большой) -->
+      <div style="position: relative; height: 420px;">
+        <canvas id="ar-chart-dp"></canvas>
+      </div>
+      <div id="ar-selection-info" style="font-size: 0.82rem; color: #555; margin-top: 0.4rem; text-align: center;"></div>
+    </div>
+
+    <div class="ar-charts-section" id="ar-reagent" style="display: none;">
+      <h2 style="margin: 0;">Эффективность реагентов (этап адаптации)</h2>
+      <div id="ar-reagent-content"></div>
+    </div>
+
+    <div class="ar-preview-container" id="ar-preview">
+      <div class="ar-preview-placeholder">PDF появится после нажатия «Сформировать PDF».</div>
+    </div>
+
+    </div><!-- /tab-stages -->
+
+    <!-- Вкладка: Помесячная статистика -->
+    <div class="ar-tab-content" id="tab-monthly">
+      <div class="ar-charts-section">
+        <h2 style="margin: 0 0 0.5rem;">Помесячная статистика дебита</h2>
+        <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.6rem;">
+          Средний и медианный Q по месяцам за всю историю скважины.
+          Тренд — линейная регрессия Q внутри месяца.
+        </div>
+        <div style="position: relative; height: 320px; margin-bottom: 1rem;">
+          <canvas id="ar-monthly-chart"></canvas>
+        </div>
+        <div id="ar-monthly-table-wrap"></div>
+        <h3 style="margin: 1rem 0 0.3rem; font-size: 0.95rem;">Описание по месяцам</h3>
+        <div id="ar-monthly-descriptions"></div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  let currentWellId = null;
+  let wellsList = [];
+  let stageSources = { status: null, events: null };  // последние подсказки
+
+  // ─────────────────────────── Helpers ───────────────────────────
+  function fmtNum(v, d = 2) {
+    if (v === null || v === undefined || isNaN(v)) return '---';
+    return Number(v).toFixed(d);
+  }
+  function fmtSigned(v, d = 2) {
+    if (v === null || v === undefined || isNaN(v)) return '---';
+    const n = Number(v);
+    return (n >= 0 ? '+' : '') + n.toFixed(d);
+  }
+  function showAlert(type, text) {
+    const div = document.createElement('div');
+    div.className = 'ar-alert ar-alert-' + type;
+    div.textContent = text;
+    $('ar-alerts').appendChild(div);
+  }
+  function clearAlerts() { $('ar-alerts').innerHTML = ''; }
+
+  // Преобразовать Date в строку datetime-local (YYYY-MM-DDTHH:MM, локальное время)
+  function toDTLocal(d) {
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  // Нормализовать ISO-строку от API к формату datetime-local
+  function isoToDTLocal(iso) {
+    if (!iso) return '';
+    // Если это чистая дата (YYYY-MM-DD) → добавляем T00:00
+    if (iso.length === 10) return iso + 'T00:00';
+    // Если есть tz offset или секунды — обрезаем до минут
+    return iso.slice(0, 16);
+  }
+
+  // Применить ограничение длительности: adapt_to = adapt_from + N сут. (cap now)
+  function applyDurationLimit() {
+    const limitOn = $('limit-adapt-duration').checked;
+    const adaptTo = $('adapt-to');
+    if (!limitOn) {
+      adaptTo.readOnly = false;
+      adaptTo.style.background = '';
+      return;
+    }
+    adaptTo.readOnly = true;
+    adaptTo.style.background = '#f5f5f5';
+    const from = $('adapt-from').value;
+    const days = parseInt($('adapt-days').value) || 10;
+    if (!from) return;
+    const d = new Date(from);
+    d.setDate(d.getDate() + days);
+    const now = new Date();
+    const capped = d > now ? now : d;
+    adaptTo.value = toDTLocal(capped);
+  }
+
+  // ─────────────────────────── Wells ───────────────────────────
+  async function loadWells() {
+    const r = await fetch('/api/adaptation-report/wells');
+    const data = await r.json();
+    wellsList = data.wells;
+    const select = $('well-select');
+    for (const w of wellsList) {
+      const opt = document.createElement('option');
+      opt.value = w.id;
+      const obsBadge = w.obs_count > 0 ? '✓Н' : '✗Н';
+      const adaptBadge = w.adapt_count > 0 ? '✓А' : '✗А';
+      opt.textContent = `Скв ${w.number} [${obsBadge}/${adaptBadge}]`;
+      if (w.obs_count === 0 && w.adapt_count === 0) opt.style.color = '#c62828';
+      select.appendChild(opt);
+    }
+  }
+
+  // ─────────────────────────── Select well ───────────────────────────
+  async function onWellChange() {
+    const wellId = parseInt($('well-select').value);
+    if (!wellId) {
+      $('ar-params').style.display = 'none';
+      $('ar-charts').innerHTML = '<h2 style="margin: 0;">Графики этапов</h2><div class="ar-preview-placeholder">Графики появятся после расчёта.</div>';
+      $('ar-reagent').style.display = 'none';
+      $('ar-preview').innerHTML = '<div class="ar-preview-placeholder">PDF появится после нажатия «Сформировать PDF».</div>';
+      clearAlerts();
+      return;
+    }
+    currentWellId = wellId;
+    lastMonthlyWellId = null;  // инвалидируем кеш помесячной статистики
+    clearAlerts();
+    await reloadStageData();
+  }
+
+  async function reloadStageData() {
+    const adaptDays = parseInt($('adapt-days').value) || 10;
+    const url = `/api/adaptation-report/stage-data?well_id=${currentWellId}&adapt_days=${adaptDays}`;
+    const r = await fetch(url);
+    const data = await r.json();
+
+    $('ar-params').style.display = 'block';
+
+    // Сохраняем источники для переключения
+    stageSources.status = data.stages_from_status;
+    stageSources.events = data.stages_from_events;
+
+    renderSourceOptions(data.source_used);
+
+    // Если есть данные — заполняем даты
+    if (data.ok) {
+      $('obs-from').value = isoToDTLocal(data.observation.date_from);
+      $('obs-to').value = isoToDTLocal(data.observation.date_to);
+      $('adapt-from').value = isoToDTLocal(data.adaptation.date_from);
+      $('adapt-to').value = isoToDTLocal(data.adaptation.date_to);
+      // Если включено ограничение — применить его к adapt_to
+      applyDurationLimit();
+      // Prefill описаний (только если пользователь ещё не вводил)
+      if (!$('obs-description').value) {
+        $('obs-description').value = (data.observation.description || '').trim();
+      }
+      if (!$('adapt-description').value) {
+        $('adapt-description').value = (data.adaptation.description || '').trim();
+      }
+      for (const w of (data.warnings || [])) showAlert('warn', w);
+      renderStats(data);
+    } else {
+      // Никакого источника нет — пустые/дефолтные datetime
+      const now = new Date();
+      const monthAgo = new Date(Date.now() - 30 * 86400000);
+      const twoMonthsAgo = new Date(Date.now() - 60 * 86400000);
+      $('obs-from').value = toDTLocal(twoMonthsAgo);
+      $('obs-to').value = toDTLocal(monthAgo);
+      $('adapt-from').value = toDTLocal(monthAgo);
+      $('adapt-to').value = toDTLocal(now);
+      showAlert('warn', data.error || 'Введите даты вручную и нажмите «Пересчитать».');
+      $('ar-stats-block').innerHTML =
+        '<p style="color: #888; font-size: 0.85rem;">Нет данных для предзаполнения. Введите даты и пересчитайте.</p>';
+    }
+
+    $('ar-charts').innerHTML =
+      '<h2 style="margin: 0;">Графики этапов</h2>' +
+      '<div class="ar-preview-placeholder">Нажмите «Пересчитать» для отрисовки графиков.</div>';
+  }
+
+  // Render source picker
+  function renderSourceOptions(activeSource) {
+    const opts = $('ar-source-options');
+    opts.innerHTML = '';
+
+    const sources = [
+      {
+        key: 'status',
+        title: 'Из журнала статусов (well_status)',
+        data: stageSources.status,
+        rationale: stageSources.status
+          ? 'Этапы взяты из таблицы статусов скважины.'
+          : 'В журнале статусов нет данных о наблюдении/адаптации.',
+      },
+      {
+        key: 'events',
+        title: 'По событиям (установка оборуд. + первый вброс)',
+        data: stageSources.events,
+        rationale: stageSources.events
+          ? Object.values(stageSources.events.rationale || {}).join(' · ')
+          : 'Нет событий установки оборудования или вбросов.',
+      },
+      {
+        key: 'manual',
+        title: 'Вручную (свои даты)',
+        data: true,
+        rationale: 'Ввести даты вручную в полях ниже.',
+      },
+    ];
+
+    for (const s of sources) {
+      const div = document.createElement('div');
+      div.className = 'ar-source-option' + (s.key === activeSource ? ' selected' : '')
+                     + (!s.data ? ' disabled' : '');
+      let detail = '';
+      if (s.data && s.key !== 'manual' && s.data.obs_from) {
+        const fmt = (iso) => {
+          if (!iso) return '—';
+          // Отрезаем секунды и заменяем T на пробел
+          return iso.slice(0, 16).replace('T', ' ');
+        };
+        const obs = `Набл.: ${fmt(s.data.obs_from)} → ${fmt(s.data.obs_to)}`;
+        const ad = `Адапт.: ${fmt(s.data.adapt_from)} → ${fmt(s.data.adapt_to)}`;
+        detail = `<div class="ar-source-detail">${obs}<br>${ad}</div>`;
+      }
+      div.innerHTML = `
+        <div class="ar-source-title">
+          <span>${s.title}</span>
+          ${s.data && s.key !== 'manual' ? '<span style="color: #2e7d32; font-size: 0.7rem;">✓ доступно</span>' : ''}
+        </div>
+        ${detail}
+        <div class="ar-source-rationale">${s.rationale}</div>
+      `;
+      if (s.data) {
+        div.addEventListener('click', () => applySource(s.key));
+      }
+      opts.appendChild(div);
+    }
+  }
+
+  function applySource(key) {
+    if (key === 'status' && stageSources.status) {
+      const s = stageSources.status;
+      $('obs-from').value = isoToDTLocal(s.obs_from);
+      $('obs-to').value = isoToDTLocal(s.obs_to);
+      $('adapt-from').value = isoToDTLocal(s.adapt_from);
+      $('adapt-to').value = isoToDTLocal(s.adapt_to);
+      clearAlerts();
+      for (const w of (s.warnings || [])) showAlert('warn', w);
+    } else if (key === 'events' && stageSources.events) {
+      const s = stageSources.events;
+      $('obs-from').value = isoToDTLocal(s.obs_from);
+      $('obs-to').value = isoToDTLocal(s.obs_to);
+      $('adapt-from').value = isoToDTLocal(s.adapt_from);
+      $('adapt-to').value = isoToDTLocal(s.adapt_to);
+      clearAlerts();
+      for (const k of Object.keys(s.rationale || {})) {
+        showAlert('info', `${k}: ${s.rationale[k]}`);
+      }
+    }
+    applyDurationLimit();
+    // Обновляем выделение
+    document.querySelectorAll('.ar-source-option').forEach((el, i) => {
+      el.classList.toggle('selected',
+        ['status', 'events', 'manual'][i] === key);
+    });
+  }
+
+  // ─────────────────────────── Recompute ───────────────────────────
+  async function recompute() {
+    if (!currentWellId) return;
+    clearAlerts();
+
+    const optimalMode = document.querySelector('input[name="optimal-mode"]:checked').value;
+    const body = {
+      well_id: currentWellId,
+      obs_from: $('obs-from').value,
+      obs_to: $('obs-to').value,
+      adapt_from: $('adapt-from').value,
+      adapt_to: $('adapt-to').value,
+      obs_description: $('obs-description').value,
+      adapt_description: $('adapt-description').value,
+      with_charts: true,
+      with_reagent: true,
+      optimal_mode: optimalMode,
+      optimal_window_days: parseInt($('optimal-window-days').value) || 3,
+      optimal_from: optimalMode === 'manual' ? ($('optimal-from').value || null) : null,
+      optimal_to: optimalMode === 'manual' ? ($('optimal-to').value || null) : null,
+    };
+
+    $('ar-charts').innerHTML = `
+      <h2 style="margin: 0;">Графики этапов</h2>
+      <div class="ar-preview-placeholder"><div class="ar-spinner" style="display:inline-block; vertical-align:middle;"></div> Расчёт и отрисовка графиков…</div>
+    `;
+
+    const r = await fetch('/api/adaptation-report/compute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json();
+
+    if (!data.ok) {
+      showAlert('error', data.error || 'Ошибка расчёта');
+      $('ar-charts').innerHTML = '<h2 style="margin: 0;">Графики этапов</h2><div class="ar-preview-placeholder" style="color:#c62828;">Не удалось рассчитать.</div>';
+      return;
+    }
+
+    for (const w of (data.warnings || [])) showAlert('warn', w);
+
+    renderStats(data);
+    renderCharts(data);
+    renderReagent(data);
+    renderInteractiveChart(data);
+  }
+
+  // ─────────────────────────── Interactive Q/ΔP chart with top-3 bands ──────
+  let chartDP = null;
+  let currentAdaptData = null;
+  let currentEvents = [];
+  let currentCandidates = [];
+  let adaptRange = {from: null, to: null}; // границы этапа в мс
+
+  const BAND_COLORS = [
+    'rgba(102,187,106,0.45)',  // #1 зелёный
+    'rgba(255,167,38,0.45)',   // #2 оранжевый
+    'rgba(66,165,245,0.45)',   // #3 синий
+  ];
+  const SELECT_COLOR = 'rgba(239,108,0,0.40)';
+  const SELECT_BORDER = '#ef6c00';
+
+  function renderInteractiveChart(data) {
+    const adapt = data.adaptation;
+    const cands = data.optimal_candidates || [];
+    if (!adapt || !adapt.chart_data || adapt.chart_data.length === 0) {
+      $('ar-interactive-chart-section').style.display = 'none';
+      return;
+    }
+    $('ar-interactive-chart-section').style.display = 'block';
+    currentAdaptData = adapt.chart_data;
+    currentEvents = adapt.events_for_chart || [];
+    currentCandidates = cands;
+    adaptRange.from = new Date(adapt.date_from).getTime();
+    adaptRange.to = new Date(adapt.date_to).getTime();
+    buildMetricChart();
+    updateSelectionInfo();
+  }
+
+  function updateSelectionInfo() {
+    const f = $('optimal-from').value;
+    const t = $('optimal-to').value;
+    const box = $('ar-selection-info');
+    if (!f || !t) {
+      box.textContent = 'Окно не выбрано.';
+      return;
+    }
+    const ms = new Date(t).getTime() - new Date(f).getTime();
+    const hrs = Math.round(ms / 3600000 * 10) / 10;
+    const days = Math.floor(hrs / 24);
+    const remH = Math.round(hrs - days * 24);
+    const dur = days > 0
+      ? (remH > 0 ? `${days} сут. ${remH} ч` : `${days} сут.`)
+      : `${hrs} ч`;
+    box.innerHTML = `<b>Выбрано:</b> ${fmtDateTime(f)} → ${fmtDateTime(t)} · <b>${dur}</b>`;
+  }
+
+  function buildCandidateAnnotations(selectedFrom, selectedTo) {
+    const annotations = {};
+    const toMs = (v) => v ? new Date(v).getTime() : null;
+    currentCandidates.slice(0, 3).forEach((c, i) => {
+      annotations[`cand${i}`] = {
+        type: 'box',
+        xMin: toMs(c.start), xMax: toMs(c.end),
+        backgroundColor: BAND_COLORS[i],
+        borderWidth: 0,
+        label: {
+          content: `#${i+1}`, display: true,
+          position: {x: 'start', y: 'start'},
+          font: {size: 10, weight: 'bold'}, color: '#555',
+          backgroundColor: 'rgba(255,255,255,0.7)', padding: 2,
+        },
+      };
+    });
+    if (selectedFrom && selectedTo) {
+      annotations.selected = {
+        type: 'box',
+        xMin: toMs(selectedFrom), xMax: toMs(selectedTo),
+        backgroundColor: SELECT_COLOR,
+        borderColor: SELECT_BORDER, borderWidth: 2,
+        label: {
+          content: 'Выбор', display: true,
+          position: {x: 'center', y: 'end'},
+          font: {size: 10, weight: 'bold'}, color: '#fff',
+          backgroundColor: SELECT_BORDER, padding: 3,
+        },
+      };
+    }
+    return annotations;
+  }
+
+  function buildMetricChart() {
+    const metric = (document.querySelector('input[name="ar-metric"]:checked') || {value: 'q'}).value;
+    const data = currentAdaptData || [];
+    // КРИТИЧНО: конвертируем ISO-строки в timestamp (ms),
+    // иначе Chart.js time-scale не парсит строки и линия не рисуется.
+    const points = data
+      .map(d => ({
+        x: new Date(d.t).getTime(),
+        y: d[metric],
+      }))
+      .filter(p => p.y !== null && p.y !== undefined && !isNaN(p.x));
+
+    const label = metric === 'q' ? 'Q, тыс.м³/сут' : 'ΔP, кгс/см²';
+    const color = metric === 'q' ? '#2e7d32' : '#ef6c00';
+
+    const selFrom = $('optimal-from').value || null;
+    const selTo = $('optimal-to').value || null;
+    const annotations = buildCandidateAnnotations(selFrom, selTo);
+
+    // Точечный datasets для треугольников-вбросов (в верхней части оси)
+    const reagentEvents = currentEvents.filter(e => e.type === 'reagent');
+    const datasets = [{
+      label, data: points,
+      borderColor: color,
+      backgroundColor: color,
+      borderWidth: 2,
+      pointRadius: 0,
+      tension: 0.1,
+      fill: false,
+    }];
+
+    const ctx = $('ar-chart-dp');
+    if (chartDP) chartDP.destroy();
+
+    chartDP = new Chart(ctx, {
+      type: 'line',
+      data: {datasets},
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        scales: {
+          x: {
+            type: 'time',
+            // Строгие границы по этапу адаптации (timestamps в мс)
+            min: adaptRange.from || undefined,
+            max: adaptRange.to || undefined,
+            time: {displayFormats: {hour: 'dd.MM HH:mm', day: 'dd.MM'}},
+            ticks: {font: {size: 11}, maxRotation: 30, autoSkipPadding: 20},
+          },
+          y: {
+            title: {display: true, text: label, font: {size: 11}},
+            ticks: {font: {size: 11}},
+          },
+        },
+        plugins: {
+          legend: {display: false},
+          annotation: {annotations},
+          tooltip: {
+            callbacks: {
+              label: (ctx) => {
+                const v = ctx.parsed.y;
+                return `${label}: ${v !== null && v !== undefined ? v.toFixed(2) : '---'}`;
+              },
+            },
+          },
+        },
+        interaction: {mode: 'nearest', axis: 'x', intersect: false},
+      },
+      plugins: [reagentTrianglesPlugin(reagentEvents)],
+    });
+    setupChartInteraction(ctx, chartDP);
+  }
+
+  // Плагин: треугольники-вбросы сверху оси (как в matplotlib PDF)
+  function reagentTrianglesPlugin(events) {
+    return {
+      id: 'reagentTriangles',
+      afterDatasetsDraw(chart) {
+        if (!events || events.length === 0) return;
+        const {ctx, chartArea, scales: {x: xScale}} = chart;
+        if (!chartArea) return;
+        ctx.save();
+        ctx.fillStyle = '#2e7d32';
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 0.6;
+        const yTop = chartArea.top - 2;
+        const size = 5;
+        for (const ev of events) {
+          const t = new Date(ev.t).getTime();
+          const px = xScale.getPixelForValue(t);
+          if (px < chartArea.left || px > chartArea.right) continue;
+          ctx.beginPath();
+          ctx.moveTo(px - size, yTop - size);
+          ctx.lineTo(px + size, yTop - size);
+          ctx.lineTo(px, yTop + size);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+        ctx.restore();
+      },
+    };
+  }
+
+  function setupChartInteraction(ctx, chart) {
+    const getTimeAtX = (clientX) => {
+      const rect = ctx.getBoundingClientRect();
+      return chart.scales.x.getValueForPixel(clientX - rect.left);
+    };
+
+    let dragStartX = null, dragStartTime = null;
+
+    // Клик по band — выбор
+    ctx.onclick = (evt) => {
+      // Не реагируем если это был drag (проверяем расстояние)
+      if (dragStartX !== null) return;
+      const rect = ctx.getBoundingClientRect();
+      const x = evt.clientX - rect.left;
+      const scale = chart.scales.x;
+      const time = scale.getValueForPixel(x);
+      for (let i = 0; i < currentCandidates.length && i < 3; i++) {
+        const c = currentCandidates[i];
+        const start = new Date(c.start).getTime();
+        const end = new Date(c.end).getTime();
+        if (time >= start && time <= end) {
+          selectWindow(c.start, c.end);
+          return;
+        }
+      }
+    };
+
+    ctx.onmousedown = (e) => {
+      const rect = ctx.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const chartArea = chart.chartArea;
+      if (!chartArea || x < chartArea.left || x > chartArea.right) return;
+      dragStartX = e.clientX;
+      dragStartTime = getTimeAtX(e.clientX);
+    };
+
+    ctx.onmousemove = (e) => {
+      if (dragStartX === null) return;
+      const dx = Math.abs(e.clientX - dragStartX);
+      if (dx < 5) return;
+      const endTime = getTimeAtX(e.clientX);
+      const t1 = Math.min(dragStartTime, endTime);
+      const t2 = Math.max(dragStartTime, endTime);
+      const anns = chart.options.plugins.annotation.annotations;
+      anns.dragPreview = {
+        type: 'box', xMin: t1, xMax: t2,
+        backgroundColor: SELECT_COLOR,
+        borderColor: SELECT_BORDER, borderWidth: 1,
+      };
+      chart.update('none');
+    };
+
+    ctx.onmouseup = (e) => {
+      if (dragStartX === null) return;
+      const dx = Math.abs(e.clientX - dragStartX);
+      const startVal = dragStartTime;
+      const wasDrag = dx >= 5;
+      dragStartX = null;
+      dragStartTime = null;
+      delete chart.options.plugins.annotation.annotations.dragPreview;
+      if (!wasDrag) {
+        chart.update('none');
+        return;
+      }
+      const endVal = getTimeAtX(e.clientX);
+      const t1 = Math.min(startVal, endVal);
+      const t2 = Math.max(startVal, endVal);
+      const iso1 = new Date(t1).toISOString().slice(0, 16);
+      const iso2 = new Date(t2).toISOString().slice(0, 16);
+      selectWindow(iso1, iso2);
+    };
+
+    ctx.onmouseleave = () => {
+      if (dragStartX !== null) {
+        dragStartX = null;
+        dragStartTime = null;
+        delete chart.options.plugins.annotation.annotations.dragPreview;
+        chart.update('none');
+      }
+    };
+  }
+
+  // ─── Presets: последние N сут. ───
+  function applyPreset(days) {
+    if (!adaptRange.to) return;
+    const toMs = adaptRange.to;
+    const fromMs = Math.max(adaptRange.from, toMs - days * 86400000);
+    const iso1 = new Date(fromMs).toISOString().slice(0, 16);
+    const iso2 = new Date(toMs).toISOString().slice(0, 16);
+    selectWindow(iso1, iso2);
+    // Подсветить активный пресет
+    document.querySelectorAll('.ar-preset-btn').forEach(b => {
+      b.classList.toggle('active', parseInt(b.dataset.days) === days);
+    });
+  }
+
+  function selectWindow(fromISO, toISO) {
+    document.querySelector('input[name="optimal-mode"][value="manual"]').checked = true;
+    toggleOptimalMode();
+    $('optimal-from').value = isoToDTLocal(fromISO);
+    $('optimal-to').value = isoToDTLocal(toISO);
+    // Сбросить подсветку пресетов (кроме случая когда вызвали из applyPreset)
+    refreshAllSelectionViews();
+  }
+
+  function refreshAllSelectionViews() {
+    buildMetricChart();
+    updateSelectionInfo();
+  }
+
+  // ─────────────────────────── Render stats ───────────────────────────
+  function renderStats(data) {
+    const obs = data.observation;
+    const adapt = data.adaptation;
+    const opt = data.optimal_regime;
+    const cmp = data.comparison;
+    const cmpOpt = data.comparison_optimal;
+    const cls = (v) => {
+      if (v === null || v === undefined || isNaN(v)) return '';
+      return v > 0 ? 'delta-pos' : (v < 0 ? 'delta-neg' : '');
+    };
+
+    // Маппинг: [label, raw-key, abs-delta-key, pct-delta-key]
+    const rows = [
+      ['P тр, кгс/см²', 'p_tube_median', 'delta_p_tube', 'delta_p_tube_pct'],
+      ['P лин, кгс/см²', 'p_line_median', 'delta_p_line', 'delta_p_line_pct'],
+      ['ΔP, кгс/см²', 'dp_median', 'delta_dp', 'delta_dp_pct'],
+      ['Q мед, тыс.м³/сут', 'flow_median', 'delta_flow_median', 'delta_flow_median_pct'],
+      ['Q ср, тыс.м³/сут', 'flow_avg', 'delta_flow_avg', 'delta_flow_avg_pct'],
+      ['Q min, тыс.м³/сут', 'q_min', null, null],
+      ['Q max, тыс.м³/сут', 'q_max', null, null],
+      ['ΣQ, тыс.м³', 'flow_cumulative', null, null],
+      ['Раб. часы', 'working_hours', null, null],
+      ['КИВ, %', 'utilization_pct', 'delta_utilization_pct', null],
+      ['Продувок', 'purge_count', 'delta_purge_count', null],
+      ['Вбросов', 'reagent_count', 'delta_reagent_count', null],
+    ];
+
+    let html = `
+      <h3>Сравнение этапов</h3>
+      <div class="ar-stats">
+        <div style="color: #666; font-size: 0.78rem;">
+          Наблюдение: ${obs.duration_label || obs.duration_days + ' сут.'} ·
+          Адаптация: ${adapt.duration_label || adapt.duration_days + ' сут.'}
+          ${opt ? ' · Оптимум: ' + (opt.duration_label || opt.duration_days + ' сут.') : ''}
+        </div>
+        <table>
+          <thead><tr>
+            <th>Показатель</th>
+            <th>Набл.</th>
+            <th>Адапт.</th>
+            <th>Δ</th>
+            <th>Δ%</th>
+            ${opt ? '<th style="background:#e8f5e9">Оптимум</th><th style="background:#e8f5e9">Δ</th><th style="background:#e8f5e9">Δ%</th>' : ''}
+          </tr></thead>
+          <tbody>`;
+    for (const r of rows) {
+      const [label, key, absKey, pctKey] = r;
+      const dAdaptAbs = absKey ? cmp[absKey] : null;
+      const dAdaptPct = pctKey ? cmp[pctKey] : null;
+      const dOptAbs = (absKey && cmpOpt) ? cmpOpt[absKey] : null;
+      const dOptPct = (pctKey && cmpOpt) ? cmpOpt[pctKey] : null;
+      html += `<tr>
+        <td>${label}</td>
+        <td>${fmtNum(obs[key])}</td>
+        <td>${fmtNum(adapt[key])}</td>
+        <td class="${cls(dAdaptAbs)}">${dAdaptAbs !== null && dAdaptAbs !== undefined ? fmtSigned(dAdaptAbs) : '---'}</td>
+        <td class="${cls(dAdaptPct)}">${dAdaptPct !== null && dAdaptPct !== undefined ? fmtSigned(dAdaptPct, 1) : '---'}</td>
+        ${opt ? `<td style="background:#f1f8e9">${fmtNum(opt[key])}</td>
+                 <td class="${cls(dOptAbs)}" style="background:#f1f8e9">${dOptAbs !== null && dOptAbs !== undefined ? fmtSigned(dOptAbs) : '---'}</td>
+                 <td class="${cls(dOptPct)}" style="background:#f1f8e9">${dOptPct !== null && dOptPct !== undefined ? fmtSigned(dOptPct, 1) : '---'}</td>` : ''}
+      </tr>`;
+    }
+    html += `</tbody></table></div>`;
+
+    // Информация об оптимальном режиме
+    if (opt) {
+      let scoreText = '';
+      if (opt.source === 'auto' && opt.score !== undefined) {
+        const bd = opt.score_breakdown || {};
+        scoreText = `<div style="font-size: 0.78rem; color: #666; margin-top: 0.3rem;">
+          <b>Период:</b> ${opt.date_from} → ${opt.date_to} ·
+          <b>Score:</b> ${fmtNum(opt.score, 2)} ·
+          CV(Q)=${fmtNum(bd.cv_q, 3)} · продувок/сут=${fmtNum(bd.purge_freq_per_day, 2)}
+        </div>`;
+      } else if (opt.source === 'manual') {
+        scoreText = `<div style="font-size: 0.78rem; color: #666; margin-top: 0.3rem;">
+          Задан вручную: ${opt.date_from} → ${opt.date_to}
+        </div>`;
+      }
+      html = html.replace(
+        '</div>\n      </div>\n        <table>',
+        '</div>\n      </div>' + scoreText + '<table>',
+      );
+    }
+
+    if (data.conclusions && data.conclusions.length) {
+      html += `<h3>Выводы</h3><ul class="ar-conclusions">`;
+      for (const c of data.conclusions) html += `<li>${c}</li>`;
+      html += `</ul>`;
+    }
+
+    $('ar-stats-block').innerHTML = html;
+
+    // Top-3 кандидаты
+    renderOptimalCandidates(data.optimal_candidates || []);
+  }
+
+  function renderOptimalCandidates(cands) {
+    const box = $('ar-optimal-candidates');
+    if (!cands || !cands.length) {
+      box.innerHTML = '';
+      return;
+    }
+    let html = `<h3 style="margin-top: 0.8rem;">Топ-3 кандидата окна</h3>
+      <div style="font-size: 0.78rem; color: #888; margin-bottom: 0.3rem;">
+      Кликните, чтобы выбрать окно вручную.</div>`;
+    for (let i = 0; i < cands.length; i++) {
+      const c = cands[i];
+      const rank = i + 1;
+      html += `<div class="ar-source-option" data-from="${c.start}" data-to="${c.end}"
+           style="margin-bottom: 0.3rem;">
+        <div class="ar-source-title">
+          <span><b>#${rank}</b> · ${fmtDateTime(c.start)} → ${fmtDateTime(c.end)}</span>
+          <span style="color: #2e7d32;">Score ${fmtNum(c.score, 2)}</span>
+        </div>
+        <div class="ar-source-detail">
+          Q мед = ${fmtNum(c.q_median)} · CV = ${fmtNum(c.cv_q, 3)} ·
+          КИВ = ${fmtNum(c.utilization_pct, 1)}% ·
+          продувок/сут = ${fmtNum(c.purge_freq_per_day, 2)}
+        </div>
+      </div>`;
+    }
+    box.innerHTML = html;
+    // Обработчики клика
+    box.querySelectorAll('.ar-source-option').forEach(el => {
+      el.addEventListener('click', () => {
+        // Переключаем в ручной режим, подставляем даты
+        document.querySelector('input[name="optimal-mode"][value="manual"]').checked = true;
+        toggleOptimalMode();
+        $('optimal-from').value = isoToDTLocal(el.dataset.from);
+        $('optimal-to').value = isoToDTLocal(el.dataset.to);
+      });
+    });
+  }
+
+  function fmtDateTime(iso) {
+    if (!iso) return '—';
+    return iso.slice(0, 16).replace('T', ' ');
+  }
+
+  // ─────────────────────────── Monthly statistics tab ─────────────
+  let monthlyChart = null;
+  let lastMonthlyWellId = null;
+
+  async function loadMonthlyStats(wellId) {
+    if (lastMonthlyWellId === wellId) return;  // уже загружено
+    const chartEl = $('ar-monthly-chart');
+    const tableWrap = $('ar-monthly-table-wrap');
+    const descWrap = $('ar-monthly-descriptions');
+    tableWrap.innerHTML = '<div style="text-align:center; color:#888; padding:1rem;">Загрузка...</div>';
+    descWrap.innerHTML = '';
+
+    const r = await fetch(`/api/adaptation-report/monthly-stats?well_id=${wellId}&months_back=24`);
+    const data = await r.json();
+    const months = data.months || [];
+    lastMonthlyWellId = wellId;
+
+    if (months.length === 0) {
+      tableWrap.innerHTML = '<div style="text-align:center; color:#888; padding:1rem;">Нет данных за последние 24 месяца.</div>';
+      if (monthlyChart) { monthlyChart.destroy(); monthlyChart = null; }
+      return;
+    }
+
+    renderMonthlyChart(months);
+    renderMonthlyTable(months);
+    renderMonthlyDescriptions(months);
+  }
+
+  function renderMonthlyChart(months) {
+    const labels = months.map(m => m.year_month);
+    const means = months.map(m => m.q_mean);
+    const medians = months.map(m => m.q_median);
+    const ctx = $('ar-monthly-chart');
+    if (monthlyChart) monthlyChart.destroy();
+
+    // Аннотации: стрелки тренда над каждым столбцом
+    const trendAnnotations = {};
+    months.forEach((m, i) => {
+      if (!m.q_trend) return;
+      const dir = m.q_trend.direction;
+      const slope = m.q_trend.slope_per_day || 0;
+      let symbol = '→';
+      let color = '#888';
+      if (dir === 'up' && Math.abs(slope) > 0.1) { symbol = '↑'; color = '#2e7d32'; }
+      else if (dir === 'down' && Math.abs(slope) > 0.1) { symbol = '↓'; color = '#c62828'; }
+      trendAnnotations[`tr${i}`] = {
+        type: 'label',
+        xValue: i,
+        yValue: Math.max(means[i], medians[i]) + 1,
+        content: [`${symbol} ${slope >= 0 ? '+' : ''}${slope.toFixed(2)}`],
+        font: {size: 10, weight: 'bold'},
+        color,
+        backgroundColor: 'rgba(255,255,255,0.7)',
+        padding: 2,
+      };
+    });
+
+    monthlyChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Q средний',
+            data: means,
+            backgroundColor: 'rgba(46,125,50,0.55)',
+            borderColor: '#2e7d32',
+            borderWidth: 1,
+          },
+          {
+            label: 'Q медиана',
+            data: medians,
+            backgroundColor: 'rgba(25,118,210,0.55)',
+            borderColor: '#1976D2',
+            borderWidth: 1,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        scales: {
+          x: {ticks: {font: {size: 11}}},
+          y: {
+            title: {display: true, text: 'Q, тыс.м³/сут', font: {size: 11}},
+            ticks: {font: {size: 11}}, beginAtZero: true,
+          },
+        },
+        plugins: {
+          legend: {position: 'top', labels: {font: {size: 11}}},
+          annotation: {annotations: trendAnnotations},
+          tooltip: {
+            callbacks: {
+              afterBody: (items) => {
+                const i = items[0].dataIndex;
+                const m = months[i];
+                const tr = m.q_trend || {};
+                const lines = [
+                  `Min/Max: ${m.q_min.toFixed(1)} / ${m.q_max.toFixed(1)}`,
+                  `Часов данных: ${m.working_hours} из ${m.hours_count}`,
+                  `Реагентов: ${m.reagent_count}, продувок: ${m.purge_count}`,
+                ];
+                if (tr.slope_per_day !== undefined) {
+                  lines.push(`Тренд: ${(tr.slope_per_day || 0).toFixed(3)} тыс.м³/сут`);
+                }
+                return lines;
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  function renderMonthlyTable(months) {
+    let html = `<table class="ar-monthly-table"><thead><tr>
+      <th>Месяц</th>
+      <th>Дней</th>
+      <th>Q ср.</th>
+      <th>Q мед.</th>
+      <th>Q min</th>
+      <th>Q max</th>
+      <th>ΔP мед.</th>
+      <th>Тренд</th>
+      <th>Реаг.</th>
+      <th>Прод.</th>
+    </tr></thead><tbody>`;
+    for (const m of months) {
+      const tr = m.q_trend || {};
+      const dir = tr.direction || 'flat';
+      const slope = tr.slope_per_day || 0;
+      let arrow = '→', cls = '';
+      if (dir === 'up' && Math.abs(slope) > 0.1) { arrow = '↑'; cls = 'delta-pos'; }
+      else if (dir === 'down' && Math.abs(slope) > 0.1) { arrow = '↓'; cls = 'delta-neg'; }
+      html += `<tr>
+        <td><b>${m.year_month}</b></td>
+        <td>${m.days}</td>
+        <td>${m.q_mean.toFixed(2)}</td>
+        <td>${m.q_median.toFixed(2)}</td>
+        <td>${m.q_min.toFixed(2)}</td>
+        <td>${m.q_max.toFixed(2)}</td>
+        <td>${(m.dp_median !== null && m.dp_median !== undefined) ? m.dp_median.toFixed(2) : '---'}</td>
+        <td class="${cls}">${arrow} ${slope >= 0 ? '+' : ''}${slope.toFixed(2)}</td>
+        <td>${m.reagent_count || 0}</td>
+        <td>${m.purge_count || 0}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    $('ar-monthly-table-wrap').innerHTML = html;
+  }
+
+  function renderMonthlyDescriptions(months) {
+    let html = '';
+    for (const m of months) {
+      html += `<div class="ar-monthly-desc">
+        <span class="ym">${m.year_month}</span>${m.description}
+      </div>`;
+    }
+    $('ar-monthly-descriptions').innerHTML = html;
+  }
+
+  function toggleOptimalMode() {
+    const mode = document.querySelector('input[name="optimal-mode"]:checked').value;
+    $('optimal-manual-block').style.display = mode === 'manual' ? 'block' : 'none';
+    $('optimal-window-days').disabled = mode !== 'auto';
+  }
+
+  // ─────────────────────────── Render charts ───────────────────────────
+  function renderCharts(data) {
+    const obs = data.observation;
+    const adapt = data.adaptation;
+    const ts = Date.now();  // защита от кэша при перерисовке
+
+    const block = (stage, title) => {
+      let html = `<h3>${title}</h3><div class="ar-stage-charts">`;
+      if (stage.pressure_chart_path) {
+        html += `<div><img src="${stage.pressure_chart_path}?t=${ts}" alt="P">
+                 <div class="ar-chart-title">P трубное / P линейное</div></div>`;
+      }
+      if (stage.dp_chart_path) {
+        html += `<div><img src="${stage.dp_chart_path}?t=${ts}" alt="ΔP">
+                 <div class="ar-chart-title">ΔP с трендом</div></div>`;
+      }
+      if (stage.flow_chart_path) {
+        html += `<div><img src="${stage.flow_chart_path}?t=${ts}" alt="Q">
+                 <div class="ar-chart-title">Дебит Q(t)</div></div>`;
+      }
+      html += `</div>`;
+      return html;
+    };
+
+    $('ar-charts').innerHTML = `
+      <h2 style="margin: 0 0 0.5rem;">Графики этапов</h2>
+      <div class="ar-charts-grid">
+        <div>${block(obs, 'Наблюдение')}</div>
+        <div>${block(adapt, 'Адаптация')}</div>
+      </div>
+    `;
+  }
+
+  // ─────────────────────────── Reagent effectiveness ───────────────────────────
+  function renderReagent(data) {
+    const re = data.reagent_effectiveness;
+    if (!re) {
+      $('ar-reagent').style.display = 'none';
+      return;
+    }
+    $('ar-reagent').style.display = 'block';
+
+    if (re.error) {
+      $('ar-reagent-content').innerHTML =
+        `<p style="color:#c62828;">${re.error}</p>`;
+      return;
+    }
+
+    let html = `
+      <p style="font-size: 0.85rem; color: #555; margin-top: 0.4rem;">
+        Вбросов: <b>${re.injections_total || 0}</b>
+        (объединено в группы: ${re.merged_injections || 0}) ·
+        ИРВ: <b>${re.irv_count || 0}</b>
+        (валидных: ${re.valid_irv_count || 0})
+      </p>
+    `;
+
+    if (re.best_reagent) {
+      const b = re.best_reagent;
+      html += `<div class="ar-reagent-card ar-best-reagent">
+        <div class="ar-reagent-row">
+          <strong>Лучший: ${b.reagent}</strong>
+          <span>Уровень ${b.level} · ${b.level_name}</span>
+        </div>
+        <div class="ar-reagent-row" style="font-size: 0.8rem; color: #555;">
+          <span>Score: ${fmtNum(b.score, 3)}</span>
+          <span>Q/ед: ${fmtNum(b.median_q_per_unit)} · ΔP+: ${fmtNum(b.median_dp_gain)}</span>
+        </div>
+      </div>`;
+    }
+
+    if (re.scores && re.scores.length > 0) {
+      html += `<h4>Все реагенты</h4>`;
+      for (const s of re.scores) {
+        const isBest = re.best_reagent && s.reagent === re.best_reagent.reagent;
+        const card = isBest ? '' : 'ar-reagent-card';
+        html += `<div class="${card}">
+          <div class="ar-reagent-row">
+            <span><b>${s.reagent}</b></span>
+            <span>Уровень ${s.level} · Score ${fmtNum(s.score, 3)}</span>
+          </div>
+          <div class="ar-reagent-row" style="font-size: 0.78rem; color: #777;">
+            <span>ИРВ: ${s.valid_irv_count}/${s.irv_count}</span>
+            <span>Q/ед: ${fmtNum(s.median_q_per_unit)} · t эфф: ${fmtNum(s.median_effect_hours, 1)} ч</span>
+          </div>
+        </div>`;
+      }
+    } else {
+      html += `<p style="color: #888; font-size: 0.85rem;">Нет данных по реагентам за этап адаптации.</p>`;
+    }
+
+    if (re.warnings && re.warnings.length) {
+      html += `<div style="margin-top: 0.5rem;">`;
+      for (const w of re.warnings) {
+        html += `<div class="ar-alert ar-alert-info" style="font-size: 0.8rem;">${w}</div>`;
+      }
+      html += `</div>`;
+    }
+
+    $('ar-reagent-content').innerHTML = html;
+  }
+
+  // ─────────────────────────── Preview PDF ───────────────────────────
+  function previewPdf() {
+    if (!currentWellId) return;
+    const params = new URLSearchParams({
+      well_id: currentWellId,
+      obs_from: $('obs-from').value,
+      obs_to: $('obs-to').value,
+      adapt_from: $('adapt-from').value,
+      adapt_to: $('adapt-to').value,
+    });
+    const obsDesc = $('obs-description').value.trim();
+    const adaptDesc = $('adapt-description').value.trim();
+    if (obsDesc) params.set('obs_description', obsDesc);
+    if (adaptDesc) params.set('adapt_description', adaptDesc);
+
+    // Оптимальный режим
+    const optimalMode = document.querySelector('input[name="optimal-mode"]:checked').value;
+    params.set('optimal_mode', optimalMode);
+    params.set('optimal_window_days', $('optimal-window-days').value || '3');
+    if (optimalMode === 'manual') {
+      const of = $('optimal-from').value;
+      const ot = $('optimal-to').value;
+      if (of) params.set('optimal_from', of);
+      if (ot) params.set('optimal_to', ot);
+    }
+
+    const url = `/api/adaptation-report/preview-pdf?${params}`;
+
+    const container = $('ar-preview');
+    container.innerHTML = `
+      <div class="ar-loading"><div class="ar-spinner"></div>Генерация PDF...</div>
+      <iframe class="ar-preview-iframe" id="ar-iframe"></iframe>
+    `;
+    const iframe = $('ar-iframe');
+    iframe.onload = () => {
+      const loader = container.querySelector('.ar-loading');
+      if (loader) loader.remove();
+    };
+    iframe.src = url;
+  }
+
+  // ─────────────────────────── Init ───────────────────────────
+  $('well-select').addEventListener('change', onWellChange);
+  $('btn-recompute').addEventListener('click', recompute);
+  $('btn-preview').addEventListener('click', previewPdf);
+
+  // Кнопка «Анализ данных заказчика» — открывает /customer-daily в новом окне.
+  // Передаём номер скважины и текущий период (наблюдение → адаптация).
+  $('btn-customer-data').addEventListener('click', () => {
+    const params = new URLSearchParams();
+    if (currentWellId) {
+      const w = wellsList.find(x => x.id === currentWellId);
+      if (w && w.number !== null && w.number !== undefined) {
+        params.set('well', String(w.number));
+      }
+    }
+    // Берём начало = obs_from (если задано), иначе adapt_from
+    const dFrom = ($('obs-from').value || $('adapt-from').value || '').slice(0, 10);
+    const dTo   = ($('adapt-to').value || $('obs-to').value || '').slice(0, 10);
+    if (dFrom) params.set('date_from', dFrom);
+    if (dTo)   params.set('date_to', dTo);
+    const qs = params.toString();
+    window.open('/customer-daily' + (qs ? '?' + qs : ''),
+                'customer-daily', 'noopener');
+  });
+
+  // Чекбокс ограничения длительности → применяем / снимаем лимит
+  $('limit-adapt-duration').addEventListener('change', applyDurationLimit);
+  // Изменение длительности или начала адаптации → пересчитать adapt_to
+  $('adapt-days').addEventListener('input', applyDurationLimit);
+  $('adapt-from').addEventListener('change', applyDurationLimit);
+
+  // Применить начальное состояние (readonly если чекбокс включен)
+  applyDurationLimit();
+
+  // Обработчики режима оптимального режима
+  document.querySelectorAll('input[name="optimal-mode"]').forEach(el => {
+    el.addEventListener('change', toggleOptimalMode);
+  });
+  toggleOptimalMode();
+
+  // Пресеты "Последние N сут."
+  document.querySelectorAll('.ar-preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => applyPreset(parseInt(btn.dataset.days)));
+  });
+
+  // Переключатель метрики (Q / ΔP)
+  document.querySelectorAll('input[name="ar-metric"]').forEach(el => {
+    el.addEventListener('change', () => {
+      if (currentAdaptData) buildMetricChart();
+    });
+  });
+
+  // Вкладки
+  document.querySelectorAll('.ar-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const name = tab.dataset.tab;
+      document.querySelectorAll('.ar-tab').forEach(t => t.classList.toggle('active', t === tab));
+      document.querySelectorAll('.ar-tab-content').forEach(c => {
+        c.classList.toggle('active', c.id === 'tab-' + name);
+      });
+      if (name === 'monthly' && currentWellId) {
+        loadMonthlyStats(currentWellId);
+      }
+    });
+  });
+
+  // Изменение полей optimal_from/to вручную → синхронизировать всё
+  ['optimal-from', 'optimal-to'].forEach(id => {
+    $(id).addEventListener('change', () => {
+      // Снимаем подсветку пресетов если пользователь сам поправил
+      document.querySelectorAll('.ar-preset-btn').forEach(b => b.classList.remove('active'));
+      refreshAllSelectionViews();
+    });
+  });
+
+  loadWells();
+</script>
+
+{% endblock %}

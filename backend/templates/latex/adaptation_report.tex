@@ -1,0 +1,594 @@
+\documentclass[10pt]{article}
+\usepackage{fontspec}
+\IfFontExistsTF{Times New Roman}{\setmainfont{Times New Roman}}{\setmainfont{Liberation Serif}}
+\usepackage[russian]{babel}
+\usepackage{geometry}
+\geometry{a4paper, margin=1.5cm}
+
+\usepackage{longtable, array, booktabs, tabularx}
+\usepackage{ragged2e}
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{xcolor}
+\usepackage{colortbl}
+
+\newcolumntype{P}[1]{>{\RaggedRight\arraybackslash\footnotesize}m{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash\footnotesize}m{#1}}
+\newcolumntype{R}[1]{>{\RaggedLeft\arraybackslash\footnotesize}m{#1}}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{1pt}
+\renewcommand{\arraystretch}{1.15}
+
+\usepackage{titlesec}
+\titlespacing*{\section}{0pt}{0.5em}{0.2em}
+\titlespacing*{\subsection}{0pt}{0.4em}{0.15em}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\footnotesize Отчёт об адаптации Скв №\VAR{well.number} · №\VAR{doc_number}}
+\fancyhead[R]{\footnotesize \thepage\ / \pageref{LastPage}}
+\fancyfoot[C]{\scriptsize Сформировано \VAR{generated_at}}
+
+\begin{document}
+
+% ═══════════════════════════════════════════════════════════════
+%  ТИТУЛЬНЫЙ БЛОК
+% ═══════════════════════════════════════════════════════════════
+\thispagestyle{fancy}
+
+{\large\bfseries Отчёт об адаптации работы скважины №\VAR{well.number}}
+
+\vspace{0.3em}
+
+{\footnotesize
+\begin{tabularx}{\textwidth}{XXXX}
+\toprule
+\textbf{Документ} & \textbf{Горизонт} & \textbf{Штуцер} & \textbf{Сформировано} \\
+№\VAR{doc_number} & \VAR{well.horizon} & \VAR{well.choke_mm}\,мм & \VAR{generated_at} \\
+\midrule
+\textbf{Этап наблюдения} & \textbf{Этап адаптации} & \multicolumn{2}{l}{\textbf{Длительность}} \\
+\VAR{observation.date_from}--\VAR{observation.date_to} & \VAR{adaptation.date_from}--\VAR{adaptation.date_to} & \multicolumn{2}{l}{Набл. \VAR{observation.duration_days} сут., адапт. \VAR{adaptation.duration_days} сут.} \\
+\bottomrule
+\end{tabularx}
+}
+
+\BLOCK{ if warnings }
+\vspace{0.3em}
+{\scriptsize\color{orange!70!black}
+\textbf{Предупреждения:}
+\begin{itemize}\setlength{\itemsep}{-2pt}
+%% for w in warnings
+\item \VAR{w}
+%% endfor
+\end{itemize}}
+\BLOCK{ endif }
+
+\vspace{0.5em}
+
+% ═══════════════════════════════════════════════════════════════
+%  1. ОПИСАНИЕ СКВАЖИНЫ
+% ═══════════════════════════════════════════════════════════════
+\section*{1. Описание скважины}
+
+{\scriptsize Табл.~1.1. Параметры скважины.}
+\vspace{0.2em}
+
+{\footnotesize
+\begin{tabularx}{\textwidth}{|P{4cm}|X|}
+\hline
+\textbf{Параметр} & \textbf{Значение} \\
+\hline
+Номер скважины & \VAR{well.number} \\
+\hline
+Наименование & \VAR{well.name} \\
+\hline
+Пласт / Горизонт & \VAR{well.horizon} \\
+\hline
+Диаметр штуцера, мм & \VAR{well.choke_mm} \\
+\hline
+\BLOCK{ if work_start_date }
+Дата начала работ & \VAR{work_start_date} \\
+\hline
+\BLOCK{ endif }
+Дата начала наблюдения & \VAR{observation.date_from} \\
+\hline
+Дата начала адаптации & \VAR{adaptation.date_from} \\
+\hline
+\end{tabularx}
+}
+
+\BLOCK{ if equipment_acts }
+\vspace{0.3em}
+{\scriptsize Табл.~1.2. Установленное оборудование (акты).}
+\vspace{0.2em}
+
+{\footnotesize
+\begin{tabularx}{\textwidth}{|C{2.5cm}|C{2cm}|X|}
+\hline
+\textbf{Номер акта} & \textbf{Дата} & \textbf{Оборудование} \\
+\hline
+%% for act in equipment_acts
+\VAR{act.act_number} & \VAR{act.act_date} & \VAR{act.equipment_name} \\
+\hline
+%% endfor
+\end{tabularx}
+}
+\BLOCK{ endif }
+
+\vspace{0.3em}
+
+% ═══════════════════════════════════════════════════════════════
+%  2. ДАННЫЕ ЗАКАЗЧИКА (заглушка)
+% ═══════════════════════════════════════════════════════════════
+\section*{2. Анализ работы скважины по данным заказчика}
+
+{\footnotesize
+\begin{tabular}{|p{\dimexpr\textwidth-2\tabcolsep-2\arrayrulewidth}|}
+\hline
+\centering\textit{Данные будут добавлены после загрузки Excel-файла заказчика.} \\
+\hline
+\end{tabular}
+}
+
+\vspace{0.3em}
+
+% ═══════════════════════════════════════════════════════════════
+%  3. ЭТАП НАБЛЮДЕНИЯ
+% ═══════════════════════════════════════════════════════════════
+\section*{3. Этап наблюдения}
+
+\subsection*{3.1. Период и описание}
+
+{\footnotesize
+Период: \VAR{observation.date_from}~---~\VAR{observation.date_to} (\VAR{observation.duration_days}~сут.).
+\BLOCK{ if observation.description }
+
+Описание: \VAR{observation.description}
+\BLOCK{ endif }
+}
+
+\vspace{0.2em}
+
+\subsection*{3.2. Рабочие параметры}
+
+{\scriptsize Табл.~3.1. Рабочие параметры этапа наблюдения.}
+\vspace{0.2em}
+
+{\footnotesize
+\begin{tabularx}{\textwidth}{|X|R{2.2cm}|R{2.2cm}|R{2.2cm}|}
+\hline
+\textbf{Параметр} & \textbf{Значение} & \textbf{Единица} & \textbf{Примечание} \\
+\hline
+$P_{\text{тр}}$ (медиана) & \VAR{observation.p_tube_median_fmt} & кгс/см$^2$ & Давление трубное \\
+\hline
+$P_{\text{лин}}$ (медиана) & \VAR{observation.p_line_median_fmt} & кгс/см$^2$ & Давление линейное \\
+\hline
+$\Delta P$ (медиана) & \VAR{observation.dp_median_fmt} & кгс/см$^2$ & Перепад \\
+\hline
+\BLOCK{ if observation.dp_trend }
+Тренд $\Delta P$ & \VAR{observation.dp_trend_fmt} & кгс/см$^2$/сут &
+\BLOCK{ if observation.dp_trend.direction == "up" }$\uparrow$ Рост
+\BLOCK{ elif observation.dp_trend.direction == "down" }$\downarrow$ Снижение
+\BLOCK{ else }$\rightarrow$ Стабильно\BLOCK{ endif } \\
+\hline
+\BLOCK{ endif }
+$Q$ медианный & \VAR{observation.flow_median_fmt} & тыс.м$^3$/сут & --- \\
+\hline
+$Q$ средний & \VAR{observation.flow_avg_fmt} & тыс.м$^3$/сут & --- \\
+\hline
+$\Sigma Q$ накопленный & \VAR{observation.flow_cumulative_fmt} & тыс.м$^3$ & За период этапа \\
+\hline
+$T_{\text{раб}}$ & \VAR{observation.working_hours_fmt} & ч & Часов с $\Delta P > 0.1$ \\
+\hline
+КИВ & \VAR{observation.utilization_pct_fmt}\% & --- & Коэфф. использ. времени \\
+\hline
+Простои & \VAR{observation.downtime_hours_fmt} & ч & --- \\
+\hline
+$L_{\text{простой}}$ & \VAR{observation.downtime_loss_fmt} & тыс.м$^3$ & Потери от простоев \\
+\hline
+\end{tabularx}
+}
+
+\vspace{0.3em}
+
+\subsection*{3.3. События и реагенты}
+
+{\scriptsize Табл.~3.2. События за этап наблюдения.}
+\vspace{0.2em}
+
+{\footnotesize
+\begin{tabularx}{\textwidth}{|X|R{3cm}|R{3cm}|}
+\hline
+\textbf{Тип} & \textbf{Количество} & \textbf{Расход} \\
+\hline
+Продувки & \VAR{observation.purge_count} & --- \\
+\hline
+Вбросы реагентов (всего) & \VAR{observation.reagent_count} & \VAR{observation.reagent_qty_fmt} \\
+\hline
+\BLOCK{ for r in observation.reagent_stats }
+\quad \VAR{r.name} & \VAR{r.count} & \VAR{r.total_qty_fmt} \\
+\hline
+\BLOCK{ endfor }
+\end{tabularx}
+}
+
+\vspace{0.4em}
+
+\subsection*{3.4. Анализ этапа наблюдения}
+
+\BLOCK{ if observation.narrative }
+{\footnotesize
+\VAR{observation.narrative}
+}
+\BLOCK{ endif }
+
+% ── Графики этапа наблюдения на отдельной странице ──
+\BLOCK{ if observation.combined_chart_path }
+\newpage
+\subsection*{3.5. Графики этапа наблюдения}
+
+\begin{center}
+\includegraphics[width=\textwidth,height=0.85\textheight,keepaspectratio]{\VAR{observation.combined_chart_path}}
+\end{center}
+
+{\scriptsize Рис.~3.1. Давления, перепад $\Delta P$ и мгновенный дебит Q(t) за этап наблюдения.
+Маркеры: зелёные точки --- вбросы реагента, фиолетовый пунктир --- продувки, серые линии --- прочие события.}
+\BLOCK{ endif }
+
+\newpage
+
+% ═══════════════════════════════════════════════════════════════
+%  4. ЭТАП АДАПТАЦИИ
+% ═══════════════════════════════════════════════════════════════
+\section*{4. Этап адаптации}
+
+\subsection*{4.1. Период и описание}
+
+{\footnotesize
+Период: \VAR{adaptation.date_from}~---~\VAR{adaptation.date_to} (\VAR{adaptation.duration_days}~сут.).
+\BLOCK{ if adaptation.description }
+
+Описание: \VAR{adaptation.description}
+\BLOCK{ endif }
+}
+
+\vspace{0.2em}
+
+\subsection*{4.2. Рабочие параметры}
+
+{\scriptsize Табл.~4.1. Рабочие параметры этапа адаптации.}
+\vspace{0.2em}
+
+{\footnotesize
+\begin{tabularx}{\textwidth}{|X|R{2.2cm}|R{2.2cm}|R{2.2cm}|}
+\hline
+\textbf{Параметр} & \textbf{Значение} & \textbf{Единица} & \textbf{Примечание} \\
+\hline
+$P_{\text{тр}}$ (медиана) & \VAR{adaptation.p_tube_median_fmt} & кгс/см$^2$ & Давление трубное \\
+\hline
+$P_{\text{лин}}$ (медиана) & \VAR{adaptation.p_line_median_fmt} & кгс/см$^2$ & Давление линейное \\
+\hline
+$\Delta P$ (медиана) & \VAR{adaptation.dp_median_fmt} & кгс/см$^2$ & Перепад \\
+\hline
+\BLOCK{ if adaptation.dp_trend }
+Тренд $\Delta P$ & \VAR{adaptation.dp_trend_fmt} & кгс/см$^2$/сут &
+\BLOCK{ if adaptation.dp_trend.direction == "up" }$\uparrow$ Рост
+\BLOCK{ elif adaptation.dp_trend.direction == "down" }$\downarrow$ Снижение
+\BLOCK{ else }$\rightarrow$ Стабильно\BLOCK{ endif } \\
+\hline
+\BLOCK{ endif }
+$Q$ медианный & \VAR{adaptation.flow_median_fmt} & тыс.м$^3$/сут & --- \\
+\hline
+$Q$ средний & \VAR{adaptation.flow_avg_fmt} & тыс.м$^3$/сут & --- \\
+\hline
+$\Sigma Q$ накопленный & \VAR{adaptation.flow_cumulative_fmt} & тыс.м$^3$ & За период этапа \\
+\hline
+$T_{\text{раб}}$ & \VAR{adaptation.working_hours_fmt} & ч & Часов с $\Delta P > 0.1$ \\
+\hline
+КИВ & \VAR{adaptation.utilization_pct_fmt}\% & --- & Коэфф. использ. времени \\
+\hline
+Простои & \VAR{adaptation.downtime_hours_fmt} & ч & --- \\
+\hline
+$L_{\text{простой}}$ & \VAR{adaptation.downtime_loss_fmt} & тыс.м$^3$ & Потери от простоев \\
+\hline
+\end{tabularx}
+}
+
+\vspace{0.3em}
+
+\subsection*{4.3. События и реагенты}
+
+{\scriptsize Табл.~4.2. События за этап адаптации.}
+\vspace{0.2em}
+
+{\footnotesize
+\begin{tabularx}{\textwidth}{|X|R{3cm}|R{3cm}|}
+\hline
+\textbf{Тип} & \textbf{Количество} & \textbf{Расход} \\
+\hline
+Продувки & \VAR{adaptation.purge_count} & --- \\
+\hline
+Вбросы реагентов (всего) & \VAR{adaptation.reagent_count} & \VAR{adaptation.reagent_qty_fmt} \\
+\hline
+\BLOCK{ for r in adaptation.reagent_stats }
+\quad \VAR{r.name} & \VAR{r.count} & \VAR{r.total_qty_fmt} \\
+\hline
+\BLOCK{ endfor }
+\end{tabularx}
+}
+
+\vspace{0.4em}
+
+\subsection*{4.4. Анализ этапа адаптации}
+
+\BLOCK{ if adaptation.narrative }
+{\footnotesize
+\VAR{adaptation.narrative}
+}
+\BLOCK{ endif }
+
+% ── Графики этапа адаптации на отдельной странице ──
+\BLOCK{ if adaptation.combined_chart_path }
+\newpage
+\subsection*{4.5. Графики этапа адаптации}
+
+\begin{center}
+\includegraphics[width=\textwidth,height=0.85\textheight,keepaspectratio]{\VAR{adaptation.combined_chart_path}}
+\end{center}
+
+{\scriptsize Рис.~4.1. Давления, перепад $\Delta P$ и мгновенный дебит Q(t) за этап адаптации.
+Маркеры: зелёные точки --- вбросы реагента, фиолетовый пунктир --- продувки, серые линии --- прочие события.}
+\BLOCK{ endif }
+
+% ── Оптимальный режим (подпериод внутри адаптации) ──
+\BLOCK{ if optimal_regime }
+\newpage
+\subsection*{4.6. Оптимальный режим работы}
+
+{\footnotesize
+Оптимальный режим --- подпериод внутри этапа адаптации со стабильной
+работой скважины и лучшими показателями (выделен \BLOCK{ if optimal_regime.source == "auto" }автоматически по composite Score\BLOCK{ else }вручную\BLOCK{ endif }).
+Сравнение с этапом наблюдения выполнено именно по этому окну.
+}
+
+\vspace{0.3em}
+
+{\scriptsize Табл.~4.3. Параметры оптимального режима.}
+\vspace{0.2em}
+
+{\footnotesize
+\begin{tabularx}{\textwidth}{|X|R{3.5cm}|}
+\hline
+\textbf{Параметр} & \textbf{Значение} \\
+\hline
+Период & \VAR{optimal_regime.date_from}~---~\VAR{optimal_regime.date_to} \\
+\hline
+Длительность & \VAR{optimal_regime.duration_label} \\
+\hline
+$P_{\text{тр}}$ (медиана) & \VAR{optimal_regime.p_tube_median_fmt} кгс/см$^2$ \\
+\hline
+$P_{\text{лин}}$ (медиана) & \VAR{optimal_regime.p_line_median_fmt} кгс/см$^2$ \\
+\hline
+$\Delta P$ (медиана) & \VAR{optimal_regime.dp_median_fmt} кгс/см$^2$ \\
+\hline
+$Q$ медианный & \VAR{optimal_regime.flow_median_fmt} тыс.м$^3$/сут \\
+\hline
+$Q$ средний & \VAR{optimal_regime.flow_avg_fmt} тыс.м$^3$/сут \\
+\hline
+$Q$ min / max & \VAR{optimal_regime.q_min_fmt} / \VAR{optimal_regime.q_max_fmt} тыс.м$^3$/сут \\
+\hline
+$\Sigma Q$ накопленный & \VAR{optimal_regime.flow_cumulative_fmt} тыс.м$^3$ \\
+\hline
+КИВ & \VAR{optimal_regime.utilization_pct_fmt}\% \\
+\hline
+Продувок & \VAR{optimal_regime.purge_count} \\
+\hline
+Вбросов реагента & \VAR{optimal_regime.reagent_count} \\
+\hline
+\BLOCK{ if optimal_regime.source == "auto" and optimal_regime.score is defined }
+Score & \VAR{optimal_regime.score_fmt} \\
+\hline
+\BLOCK{ endif }
+\end{tabularx}
+}
+
+\BLOCK{ if optimal_regime.narrative }
+\vspace{0.4em}
+{\footnotesize \VAR{optimal_regime.narrative} }
+\BLOCK{ endif }
+
+\BLOCK{ if optimal_regime.combined_chart_path }
+\vspace{0.5em}
+\begin{center}
+\includegraphics[width=\textwidth,height=0.55\textheight,keepaspectratio]{\VAR{optimal_regime.combined_chart_path}}
+\end{center}
+{\scriptsize Рис.~4.2. Оптимальный режим: давления, $\Delta P$ и Q(t).}
+\BLOCK{ endif }
+
+\BLOCK{ endif }
+
+\newpage
+
+% ═══════════════════════════════════════════════════════════════
+%  5. ГРАФИКИ СРАВНЕНИЯ (2 колонки: наблюдение | адаптация)
+% ═══════════════════════════════════════════════════════════════
+\section*{5. Графики этапов (сравнение)}
+
+\BLOCK{ if observation.pressure_chart_path or adaptation.pressure_chart_path }
+\noindent
+\begin{minipage}[t]{0.49\textwidth}
+\centering
+\BLOCK{ if observation.pressure_chart_path }
+\includegraphics[width=\textwidth]{\VAR{observation.pressure_chart_path}}\\[-0.3em]
+{\scriptsize Наблюдение}
+\BLOCK{ else }
+{\scriptsize Нет данных}
+\BLOCK{ endif }
+\end{minipage}\hfill
+\begin{minipage}[t]{0.49\textwidth}
+\centering
+\BLOCK{ if adaptation.pressure_chart_path }
+\includegraphics[width=\textwidth]{\VAR{adaptation.pressure_chart_path}}\\[-0.3em]
+{\scriptsize Адаптация}
+\BLOCK{ else }
+{\scriptsize Нет данных}
+\BLOCK{ endif }
+\end{minipage}
+
+\vspace{0.3em}
+{\scriptsize\centering Рис.~5.1. Давления P\,трубное / P\,линейное. Маркеры: пунктир --- продувки, точки --- вбросы реагента.\par}
+\vspace{0.6em}
+\BLOCK{ endif }
+
+\BLOCK{ if observation.dp_chart_path or adaptation.dp_chart_path }
+\noindent
+\begin{minipage}[t]{0.49\textwidth}
+\centering
+\BLOCK{ if observation.dp_chart_path }
+\includegraphics[width=\textwidth]{\VAR{observation.dp_chart_path}}\\[-0.3em]
+{\scriptsize Наблюдение}
+\BLOCK{ else }
+{\scriptsize Нет данных}
+\BLOCK{ endif }
+\end{minipage}\hfill
+\begin{minipage}[t]{0.49\textwidth}
+\centering
+\BLOCK{ if adaptation.dp_chart_path }
+\includegraphics[width=\textwidth]{\VAR{adaptation.dp_chart_path}}\\[-0.3em]
+{\scriptsize Адаптация}
+\BLOCK{ else }
+{\scriptsize Нет данных}
+\BLOCK{ endif }
+\end{minipage}
+
+\vspace{0.3em}
+{\scriptsize\centering Рис.~5.2. Перепад $\Delta P$ с линией тренда.\par}
+\vspace{0.6em}
+\BLOCK{ endif }
+
+\BLOCK{ if observation.flow_chart_path or adaptation.flow_chart_path }
+\noindent
+\begin{minipage}[t]{0.49\textwidth}
+\centering
+\BLOCK{ if observation.flow_chart_path }
+\includegraphics[width=\textwidth]{\VAR{observation.flow_chart_path}}\\[-0.3em]
+{\scriptsize Наблюдение}
+\BLOCK{ else }
+{\scriptsize Нет данных}
+\BLOCK{ endif }
+\end{minipage}\hfill
+\begin{minipage}[t]{0.49\textwidth}
+\centering
+\BLOCK{ if adaptation.flow_chart_path }
+\includegraphics[width=\textwidth]{\VAR{adaptation.flow_chart_path}}\\[-0.3em]
+{\scriptsize Адаптация}
+\BLOCK{ else }
+{\scriptsize Нет данных}
+\BLOCK{ endif }
+\end{minipage}
+
+\vspace{0.3em}
+{\scriptsize\centering Рис.~5.3. Мгновенный дебит Q(t), тыс.\,м$^3$/сут.\par}
+\BLOCK{ endif }
+
+\newpage
+
+% ═══════════════════════════════════════════════════════════════
+%  6. СРАВНИТЕЛЬНЫЙ АНАЛИЗ
+% ═══════════════════════════════════════════════════════════════
+\section*{6. Сравнительный анализ этапов}
+
+\subsection*{6.1. Сравнительная таблица показателей}
+
+{\scriptsize Табл.~6.1. Сравнение основных показателей\BLOCK{ if optimal_regime } (+ колонки оптимального режима)\BLOCK{ endif }.}
+\vspace{0.2em}
+
+{\scriptsize
+\BLOCK{ if optimal_regime }
+\begin{tabularx}{\textwidth}{|P{3.2cm}|R{1.2cm}|R{1.2cm}|R{1.1cm}|R{1.1cm}|R{1.2cm}|R{1.1cm}|R{1.1cm}|}
+\hline
+\textbf{Показатель} & \textbf{Набл.} & \textbf{Адапт.} & \textbf{$\Delta$} & \textbf{$\Delta$\%} & \textbf{Оптим.} & \textbf{$\Delta$} & \textbf{$\Delta$\%} \\
+\hline
+$P_{\text{тр}}$, кгс/см$^2$ & \VAR{observation.p_tube_median_fmt} & \VAR{adaptation.p_tube_median_fmt} & \VAR{comparison.delta_p_tube_fmt} & \VAR{comparison.delta_p_tube_pct_fmt} & \VAR{optimal_regime.p_tube_median_fmt} & \VAR{comparison_optimal.delta_p_tube_fmt} & \VAR{comparison_optimal.delta_p_tube_pct_fmt} \\
+\hline
+$P_{\text{лин}}$, кгс/см$^2$ & \VAR{observation.p_line_median_fmt} & \VAR{adaptation.p_line_median_fmt} & \VAR{comparison.delta_p_line_fmt} & \VAR{comparison.delta_p_line_pct_fmt} & \VAR{optimal_regime.p_line_median_fmt} & \VAR{comparison_optimal.delta_p_line_fmt} & \VAR{comparison_optimal.delta_p_line_pct_fmt} \\
+\hline
+$\Delta P$, кгс/см$^2$ & \VAR{observation.dp_median_fmt} & \VAR{adaptation.dp_median_fmt} & \VAR{comparison.delta_dp_fmt} & \VAR{comparison.delta_dp_pct_fmt} & \VAR{optimal_regime.dp_median_fmt} & \VAR{comparison_optimal.delta_dp_fmt} & \VAR{comparison_optimal.delta_dp_pct_fmt} \\
+\hline
+$Q$ мед., тыс.м$^3$/сут & \VAR{observation.flow_median_fmt} & \VAR{adaptation.flow_median_fmt} & \VAR{comparison.delta_flow_median_fmt} & \VAR{comparison.delta_flow_median_pct_fmt} & \VAR{optimal_regime.flow_median_fmt} & \VAR{comparison_optimal.delta_flow_median_fmt} & \VAR{comparison_optimal.delta_flow_median_pct_fmt} \\
+\hline
+$Q$ ср., тыс.м$^3$/сут & \VAR{observation.flow_avg_fmt} & \VAR{adaptation.flow_avg_fmt} & \VAR{comparison.delta_flow_avg_fmt} & \VAR{comparison.delta_flow_avg_pct_fmt} & \VAR{optimal_regime.flow_avg_fmt} & \VAR{comparison_optimal.delta_flow_avg_fmt} & \VAR{comparison_optimal.delta_flow_avg_pct_fmt} \\
+\hline
+$Q$ min, тыс.м$^3$/сут & \VAR{observation.q_min_fmt} & \VAR{adaptation.q_min_fmt} & --- & --- & \VAR{optimal_regime.q_min_fmt} & --- & --- \\
+\hline
+$Q$ max, тыс.м$^3$/сут & \VAR{observation.q_max_fmt} & \VAR{adaptation.q_max_fmt} & --- & --- & \VAR{optimal_regime.q_max_fmt} & --- & --- \\
+\hline
+КИВ, \% & \VAR{observation.utilization_pct_fmt} & \VAR{adaptation.utilization_pct_fmt} & \VAR{comparison.delta_utilization_pct_fmt} & --- & \VAR{optimal_regime.utilization_pct_fmt} & \VAR{comparison_optimal.delta_utilization_pct_fmt} & --- \\
+\hline
+Продувок & \VAR{observation.purge_count} & \VAR{adaptation.purge_count} & \VAR{comparison.delta_purge_count_fmt} & --- & \VAR{optimal_regime.purge_count} & --- & --- \\
+\hline
+Длительность & \VAR{observation.duration_label} & \VAR{adaptation.duration_label} & --- & --- & \VAR{optimal_regime.duration_label} & --- & --- \\
+\hline
+\end{tabularx}
+\BLOCK{ else }
+\begin{tabularx}{\textwidth}{|X|R{2cm}|R{2cm}|R{2cm}|R{2cm}|}
+\hline
+\textbf{Показатель} & \textbf{Наблюдение} & \textbf{Адаптация} & \textbf{$\Delta$} & \textbf{$\Delta$, \%} \\
+\hline
+$P_{\text{тр}}$, кгс/см$^2$ & \VAR{observation.p_tube_median_fmt} & \VAR{adaptation.p_tube_median_fmt} & \VAR{comparison.delta_p_tube_fmt} & \VAR{comparison.delta_p_tube_pct_fmt} \\
+\hline
+$P_{\text{лин}}$, кгс/см$^2$ & \VAR{observation.p_line_median_fmt} & \VAR{adaptation.p_line_median_fmt} & \VAR{comparison.delta_p_line_fmt} & \VAR{comparison.delta_p_line_pct_fmt} \\
+\hline
+$\Delta P$, кгс/см$^2$ & \VAR{observation.dp_median_fmt} & \VAR{adaptation.dp_median_fmt} & \VAR{comparison.delta_dp_fmt} & \VAR{comparison.delta_dp_pct_fmt} \\
+\hline
+$Q$ мед., тыс.м$^3$/сут & \VAR{observation.flow_median_fmt} & \VAR{adaptation.flow_median_fmt} & \VAR{comparison.delta_flow_median_fmt} & \VAR{comparison.delta_flow_median_pct_fmt} \\
+\hline
+$Q$ ср., тыс.м$^3$/сут & \VAR{observation.flow_avg_fmt} & \VAR{adaptation.flow_avg_fmt} & \VAR{comparison.delta_flow_avg_fmt} & \VAR{comparison.delta_flow_avg_pct_fmt} \\
+\hline
+КИВ, \% & \VAR{observation.utilization_pct_fmt} & \VAR{adaptation.utilization_pct_fmt} & \VAR{comparison.delta_utilization_pct_fmt} & --- \\
+\hline
+Продувок & \VAR{observation.purge_count} & \VAR{adaptation.purge_count} & \VAR{comparison.delta_purge_count_fmt} & --- \\
+\hline
+Длительность & \VAR{observation.duration_label} & \VAR{adaptation.duration_label} & --- & --- \\
+\hline
+\end{tabularx}
+\BLOCK{ endif }
+}
+
+\vspace{0.5em}
+
+\subsection*{6.2. Выводы}
+
+\BLOCK{ if conclusions }
+{\footnotesize
+\begin{enumerate}\setlength{\itemsep}{-1pt}
+%% for c in conclusions
+\item \VAR{c}
+%% endfor
+\end{enumerate}
+}
+\BLOCK{ else }
+{\footnotesize Недостаточно данных для формирования выводов.}
+\BLOCK{ endif }
+
+\vspace{1em}
+
+% ═══════════════════════════════════════════════════════════════
+%  ПОДПИСИ
+% ═══════════════════════════════════════════════════════════════
+\vfill
+
+{\footnotesize
+\begin{tabularx}{\textwidth}{XX}
+\textbf{Исполнитель} & \textbf{Заказчик} \\[2em]
+\rule{5cm}{0.4pt} & \rule{5cm}{0.4pt} \\
+(подпись, расшифровка) & (подпись, расшифровка) \\[1em]
+\rule{5cm}{0.4pt} & \rule{5cm}{0.4pt} \\
+(дата) & (дата) \\
+\end{tabularx}
+}
+
+\end{document}

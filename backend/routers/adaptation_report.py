@@ -33,6 +33,7 @@ from backend.services.adaptation_report_service import (
 )
 from backend.services import customer_baseline_service as bsvc
 from backend.models.wells import Well as _Well
+from backend.config.status_registry import STATUS_BY_LABEL
 
 log = logging.getLogger(__name__)
 
@@ -72,6 +73,74 @@ def _json_safe(obj):
 # ═══════════════════════════════════════════════════════════════════
 #  API-эндпоинты
 # ═══════════════════════════════════════════════════════════════════
+
+# ─────── Persistent UI state (Этап D, sticky workspace) ───────
+#
+# Таблица создаётся IF NOT EXISTS при первом обращении (как well_daily).
+# state — JSONB с любыми полями формы (даты, описания, активный tab).
+
+_STATE_TABLE_INITIALIZED = False
+
+
+def _ensure_state_table(db: Session) -> None:
+    global _STATE_TABLE_INITIALIZED
+    if _STATE_TABLE_INITIALIZED:
+        return
+    db.execute(text("""
+        CREATE TABLE IF NOT EXISTS adaptation_report_state (
+            well_id    INTEGER PRIMARY KEY REFERENCES wells(id) ON DELETE CASCADE,
+            state      JSONB   NOT NULL DEFAULT '{}'::jsonb,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """))
+    db.commit()
+    _STATE_TABLE_INITIALIZED = True
+
+
+@router.get("/state/{well_id}")
+def api_get_state(well_id: int, db: Session = Depends(get_db)):
+    _ensure_state_table(db)
+    row = db.execute(text("""
+        SELECT state, updated_at FROM adaptation_report_state
+        WHERE well_id = :wid
+    """), {"wid": well_id}).fetchone()
+    if not row:
+        return {"well_id": well_id, "state": {}, "updated_at": None}
+    return {
+        "well_id": well_id,
+        "state": row[0] or {},
+        "updated_at": row[1].isoformat(timespec="seconds") if row[1] else None,
+    }
+
+
+class _StateBody(BaseModel):
+    state: dict
+
+
+@router.put("/state/{well_id}")
+def api_put_state(well_id: int, body: _StateBody, db: Session = Depends(get_db)):
+    _ensure_state_table(db)
+    import json as _json
+    db.execute(text("""
+        INSERT INTO adaptation_report_state (well_id, state, updated_at)
+        VALUES (:wid, CAST(:state AS JSONB), CURRENT_TIMESTAMP)
+        ON CONFLICT (well_id) DO UPDATE
+        SET state = EXCLUDED.state, updated_at = CURRENT_TIMESTAMP
+    """), {"wid": well_id, "state": _json.dumps(body.state, default=str)})
+    db.commit()
+    return {"ok": True, "well_id": well_id}
+
+
+@router.delete("/state/{well_id}")
+def api_delete_state(well_id: int, db: Session = Depends(get_db)):
+    _ensure_state_table(db)
+    res = db.execute(
+        text("DELETE FROM adaptation_report_state WHERE well_id = :wid"),
+        {"wid": well_id},
+    )
+    db.commit()
+    return {"ok": True, "deleted": res.rowcount > 0}
+
 
 @router.get("/wells")
 def list_wells(db: Session = Depends(get_db)):
@@ -235,8 +304,44 @@ def get_stage_data(
     data["stages_from_status"] = stages_from_status
     data["stages_from_events"] = stages_from_events
     data["source_used"] = source_used
+    data["all_stages"] = _load_all_stages(db, well_id)
 
     return _json_safe(data)
+
+
+def _load_all_stages(db: Session, well_id: int) -> list[dict]:
+    """История этапов из well_status (для отображения плиток в UI)."""
+    rows = db.execute(text("""
+        SELECT (dt_start AT TIME ZONE 'Asia/Tashkent')::timestamp AS dt_from,
+               (dt_end   AT TIME ZONE 'Asia/Tashkent')::timestamp AS dt_to,
+               status,
+               note
+        FROM well_status
+        WHERE well_id = :wid
+        ORDER BY dt_start ASC
+    """), {"wid": well_id}).fetchall()
+
+    today = datetime.now()
+    out: list[dict] = []
+    for r in rows:
+        dt_from, dt_to, status, note = r[0], r[1], r[2], r[3]
+        is_open = dt_to is None
+        end_for_calc = dt_to or today
+        duration_days = None
+        if dt_from is not None:
+            delta = end_for_calc - dt_from
+            duration_days = round(delta.total_seconds() / 86400.0, 1)
+        color = (STATUS_BY_LABEL.get(status) or {}).get("color") or "#6c757d"
+        out.append({
+            "status": status,
+            "color": color,
+            "dt_from": dt_from,
+            "dt_to": dt_to,
+            "is_open": is_open,
+            "duration_days": duration_days,
+            "note": (note or "").strip() or None,
+        })
+    return out
 
 
 class CustomDatesRequest(BaseModel):
@@ -254,6 +359,13 @@ class CustomDatesRequest(BaseModel):
     optimal_window_days: int = 3
     optimal_from: datetime | None = None
     optimal_to: datetime | None = None
+    # Глава «Анализ исходных данных»
+    include_customer_chapter: bool = False
+    customer_periods: list[dict] = []
+    # Toggle разделов PDF — ключи: well_info, customer_data,
+    # observation, adaptation, charts_compare, comparison.
+    # Если ключ не передан → True (включён по умолчанию).
+    sections: dict[str, bool] | None = None
 
 
 @router.post("/compute")
@@ -277,6 +389,8 @@ def compute_with_custom_dates(
         optimal_window_days=req.optimal_window_days,
         optimal_from=req.optimal_from,
         optimal_to=req.optimal_to,
+        include_customer_chapter=req.include_customer_chapter,
+        customer_periods=req.customer_periods,
     )
     if data.get("ok") and req.with_charts:
         _attach_chart_urls(data)
@@ -305,6 +419,9 @@ class PeriodAnalysisRequest(BaseModel):
     period_from: date
     period_to: date
     description: str | None = None
+    # Ширина окна для поиска наилучшего подпериода (detect_optimal_windows).
+    # По умолчанию 3 сут.; 0 или None — модуль best_window не считается.
+    window_days: int = 3
 
 
 @router.post("/source-analysis")
@@ -312,12 +429,17 @@ def api_source_analysis(
     req: PeriodAnalysisRequest,
     db: Session = Depends(get_db),
 ):
-    """Полный анализ периода по данным заказчика (well_daily)."""
+    """Полный анализ периода по данным заказчика (well_daily) + доп. блоки
+    по нашим данным (pressure_raw/events): измерения по датчикам, продувки,
+    вбросы реагента, наиболее эффективное окно.
+    """
     well = db.query(_Well).filter(_Well.id == req.well_id).first()
     if not well:
         raise HTTPException(404, "Скважина не найдена")
     data = bsvc.compute_period_analysis(
         db, str(well.number), req.period_from, req.period_to, req.description,
+        well_id=req.well_id,
+        window_days=req.window_days,
     )
     # Добавим сравнение с baseline-ами
     baselines = bsvc.list_baselines(db, req.well_id)
@@ -363,6 +485,46 @@ def api_baseline_create(
         raise HTTPException(400, str(e))
 
 
+class ObservationBaselineRequest(BaseModel):
+    well_id: int
+    obs_from: datetime
+    obs_to: datetime
+    name: str = "Этап наблюдения"
+    notes: str | None = None
+    is_pinned: bool = True
+
+
+@router.post("/baselines/observation")
+def api_baseline_observation(
+    req: ObservationBaselineRequest,
+    request: Request,
+    current_user: str = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Зафиксировать baseline по этапу наблюдения (НАШИ данные через
+    pressure_raw → flow_rate pipeline). Источник = 'observation'.
+
+    В отличие от /baselines (source='customer' по сводке заказчика),
+    этот baseline считается из реальных датчиков LoRa за период наблюдения.
+    """
+    if not _is_admin(request):
+        raise HTTPException(403, "Сохранение baseline доступно только администратору")
+    try:
+        bl = bsvc.save_observation_baseline(
+            db,
+            well_id=req.well_id,
+            name=req.name.strip() or "Этап наблюдения",
+            obs_from=req.obs_from,
+            obs_to=req.obs_to,
+            notes=req.notes,
+            created_by=current_user,
+            is_pinned=req.is_pinned,
+        )
+        return {"ok": True, "baseline": bl}
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
 class BaselineUpdateRequest(BaseModel):
     name: str | None = None
     notes: str | None = None
@@ -404,6 +566,30 @@ def api_baseline_delete(
     return {"ok": True}
 
 
+class ResolvePeriodRequest(BaseModel):
+    anchor: date
+    preset: str  # week | month | calendar | custom
+    n_days: int | None = None
+    direction: str = "before"  # before | after
+    include_anchor: bool = False
+
+
+@router.post("/resolve-period")
+def api_resolve_period(req: ResolvePeriodRequest):
+    """Разрешить (anchor, preset) → (period_from, period_to). Чистая функция."""
+    try:
+        pf, pt = bsvc.resolve_period(
+            req.anchor, req.preset,
+            n_days=req.n_days,
+            direction=req.direction,
+            include_anchor=req.include_anchor,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"period_from": pf.isoformat(), "period_to": pt.isoformat(),
+            "days": (pt - pf).days + 1}
+
+
 @router.get("/monthly-stats")
 def get_monthly_stats(
     well_id: int = Query(...),
@@ -415,25 +601,31 @@ def get_monthly_stats(
     return {"well_id": well_id, "months": _json_safe(months)}
 
 
-@router.get("/preview-pdf")
-def preview_pdf(
-    well_id: int = Query(...),
-    obs_from: datetime | None = Query(None),
-    obs_to: datetime | None = Query(None),
-    adapt_from: datetime | None = Query(None),
-    adapt_to: datetime | None = Query(None),
-    obs_description: str | None = Query(None),
-    adapt_description: str | None = Query(None),
-    optimal_mode: str = Query("auto"),
-    optimal_window_days: int = Query(3),
-    optimal_from: datetime | None = Query(None),
-    optimal_to: datetime | None = Query(None),
-    db: Session = Depends(get_db),
-):
-    """Сгенерировать PDF (с графиками) и вернуть как inline-файл для iframe.
+_SECTION_KEYS = (
+    "well_info", "customer_data", "observation",
+    "adaptation", "charts_compare", "comparison",
+)
 
-    Если даты заданы — используются они. Иначе автодетект из well_status.
-    """
+
+def _normalize_sections(sections: dict[str, bool] | None) -> dict[str, bool]:
+    """Пользовательский dict → полный dict с дефолтами True для всех 6 разделов.
+
+    Незаполненные ключи → True (раздел включён по умолчанию). Лишние ключи
+    из request игнорируются."""
+    src = sections or {}
+    return {k: bool(src.get(k, True)) for k in _SECTION_KEYS}
+
+
+def _build_pdf_response(
+    db, well_id: int, *,
+    obs_from=None, obs_to=None, adapt_from=None, adapt_to=None,
+    obs_description=None, adapt_description=None,
+    optimal_mode="auto", optimal_window_days=3,
+    optimal_from=None, optimal_to=None,
+    include_customer_chapter=False, customer_periods=None,
+    sections=None,
+):
+    """Общая реализация генерации preview-PDF."""
     from datetime import datetime as _dt
     from backend.services.daily_report_service import (
         _ensure_dirs, _get_latex_env, _compile_latex, _tex_escape,
@@ -453,6 +645,8 @@ def preview_pdf(
         optimal_window_days=optimal_window_days,
         optimal_from=optimal_from,
         optimal_to=optimal_to,
+        include_customer_chapter=include_customer_chapter,
+        customer_periods=customer_periods,
     )
     if not data.get("ok"):
         raise HTTPException(status_code=400, detail=data.get("error"))
@@ -473,6 +667,40 @@ def preview_pdf(
     well_ctx["horizon"] = _tex_escape(str(well_ctx.get("horizon") or "---"))
     well_ctx["choke_mm"] = _fmt_num(well_ctx.get("choke_mm"), 1)
 
+    # Сравнение этапа наблюдения с baseline (для §3) — экранируем имя
+    obs_vs_baseline = data.get("obs_vs_baseline")
+    if obs_vs_baseline:
+        bl = obs_vs_baseline.get("baseline") or {}
+        if bl.get("name"):
+            bl["name"] = _tex_escape(str(bl["name"]))
+        cust = obs_vs_baseline.get("customer") or {}
+        if cust.get("baseline_name"):
+            cust["baseline_name"] = _tex_escape(str(cust["baseline_name"]))
+
+    # Глава «Анализ исходных данных»
+    customer_chapter = data.get("customer_chapter")
+    if customer_chapter:
+        for p in customer_chapter.get("periods", []):
+            if p.get("description"):
+                p["description_tex"] = _tex_escape(p["description"])
+            else:
+                p["description_tex"] = None
+
+            # Динамические тексты (период-сводка, помесячные описания,
+            # подписи графиков) формируются Python-кодом и могут содержать
+            # %, _, & — экранируем для LaTeX (xelatex).
+            if p.get("period_summary"):
+                p["period_summary"] = _tex_escape(p["period_summary"])
+            for d in (p.get("month_descriptions") or []):
+                if d.get("label"):
+                    d["label"] = _tex_escape(d["label"])
+                if d.get("text"):
+                    d["text"] = _tex_escape(d["text"])
+            caps = p.get("chart_captions") or {}
+            for _k, _v in list(caps.items()):
+                if _v:
+                    caps[_k] = _tex_escape(_v)
+
     now_kungrad = _dt.utcnow() + KUNGRAD_OFFSET
     context = {
         "doc_number": f"PREVIEW-{well_id}",
@@ -485,8 +713,12 @@ def preview_pdf(
         "optimal_regime": optimal_regime,
         "comparison": comparison,
         "comparison_optimal": comparison_optimal,
+        "adapt_vs_baseline": data.get("adapt_vs_baseline"),
+        "obs_vs_baseline": data.get("obs_vs_baseline"),
         "conclusions": [_tex_escape(c) for c in (data.get("conclusions") or [])],
         "warnings": [_tex_escape(w) for w in (data.get("warnings") or [])],
+        "customer_chapter": customer_chapter,
+        "include_sections": _normalize_sections(sections),
     }
 
     env = _get_latex_env()
@@ -508,17 +740,74 @@ def preview_pdf(
             p = stage.get(key)
             if p:
                 Path(p).unlink(missing_ok=True)
+    # PNG карты §1
+    map_path = (well_ctx.get("map_chart_path") if isinstance(well_ctx, dict) else None)
+    if map_path:
+        Path(map_path).unlink(missing_ok=True)
+    # PNG диаграмм блока 2 (по 4 на каждый период)
+    if customer_chapter:
+        for _p in (customer_chapter.get("periods") or []):
+            for _path in (_p.get("chart_paths") or {}).values():
+                if _path:
+                    Path(_path).unlink(missing_ok=True)
 
     response = FileResponse(
         path=str(pdf_path),
         media_type="application/pdf",
         filename=f"adaptation_well_{well_id}.pdf",
     )
-    # inline чтобы открывался в iframe, а не скачивался
     response.headers["Content-Disposition"] = (
         f'inline; filename="adaptation_well_{well_id}.pdf"'
     )
     return response
+
+
+@router.get("/preview-pdf")
+def preview_pdf_get(
+    well_id: int = Query(...),
+    obs_from: datetime | None = Query(None),
+    obs_to: datetime | None = Query(None),
+    adapt_from: datetime | None = Query(None),
+    adapt_to: datetime | None = Query(None),
+    obs_description: str | None = Query(None),
+    adapt_description: str | None = Query(None),
+    optimal_mode: str = Query("auto"),
+    optimal_window_days: int = Query(3),
+    optimal_from: datetime | None = Query(None),
+    optimal_to: datetime | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """GET-вариант preview-PDF (без главы заказчика)."""
+    return _build_pdf_response(
+        db, well_id,
+        obs_from=obs_from, obs_to=obs_to,
+        adapt_from=adapt_from, adapt_to=adapt_to,
+        obs_description=obs_description, adapt_description=adapt_description,
+        optimal_mode=optimal_mode, optimal_window_days=optimal_window_days,
+        optimal_from=optimal_from, optimal_to=optimal_to,
+    )
+
+
+@router.post("/preview-pdf")
+def preview_pdf_post(
+    req: CustomDatesRequest,
+    db: Session = Depends(get_db),
+):
+    """POST-вариант preview-PDF (с поддержкой главы «Анализ исходных данных»)."""
+    return _build_pdf_response(
+        db, req.well_id,
+        obs_from=req.obs_from, obs_to=req.obs_to,
+        adapt_from=req.adapt_from, adapt_to=req.adapt_to,
+        obs_description=req.obs_description,
+        adapt_description=req.adapt_description,
+        optimal_mode=req.optimal_mode,
+        optimal_window_days=req.optimal_window_days,
+        optimal_from=req.optimal_from,
+        optimal_to=req.optimal_to,
+        include_customer_chapter=req.include_customer_chapter,
+        customer_periods=req.customer_periods,
+        sections=req.sections,
+    )
 
 
 @router.get("/validate")

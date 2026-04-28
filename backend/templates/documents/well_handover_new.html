@@ -115,9 +115,48 @@
       {% endif %}
 
       <!-- Последние события (акты возврата/демонтажа: well_transfer, well_stage_return) -->
-      {% if last_events %}
+      {% if last_events or equip_movements or stage_ends %}
       <div id="events-last" class="event-picker" style="display:none; background:#fde8e8; padding:12px; border-radius:6px; margin-bottom:8px; font-size:13px; border-left:3px solid #dc3545;">
-        <div style="font-weight:600; margin-bottom:8px;">Последние события на скважине:</div>
+
+        {# --- Перемещения оборудования (removed_at) --- #}
+        {% if equip_movements %}
+        <div style="font-weight:600; margin-bottom:6px;">🔧 Перемещения / демонтаж оборудования:</div>
+        <div style="font-size:12px; opacity:0.7; margin-bottom:8px;">
+          Дата фактического прекращения пребывания оборудования на скважине
+        </div>
+        {% for m in equip_movements %}
+        <label style="display:flex; align-items:center; gap:8px; padding:6px 8px; cursor:pointer; border-radius:4px;"
+               onmouseover="this.style.background='#f5c6cb'" onmouseout="this.style.background='transparent'">
+          <input type="radio" name="event_pick" value="{{ m.dt_iso }}"
+                 onchange="document.getElementById('handover-dt').value=this.value">
+          <span style="background:{% if m.is_lora %}#cfe2ff{% else %}#e2d9f3{% endif %}; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; white-space:nowrap;">
+            {% if m.is_lora %}📡 Датчик{% else %}{{ m.type_label }}{% endif %}
+          </span>
+          <span style="white-space:nowrap;">{{ m.dt_display }}</span>
+          <span style="opacity:0.75; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ m.label }}</span>
+          {% if m.note %}<span style="opacity:0.5; font-size:11px;">— {{ m.note }}</span>{% endif %}
+        </label>
+        {% endfor %}
+        {% endif %}
+
+        {# --- Завершения этапов (well_status.dt_end) --- #}
+        {% if stage_ends %}
+        <div style="font-weight:600; margin: 12px 0 6px 0;">🏁 Завершения этапов (из истории статусов):</div>
+        {% for s in stage_ends %}
+        <label style="display:flex; align-items:center; gap:8px; padding:6px 8px; cursor:pointer; border-radius:4px;"
+               onmouseover="this.style.background='#f5c6cb'" onmouseout="this.style.background='transparent'">
+          <input type="radio" name="event_pick" value="{{ s.dt_iso }}"
+                 onchange="document.getElementById('handover-dt').value=this.value">
+          <span style="background:#d4edda; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; white-space:nowrap;">{{ s.status }}</span>
+          <span style="white-space:nowrap;">{{ s.dt_display }}</span>
+          <span style="opacity:0.6; font-size:12px;">окончание этапа</span>
+        </label>
+        {% endfor %}
+        {% endif %}
+
+        {# --- Последние события скважины (Telegram) --- #}
+        {% if last_events %}
+        <div style="font-weight:600; margin: 12px 0 6px 0;">📋 Последние события на скважине:</div>
         {% for ev in last_events %}
         <label style="display:flex; align-items:center; gap:8px; padding:6px 8px; cursor:pointer; border-radius:4px;"
                onmouseover="this.style.background='#f5c6cb'" onmouseout="this.style.background='transparent'">
@@ -128,11 +167,13 @@
           {% if ev.description %}<span style="opacity:0.6; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ ev.description }}</span>{% endif %}
         </label>
         {% endfor %}
-        <label style="display:flex; align-items:center; gap:8px; padding:6px 8px; cursor:pointer; border-radius:4px; margin-top:4px; border-top:1px solid #f5c6cb;"
+        {% endif %}
+
+        <label style="display:flex; align-items:center; gap:8px; padding:6px 8px; cursor:pointer; border-radius:4px; margin-top:8px; border-top:1px solid #f5c6cb;"
                onmouseover="this.style.background='#f5c6cb'" onmouseout="this.style.background='transparent'">
           <input type="radio" name="event_pick" value="manual"
                  onchange="document.getElementById('handover-dt').value=''; document.getElementById('handover-dt').focus();">
-          <span style="opacity:0.7;">Ввести вручную</span>
+          <span style="opacity:0.7;">✏️ Ввести вручную</span>
         </label>
       </div>
       {% endif %}

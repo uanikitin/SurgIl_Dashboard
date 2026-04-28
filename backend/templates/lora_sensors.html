@@ -209,6 +209,131 @@
     white-space: nowrap;
 }
 
+/* Компактный формат "канал/колонка": N/1=устье, N/2=шлейф */
+.channel-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    background: #eef2ff;
+    border-radius: 12px;
+    font-size: 12px;
+    font-family: 'SF Mono', Monaco, monospace;
+    font-weight: 600;
+    color: #4338ca;
+    white-space: nowrap;
+    min-width: 44px;
+    justify-content: center;
+}
+
+.channel-badge--override {
+    background: #fff4e0;
+    color: #b45309;
+    position: relative;
+}
+
+.override-indicator {
+    font-size: 10px;
+    color: #b45309;
+    margin-left: 4px;
+}
+
+/* Секция физической роли в edit panel */
+.role-section {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid #f1f3f5;
+}
+
+.role-status {
+    background: #f8f9fa;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    margin-bottom: 14px;
+}
+
+.role-status--override {
+    background: #fff4e0;
+    color: #92400e;
+    border: 1px solid #fde68a;
+}
+
+.role-status b { color: #1a1a2e; }
+
+.role-preview {
+    background: #f1f5f9;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    color: #334155;
+    margin: 10px 0;
+    line-height: 1.5;
+}
+
+.role-preview--conflict {
+    background: #fef2f2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+}
+
+.role-history {
+    margin-top: 16px;
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid #f1f3f5;
+    border-radius: 8px;
+}
+
+.role-history-item {
+    padding: 10px 14px;
+    border-bottom: 1px solid #f1f3f5;
+    font-size: 12px;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.role-history-item:last-child { border-bottom: none; }
+
+.role-history-item--active {
+    background: #f0f9ff;
+    font-weight: 500;
+}
+
+.checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #495057;
+    margin: 10px 0;
+}
+
+.btn-secondary {
+    padding: 10px 16px;
+    background: #eef2ff;
+    color: #4338ca;
+    border: 1px solid #c7d2fe;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+}
+.btn-secondary:hover { background: #e0e7ff; }
+
+.btn-warning {
+    padding: 12px 20px;
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.btn-warning:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(217, 119, 6, 0.4); }
+.btn-warning:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
 .status-badge {
     padding: 3px 8px;
     border-radius: 10px;
@@ -457,6 +582,12 @@
                 <span class="stat-item__label">Свободно:</span>
                 <span class="stat-item__value" style="color:#ffc107">{{ uninstalled_count }}</span>
             </div>
+            {% if overridden_count > 0 %}
+            <div class="stat-item" title="Датчики с переопределённой физической ролью">
+                <span class="stat-item__label">Переприсвоено:</span>
+                <span class="stat-item__value" style="color:#b45309">{{ overridden_count }}</span>
+            </div>
+            {% endif %}
         </div>
 
         <!-- Sensors List -->
@@ -469,10 +600,15 @@
                 {% for s in sensors %}
                 <div class="sensor-card" data-sensor-id="{{ s.id }}" onclick="selectSensor({{ s.id }}, '{{ s.serial_number }}', {{ s.csv_group }}, {{ s.csv_channel }}, '{{ s.csv_column }}', '{{ s.label or '' }}')">
                     <span class="sensor-serial">{{ s.serial_number }}</span>
-                    <span class="firmware-badge">{{ s.csv_group }}/{{ s.csv_column }}_{{ s.csv_channel }}</span>
+                    <span class="channel-badge {% if s.has_override %}channel-badge--override{% endif %}"
+                          title="Канал {{ s.global_channel }} / Колонка {{ s.column_code }} ({{ s.csv_column }}_{{ s.csv_channel }} группа {{ s.csv_group }})">
+                        {{ s.global_channel }}/{{ s.column_code }}
+                        {% if s.has_override %}<span class="override-indicator" title="Переприсвоено с {{ s.assignment_valid_from.strftime('%d.%m.%Y %H:%M') if s.assignment_valid_from else '' }}">⚠</span>{% endif %}
+                    </span>
+                    <span class="firmware-badge" title="Техническое имя колонки CSV">{{ s.csv_group }}/{{ s.csv_column }}_{{ s.csv_channel }}</span>
                     <span class="sensor-label">{{ s.label or '—' }}</span>
                     {% if s.well_name %}
-                    <a href="/well/{{ s.well_id }}" class="well-link" onclick="event.stopPropagation()">{{ s.well_name }} <small>({% if s.position == 'tube' %}устье{% else %}шлейф{% endif %})</small></a>
+                    <a href="/well/{{ s.well_id }}" class="well-link" onclick="event.stopPropagation()">{{ s.well_name }} <small>({% if s.effective_role == 'tube' %}устье{% else %}шлейф{% endif %})</small></a>
                     {% else %}
                     <span class="status-badge status-badge--free">свободен</span>
                     {% endif %}
@@ -555,6 +691,65 @@
                     <button type="submit" class="btn-save" id="submitBtn">Сохранить</button>
                 </div>
             </form>
+
+            <!-- === Физическая роль (переприсвоение) === -->
+            <div id="roleSection" class="role-section" style="display:none;">
+                <div class="form-section-title">Физическая роль</div>
+
+                <div id="roleStatus" class="role-status">
+                    Загрузка…
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Новая роль</label>
+                    <select id="reassign_role" class="form-control">
+                        <option value="tube">Устье (p_tube)</option>
+                        <option value="line">Шлейф (p_line)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Дата/время переприсвоения (местное, UTC+5)</label>
+                    <input type="datetime-local" id="reassign_valid_from" class="form-control" step="60">
+                    <div class="form-hint">Данные до этой даты остаются в прежней колонке, с этой даты — переносятся.</div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Причина / примечание</label>
+                    <input type="text" id="reassign_note" class="form-control" placeholder="Например: физически переставлен со шлейфа на устье">
+                </div>
+
+                <div class="checkbox-row">
+                    <input type="checkbox" id="reassign_overwrite">
+                    <label for="reassign_overwrite">Перезаписать конфликты (затронет данные другого датчика в целевой колонке)</label>
+                </div>
+
+                <div id="reassignPreview" class="role-preview" style="display:none;"></div>
+
+                <div class="form-actions">
+                    <button type="button" class="btn-secondary" onclick="previewReassign()">Предпросмотр</button>
+                    <button type="button" class="btn-warning" id="applyReassignBtn" onclick="applyReassign()" disabled>Применить</button>
+                </div>
+
+                <div class="form-section-title" style="margin-top:24px;">Ретро-бэкфилл давлений</div>
+                <div style="font-size:12px; color:#6c757d; margin-bottom:8px;">
+                    Перезаливает пропущенные строки из CSV в pressure_raw для этого датчика.
+                    Нужен, если установка датчика создана задним числом — импорт тех времён её ещё не видел.
+                </div>
+                <div class="form-group">
+                    <label for="backfill_since">С даты/времени (местное, UTC+5)</label>
+                    <input type="datetime-local" id="backfill_since" placeholder="по умолчанию — installed_at датчика">
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn-secondary" id="backfillBtn" onclick="runBackfill()">Запустить бэкфилл</button>
+                </div>
+                <div id="backfillResult" style="display:none; margin-top:8px; padding:8px; border-radius:4px; font-size:12px;"></div>
+
+                <div class="form-section-title" style="margin-top:24px;">История назначений</div>
+                <div id="roleHistory" class="role-history">
+                    <div style="padding:12px; color:#6c757d; font-size:12px;">Загрузка…</div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -591,6 +786,12 @@ function selectSensor(id, serial, group, channel, column, label) {
 
     updatePreview();
 
+    // Показываем секцию физической роли и загружаем данные
+    document.getElementById('roleSection').style.display = 'block';
+    document.getElementById('reassignPreview').style.display = 'none';
+    document.getElementById('applyReassignBtn').disabled = true;
+    loadAssignments(id);
+
     // Mobile: show panel
     document.getElementById('editPanel').classList.add('active');
     document.querySelector('.edit-panel-overlay').classList.add('active');
@@ -622,6 +823,9 @@ function showAddForm() {
     document.getElementById('submitBtn').textContent = 'Добавить';
 
     updatePreview();
+
+    // Скрываем секцию переприсвоения для нового датчика
+    document.getElementById('roleSection').style.display = 'none';
 
     // Mobile: show panel
     document.getElementById('editPanel').classList.add('active');
@@ -659,5 +863,206 @@ function updatePreview() {
 
 // Initialize preview on load
 updatePreview();
+
+// ═══════════════════════════════════════════════════
+// Переприсвоение физической роли (устье↔шлейф)
+// ═══════════════════════════════════════════════════
+
+const ROLE_RU = { tube: 'устье', line: 'шлейф' };
+
+function roleLabel(r) { return ROLE_RU[r] || r; }
+
+function fmtDt(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (isNaN(d)) return iso;
+    const pad = n => String(n).padStart(2, '0');
+    return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+async function loadAssignments(sensorId) {
+    const statusEl = document.getElementById('roleStatus');
+    const histEl = document.getElementById('roleHistory');
+    statusEl.textContent = 'Загрузка…';
+    statusEl.classList.remove('role-status--override');
+    histEl.innerHTML = '<div style="padding:12px; color:#6c757d; font-size:12px;">Загрузка…</div>';
+
+    try {
+        const r = await fetch(`/api/lora-sensors/${sensorId}/assignments`);
+        if (!r.ok) {
+            const txt = await r.text();
+            statusEl.innerHTML = `<b>Статус недоступен.</b> ${txt}`;
+            histEl.innerHTML = '<div style="padding:12px; color:#991b1b; font-size:12px;">Таблица назначений не создана — примените миграцию.</div>';
+            return;
+        }
+        const data = await r.json();
+        const defaultRu = roleLabel(data.default_role);
+        const effRu = roleLabel(data.effective_role);
+        if (data.has_override) {
+            statusEl.className = 'role-status role-status--override';
+            const since = data.active && data.active.valid_from ? ` с ${fmtDt(data.active.valid_from)}` : '';
+            statusEl.innerHTML = `⚠ <b>Переприсвоен</b>: CSV-колонка <b>${data.csv_column}</b> (по умолчанию ${defaultRu}), фактическая роль — <b>${effRu}</b>${since}.`;
+        } else {
+            statusEl.className = 'role-status';
+            statusEl.innerHTML = `По умолчанию (CSV-колонка <b>${data.csv_column}</b>): <b>${defaultRu}</b>. Переопределений нет.`;
+        }
+        renderHistory(data.history);
+        // Set defaults in form: opposite of current effective
+        document.getElementById('reassign_role').value = data.effective_role === 'tube' ? 'line' : 'tube';
+    } catch (e) {
+        statusEl.innerHTML = `<b>Ошибка.</b> ${e.message}`;
+    }
+}
+
+function renderHistory(history) {
+    const el = document.getElementById('roleHistory');
+    if (!history || !history.length) {
+        el.innerHTML = '<div style="padding:12px; color:#6c757d; font-size:12px;">Переопределений нет — используется дефолт по CSV-колонке.</div>';
+        return;
+    }
+    el.innerHTML = history.map(h => `
+        <div class="role-history-item ${h.is_active ? 'role-history-item--active' : ''}">
+            <div>
+                <b>${roleLabel(h.role)}</b>
+                ${h.is_active ? '<span style="color:#0369a1; font-size:10px; margin-left:6px;">АКТИВНО</span>' : ''}
+                <div style="color:#6c757d; font-size:11px; margin-top:2px;">
+                    с ${fmtDt(h.valid_from)}${h.valid_to ? ' до ' + fmtDt(h.valid_to) : ''}
+                </div>
+                ${h.note ? `<div style="color:#6c757d; font-size:11px; font-style:italic; margin-top:2px;">${h.note}</div>` : ''}
+            </div>
+        </div>
+    `).join('');
+}
+
+function _reassignPayload() {
+    const vf = document.getElementById('reassign_valid_from').value;
+    if (!vf) {
+        alert('Укажите дату/время переприсвоения');
+        return null;
+    }
+    return {
+        new_role: document.getElementById('reassign_role').value,
+        valid_from: vf,
+        note: document.getElementById('reassign_note').value || null,
+        overwrite_conflicts: document.getElementById('reassign_overwrite').checked,
+    };
+}
+
+async function previewReassign() {
+    if (!currentSensorId) return;
+    const payload = _reassignPayload();
+    if (!payload) return;
+    const previewEl = document.getElementById('reassignPreview');
+    previewEl.style.display = 'block';
+    previewEl.className = 'role-preview';
+    previewEl.textContent = 'Загрузка…';
+
+    try {
+        const r = await fetch(`/api/lora-sensors/${currentSensorId}/reassign/preview`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ new_role: payload.new_role, valid_from: payload.valid_from }),
+        });
+        if (!r.ok) {
+            const txt = await r.text();
+            previewEl.className = 'role-preview role-preview--conflict';
+            previewEl.textContent = `Ошибка: ${txt}`;
+            return;
+        }
+        const data = await r.json();
+        const pg = data.pg, sq = data.sqlite;
+        const totalMove = pg.to_move + sq.to_move;
+        const totalConflict = pg.conflicts + sq.conflicts;
+        let html = `
+            <b>Будет перенесено:</b><br>
+            • pressure_raw: ${pg.to_move} строк (конфликтов ${pg.conflicts})<br>
+            • pressure_readings: ${sq.to_move} строк (конфликтов ${sq.conflicts})<br>
+            • Скважины: ${[...new Set([...pg.affected_wells, ...sq.affected_wells])].join(', ') || '—'}
+        `;
+        if (totalConflict > 0) {
+            previewEl.className = 'role-preview role-preview--conflict';
+            html += `<br><br>⚠ <b>Конфликты</b>: в целевой колонке уже есть данные от другого датчика.
+                Без «Перезаписать конфликты» эти строки будут пропущены.`;
+        }
+        previewEl.innerHTML = html;
+        document.getElementById('applyReassignBtn').disabled = totalMove === 0;
+    } catch (e) {
+        previewEl.className = 'role-preview role-preview--conflict';
+        previewEl.textContent = `Ошибка: ${e.message}`;
+    }
+}
+
+async function applyReassign() {
+    if (!currentSensorId) return;
+    const payload = _reassignPayload();
+    if (!payload) return;
+    if (!confirm(`Применить переприсвоение на «${roleLabel(payload.new_role)}» с ${payload.valid_from}? ` +
+                 (payload.overwrite_conflicts ? 'Конфликтующие данные будут перезаписаны.' : 'Конфликтующие строки будут пропущены.'))) {
+        return;
+    }
+    const btn = document.getElementById('applyReassignBtn');
+    btn.disabled = true;
+    btn.textContent = 'Применяем…';
+    try {
+        const r = await fetch(`/api/lora-sensors/${currentSensorId}/reassign/apply`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const data = await r.json();
+        if (!r.ok) {
+            alert(`Ошибка: ${data.detail || JSON.stringify(data)}`);
+            btn.disabled = false;
+            btn.textContent = 'Применить';
+            return;
+        }
+        alert(`Готово. pressure_raw: ${data.pg.moved} перенесено (${data.pg.skipped} пропущено). ` +
+              `pressure_readings: ${data.sqlite.moved} перенесено (${data.sqlite.skipped} пропущено). ` +
+              `Скважины пересчитаны: ${data.affected_wells.join(', ') || '—'}`);
+        location.reload();
+    } catch (e) {
+        alert(`Ошибка сети: ${e.message}`);
+        btn.disabled = false;
+        btn.textContent = 'Применить';
+    }
+}
+
+async function runBackfill() {
+    if (!currentSensorId) return;
+    const btn = document.getElementById('backfillBtn');
+    const box = document.getElementById('backfillResult');
+    const sinceVal = (document.getElementById('backfill_since').value || '').trim();
+    const payload = { in_background: true };
+    if (sinceVal) payload.since = sinceVal;
+    btn.disabled = true;
+    btn.textContent = 'Запускаем…';
+    box.style.display = 'none';
+    try {
+        const r = await fetch(`/api/lora-sensors/${currentSensorId}/backfill`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const data = await r.json();
+        if (!r.ok) {
+            box.style.background = '#f8d7da';
+            box.style.color = '#842029';
+            box.textContent = `Ошибка: ${data.detail || JSON.stringify(data)}`;
+        } else {
+            box.style.background = '#d1e7dd';
+            box.style.color = '#0f5132';
+            box.textContent = `${data.message || 'Готово'} С даты: ${data.since_local}`;
+        }
+        box.style.display = 'block';
+    } catch (e) {
+        box.style.background = '#f8d7da';
+        box.style.color = '#842029';
+        box.textContent = `Ошибка сети: ${e.message}`;
+        box.style.display = 'block';
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Запустить бэкфилл';
+    }
+}
 </script>
 {% endblock %}

@@ -25,6 +25,7 @@ from backend.services.flow_rate.calculator import (
     calculate_flow_rate,
     calculate_cumulative,
 )
+from backend.services.flow_rate.cleaning import clean_pressure, smooth_pressure
 from backend.services.flow_rate.config import FlowRateConfig, DEFAULT_FLOW
 from backend.services.flow_rate.data_access import get_pressure_data, get_choke_mm
 from backend.services.pressure_mask_service import load_active_masks, apply_masks
@@ -112,6 +113,10 @@ class IRVResult:
     duration_hours: float
     choke_mm: Optional[float]
     metrics: IRVMetrics
+    # Сегменты + Score реагента (для общей таблицы ИРВ).
+    # Поле extended содержит результат _compute_extended_metrics.
+    segments: list[dict] = field(default_factory=list)
+    extended: dict = field(default_factory=dict)
     # Для графиков — сырые данные (не сериализуются в JSON)
     pressure_df: Optional[pd.DataFrame] = field(default=None, repr=False)
 
@@ -363,6 +368,32 @@ def _analyze_dp_phases(
 # Сегментация ΔP кривой: рост / плато / спад
 # ---------------------------------------------------------------------------
 
+def _smooth_dp_for_display(
+    df_irv: pd.DataFrame,
+) -> pd.Series:
+    """ΔP, рассчитанная из уже сглаженных p_tube/p_line (Savitzky–Golay
+    сделан выше, в `_compute_irv_metrics`) с ресэмплом на 1 мин.
+
+    Используется для:
+      * визуализации в модалке («ΔP сглаж.»)
+      * расчёта peak_dp_gain в extended-метриках.
+
+    Дополнительного сглаживания НЕ применяем — ряд уже прошёл тот же
+    pipeline, что и страница скважины. Это важно: раньше здесь было
+    агрессивное 60мин-median + 20мин-mean, из-за которого пики Q/ΔP
+    шириной < 60 мин смазывались и классифицировались как «плато».
+    """
+    dp_raw = df_irv[["p_tube", "p_line"]].dropna()
+    if len(dp_raw) < 30:
+        return pd.Series(dtype=float)
+    dp = dp_raw["p_tube"] - dp_raw["p_line"]
+    try:
+        dp_1m = dp.resample("1min").mean().interpolate(limit=10)
+    except Exception:
+        dp_1m = dp
+    return dp_1m.dropna()
+
+
 def _detect_segments(
     df_irv: pd.DataFrame,
     event_time: datetime,
@@ -372,13 +403,19 @@ def _detect_segments(
     """
     Определяет участки кривой ΔP: рост, плато, спад.
 
+    Вход: `df_irv` с p_tube/p_line уже прошедшими тот же pipeline, что
+    на странице скважины (`clean_pressure` + `smooth_pressure`, SG w=17).
+    Раньше здесь было собственное агрессивное сглаживание
+    (60мин-median + 20мин-mean), которое смазывало реальные пики Q/ΔP
+    шириной < 60 мин и ошибочно классифицировало их как «плато».
+
     Алгоритм:
-    1. Агрессивное сглаживание (медианный фильтр 60 мин + среднее 20 мин)
-       — убивает краткосрочные спайки
-    2. Скользящий наклон в окне 30 мин (линейная регрессия)
-    3. Классификация каждой точки: rise / plateau / decay по порогу
-    4. Группировка последовательных одинаковых классов в сегменты
-    5. Сегменты короче min_segment_min объединяются с соседями
+    1. ΔP = p_tube − p_line (уже сглаженные SG-фильтром)
+    2. Ресэмпл на 1 мин
+    3. Скользящий наклон в окне 30 мин (линейная регрессия)
+    4. Классификация точек: rise / plateau / decay по slope_threshold
+    5. Группировка последовательных одинаковых классов в сегменты
+    6. Сегменты короче min_segment_min объединяются с соседями
 
     Параметры:
         slope_threshold — кгс/см²/ч, граница между плато и ростом/спадом
@@ -400,18 +437,12 @@ def _detect_segments(
 
     dp = dp_raw["p_tube"] - dp_raw["p_line"]
 
-    # Ресэмпл на 1 мин
+    # Ресэмпл на 1 мин. Дополнительное сглаживание НЕ применяем —
+    # ряд уже сглажен Savitzky–Golay-фильтром в `_compute_irv_metrics`.
     try:
-        dp_1m = dp.resample("1min").mean().interpolate(limit=10)
+        dp_smooth = dp.resample("1min").mean().interpolate(limit=10)
     except Exception:
-        dp_1m = dp
-    if len(dp_1m) < 30:
-        return []
-
-    # Агрессивное сглаживание: медианный фильтр 60 мин (убивает спайки),
-    # затем среднее 20 мин (сглаживает)
-    dp_smooth = dp_1m.rolling(window=60, min_periods=10, center=True).median()
-    dp_smooth = dp_smooth.rolling(window=20, min_periods=5, center=True).mean()
+        dp_smooth = dp
     dp_smooth = dp_smooth.dropna()
     if len(dp_smooth) < 30:
         return []
@@ -506,6 +537,229 @@ def _detect_segments(
     return result
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+#  Расширенные метрики реагента + сводный Score (0..100)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Цель: единая количественная оценка эффективности реагента по ИРВ
+# (Интервалу Реагентного Воздействия), охватывающая все физические аспекты
+# работы: скорость отклика, величину эффекта, длительность плато,
+# характер затухания и коэффициент использования времени.
+#
+# Источник данных:
+#   • Сегменты ИРВ (rise/plateau/decay) из `_detect_segments` —
+#     рассчитаны на сглаженной ΔP-кривой (медиана 60 мин + среднее 20 мин)
+#     ПОСЛЕ применения масок коррекции и удаления LoRa false-zeros.
+#   • Сглаженная ΔP-серия из `_smooth_dp_for_display` — для расчёта
+#     ΔP_peak (максимум за период ИРВ, относительно baseline_dp).
+#
+# Семь метрик (см. `_compute_extended_metrics` ниже):
+#
+#   ┌──────────┬────────────────────────────────┬─────────┬──────────────┬──────┐
+#   │   Код    │ Семантика                      │ Хорошо  │ Норм. диап.  │ Вес  │
+#   ├──────────┼────────────────────────────────┼─────────┼──────────────┼──────┤
+#   │ T_resp   │ от вброса до начала 1-го rise  │ ↓ малое │ 0..2 ч       │ 0.10 │
+#   │ ΔP_peak  │ max(сглаж.ΔP) − baseline_dp    │ ↑ больш.│ 0..3 кгс/см² │ 0.25 │
+#   │ V_rise   │ slope первого rise             │ ↑ больш.│ 0..1 кгс/см²/ч│ 0.10 │
+#   │ T_plat.  │ Σ длит. plateau-сегментов      │ ↑ больш.│ 0..6 ч       │ 0.20 │
+#   │ V_decay  │ взвеш. сред. |slope| decay     │ ↓ малая │ 0..1 кгс/см²/ч│ 0.15 │
+#   │ T_decay  │ Σ длит. decay-сегментов        │ ↑ больш.│ 0..12 ч      │ 0.15 │
+#   │ M5       │ utilisation (рабочих минут %)  │ ↑ больш.│ 0..100 %     │ 0.05 │
+#   └──────────┴────────────────────────────────┴─────────┴──────────────┴──────┘
+#
+#   Σ весов = 1.00. Score = 100 × Σ(w_i × n_i),
+#   где n_i ∈ [0..1] — нормализованное значение по диапазону lo..hi.
+#   Для T_resp и V_decay используется (1 − n_i) — «меньше = лучше».
+#
+# Категории:
+#   Score ≥ 70   →  "good"     🟢  «реагент работает хорошо»
+#   45 ≤ S < 70  →  "average"  🟡  «средняя эффективность»
+#   Score < 45   →  "weak"     🔴  «слабый эффект / другой реагент»
+#
+# Физическая интерпретация (важно для отчёта об адаптации):
+#   • Рост ΔP   = реагент вспенивает флюид, облегчая вынос воды (ПОЛОЖИТЕЛЬНО).
+#   • Плато     = стабильное действие; дольше — лучше.
+#   • Спад      = затухание эффекта. МЕДЛЕННЫЙ спад лучше резкого:
+#                 длительность T_decay ↑ полезна, скорость |V_decay| ↓ полезна.
+#   • Только plateau без rise/decay → реагент НЕ контактирует с водой,
+#                                     рекомендовать другой состав.
+#   • Рост Q (отдельно) = эффективность реагента + удаление воды
+#                         (НЕ «активизация газопроявления» — это неверная
+#                         формулировка для нашего контекста).
+#
+# Где используется в системе:
+#   1. `get_irv_detail()` → result["extended_metrics"]
+#      → отображается в модалке ИРВ (большая Score-плашка + таблица из 7 строк
+#        с цветовой индикацией ячеек по нормализованному значению).
+#   2. `analyze_reagent_effectiveness()` → IRVResult.extended
+#      → отображается как колонка «Score» в основной таблице ИРВ
+#        (с цветным фоном по категории + сортировкой по клику).
+#
+# Пользовательская документация: блок `<details>` «ⓘ как считается?»
+# в `templates/reagent_analysis.html` — там же описание для оператора.
+#
+# Калибровка: при накоплении реальных данных пересмотреть _SCORE_WEIGHTS
+# и пороги lo/hi в _compute_extended_metrics. Согласовано с владельцем
+# 2026-04-23.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+# Веса Score (сумма = 1.00). Можно откалибровать по реальным данным.
+_SCORE_WEIGHTS = {
+    "peak":     0.25,
+    "plateau":  0.20,
+    "decay_t":  0.15,
+    "decay_v":  0.15,  # уже инвертировано
+    "resp":     0.10,  # уже инвертировано
+    "rise":     0.10,
+    "util":     0.05,
+}
+
+
+def _norm(value: Optional[float], lo: float, hi: float) -> float:
+    """Нормализация в [0..1] с обрезанием за границы."""
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return 0.0
+    if hi <= lo:
+        return 0.0
+    return float(max(0.0, min(1.0, (value - lo) / (hi - lo))))
+
+
+def _compute_extended_metrics(
+    segments: list[dict],
+    baseline_dp: Optional[float],
+    dp_smoothed: pd.Series,
+    utilisation_pct: Optional[float] = None,
+) -> dict:
+    """Расширенные метрики реагента + сводный Score (0..100).
+
+    Параметры
+    ---------
+    segments    — выход _detect_segments (список, отсортирован по времени)
+    baseline_dp — медиана ΔP в pre-window
+    dp_smoothed — сглаженная серия ΔP внутри ИРВ (для peak)
+    utilisation_pct — M5
+    """
+    rises    = [s for s in segments if s.get("type") == "rise"]
+    plateaus = [s for s in segments if s.get("type") == "plateau"]
+    decays   = [s for s in segments if s.get("type") == "decay"]
+
+    # T_resp — час до начала первого rise (если есть). Если первый сегмент —
+    # rise и start_hours≤0, считаем T_resp=0.
+    response_time = None
+    if rises:
+        response_time = max(0.0, float(rises[0]["start_hours"]))
+
+    # ΔP_peak gain — относительно baseline (если baseline неизвестен, считаем 0).
+    peak_dp = None
+    peak_dp_gain = None
+    if dp_smoothed is not None and len(dp_smoothed) > 0:
+        try:
+            peak_dp = float(dp_smoothed.max())
+            if baseline_dp is not None:
+                peak_dp_gain = round(peak_dp - float(baseline_dp), 3)
+            else:
+                peak_dp_gain = round(peak_dp, 3)
+            peak_dp = round(peak_dp, 3)
+        except Exception:
+            pass
+
+    # V_rise — slope первого rise.
+    rise_slope = round(float(rises[0]["slope"]), 4) if rises else None
+
+    # T_plateau, T_decay — сумма длительностей.
+    plateau_total = round(sum(float(s["duration_hours"]) for s in plateaus), 2) if plateaus else 0.0
+    decay_total   = round(sum(float(s["duration_hours"]) for s in decays), 2) if decays else 0.0
+
+    # V_decay — взвешенный по длительности средний |slope|.
+    decay_v_abs = None
+    if decays:
+        total_w = sum(float(s["duration_hours"]) for s in decays)
+        if total_w > 0:
+            decay_v_abs = round(
+                sum(abs(float(s["slope"])) * float(s["duration_hours"])
+                    for s in decays) / total_w,
+                4,
+            )
+
+    # T_effect — от вброса до конца последнего decay (или последнего сегмента).
+    effect_total = None
+    if segments:
+        effect_total = round(float(segments[-1]["end_hours"]), 2)
+
+    # ── Score: нормализуем + взвешенно складываем ──
+    n_peak    = _norm(peak_dp_gain, 0.0, 3.0)
+    n_plat    = _norm(plateau_total, 0.0, 6.0)
+    n_decay_t = _norm(decay_total, 0.0, 12.0)
+    n_decay_v = 1.0 - _norm(decay_v_abs, 0.0, 1.0)   # инвертируем
+    n_resp    = 1.0 - _norm(response_time, 0.0, 2.0) # инвертируем
+    n_rise    = _norm(rise_slope, 0.0, 1.0)
+    n_util    = _norm(utilisation_pct, 0.0, 100.0)
+
+    w = _SCORE_WEIGHTS
+    score = 100.0 * (
+        w["peak"]    * n_peak
+        + w["plateau"] * n_plat
+        + w["decay_t"] * n_decay_t
+        + w["decay_v"] * n_decay_v
+        + w["resp"]    * n_resp
+        + w["rise"]    * n_rise
+        + w["util"]    * n_util
+    )
+
+    # Качественная категория
+    if score >= 70:
+        category = "good"
+    elif score >= 45:
+        category = "average"
+    else:
+        category = "weak"
+
+    # Краткий вывод
+    parts: list[str] = []
+    if response_time is not None:
+        parts.append(
+            f"отклик {response_time:.1f}ч"
+            + (" (быстрый)" if response_time <= 0.5 else
+               " (медленный)" if response_time > 1.5 else "")
+        )
+    if peak_dp_gain is not None:
+        parts.append(f"пик ΔP +{peak_dp_gain:.2f} кгс/см²")
+    if plateau_total > 0:
+        parts.append(f"плато {plateau_total:.1f}ч")
+    if decay_total > 0 and decay_v_abs is not None:
+        parts.append(
+            f"спад {decay_total:.1f}ч (|v|={decay_v_abs:.3f}/ч"
+            + (", медленный)" if decay_v_abs < 0.2 else
+               ", быстрый)" if decay_v_abs > 0.5 else ")")
+        )
+    summary = "; ".join(parts) if parts else "недостаточно данных"
+
+    return {
+        "response_time_h":  response_time,
+        "peak_dp":          peak_dp,
+        "peak_dp_gain":     peak_dp_gain,
+        "rise_slope":       rise_slope,
+        "plateau_total_h":  plateau_total,
+        "decay_total_h":    decay_total,
+        "decay_v_abs":      decay_v_abs,
+        "effect_total_h":   effect_total,
+        "score":            round(score, 1),
+        "category":         category,
+        "summary":          summary,
+        # Нормализованные значения — для возможной отладки/тюнинга
+        "normalized": {
+            "peak": round(n_peak, 3),
+            "plateau": round(n_plat, 3),
+            "decay_t": round(n_decay_t, 3),
+            "decay_v": round(n_decay_v, 3),
+            "resp": round(n_resp, 3),
+            "rise": round(n_rise, 3),
+            "util": round(n_util, 3),
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # Подготовка ΔP кривой для графика (прореженная)
 # ---------------------------------------------------------------------------
@@ -574,10 +828,25 @@ def _compute_irv_metrics(
         metrics.invalid_reason = "нет данных давления"
         return metrics, None
 
-    # --- Применяем маски давления ---
-    masks = load_active_masks(well_id, pre_start, t_end, verified_only=True)
+    # --- Очистка от LoRa false-zeros (SMOD-PT-60 ~4% времени даёт 0.0
+    # вместо реального значения; реальное p_tube/p_line физически > 0).
+    # Делается ДО применения масок чтобы маски видели NaN, а не 0.
+    df_full["p_tube"] = df_full["p_tube"].where(df_full["p_tube"] > 0)
+    df_full["p_line"] = df_full["p_line"].where(df_full["p_line"] > 0)
+
+    # --- Применяем ВСЕ active маски (как делает /api/flow-rate/calculate
+    # и страница /well — единый pipeline для всей системы).
+    masks = load_active_masks(well_id, pre_start, t_end)
     if masks:
         df_full, _ = apply_masks(df_full, masks)
+
+    # --- Единый pipeline со страницей скважины и /api/flow-rate/calculate:
+    # clean_pressure (ffill/bfill) → smooth_pressure (Savitzky–Golay,
+    # окно 17 мин, polyorder 3, 2 прохода). БЕЗ этого сегментация
+    # теряла реальные пики/впадины из-за внутреннего агрессивного
+    # сглаживания медианой 60 мин + средним 20 мин.
+    df_full = clean_pressure(df_full)
+    df_full = smooth_pressure(df_full)
 
     # --- Baseline ΔP (pre-window) ---
     pre_end = inj.event_time
@@ -905,6 +1174,18 @@ def analyze_reagent_effectiveness(
             well_id, inj, t_start, t_end,
             choke_mm, flow_cfg, cfg,
         )
+        # Сегменты + extended (Score) — для сводной таблицы ИРВ.
+        segs: list[dict] = []
+        ext: dict = {}
+        if df is not None and not df.empty:
+            df_irv_only = df.loc[t_start:t_end]
+            segs = _detect_segments(df_irv_only, inj.event_time)
+            dp_smoothed = _smooth_dp_for_display(df_irv_only)
+            ext = _compute_extended_metrics(
+                segments=segs, baseline_dp=metrics.baseline_dp,
+                dp_smoothed=dp_smoothed,
+                utilisation_pct=metrics.utilisation_pct,
+            )
         irv_results.append(IRVResult(
             injection=inj,
             t_start=t_start,
@@ -912,6 +1193,8 @@ def analyze_reagent_effectiveness(
             duration_hours=round(duration_hours, 2),
             choke_mm=choke_mm,
             metrics=metrics,
+            segments=segs,
+            extended=ext,
             pressure_df=df if include_pressure_data else None,
         ))
 
@@ -1012,6 +1295,21 @@ def get_irv_detail(
                 if choke_mm and choke_mm > 0:
                     chart_df = calculate_flow_rate(chart_df, choke_mm, flow_cfg)
                     chart_df = calculate_cumulative(chart_df)
+                    # calculate_flow_rate возвращает Q=0 для строк, где
+                    # (p_tube ≤ p_line) ИЛИ (p_tube/p_line = NaN после масок и
+                    # false-zero фильтра LoRa SMOD-PT-60). На графике это выглядит
+                    # как драматичные провалы до нуля, хотя реально это «нет
+                    # валидных данных». Приводим такие строки к NaN чтобы Chart.js
+                    # с spanGaps=true рисовал непрерывную линию по валидным
+                    # точкам, а реальные длинные простои оставались разрывами.
+                    idle_mask = ~(
+                        chart_df["p_tube"].notna()
+                        & chart_df["p_line"].notna()
+                        & (chart_df["p_tube"] > chart_df["p_line"])
+                        & ((chart_df["p_tube"] - chart_df["p_line"]) > 0.1)
+                    )
+                    chart_df.loc[idle_mask, "flow_rate"] = np.nan
+                    chart_df.loc[idle_mask, "cumulative_flow"] = np.nan
 
                 result["chart_data"] = {
                     "timestamps": [t.isoformat() for t in chart_df.index],
@@ -1035,6 +1333,25 @@ def get_irv_detail(
                 df_irv_only = df.loc[t_start:t_end]
                 segments = _detect_segments(df_irv_only, inj.event_time)
                 result["segments"] = segments
+
+                # Сглаженная ΔP-кривая для отображения (ось X — абсолютное время).
+                dp_smoothed = _smooth_dp_for_display(df_irv_only)
+                if len(dp_smoothed) > 0:
+                    # Прореживаем до ~500 точек для скорости отрисовки
+                    step = max(1, len(dp_smoothed) // 500)
+                    s = dp_smoothed.iloc[::step]
+                    result["dp_smoothed"] = {
+                        "timestamps": [t.isoformat() for t in s.index],
+                        "values":     [_safe_float(v) for v in s.values],
+                    }
+
+                # Расширенные метрики реагента + Score
+                result["extended_metrics"] = _compute_extended_metrics(
+                    segments=segments,
+                    baseline_dp=metrics.baseline_dp,
+                    dp_smoothed=dp_smoothed,
+                    utilisation_pct=metrics.utilisation_pct,
+                )
 
             return result
 
@@ -1102,6 +1419,10 @@ def get_overlay_data(
         masks = load_active_masks(well_id, inj.event_time, t_end, verified_only=True)
         if masks:
             df, _ = apply_masks(df, masks)
+
+        # Единый pipeline со страницей скважины: clean + Savitzky–Golay.
+        df = clean_pressure(df)
+        df = smooth_pressure(df)
 
         dp_curve = _build_dp_curve(df, inj.event_time, cfg.smoothing_window_min, max_points=300)
         if not dp_curve:
@@ -1194,6 +1515,9 @@ def _irv_to_dict(irv: IRVResult) -> dict:
             "invalid_reason": m.invalid_reason,
             "phases": _phases_to_dict(m.phases) if m.phases else None,
         },
+        # Сегменты + Score (видны в основной таблице как колонка Score)
+        "segments": irv.segments or [],
+        "extended": irv.extended or {},
     }
 
 

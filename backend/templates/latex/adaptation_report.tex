@@ -69,15 +69,17 @@
 \vspace{0.5em}
 
 % ═══════════════════════════════════════════════════════════════
-%  1. ОПИСАНИЕ СКВАЖИНЫ
+%  1. ТЕХНИЧЕСКИЕ ДАННЫЕ  (toggle: include_sections.well_info)
 % ═══════════════════════════════════════════════════════════════
-\section*{1. Описание скважины}
+\BLOCK{ if include_sections.well_info }
+\section*{1. Технические данные}
 
-{\scriptsize Табл.~1.1. Параметры скважины.}
+% ── 1.1. Сводная таблица параметров ──
+{\scriptsize Табл.~1.1. Сводные параметры.}
 \vspace{0.2em}
 
 {\footnotesize
-\begin{tabularx}{\textwidth}{|P{4cm}|X|}
+\begin{tabularx}{\textwidth}{|p{0.30\textwidth}|X|}
 \hline
 \textbf{Параметр} & \textbf{Значение} \\
 \hline
@@ -87,22 +89,109 @@
 \hline
 Пласт / Горизонт & \VAR{well.horizon} \\
 \hline
-Диаметр штуцера, мм & \VAR{well.choke_mm} \\
+Диаметр штуцера, мм & \VAR{well.choke_mm}
+\BLOCK{ if well.choke_history and well.choke_history|length > 1 }
+\newline
+{\scriptsize\textit{история:
+\BLOCK{ for h in well.choke_history }\VAR{h.data_as_of or '—'}~{:}~\VAR{'%g'|format(h.choke_mm)}\,мм\BLOCK{ if not loop.last }; \BLOCK{ endif }\BLOCK{ endfor }}}
+\BLOCK{ endif } \\
 \hline
-\BLOCK{ if work_start_date }
-Дата начала работ & \VAR{work_start_date} \\
-\hline
-\BLOCK{ endif }
 Дата начала наблюдения & \VAR{observation.date_from} \\
-\hline
-Дата начала адаптации & \VAR{adaptation.date_from} \\
 \hline
 \end{tabularx}
 }
 
+% ── Карта на всю ширину, высотой не более 30% страницы ──
+\BLOCK{ if well.map_chart_path }
+\vspace{0.4em}
+
+\begin{center}
+\includegraphics[width=\textwidth,height=0.30\textheight,keepaspectratio]{\VAR{well.map_chart_path}}
+\end{center}
+{\scriptsize\centering Рис.~1.1. Расположение относительно соседних скважин.
+\textcolor{red!70!black}{\textbf{★}}~--- скв. №\VAR{well.number};
+\textcolor{gray!70!black}{\textbullet}~--- соседние скважины.\par}
+\BLOCK{ endif }
+
+\vspace{0.4em}
+
+% ── 1.2. Конструкция скважины ──
+\BLOCK{ if well.construction }
+\subsection*{1.2. Конструкция скважины}
+
+{\scriptsize Табл.~1.2. Параметры конструкции.}
+\vspace{0.2em}
+
+{\footnotesize
+\begin{tabularx}{\textwidth}{|p{0.68\textwidth}|X|}
+\hline
+\textbf{Параметр} & \textbf{Значение} \\
+\hline
+\BLOCK{ if well.construction.prod_casing_diam_mm is not none }
+Диаметр эксплуатационной колонны, мм & \VAR{'%g'|format(well.construction.prod_casing_diam_mm)} \\
+\hline
+\BLOCK{ endif }
+\BLOCK{ if well.construction.prod_casing_depth_m is not none }
+Глубина спуска эксплуатационной колонны, м & \VAR{'%g'|format(well.construction.prod_casing_depth_m)} \\
+\hline
+\BLOCK{ endif }
+\BLOCK{ if well.construction.current_bottomhole_m is not none }
+Текущий забой, м & \VAR{'%g'|format(well.construction.current_bottomhole_m)} \\
+\hline
+\BLOCK{ endif }
+\BLOCK{ if well.construction.tubing_diam_mm is not none }
+Диаметр НКТ, мм & \VAR{'%g'|format(well.construction.tubing_diam_mm)} \\
+\hline
+\BLOCK{ endif }
+\BLOCK{ if well.construction.tubing_shoe_depth_m is not none }
+Глубина башмака НКТ, м & \VAR{'%g'|format(well.construction.tubing_shoe_depth_m)} \\
+\hline
+\BLOCK{ endif }
+\BLOCK{ if well.construction.packer_depth_m is not none }
+Глубина пакера, м & \VAR{'%g'|format(well.construction.packer_depth_m)} \\
+\hline
+\BLOCK{ endif }
+\BLOCK{ if well.construction.adapter_depth_m is not none }
+Глубина переводника, м & \VAR{'%g'|format(well.construction.adapter_depth_m)} \\
+\hline
+\BLOCK{ endif }
+\BLOCK{ if well.construction.pattern_stuck_depth_m is not none }
+Глубина непрохода шаблона, м & \VAR{'%g'|format(well.construction.pattern_stuck_depth_m)} \\
+\hline
+\BLOCK{ endif }
+\BLOCK{ if well.construction.data_as_of }
+Дата актуализации & \VAR{well.construction.data_as_of} \\
+\hline
+\BLOCK{ endif }
+\end{tabularx}
+}
+
+\BLOCK{ if well.perforation and well.perforation|length > 0 }
+\vspace{0.3em}
+{\scriptsize Табл.~1.3. Интервалы перфорации.}
+\vspace{0.2em}
+
+{\footnotesize
+\begin{tabularx}{\textwidth}{|C{2cm}|R{4cm}|R{4cm}|X|}
+\hline
+\textbf{№} & \textbf{Сверху, м} & \textbf{Снизу, м} & \textbf{Мощность, м} \\
+\hline
+%% for p in well.perforation
+\VAR{p.interval_index}
+& \BLOCK{ if p.top_depth_m is not none }\VAR{'%g'|format(p.top_depth_m)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if p.bottom_depth_m is not none }\VAR{'%g'|format(p.bottom_depth_m)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if p.top_depth_m is not none and p.bottom_depth_m is not none }\VAR{'%g'|format(p.bottom_depth_m - p.top_depth_m)}\BLOCK{ else }---\BLOCK{ endif } \\
+\hline
+%% endfor
+\end{tabularx}
+}
+\BLOCK{ endif }
+\BLOCK{ endif }
+%# /1.2. Конструкция скважины
+
 \BLOCK{ if equipment_acts }
 \vspace{0.3em}
-{\scriptsize Табл.~1.2. Установленное оборудование (акты).}
+{\scriptsize Табл.~1.4. Установленное оборудование (акты).}
 \vspace{0.2em}
 
 {\footnotesize
@@ -119,31 +208,209 @@
 \BLOCK{ endif }
 
 \vspace{0.3em}
+\BLOCK{ endif }
+%# /1. Технические данные
 
 % ═══════════════════════════════════════════════════════════════
-%  2. ДАННЫЕ ЗАКАЗЧИКА (заглушка)
+%  2. АНАЛИЗ ИСХОДНЫХ ДАННЫХ  (toggle: include_sections.customer_data)
 % ═══════════════════════════════════════════════════════════════
-\section*{2. Анализ работы скважины по данным заказчика}
+\BLOCK{ if include_sections.customer_data and customer_chapter and customer_chapter.periods }
+\section*{2. Анализ исходных данных (по данным заказчика)}
 
 {\footnotesize
-\begin{tabular}{|p{\dimexpr\textwidth-2\tabcolsep-2\arrayrulewidth}|}
-\hline
-\centering\textit{Данные будут добавлены после загрузки Excel-файла заказчика.} \\
-\hline
-\end{tabular}
+Источник --- суточные сводки заказчика (таблица well\_daily, выгрузка УзКорГаз).
+Шаг измерений: 1 запись в сутки. Анализируемые параметры:
+$P_\text{уст}$, $P_\text{затр}$, $P_\text{лин}$, $P_\text{статич}$ (кгс/см²),
+$Q$ общий и рабочий (тыс.м³/сут), простой (мин/сут), штуцер (мм).
+$\Delta P = P_\text{уст} - P_\text{лин}$ (по строкам, неотрицательно).
+Тренды считаются как наклон линейной регрессии параметра по времени
+(единица --- ед.~параметра~/~сут.).
+В этой главе данные только описываются; сравнений с baseline нет.
+В отчёт включено \VAR{customer_chapter.periods | length} период(а/ов).
 }
 
 \vspace{0.3em}
 
+% Каждый период анализа отдельной подсекцией
+%% for p in customer_chapter.periods
+\subsection*{2.\VAR{loop.index}. Период \VAR{p.period_from}~--~\VAR{p.period_to}}
+
+% Сводка периода (динамические числа)
+\BLOCK{ if p.period_summary }
+{\footnotesize \VAR{p.period_summary}}
+
+\vspace{0.3em}
+\BLOCK{ endif }
+
+\BLOCK{ if p.description_tex }
+{\footnotesize \textit{\VAR{p.description_tex}}}
+
+\vspace{0.3em}
+\BLOCK{ endif }
+
+% ─── Графики (4 шт.): давления, ΔP, дебиты+простой, помесячно ───
+\BLOCK{ if p.chart_paths and p.chart_paths.pressures }
+\vspace{0.2em}
+\begin{center}
+\includegraphics[width=\textwidth,height=0.28\textheight,keepaspectratio]{\VAR{p.chart_paths.pressures}}
+\end{center}
+{\scriptsize \textbf{Рис.~2.\VAR{loop.index}.1.} Давления (P\textsubscript{уст}, P\textsubscript{затр}, P\textsubscript{лин}, P\textsubscript{статич}) по суткам.\BLOCK{ if p.chart_captions and p.chart_captions.pressures } \VAR{p.chart_captions.pressures}\BLOCK{ endif }}
+\BLOCK{ endif }
+
+\BLOCK{ if p.chart_paths and p.chart_paths.dp }
+\vspace{0.3em}
+\begin{center}
+\includegraphics[width=\textwidth,height=0.25\textheight,keepaspectratio]{\VAR{p.chart_paths.dp}}
+\end{center}
+{\scriptsize \textbf{Рис.~2.\VAR{loop.index}.2.} Перепад давления $\Delta P$.\BLOCK{ if p.chart_captions and p.chart_captions.dp } \VAR{p.chart_captions.dp}\BLOCK{ endif }}
+\BLOCK{ endif }
+
+\BLOCK{ if p.chart_paths and p.chart_paths.flow_dt }
+\vspace{0.3em}
+\begin{center}
+\includegraphics[width=\textwidth,height=0.28\textheight,keepaspectratio]{\VAR{p.chart_paths.flow_dt}}
+\end{center}
+{\scriptsize \textbf{Рис.~2.\VAR{loop.index}.3.} Дебиты (Q общий и рабочий) и простой по суткам.\BLOCK{ if p.chart_captions and p.chart_captions.flow_dt } \VAR{p.chart_captions.flow_dt}\BLOCK{ endif }}
+\BLOCK{ endif }
+
+\BLOCK{ if p.chart_paths and p.chart_paths.monthly }
+\vspace{0.3em}
+\begin{center}
+\includegraphics[width=\textwidth,keepaspectratio]{\VAR{p.chart_paths.monthly}}
+\end{center}
+{\scriptsize \textbf{Рис.~2.\VAR{loop.index}.4.} Помесячно: общий и рабочий дебит (среднее и медиана).}
+\BLOCK{ endif }
+
+% ─── Описательная статистика за период ───
+\BLOCK{ if p.describe and p.describe|length > 0 }
+\vspace{0.5em}
+{\scriptsize \textbf{Табл.~2.\VAR{loop.index}.1.} Описательная статистика за период (\VAR{p.days_count or 0}~сут.).}
+\vspace{0.2em}
+
+{\scriptsize
+\begin{tabularx}{\textwidth}{|X|R{0.9cm}|R{1.6cm}|R{1.4cm}|R{1.4cm}|R{1.6cm}|R{1.4cm}|}
+\hline
+\textbf{Параметр} & \textbf{N} & \textbf{Среднее} & \textbf{СКО} &
+\textbf{Мин} & \textbf{Медиана} & \textbf{Макс} \\
+\hline
+%% for r in p.describe
+\VAR{r.label} & \VAR{r.n}
+& \BLOCK{ if r.mean   is not none }\VAR{'%.2f'|format(r.mean)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if r.std    is not none }\VAR{'%.2f'|format(r.std)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if r.min    is not none }\VAR{'%.2f'|format(r.min)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if r.median is not none }\VAR{'%.2f'|format(r.median)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if r.max    is not none }\VAR{'%.2f'|format(r.max)}\BLOCK{ else }---\BLOCK{ endif } \\
+\hline
+%% endfor
+\end{tabularx}
+}
+
+\vspace{0.1em}
+{\scriptsize \textit{Пояснения:} \textbf{N} --- число суточных записей с непустым значением;
+\textbf{СКО} --- среднеквадратичное отклонение (разброс относительно среднего).
+Медиана устойчивее к выбросам, чем среднее.}
+\BLOCK{ endif }
+
+% ─── Помесячная агрегация и тренды ───
+\BLOCK{ if p.months and p.months|length > 0 }
+\vspace{0.4em}
+{\scriptsize \textbf{Табл.~2.\VAR{loop.index}.2.} Помесячная агрегация и тренды.}
+\vspace{0.2em}
+
+{\scriptsize
+\begin{tabularx}{\textwidth}{|X|R{0.8cm}|R{1.2cm}|R{1.2cm}|R{1.2cm}|R{1.2cm}|R{1.0cm}|R{1.0cm}|R{1.4cm}|R{1.4cm}|}
+\hline
+\textbf{Месяц} & \textbf{Дней}
+& \textbf{Q общ. ср.} & \textbf{Q общ. мед.}
+& \textbf{Q раб. ср.} & \textbf{Q раб. мед.}
+& \textbf{ΔP ср.} & \textbf{ΔP мед.}
+& \textbf{Тренд Q} & \textbf{Тренд ΔP} \\
+\hline
+%% for m in p.months
+\VAR{m.month_label} & \VAR{m.days}
+& \BLOCK{ if m.mean_q_total     is not none }\VAR{'%.2f'|format(m.mean_q_total)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if m.median_q_total   is not none }\VAR{'%.2f'|format(m.median_q_total)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if m.mean_q_working   is not none }\VAR{'%.2f'|format(m.mean_q_working)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if m.median_q_working is not none }\VAR{'%.2f'|format(m.median_q_working)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if m.mean_dp          is not none }\VAR{'%.2f'|format(m.mean_dp)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if m.median_dp        is not none }\VAR{'%.2f'|format(m.median_dp)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if m.trend_q_total    is not none }\VAR{'%+.3f'|format(m.trend_q_total)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if m.trend_dp         is not none }\VAR{'%+.3f'|format(m.trend_dp)}\BLOCK{ else }---\BLOCK{ endif } \\
+\hline
+%% endfor
+\end{tabularx}
+}
+
+\vspace{0.1em}
+{\scriptsize \textit{Пояснения:} тренды --- наклон линейной регрессии за месяц
+(\textbf{Тренд Q} --- прирост тыс.м³/сут за день; \textbf{Тренд ΔP} --- прирост кгс/см² за день).
+Положительное значение --- рост за месяц, отрицательное --- снижение.}
+\BLOCK{ endif }
+
+% ─── Описание по месяцам (помесячный анализ) ───
+\BLOCK{ if p.month_descriptions and p.month_descriptions|length > 0 }
+\vspace{0.3em}
+{\footnotesize\textbf{Помесячный анализ}}
+\vspace{0.1em}
+
+{\footnotesize
+\begin{itemize}\setlength{\itemsep}{2pt}
+%% for d in p.month_descriptions
+\item \textbf{\VAR{d.label}.} \VAR{d.text}
+%% endfor
+\end{itemize}
+}
+\BLOCK{ endif }
+
+\vspace{0.5em}
+
+%% endfor
+
+\newpage
+
+\BLOCK{ else }
+% Заглушка если глава не включена
+\BLOCK{ endif }
+
 % ═══════════════════════════════════════════════════════════════
-%  3. ЭТАП НАБЛЮДЕНИЯ
+%  3. ЭТАП НАБЛЮДЕНИЯ  (toggle: include_sections.observation)
 % ═══════════════════════════════════════════════════════════════
+\BLOCK{ if include_sections.observation }
 \section*{3. Этап наблюдения}
 
 \subsection*{3.1. Период и описание}
 
+\BLOCK{ if observation.intro and observation.intro.intro_text }
+{\footnotesize \VAR{observation.intro.intro_text}}
+
+\vspace{0.3em}
+\BLOCK{ endif }
+
+\BLOCK{ if observation.intro and observation.intro.sensors and observation.intro.sensors|length > 0 }
+{\scriptsize \textbf{Табл.~3.0.} Датчики давления, установленные на скважине.}
+\vspace{0.2em}
+
+{\scriptsize
+\begin{tabularx}{\textwidth}{|R{3cm}|X|R{2.4cm}|R{2.6cm}|}
+\hline
+\textbf{Серийный номер} & \textbf{Метка} & \textbf{Положение} & \textbf{Дата установки} \\
+\hline
+%% for s in observation.intro.sensors
+\VAR{s.serial} & \VAR{s.label or '---'} & \VAR{s.position_label} & \VAR{s.installed_at_fmt or '---'} \\
+\hline
+%% endfor
+\end{tabularx}
+}
+
+\vspace{0.3em}
+\BLOCK{ endif }
+
 {\footnotesize
-Период: \VAR{observation.date_from}~---~\VAR{observation.date_to} (\VAR{observation.duration_days}~сут.).
+Период наблюдения: \VAR{observation.date_from}~---~\VAR{observation.date_to} (\VAR{observation.duration_days}~сут.).
+\BLOCK{ if observation.choke_label }
+
+Штуцер на этапе: \VAR{observation.choke_label}.
+\BLOCK{ endif }
 \BLOCK{ if observation.description }
 
 Описание: \VAR{observation.description}
@@ -158,36 +425,36 @@
 \vspace{0.2em}
 
 {\footnotesize
-\begin{tabularx}{\textwidth}{|X|R{2.2cm}|R{2.2cm}|R{2.2cm}|}
+\begin{tabularx}{\textwidth}{|P{4.2cm}|R{2cm}|C{2cm}|X|}
 \hline
 \textbf{Параметр} & \textbf{Значение} & \textbf{Единица} & \textbf{Примечание} \\
 \hline
-$P_{\text{тр}}$ (медиана) & \VAR{observation.p_tube_median_fmt} & кгс/см$^2$ & Давление трубное \\
+$P_{\text{тр}}$ (медиана) & \VAR{observation.p_tube_median_fmt} & кгс/см$^2$ & Трубное давление до штуцера, медиана за этап \\
 \hline
-$P_{\text{лин}}$ (медиана) & \VAR{observation.p_line_median_fmt} & кгс/см$^2$ & Давление линейное \\
+$P_{\text{лин}}$ (медиана) & \VAR{observation.p_line_median_fmt} & кгс/см$^2$ & Линейное давление после штуцера, медиана за этап \\
 \hline
-$\Delta P$ (медиана) & \VAR{observation.dp_median_fmt} & кгс/см$^2$ & Перепад \\
+$\Delta P$ (медиана) & \VAR{observation.dp_median_fmt} & кгс/см$^2$ & Перепад $P_{\text{тр}} - P_{\text{лин}}$, медиана за этап \\
 \hline
 \BLOCK{ if observation.dp_trend }
 Тренд $\Delta P$ & \VAR{observation.dp_trend_fmt} & кгс/см$^2$/сут &
-\BLOCK{ if observation.dp_trend.direction == "up" }$\uparrow$ Рост
-\BLOCK{ elif observation.dp_trend.direction == "down" }$\downarrow$ Снижение
-\BLOCK{ else }$\rightarrow$ Стабильно\BLOCK{ endif } \\
+\BLOCK{ if observation.dp_trend.direction == "up" }$\uparrow$ Рост перепада: улучшение работы скважины (более стабильный режим, рост дебита)
+\BLOCK{ elif observation.dp_trend.direction == "down" }$\downarrow$ Снижение перепада: ослабление работы скважины
+\BLOCK{ else }$\rightarrow$ Стабильно, без выраженного тренда\BLOCK{ endif } \\
 \hline
 \BLOCK{ endif }
-$Q$ медианный & \VAR{observation.flow_median_fmt} & тыс.м$^3$/сут & --- \\
+$Q$ медианный & \VAR{observation.flow_median_fmt} & тыс.м$^3$/сут & Медиана мгновенного дебита (устойчива к выбросам) \\
 \hline
-$Q$ средний & \VAR{observation.flow_avg_fmt} & тыс.м$^3$/сут & --- \\
+$Q$ средний & \VAR{observation.flow_avg_fmt} & тыс.м$^3$/сут & Среднее арифметическое мгновенного дебита \\
 \hline
-$\Sigma Q$ накопленный & \VAR{observation.flow_cumulative_fmt} & тыс.м$^3$ & За период этапа \\
+$\Sigma Q$ накопленный & \VAR{observation.flow_cumulative_fmt} & тыс.м$^3$ & Накопленная добыча за период этапа \\
 \hline
-$T_{\text{раб}}$ & \VAR{observation.working_hours_fmt} & ч & Часов с $\Delta P > 0.1$ \\
+$T_{\text{раб}}$ & \VAR{observation.working_hours_fmt} & ч & Часов в работе (с $\Delta P > 0{,}1$ кгс/см$^2$) \\
 \hline
-КИВ & \VAR{observation.utilization_pct_fmt}\% & --- & Коэфф. использ. времени \\
+КИВ & \VAR{observation.utilization_pct_fmt}\% & --- & Коэфф. использования времени: $T_{\text{раб}}$ / длительность этапа \\
 \hline
-Простои & \VAR{observation.downtime_hours_fmt} & ч & --- \\
+Простои & \VAR{observation.downtime_hours_fmt} & ч & Суммарное время простоев за этап \\
 \hline
-$L_{\text{простой}}$ & \VAR{observation.downtime_loss_fmt} & тыс.м$^3$ & Потери от простоев \\
+$L_{\text{простой}}$ & \VAR{observation.downtime_loss_fmt} & тыс.м$^3$ & Недополученная добыча из-за простоев \\
 \hline
 \end{tabularx}
 }
@@ -234,21 +501,93 @@ $L_{\text{простой}}$ & \VAR{observation.downtime_loss_fmt} & тыс.м$^3
 \includegraphics[width=\textwidth,height=0.85\textheight,keepaspectratio]{\VAR{observation.combined_chart_path}}
 \end{center}
 
-{\scriptsize Рис.~3.1. Давления, перепад $\Delta P$ и мгновенный дебит Q(t) за этап наблюдения.
+{\scriptsize \textbf{Рис.~3.1.} Давления (трубное и линейное), перепад $\Delta P$ и мгновенный дебит $Q(t)$ за этап наблюдения.
+\BLOCK{ if observation.p_tube_median is not none }Медиана $P_\text{тр}$ \VAR{'%.2f'|format(observation.p_tube_median)}~кгс/см²\BLOCK{ endif }\BLOCK{ if observation.p_line_median is not none }, $P_\text{лин}$ \VAR{'%.2f'|format(observation.p_line_median)}~кгс/см²\BLOCK{ endif }\BLOCK{ if observation.dp_median is not none }, $\Delta P$ \VAR{'%.2f'|format(observation.dp_median)}~кгс/см²\BLOCK{ endif }.
+\BLOCK{ if observation.flow_median is not none }Медианный $Q$ \VAR{'%.2f'|format(observation.flow_median)}, средний \VAR{'%.2f'|format(observation.flow_avg)}~тыс.м³/сут\BLOCK{ endif }\BLOCK{ if observation.flow_cumulative is not none }, накопленная добыча \VAR{'%.1f'|format(observation.flow_cumulative)}~тыс.м³ за период\BLOCK{ endif }.
 Маркеры: зелёные точки --- вбросы реагента, фиолетовый пунктир --- продувки, серые линии --- прочие события.}
 \BLOCK{ endif }
 
+% ── 3.6. Сравнение этапа наблюдения с базовым периодом (если выбран) ──
+\BLOCK{ if obs_vs_baseline and obs_vs_baseline.baseline }
 \newpage
+\subsection*{3.6. Сравнение с базовым периодом (по данным заказчика)}
+
+{\footnotesize
+В качестве базового периода (до начала работ по адаптации) выбран:
+\textbf{\VAR{obs_vs_baseline.baseline.name}}
+(\VAR{obs_vs_baseline.baseline.period_from}~--~\VAR{obs_vs_baseline.baseline.period_to},
+\VAR{obs_vs_baseline.baseline.days_count or 0}~сут.).
+Сравнение характерных значений этапа наблюдения с базовым периодом.
+}
+
+\vspace{0.3em}
+
+{\scriptsize \textbf{Табл.~3.3.} Сравнение этапа наблюдения с базовым периодом.}
+\vspace{0.2em}
+
+{\footnotesize
+\begin{tabularx}{\textwidth}{|X|R{2.4cm}|R{2.4cm}|R{2.0cm}|R{1.8cm}|}
+\hline
+\textbf{Параметр} & \textbf{Базовый период} & \textbf{Этап наблюдения} & \textbf{$\Delta$} & \textbf{$\Delta$, \%} \\
+\hline
+$Q$ медианный, тыс.м³/сут
+& \BLOCK{ if obs_vs_baseline.baseline.q_total_median is not none }\VAR{'%.2f'|format(obs_vs_baseline.baseline.q_total_median)}\BLOCK{ else }---\BLOCK{ endif }
+& \VAR{observation.flow_median_fmt}
+& \BLOCK{ if obs_vs_baseline.customer.delta_q_med is not none }\VAR{'%+.2f'|format(obs_vs_baseline.customer.delta_q_med)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if obs_vs_baseline.customer.delta_q_med_pct is not none }\VAR{'%+.1f'|format(obs_vs_baseline.customer.delta_q_med_pct)}\BLOCK{ else }---\BLOCK{ endif } \\
+\hline
+$\Delta P$ медианный, кгс/см²
+& \BLOCK{ if obs_vs_baseline.baseline.dp_median is not none }\VAR{'%.2f'|format(obs_vs_baseline.baseline.dp_median)}\BLOCK{ else }---\BLOCK{ endif }
+& \VAR{observation.dp_median_fmt}
+& \BLOCK{ if obs_vs_baseline.customer.delta_dp_med is not none }\VAR{'%+.2f'|format(obs_vs_baseline.customer.delta_dp_med)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if obs_vs_baseline.customer.delta_dp_med_pct is not none }\VAR{'%+.1f'|format(obs_vs_baseline.customer.delta_dp_med_pct)}\BLOCK{ else }---\BLOCK{ endif } \\
+\hline
+$P_\text{уст}$ медианный, кгс/см²
+& \BLOCK{ if obs_vs_baseline.baseline.p_wellhead_median is not none }\VAR{'%.2f'|format(obs_vs_baseline.baseline.p_wellhead_median)}\BLOCK{ else }---\BLOCK{ endif }
+& \VAR{observation.p_tube_median_fmt}
+& \BLOCK{ if obs_vs_baseline.customer.delta_p_tube_med is not none }\VAR{'%+.2f'|format(obs_vs_baseline.customer.delta_p_tube_med)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if obs_vs_baseline.customer.delta_p_tube_med_pct is not none }\VAR{'%+.1f'|format(obs_vs_baseline.customer.delta_p_tube_med_pct)}\BLOCK{ else }---\BLOCK{ endif } \\
+\hline
+$P_\text{лин}$ медианный, кгс/см²
+& \BLOCK{ if obs_vs_baseline.baseline.p_flowline_median is not none }\VAR{'%.2f'|format(obs_vs_baseline.baseline.p_flowline_median)}\BLOCK{ else }---\BLOCK{ endif }
+& \VAR{observation.p_line_median_fmt}
+& \BLOCK{ if obs_vs_baseline.customer.delta_p_line_med is not none }\VAR{'%+.2f'|format(obs_vs_baseline.customer.delta_p_line_med)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if obs_vs_baseline.customer.delta_p_line_med_pct is not none }\VAR{'%+.1f'|format(obs_vs_baseline.customer.delta_p_line_med_pct)}\BLOCK{ else }---\BLOCK{ endif } \\
+\hline
+Простой, ч
+& \BLOCK{ if obs_vs_baseline.baseline.shutdown_min_total is not none }\VAR{'%.1f'|format(obs_vs_baseline.baseline.shutdown_min_total / 60.0)}\BLOCK{ else }---\BLOCK{ endif }
+& \VAR{observation.downtime_hours_fmt}
+& \BLOCK{ if obs_vs_baseline.customer.delta_downtime is not none }\VAR{'%+.1f'|format(obs_vs_baseline.customer.delta_downtime)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if obs_vs_baseline.customer.delta_downtime_pct is not none }\VAR{'%+.1f'|format(obs_vs_baseline.customer.delta_downtime_pct)}\BLOCK{ else }---\BLOCK{ endif } \\
+\hline
+\end{tabularx}
+}
+
+\vspace{0.2em}
+{\scriptsize \textit{Пояснения:} столбец $\Delta$ --- разность «этап наблюдения минус базовый период» по медианным значениям;
+$\Delta\,\%$ --- то же относительно базы. Положительный $\Delta Q$ --- скважина даёт больше; положительный $\Delta(\Delta P)$ --- перепад вырос.}
+
+\BLOCK{ endif }
+%# /3.6 сравнение с базовым периодом
+
+\newpage
+\BLOCK{ endif }
+%# /3. Этап наблюдения
 
 % ═══════════════════════════════════════════════════════════════
-%  4. ЭТАП АДАПТАЦИИ
+%  4. ЭТАП АДАПТАЦИИ  (toggle: include_sections.adaptation)
 % ═══════════════════════════════════════════════════════════════
+\BLOCK{ if include_sections.adaptation }
 \section*{4. Этап адаптации}
 
 \subsection*{4.1. Период и описание}
 
 {\footnotesize
 Период: \VAR{adaptation.date_from}~---~\VAR{adaptation.date_to} (\VAR{adaptation.duration_days}~сут.).
+\BLOCK{ if adaptation.choke_label }
+
+Штуцер на этапе: \VAR{adaptation.choke_label}.
+\BLOCK{ endif }
 \BLOCK{ if adaptation.description }
 
 Описание: \VAR{adaptation.description}
@@ -411,10 +750,13 @@ Score & \VAR{optimal_regime.score_fmt} \\
 \BLOCK{ endif }
 
 \newpage
+\BLOCK{ endif }
+%# /4. Этап адаптации
 
 % ═══════════════════════════════════════════════════════════════
-%  5. ГРАФИКИ СРАВНЕНИЯ (2 колонки: наблюдение | адаптация)
+%  5. ГРАФИКИ СРАВНЕНИЯ (toggle: include_sections.charts_compare)
 % ═══════════════════════════════════════════════════════════════
+\BLOCK{ if include_sections.charts_compare }
 \section*{5. Графики этапов (сравнение)}
 
 \BLOCK{ if observation.pressure_chart_path or adaptation.pressure_chart_path }
@@ -495,10 +837,13 @@ Score & \VAR{optimal_regime.score_fmt} \\
 \BLOCK{ endif }
 
 \newpage
+\BLOCK{ endif }
+%# /5. Графики сравнения
 
 % ═══════════════════════════════════════════════════════════════
-%  6. СРАВНИТЕЛЬНЫЙ АНАЛИЗ
+%  6. СРАВНИТЕЛЬНЫЙ АНАЛИЗ  (toggle: include_sections.comparison)
 % ═══════════════════════════════════════════════════════════════
+\BLOCK{ if include_sections.comparison }
 \section*{6. Сравнительный анализ этапов}
 
 \subsection*{6.1. Сравнительная таблица показателей}
@@ -560,6 +905,74 @@ $Q$ ср., тыс.м$^3$/сут & \VAR{observation.flow_avg_fmt} & \VAR{adaptati
 
 \vspace{0.5em}
 
+% ── 6.1.1 — Сравнение адаптации с зафиксированными baseline-ами ──
+\BLOCK{ if adapt_vs_baseline and (adapt_vs_baseline.baselines.customer or adapt_vs_baseline.baselines.observation) }
+\subsection*{6.1.1. Сравнение этапа адаптации с baseline-ами}
+
+{\footnotesize
+Сравнение медианных показателей этапа адаптации с двумя зафиксированными
+опорными точками: <<baseline заказчика>> (по сводке УзКорГаз, well\_daily)
+и <<baseline наблюдения>> (НАШИ данные за этап наблюдения, pressure\_raw +
+flow\_rate). Если соответствующий baseline не зафиксирован — прочерк.
+}
+
+\vspace{0.2em}
+
+{\scriptsize
+\begin{tabularx}{\textwidth}{|P{3.4cm}|R{1.6cm}|R{1.6cm}|R{1.5cm}|R{1.6cm}|R{1.5cm}|R{1.6cm}|}
+\hline
+\textbf{Показатель} & \textbf{Адапт.}
+& \textbf{Base заказч.} & \textbf{$\Delta$ vs заказч.}
+& \textbf{Base набл.}   & \textbf{$\Delta$ vs набл.}
+& \textbf{Прим.} \\
+\hline
+%% set bc = adapt_vs_baseline.baselines.customer
+%% set bo = adapt_vs_baseline.baselines.observation
+%% set dc = adapt_vs_baseline.customer
+%% set do = adapt_vs_baseline.observation
+
+$Q$ мед., тыс.м$^3$/сут & \VAR{adaptation.flow_median_fmt}
+& \BLOCK{ if bc and bc.q_total_median is not none }\VAR{'%.2f'|format(bc.q_total_median)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if dc.delta_q_med is not none }\VAR{'%+.2f'|format(dc.delta_q_med)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if bo and bo.q_total_median is not none }\VAR{'%.2f'|format(bo.q_total_median)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if do.delta_q_med is not none }\VAR{'%+.2f'|format(do.delta_q_med)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if dc.delta_q_med_pct is not none }\VAR{'%+.0f'|format(dc.delta_q_med_pct)}\%\BLOCK{ endif } \\
+\hline
+$\Delta P$ мед., кгс/см$^2$ & \VAR{adaptation.dp_median_fmt}
+& \BLOCK{ if bc and bc.dp_median is not none }\VAR{'%.2f'|format(bc.dp_median)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if dc.delta_dp_med is not none }\VAR{'%+.2f'|format(dc.delta_dp_med)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if bo and bo.dp_median is not none }\VAR{'%.2f'|format(bo.dp_median)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if do.delta_dp_med is not none }\VAR{'%+.2f'|format(do.delta_dp_med)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if dc.delta_dp_med_pct is not none }\VAR{'%+.0f'|format(dc.delta_dp_med_pct)}\%\BLOCK{ endif } \\
+\hline
+$P_{\text{тр}}$ мед., кгс/см$^2$ & \VAR{adaptation.p_tube_median_fmt}
+& \BLOCK{ if bc and bc.p_wellhead_median is not none }\VAR{'%.2f'|format(bc.p_wellhead_median)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if dc.delta_p_tube_med is not none }\VAR{'%+.2f'|format(dc.delta_p_tube_med)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if bo and bo.p_wellhead_median is not none }\VAR{'%.2f'|format(bo.p_wellhead_median)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if do.delta_p_tube_med is not none }\VAR{'%+.2f'|format(do.delta_p_tube_med)}\BLOCK{ else }---\BLOCK{ endif }
+& --- \\
+\hline
+$P_{\text{лин}}$ мед., кгс/см$^2$ & \VAR{adaptation.p_line_median_fmt}
+& \BLOCK{ if bc and bc.p_flowline_median is not none }\VAR{'%.2f'|format(bc.p_flowline_median)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if dc.delta_p_line_med is not none }\VAR{'%+.2f'|format(dc.delta_p_line_med)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if bo and bo.p_flowline_median is not none }\VAR{'%.2f'|format(bo.p_flowline_median)}\BLOCK{ else }---\BLOCK{ endif }
+& \BLOCK{ if do.delta_p_line_med is not none }\VAR{'%+.2f'|format(do.delta_p_line_med)}\BLOCK{ else }---\BLOCK{ endif }
+& --- \\
+\hline
+\end{tabularx}
+}
+
+\vspace{0.3em}
+{\scriptsize
+\textit{
+\BLOCK{ if bc }Baseline заказч.: <<\VAR{bc.name}>>, \VAR{bc.period_from}--\VAR{bc.period_to}.\BLOCK{ endif }
+\BLOCK{ if bo }Baseline набл.: <<\VAR{bo.name}>>, \VAR{bo.period_from}--\VAR{bo.period_to}.\BLOCK{ endif }
+}
+}
+
+\vspace{0.5em}
+\BLOCK{ endif }
+
 \subsection*{6.2. Выводы}
 
 \BLOCK{ if conclusions }
@@ -575,6 +988,8 @@ $Q$ ср., тыс.м$^3$/сут & \VAR{observation.flow_avg_fmt} & \VAR{adaptati
 \BLOCK{ endif }
 
 \vspace{1em}
+\BLOCK{ endif }
+%# /6. Сравнительный анализ
 
 % ═══════════════════════════════════════════════════════════════
 %  ПОДПИСИ

@@ -19,3 +19,9 @@ httpx==0.27.0
 
 matplotlib==3.9.2
 scipy==1.14.1
+
+# Карта расположения скважины с рельефной подложкой (OpenTopoMap):
+# нужны и для PDF-отчёта (well_map_renderer), и для дашборда (admin_map).
+contextily==1.7.0
+pyproj==3.7.2
+

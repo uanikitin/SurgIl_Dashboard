@@ -2681,6 +2681,7 @@ def well_page(
         edit_equipment_id: int | None = Query(None, alias="edit_eq"),
         edit_channel_id: int | None = Query(None, alias="edit_ch"),
         edit_note: int | None = Query(None, alias="edit_note"),
+        embedded: int = Query(0),
         current_user: str = Depends(get_current_user),
 ):
     """
@@ -3319,6 +3320,7 @@ def well_page(
             "perforation_intervals": perforation_intervals,
             "current_user": current_user,
             "is_admin": is_admin,
+            "embedded": bool(embedded),
 
             "reagent_colors": reagent_colors,
             "event_colors": event_colors,
@@ -3584,6 +3586,50 @@ def update_well(
         url=f"/well/{well_id}",
         status_code=status.HTTP_303_SEE_OTHER,  # 303 = "после POST иди по GET"
     )
+
+
+@app.get("/api/well/{well_id}/baselines")
+def api_well_baselines(
+    well_id: int,
+    db: Session = Depends(get_db),
+):
+    """Зафиксированные baseline-показатели скв. для горизонтальных линий
+    на графиках ΔP / Q.
+
+    Возвращает 2 объекта (или null если не зафиксирован):
+      - customer    (источник 'customer'   — по сводке заказчика, well_daily)
+      - observation (источник 'observation' — по нашим данным за этап наблюдения)
+
+    При нескольких записях каждого типа берём pinned, иначе самый свежий.
+    Для UI достаточно `dp_median` и `q_total_median`.
+    """
+    rows = db.execute(text("""
+        SELECT id, name, source, period_from, period_to,
+               q_total_median, dp_median,
+               p_wellhead_median, p_flowline_median,
+               is_pinned, created_at
+        FROM customer_baseline
+        WHERE well_id = :wid
+        ORDER BY is_pinned DESC, id DESC
+    """), {"wid": well_id}).mappings().fetchall()
+
+    pick: dict[str, dict | None] = {"customer": None, "observation": None}
+    for r in rows:
+        src = r["source"]
+        if src in pick and pick[src] is None:
+            pick[src] = {
+                "id":   r["id"],
+                "name": r["name"],
+                "source": src,
+                "period_from": r["period_from"].isoformat() if r["period_from"] else None,
+                "period_to":   r["period_to"].isoformat() if r["period_to"] else None,
+                "q_total_median":    float(r["q_total_median"])    if r["q_total_median"]    is not None else None,
+                "dp_median":         float(r["dp_median"])         if r["dp_median"]         is not None else None,
+                "p_wellhead_median": float(r["p_wellhead_median"]) if r["p_wellhead_median"] is not None else None,
+                "p_flowline_median": float(r["p_flowline_median"]) if r["p_flowline_median"] is not None else None,
+                "is_pinned": bool(r["is_pinned"]),
+            }
+    return {"well_id": well_id, "baselines": pick}
 
 
 @app.put("/api/well/{well_id}/choke")

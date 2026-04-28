@@ -42,15 +42,23 @@ log = logging.getLogger(__name__)
 @pages_router.get("/reagent-analysis", response_class=HTMLResponse)
 def reagent_analysis_page(
     request: Request,
+    well_id: int | None = None,
+    embedded: int = 0,
     current_user: str = Depends(get_current_user),
 ):
-    """Страница анализа эффективности реагента."""
+    """Страница анализа эффективности реагента.
+
+    embedded=1 — режим встраивания в iframe (без шапки/nav, см. base.html).
+    well_id — пресет скважины (используется во вкладке «Реагенты» отчёта).
+    """
     return templates.TemplateResponse(
         "reagent_analysis.html",
         {
             "request": request,
             "current_user": current_user,
             "is_admin": True,
+            "embedded": bool(embedded),
+            "preset_well_id": well_id,
         },
     )
 

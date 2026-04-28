@@ -1695,6 +1695,18 @@
         <input id="delta-events-toggle" type="checkbox" style="accent-color:#e65100;">
         <span style="color:#e65100;">События</span>
       </label>
+      <label class="dp-baseline-toggle" data-src="customer"
+             title="Базовая линия ΔP по сводке заказчика (well_daily)"
+             style="display:none; font-size:12px; color:#6b7280; font-weight:500; align-items:center; gap:4px; cursor:pointer;">
+        <input type="checkbox" style="accent-color:#0ea5e9;">
+        <span style="color:#0ea5e9;">📊 base заказч.</span>
+      </label>
+      <label class="dp-baseline-toggle" data-src="observation"
+             title="Базовая линия ΔP по этапу наблюдения (наши данные LoRa)"
+             style="display:none; font-size:12px; color:#6b7280; font-weight:500; align-items:center; gap:4px; cursor:pointer;">
+        <input type="checkbox" style="accent-color:#ea580c;">
+        <span style="color:#ea580c;">📊 base набл.</span>
+      </label>
       <button id="delta-reset-zoom"
         style="padding:5px 12px; border:1px solid #dee2e6; border-radius:4px; background:white; cursor:pointer; font-size:12px;">
         Сбросить масштаб
@@ -1834,6 +1846,18 @@
         title="Показать события (продувки, замеры, реагенты) вертикальными линиями">
         <input id="flow-events-toggle" type="checkbox" style="accent-color:#e65100;">
         <span style="color:#e65100;">События</span>
+      </label>
+      <label class="q-baseline-toggle" data-src="customer"
+             title="Базовый Q по сводке заказчика (well_daily, медиана)"
+             style="display:none; font-size:12px; color:#6b7280; font-weight:500; align-items:center; gap:4px; cursor:pointer;">
+        <input type="checkbox" style="accent-color:#0ea5e9;">
+        <span style="color:#0ea5e9;">📊 base заказч.</span>
+      </label>
+      <label class="q-baseline-toggle" data-src="observation"
+             title="Базовый Q по этапу наблюдения (наш расчёт через flow_rate)"
+             style="display:none; font-size:12px; color:#6b7280; font-weight:500; align-items:center; gap:4px; cursor:pointer;">
+        <input type="checkbox" style="accent-color:#ea580c;">
+        <span style="color:#ea580c;">📊 base набл.</span>
       </label>
     </div>
   </div>
@@ -4639,6 +4663,107 @@ document.getElementById('install-equipment-modal').addEventListener('click', fun
 
 <script>
 // Исправление для формы установки оборудования
+// ════════════════════════════════════════════════════════════
+//   Baseline reference lines (5.3c)
+//   Подгружаем 2 baseline (customer + observation) и переключаем
+//   горизонтальные линии на ΔP / Q графиках через annotation plugin.
+// ════════════════════════════════════════════════════════════
+(function () {
+  const WELL_ID = {{ well.id }};
+  let baselines = {customer: null, observation: null};
+
+  // Цвета совпадают с акцентом чекбоксов в шапке графиков
+  const COLORS = {customer: '#0ea5e9', observation: '#ea580c'};
+
+  async function loadBaselines() {
+    try {
+      const r = await fetch('/api/well/' + WELL_ID + '/baselines');
+      if (!r.ok) return;
+      const d = await r.json();
+      baselines = d.baselines || {customer: null, observation: null};
+      // Показываем чекбоксы только если соответствующий baseline есть
+      ['customer', 'observation'].forEach(src => {
+        const has = !!(baselines[src]);
+        document.querySelectorAll(`.dp-baseline-toggle[data-src="${src}"]`).forEach(el => {
+          el.style.display = has ? 'flex' : 'none';
+          if (has && baselines[src].dp_median != null) {
+            el.title = `ΔP базовый (${src === 'customer' ? 'заказчик' : 'наблюдение'}) = `
+              + baselines[src].dp_median.toFixed(2) + ' кгс/см² ('
+              + baselines[src].period_from + '…' + baselines[src].period_to + ')';
+          }
+        });
+        document.querySelectorAll(`.q-baseline-toggle[data-src="${src}"]`).forEach(el => {
+          el.style.display = has ? 'flex' : 'none';
+          if (has && baselines[src].q_total_median != null) {
+            el.title = `Q базовый (${src === 'customer' ? 'заказчик' : 'наблюдение'}) = `
+              + baselines[src].q_total_median.toFixed(2) + ' тыс.м³/сут ('
+              + baselines[src].period_from + '…' + baselines[src].period_to + ')';
+          }
+        });
+      });
+    } catch (e) {
+      console.warn('loadBaselines failed', e);
+    }
+  }
+
+  function _findChart(canvasId) {
+    const c = document.getElementById(canvasId);
+    if (!c || typeof Chart === 'undefined') return null;
+    return Chart.getChart(c);
+  }
+
+  function _toggleAnnotation(chart, key, value, label, color) {
+    if (!chart) return;
+    if (!chart.options.plugins) chart.options.plugins = {};
+    if (!chart.options.plugins.annotation) chart.options.plugins.annotation = {annotations: {}};
+    const anns = chart.options.plugins.annotation.annotations;
+    if (value === null || value === undefined) {
+      delete anns[key];
+    } else {
+      anns[key] = {
+        type: 'line', yMin: value, yMax: value,
+        borderColor: color, borderWidth: 1.6, borderDash: [6, 4],
+        label: {
+          display: true, position: 'end',
+          content: label + ': ' + value.toFixed(2),
+          backgroundColor: color, color: '#fff',
+          font: {size: 10, weight: '700'}, padding: 3,
+        },
+      };
+    }
+    chart.update('none');
+  }
+
+  function _bindToggles(toggleSelector, chartCanvasIds, metricKey, labelPrefix) {
+    document.querySelectorAll(toggleSelector).forEach(label => {
+      const cb = label.querySelector('input[type="checkbox"]');
+      const src = label.dataset.src;
+      cb.addEventListener('change', () => {
+        const val = cb.checked && baselines[src] ? baselines[src][metricKey] : null;
+        const annKey = `baseline_${src}`;
+        const lbl = `${labelPrefix} ${src === 'customer' ? 'заказч.' : 'набл.'}`;
+        chartCanvasIds.forEach(id => {
+          _toggleAnnotation(_findChart(id), annKey, val, lbl, COLORS[src]);
+        });
+      });
+    });
+  }
+
+  // Графики на странице (canvas id):
+  //   ΔP график:   #chart_delta_pressure
+  //   Дебит:       #chart_flow_rate
+  function init() {
+    _bindToggles('.dp-baseline-toggle', ['chart_delta_pressure'], 'dp_median', 'ΔP');
+    _bindToggles('.q-baseline-toggle',  ['chart_flow_rate'],      'q_total_median', 'Q');
+  }
+
+  if (document.readyState !== 'loading') {
+    init(); loadBaselines();
+  } else {
+    document.addEventListener('DOMContentLoaded', () => { init(); loadBaselines(); });
+  }
+})();
+
 document.addEventListener('DOMContentLoaded', function() {
   const installForm = document.getElementById('install-equipment-form');
   if (installForm) {

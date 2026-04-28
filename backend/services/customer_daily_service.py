@@ -94,6 +94,223 @@ def ensure_table(db: Session) -> None:
         raise
 
 
+# ─── customer_report_block — блоки анализа для отчёта об адаптации ───
+# 3 типа: 'baseline' | 'period_analysis' | 'comparison'.
+# Хранит params (для воспроизводимого live-расчёта) и data_snapshot
+# (для воспроизведения исторического отчёта).
+
+_BLOCKS_INITIALIZED: bool = False
+_BLOCKS_DDL = [
+    """
+    CREATE TABLE IF NOT EXISTS customer_report_block (
+        id            SERIAL PRIMARY KEY,
+        well_id       INTEGER NOT NULL REFERENCES wells(id),
+        kind          VARCHAR(32) NOT NULL,
+        title         VARCHAR(200) NOT NULL,
+        params        JSONB NOT NULL DEFAULT '{}'::jsonb,
+        data_snapshot JSONB,
+        comment       TEXT,
+        in_report     BOOLEAN NOT NULL DEFAULT TRUE,
+        sort_order    INTEGER NOT NULL DEFAULT 0,
+        created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS ix_crb_well_inreport_sort
+        ON customer_report_block(well_id, in_report, sort_order)
+    """,
+]
+
+
+def ensure_blocks_table(db: Session) -> None:
+    """Гарантировать наличие customer_report_block (IF NOT EXISTS)."""
+    global _BLOCKS_INITIALIZED
+    if _BLOCKS_INITIALIZED:
+        return
+    try:
+        for ddl in _BLOCKS_DDL:
+            db.execute(text(ddl))
+        db.commit()
+        _BLOCKS_INITIALIZED = True
+    except Exception:
+        db.rollback()
+        log.exception("ensure_blocks_table failed")
+        raise
+
+
+VALID_BLOCK_KINDS = {"baseline", "period_analysis", "comparison"}
+
+
+def list_blocks(db: Session, well_id: int) -> list[dict[str, Any]]:
+    """Все блоки скважины, отсортированы по sort_order, потом по created_at."""
+    rows = db.execute(text("""
+        SELECT id, well_id, kind, title, params, data_snapshot, comment,
+               in_report, sort_order, created_at, updated_at
+        FROM customer_report_block
+        WHERE well_id = :wid
+        ORDER BY sort_order, created_at
+    """), {"wid": well_id}).mappings().fetchall()
+    return [dict(r) for r in rows]
+
+
+def create_block(
+    db: Session, *,
+    well_id: int, kind: str, title: str,
+    params: dict[str, Any] | None = None,
+    comment: str | None = None,
+    in_report: bool = True,
+    sort_order: int | None = None,
+) -> dict[str, Any]:
+    if kind not in VALID_BLOCK_KINDS:
+        raise ValueError(f"Invalid block kind: {kind}")
+    params = dict(params or {})
+    if sort_order is None:
+        row = db.execute(text("""
+            SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order
+            FROM customer_report_block WHERE well_id = :wid
+        """), {"wid": well_id}).fetchone()
+        sort_order = int(row[0])
+
+    # Для baseline-блока сразу зафиксируем метрики в customer_baseline
+    # (Q, ΔP, простой, давления) — единый источник истины для отчёта.
+    # Связь через params['customer_baseline_id'].
+    if kind == "baseline":
+        try:
+            from datetime import date as _date
+            from backend.services import customer_baseline_service as bsvc
+            df = params.get("date_from"); dt = params.get("date_to")
+            if df and dt:
+                bl = bsvc.save_baseline(
+                    db, well_id=well_id,
+                    name=title,
+                    period_from=_date.fromisoformat(str(df)),
+                    period_to=_date.fromisoformat(str(dt)),
+                    source="customer",
+                    notes=comment, is_pinned=in_report,
+                )
+                params["customer_baseline_id"] = bl["id"]
+        except Exception as exc:
+            log.warning("baseline metrics fixation failed: %s", exc)
+
+    import json as _json
+    new_id = db.execute(text("""
+        INSERT INTO customer_report_block
+            (well_id, kind, title, params, comment, in_report, sort_order)
+        VALUES
+            (:wid, :kind, :title, CAST(:params AS JSONB), :comment, :in_report, :sort_order)
+        RETURNING id
+    """), {
+        "wid": well_id, "kind": kind, "title": title,
+        "params": _json.dumps(params, default=str),
+        "comment": comment, "in_report": in_report,
+        "sort_order": sort_order,
+    }).fetchone()[0]
+    db.commit()
+    return get_block(db, int(new_id))
+
+
+def get_block(db: Session, block_id: int) -> dict[str, Any] | None:
+    row = db.execute(text("""
+        SELECT id, well_id, kind, title, params, data_snapshot, comment,
+               in_report, sort_order, created_at, updated_at
+        FROM customer_report_block WHERE id = :bid
+    """), {"bid": block_id}).mappings().fetchone()
+    return dict(row) if row else None
+
+
+def update_block(
+    db: Session, block_id: int, *,
+    title: str | None = None,
+    params: dict[str, Any] | None = None,
+    comment: str | None = None,
+    in_report: bool | None = None,
+    sort_order: int | None = None,
+    data_snapshot: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    sets: list[str] = []
+    p: dict[str, Any] = {"bid": block_id}
+    import json as _json
+    if title is not None:
+        sets.append("title = :title"); p["title"] = title
+    if params is not None:
+        sets.append("params = CAST(:params AS JSONB)")
+        p["params"] = _json.dumps(params, default=str)
+    if comment is not None:
+        sets.append("comment = :comment"); p["comment"] = comment
+    if in_report is not None:
+        sets.append("in_report = :in_report"); p["in_report"] = in_report
+    if sort_order is not None:
+        sets.append("sort_order = :sort_order"); p["sort_order"] = sort_order
+    if data_snapshot is not None:
+        sets.append("data_snapshot = CAST(:data_snapshot AS JSONB)")
+        p["data_snapshot"] = _json.dumps(data_snapshot, default=str)
+    if not sets:
+        return get_block(db, block_id)
+    sets.append("updated_at = CURRENT_TIMESTAMP")
+    db.execute(
+        text(f"UPDATE customer_report_block SET {', '.join(sets)} WHERE id = :bid"),
+        p,
+    )
+    db.commit()
+    return get_block(db, block_id)
+
+
+def delete_block(db: Session, block_id: int) -> bool:
+    block = get_block(db, block_id)
+    if not block:
+        return False
+    # Для baseline-блока — удалить связанный customer_baseline
+    if block.get("kind") == "baseline":
+        bid = (block.get("params") or {}).get("customer_baseline_id")
+        if bid:
+            try:
+                from backend.services import customer_baseline_service as bsvc
+                bsvc.delete_baseline(db, int(bid))
+            except Exception as exc:
+                log.warning("delete linked customer_baseline failed: %s", exc)
+    res = db.execute(
+        text("DELETE FROM customer_report_block WHERE id = :bid"),
+        {"bid": block_id},
+    )
+    db.commit()
+    return res.rowcount > 0
+
+
+def count_blocks_in_report(db: Session, well_id: int) -> int:
+    """Сколько блоков с in_report=True у этой скважины — для индикатора."""
+    row = db.execute(text("""
+        SELECT COUNT(*) FROM customer_report_block
+        WHERE well_id = :wid AND in_report = TRUE
+    """), {"wid": well_id}).fetchone()
+    return int(row[0] if row else 0)
+
+
+def get_blocks_for_report(db: Session, well_id: int) -> list[dict[str, Any]]:
+    """Только активные блоки (in_report=True), отсортированы для PDF.
+
+    Используется в adaptation_report → LaTeX-генерации (Этап 5).
+    Возвращает: id, kind, title, params, comment, sort_order, created_at.
+    Не включает data_snapshot — он считается при формировании PDF
+    по params (live-расчёт), потом сохраняется в БД.
+    """
+    rows = db.execute(text("""
+        SELECT id, well_id, kind, title, params, comment,
+               sort_order, created_at
+        FROM customer_report_block
+        WHERE well_id = :wid AND in_report = TRUE
+        ORDER BY
+            CASE kind
+                WHEN 'baseline' THEN 0
+                WHEN 'period_analysis' THEN 1
+                WHEN 'comparison' THEN 2
+                ELSE 3
+            END,
+            sort_order, created_at
+    """), {"wid": well_id}).mappings().fetchall()
+    return [dict(r) for r in rows]
+
+
 PARAM_LABELS: dict[str, str] = {
     "p_wellhead":    "Устье, кгс/см²",
     "p_annular":     "Затрубное, кгс/см²",
@@ -600,33 +817,38 @@ def _live_flow_daily(
     except Exception as exc:
         log.warning("[_live_flow_daily] smooth error: %s", exc)
 
-    # 6) Штуцер с fallback в well_daily
+    # 6) Штуцер. Приоритет:
+    #    (1) get_choke_mm() — единая точка для всей системы (well, daily_report,
+    #        adaptation_report, наш конвейер). Чинено в data_access.py.
+    #    (2) Мода choke_mm из well_daily (сводка заказчика) за период —
+    #        используется только если в well_construction штуцер вообще
+    #        отсутствует (например, скважина не паспортизована).
     try:
         choke_mm = get_choke_mm(well_id)
     except Exception:
         choke_mm = None
     meta["choke_source"] = "well_construction" if choke_mm else None
 
-    if not choke_mm or choke_mm <= 0:
-        w_row = db.execute(
-            text("SELECT number FROM wells WHERE id = :wid"), {"wid": well_id},
-        ).fetchone()
-        well_number = w_row[0] if w_row else None
-        if well_number is not None:
-            r = db.execute(text("""
-                SELECT choke_mm FROM well_daily
-                WHERE well = :well AND choke_mm IS NOT NULL AND choke_mm > 0
-                  AND date >= :d_from AND date <= :d_to
-                GROUP BY choke_mm
-                ORDER BY COUNT(*) DESC, MAX(date) DESC
-                LIMIT 1
-            """), {
-                "well": str(well_number),
-                "d_from": d_from_eff, "d_to": d_to_eff,
-            }).fetchone()
-            if r and r[0]:
-                choke_mm = float(r[0])
-                meta["choke_source"] = "well_daily (сводка заказчика)"
+    w_row = db.execute(
+        text("SELECT number FROM wells WHERE id = :wid"), {"wid": well_id},
+    ).fetchone()
+    well_number = w_row[0] if w_row else None
+
+    if (not choke_mm or choke_mm <= 0) and well_number is not None:
+        r = db.execute(text("""
+            SELECT choke_mm FROM well_daily
+            WHERE well = :well AND choke_mm IS NOT NULL AND choke_mm > 0
+              AND date >= :d_from AND date <= :d_to
+            GROUP BY choke_mm
+            ORDER BY COUNT(*) DESC, MAX(date) DESC
+            LIMIT 1
+        """), {
+            "well": str(well_number),
+            "d_from": d_from_eff, "d_to": d_to_eff,
+        }).fetchone()
+        if r and r[0]:
+            choke_mm = float(r[0])
+            meta["choke_source"] = "well_daily (сводка заказчика)"
 
     meta["choke_mm"] = float(choke_mm) if choke_mm else None
 
@@ -1135,7 +1357,14 @@ def monthly_stats(df: pd.DataFrame) -> list[dict[str, Any]]:
 
 
 def monthly_description(months: list[dict[str, Any]]) -> list[dict[str, str]]:
-    """Краткое описание помесячной динамики со сравнением с предыдущим месяцем."""
+    """Развёрнутое описание помесячной динамики.
+
+    Для каждого месяца текстом выводим: число суток в выборке, оценочное
+    рабочее время (минут/часов с учётом среднего простоя), средние и
+    медианные Q общ./раб., ΔP, P уст., тренд Q, простой (мин/сут и всего
+    часов), а также абсолютное и относительное изменение ключевых
+    показателей к предыдущему месяцу.
+    """
     if not months:
         return []
 
@@ -1148,51 +1377,183 @@ def monthly_description(months: list[dict[str, Any]]) -> list[dict[str, str]]:
             return f"{name} {diff:+.1f}{unit} ({pct:+.1f}%)"
         return f"{name} {diff:+.1f}{unit}"
 
+    def _trend_txt(slope: float | None, unit_per_day: str) -> str:
+        if slope is None:
+            return "тренд: данных мало"
+        if abs(slope) < 0.05:
+            return f"тренд плоский ({slope:+.2f}{unit_per_day})"
+        if slope > 0:
+            return f"рост ({slope:+.2f}{unit_per_day})"
+        return f"снижение ({slope:+.2f}{unit_per_day})"
+
     out = []
     prev = None
     for r in months:
-        # Тренд Q общего
-        t = r.get("trend_q_total")
-        if t is None:
-            trend_txt = "тренд Q: данных мало"
-        elif abs(t) < 0.1:
-            trend_txt = f"тренд Q плоский ({t:+.2f}/день)"
-        elif t > 0:
-            trend_txt = f"рост Q ({t:+.2f} тыс.м³/сут·день⁻¹)"
+        days = int(r.get("days") or 0)
+        mean_sd = r.get("mean_shutdown")  # мин/сут
+        # Оценка рабочего времени: (1440 − среднее простоя) × дней / 60 → часы
+        if mean_sd is not None and days > 0:
+            work_min_per_day = max(0.0, 1440.0 - float(mean_sd))
+            work_hours_total = work_min_per_day * days / 60.0
+            sd_hours_total = float(mean_sd) * days / 60.0
         else:
-            trend_txt = f"снижение Q ({t:+.2f} тыс.м³/сут·день⁻¹)"
+            work_hours_total = None
+            sd_hours_total = None
 
-        parts: list[str] = [
-            f"{int(r['days'])} сут.",
-            f"Q общ.: ср. {r['mean_q_total']:.1f}, мед. {r['median_q_total']:.1f}."
-                if r["mean_q_total"] is not None and r["median_q_total"] is not None
-                else "Q общ.: нет данных.",
-            f"Q раб.: ср. {r['mean_q_working']:.1f}, мед. {r['median_q_working']:.1f}."
-                if r["mean_q_working"] is not None and r["median_q_working"] is not None
-                else "Q раб.: нет данных.",
-        ]
-        if r.get("mean_dp") is not None:
-            parts.append(f"ΔP: ср. {r['mean_dp']:.1f}, мед. {r['median_dp']:.1f} кгс/см².")
-        parts.append(trend_txt + ".")
+        parts: list[str] = []
+        # Вступительная фраза: «За месяц в выборке 28 суток, около 578 часов
+        # рабочего времени.»
+        head = f"За месяц в выборке {days} суток"
+        if work_hours_total is not None:
+            head += f", около {work_hours_total:.0f} часов рабочего времени"
+        parts.append(head + ".")
 
+        # Дебиты — общий и рабочий
+        if r.get("mean_q_total") is not None and r.get("median_q_total") is not None:
+            parts.append(
+                f"Общий дебит: среднее {r['mean_q_total']:.1f}, "
+                f"медиана {r['median_q_total']:.1f} тыс.м³/сут."
+            )
+        if r.get("mean_q_working") is not None and r.get("median_q_working") is not None:
+            parts.append(
+                f"Рабочий дебит: среднее {r['mean_q_working']:.1f}, "
+                f"медиана {r['median_q_working']:.1f} тыс.м³/сут."
+            )
+
+        # Перепад давления
+        if r.get("mean_dp") is not None and r.get("median_dp") is not None:
+            parts.append(
+                f"Перепад давления: среднее {r['mean_dp']:.2f}, "
+                f"медиана {r['median_dp']:.2f} кгс/см²."
+            )
+
+        # Устьевое давление (среднее)
+        if r.get("mean_p_wellhead") is not None:
+            parts.append(
+                f"Среднее устьевое давление: {r['mean_p_wellhead']:.1f} кгс/см²."
+            )
+
+        # Простой
+        if mean_sd is not None:
+            sd_hr_txt = (
+                f", всего около {sd_hours_total:.1f} часов за месяц"
+                if sd_hours_total is not None and sd_hours_total > 0 else ""
+            )
+            parts.append(
+                f"Простой: в среднем {float(mean_sd):.0f} мин/сут{sd_hr_txt}."
+            )
+
+        # Тренд общего дебита
+        slope = r.get("trend_q_total")
+        if slope is None:
+            parts.append("Тренд по дебиту определить нельзя — мало данных.")
+        elif abs(slope) < 0.05:
+            parts.append(
+                f"Тренд по общему дебиту плоский ({slope:+.2f} тыс.м³/сут в день)."
+            )
+        elif slope > 0:
+            parts.append(
+                f"По общему дебиту наблюдается рост ({slope:+.2f} тыс.м³/сут в день)."
+            )
+        else:
+            parts.append(
+                f"По общему дебиту наблюдается снижение ({slope:+.2f} тыс.м³/сут в день)."
+            )
+
+        # Сравнение с предыдущим месяцем
         if prev is not None:
             cmp_parts = []
             for nm, key, unit in (
-                ("Q общ.",  "mean_q_total",   " тыс.м³/сут"),
-                ("Q раб.",  "mean_q_working", " тыс.м³/сут"),
-                ("ΔP",      "mean_dp",        " кгс/см²"),
+                ("общий дебит",     "mean_q_total",   " тыс.м³/сут"),
+                ("рабочий дебит",   "mean_q_working", " тыс.м³/сут"),
+                ("перепад давления", "mean_dp",        " кгс/см²"),
+                ("простой",         "mean_shutdown",  " мин/сут"),
             ):
                 s = _cmp(r.get(key), prev.get(key), unit, nm)
                 if s:
                     cmp_parts.append(s)
             if cmp_parts:
-                parts.append("Изменение к пред. месяцу: " + "; ".join(cmp_parts) + ".")
+                parts.append(
+                    "Изменение к предыдущему месяцу: " + "; ".join(cmp_parts) + "."
+                )
         else:
-            parts.append("Первая точка в выборке.")
+            parts.append(
+                "Первый месяц в выборке — базовый ориентир для сравнения."
+            )
 
         out.append({"label": r["month_label"], "text": " ".join(parts)})
         prev = r
     return out
+
+
+def period_summary_text(
+    analysis: dict[str, Any], months: list[dict[str, Any]] | None = None,
+) -> str:
+    """Короткая сводка по периоду (1–2 предложения) с ключевыми числами.
+
+    Используется как вступительный текст к подразделу периода в PDF-отчёте.
+    """
+    parts: list[str] = []
+    days = analysis.get("days_count") or 0
+    parts.append(f"За период доступно {days} сут.")
+
+    if analysis.get("q_total_avg") is not None:
+        q_avg = analysis["q_total_avg"]; q_med = analysis.get("q_total_median")
+        if q_med is not None:
+            parts.append(
+                f"Q общий: ср. {q_avg:.1f}, мед. {q_med:.1f} тыс.м³/сут."
+            )
+        else:
+            parts.append(f"Q общий ср.: {q_avg:.1f} тыс.м³/сут.")
+    if analysis.get("q_working_avg") is not None:
+        qw_avg = analysis["q_working_avg"]; qw_med = analysis.get("q_working_median")
+        if qw_med is not None:
+            parts.append(
+                f"Q рабочий: ср. {qw_avg:.1f}, мед. {qw_med:.1f} тыс.м³/сут."
+            )
+    if analysis.get("dp_median") is not None:
+        dp_med = analysis["dp_median"]; dp_avg = analysis.get("dp_avg")
+        if dp_avg is not None:
+            parts.append(f"ΔP: ср. {dp_avg:.2f}, мед. {dp_med:.2f} кгс/см².")
+        else:
+            parts.append(f"ΔP мед.: {dp_med:.2f} кгс/см².")
+    if analysis.get("shutdown_min_total") is not None:
+        sd_total = float(analysis["shutdown_min_total"])
+        sd_days = analysis.get("shutdown_days_count") or 0
+        if sd_total > 0:
+            parts.append(
+                f"Простой: суммарно {sd_total:.0f} мин (~{sd_total/60:.1f} ч) "
+                f"за {sd_days} сут."
+            )
+        else:
+            parts.append("Простоев за период не зафиксировано.")
+
+    # Тренд Q (если есть q_trend от compute_period_analysis)
+    qt = analysis.get("q_trend") or {}
+    slope = qt.get("slope_per_day")
+    if slope is not None:
+        if abs(slope) < 0.05:
+            parts.append(f"Тренд Q рабочий — плоский ({slope:+.2f}/день).")
+        elif slope > 0:
+            parts.append(f"Тренд Q рабочий — рост ({slope:+.2f} тыс.м³/сут за день).")
+        else:
+            parts.append(f"Тренд Q рабочий — снижение ({slope:+.2f} тыс.м³/сут за день).")
+
+    # Лучший/худший месяц по Q общему среднему
+    if months and len(months) >= 2:
+        with_q = [m for m in months if m.get("mean_q_total") is not None]
+        if len(with_q) >= 2:
+            best = max(with_q, key=lambda m: m["mean_q_total"])
+            worst = min(with_q, key=lambda m: m["mean_q_total"])
+            if best is not worst:
+                parts.append(
+                    f"Лучший месяц: {best['month_label']} "
+                    f"(Q общ. ср. {best['mean_q_total']:.1f}); "
+                    f"худший: {worst['month_label']} "
+                    f"({worst['mean_q_total']:.1f} тыс.м³/сут)."
+                )
+
+    return " ".join(parts)
 
 
 def well_chart_payload(df: pd.DataFrame) -> dict[str, Any]:

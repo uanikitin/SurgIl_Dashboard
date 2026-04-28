@@ -126,9 +126,158 @@
   {% endif %}
 
   {% if doc.status in ('draft', 'generated') %}
-    <form method="post" action="/documents/well-handover/{{ doc.id }}/rebuild-from-events" style="margin-top:8px;">
+    <form method="post" action="/documents/well-handover/{{ doc.id }}/rebuild-from-events" style="margin-top:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+      <label style="font-size:13px;">Окно, ч:
+        <input type="number" name="window_hours" value="24" min="1" max="720" style="width:70px;">
+      </label>
       <button type="submit">Пересобрать давления из базы</button>
     </form>
+  {% endif %}
+
+  {% if doc.status in ('draft', 'generated') %}
+  <section style="margin-top:16px; border:1px solid #e5e5e5; border-radius:6px; padding:12px; background:#fafafa;">
+    <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:10px;">
+      <b style="font-size:15px;">📡 Ближайшие точки датчика</b>
+      <label style="font-size:13px;">Окно, ч:
+        <input id="pc-window" type="number" value="24" min="1" max="720" style="width:70px;">
+      </label>
+      <label style="font-size:13px;">Точек с каждой стороны:
+        <input id="pc-limit" type="number" value="8" min="1" max="50" style="width:70px;">
+      </label>
+      <button type="button" id="pc-refresh" style="padding:4px 12px;">Обновить</button>
+      <span id="pc-target" style="font-size:12px; opacity:0.7; margin-left:auto;"></span>
+    </div>
+    <div id="pc-loading" style="display:none; font-size:13px; opacity:0.6;">Загрузка…</div>
+    <div id="pc-error" style="display:none; color:#b00; font-size:13px;"></div>
+    <div id="pc-tables" style="display:grid; grid-template-columns:1fr; gap:12px;"></div>
+  </section>
+
+  <script>
+  (function() {
+    const docId = {{ doc.id }};
+    const $win = document.getElementById('pc-window');
+    const $lim = document.getElementById('pc-limit');
+    const $btn = document.getElementById('pc-refresh');
+    const $loading = document.getElementById('pc-loading');
+    const $error = document.getElementById('pc-error');
+    const $tables = document.getElementById('pc-tables');
+    const $target = document.getElementById('pc-target');
+
+    function fmtNum(v) {
+      if (v === null || v === undefined) return '<span style="opacity:0.35;">—</span>';
+      return Number(v).toFixed(2);
+    }
+
+    function fmtDelta(s) {
+      if (s < 60) return s + ' с';
+      if (s < 3600) return Math.round(s / 60) + ' мин';
+      if (s < 86400) return Math.round(s / 3600) + ' ч';
+      return Math.round(s / 86400) + ' дн';
+    }
+
+    function rowHtml(p, direction) {
+      const measured = p.measured_at_local;
+      const tubeVal = fmtNum(p.p_tube);
+      const lineVal = fmtNum(p.p_line);
+      const hasTube = p.p_tube !== null && p.p_tube !== undefined;
+      const hasLine = p.p_line !== null && p.p_line !== undefined;
+      const dirLabel = direction === 'before' ? 'до' : 'после';
+      return `<tr data-at="${measured}">
+        <td style="padding:4px 8px; font-family:monospace; font-size:12px;">${p.measured_at_display} <span style="opacity:0.5;">(${fmtDelta(p.delta_seconds)} ${dirLabel})</span></td>
+        <td style="padding:4px 8px; text-align:right;">${tubeVal}</td>
+        <td style="padding:4px 8px; text-align:right;">${lineVal}</td>
+        <td style="padding:4px 8px; white-space:nowrap;">
+          <button type="button" class="pc-apply" data-at="${measured}" data-tube="1" data-line=""  ${hasTube ? '' : 'disabled'} style="font-size:11px; padding:2px 6px;">→ трубн.</button>
+          <button type="button" class="pc-apply" data-at="${measured}" data-tube=""  data-line="1" ${hasLine ? '' : 'disabled'} style="font-size:11px; padding:2px 6px;">→ шлейф.</button>
+          <button type="button" class="pc-apply" data-at="${measured}" data-tube="1" data-line="1" ${hasTube && hasLine ? '' : 'disabled'} style="font-size:11px; padding:2px 6px;">→ оба</button>
+        </td>
+      </tr>`;
+    }
+
+    function tableHtml(title, rows, direction, emptyText) {
+      if (!rows.length) {
+        return `<div><div style="font-weight:600; font-size:13px; margin-bottom:4px;">${title}</div>
+          <div style="font-size:12px; opacity:0.6;">${emptyText}</div></div>`;
+      }
+      return `<div>
+        <div style="font-weight:600; font-size:13px; margin-bottom:4px;">${title}</div>
+        <table style="width:100%; border-collapse:collapse; font-size:13px; background:#fff;">
+          <thead><tr style="background:#f0f0f0;">
+            <th style="padding:4px 8px; text-align:left;">Время</th>
+            <th style="padding:4px 8px; text-align:right;">p_tube</th>
+            <th style="padding:4px 8px; text-align:right;">p_line</th>
+            <th style="padding:4px 8px;">Применить</th>
+          </tr></thead>
+          <tbody>${rows.map(r => rowHtml(r, direction)).join('')}</tbody>
+        </table>
+      </div>`;
+    }
+
+    function bindApply() {
+      $tables.querySelectorAll('.pc-apply').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const at = btn.dataset.at;
+          const tube = btn.dataset.tube;
+          const line = btn.dataset.line;
+          const fd = new FormData();
+          fd.append('measured_at', at);
+          if (tube) fd.append('apply_tube', '1');
+          if (line) fd.append('apply_line', '1');
+          btn.disabled = true;
+          try {
+            const resp = await fetch(`/documents/well-handover/${docId}/apply-candidate`, {
+              method: 'POST', body: fd,
+            });
+            if (resp.redirected) { window.location.href = resp.url; return; }
+            if (!resp.ok) {
+              const txt = await resp.text();
+              alert('Ошибка: ' + txt);
+              btn.disabled = false;
+              return;
+            }
+            window.location.reload();
+          } catch (e) {
+            alert('Ошибка сети: ' + e);
+            btn.disabled = false;
+          }
+        });
+      });
+    }
+
+    async function refresh() {
+      $error.style.display = 'none';
+      $loading.style.display = '';
+      $tables.innerHTML = '';
+      try {
+        const win = Math.max(1, Math.min(720, parseInt($win.value) || 24));
+        const lim = Math.max(1, Math.min(50, parseInt($lim.value) || 8));
+        const url = `/documents/well-handover/${docId}/pressure-candidates?window_hours=${win}&limit=${lim}`;
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(await resp.text());
+        const data = await resp.json();
+        $target.textContent = `Событие: ${data.event_display} · окно ±${data.window_hours} ч`;
+        const beforeHtml = tableHtml(
+          `🔻 До события (${data.before.length})`, data.before, 'before',
+          'Нет точек в pressure_raw в окне до события',
+        );
+        const afterHtml = tableHtml(
+          `🔺 После события (${data.after.length})`, data.after, 'after',
+          'Нет точек в pressure_raw в окне после события',
+        );
+        $tables.innerHTML = beforeHtml + afterHtml;
+        bindApply();
+      } catch (e) {
+        $error.textContent = 'Ошибка: ' + (e.message || e);
+        $error.style.display = '';
+      } finally {
+        $loading.style.display = 'none';
+      }
+    }
+
+    $btn.addEventListener('click', refresh);
+    refresh();
+  })();
+  </script>
   {% endif %}
 
   <form method="post" action="/documents/{{ doc.id }}/soft-delete" style="margin-top:10px;">

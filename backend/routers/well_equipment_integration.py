@@ -116,6 +116,16 @@ async def install_equipment_on_well(
     db.commit()
     db.refresh(installation)
 
+    # Ретроактивный бэкфилл pressure_raw, если installed_at в прошлом
+    try:
+        from backend.services.pressure_backfill_service import maybe_backfill_after_install
+        maybe_backfill_after_install(
+            equipment.serial_number, well_id, install_dt,
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("backfill hook failed: %s", e)
+
     return JSONResponse({
         "success": True,
         "message": f"✅ Обладнання '{equipment.name}' встановлено на свердловині {well.number}",

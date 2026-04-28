@@ -174,6 +174,14 @@
   <!-- ═══ 0. Контекст (если открыт из отчёта об адаптации) ═══ -->
   <div id="cd-context-block" style="display:none;">
     <div class="cd-context" id="cd-context"></div>
+    <div style="margin-top:8px;">
+      <a id="cd-back-to-report" href="/adaptation-report"
+         style="display:inline-block; padding:6px 14px; background:#2563eb;
+                color:#fff; border-radius:6px; text-decoration:none;
+                font-size:0.85rem; font-weight:500;">
+        ← Вернуться к отчёту об адаптации
+      </a>
+    </div>
   </div>
 
   <!-- ═══ 1. Загрузка xlsx (всегда доступна, парсит ВСЕ скважины) ═══ -->
@@ -216,9 +224,46 @@
     <div id="cd-avail-block"></div>
   </div>
 
+  <!-- ═══ 2.5. Базовый период (до работ) ═══ -->
+  <div class="cd-section" id="cd-baseline-section" style="display:none;">
+    <h2>3. Базовый период (до начала работ)</h2>
+    <div class="cd-hint" style="margin-bottom:8px;">
+      Анализ работы скважины ДО наших работ — фон для сравнения с этапами
+      наблюдения и адаптации. Включается опционально и попадает в PDF
+      отдельной главой.
+    </div>
+    <div class="cd-row" style="margin-bottom:6px;">
+      <label><input type="checkbox" id="cd-baseline-enable"> <b>Включить базовый период</b></label>
+    </div>
+    <div id="cd-baseline-body" style="display:none;">
+      <div class="cd-row">
+        <label>С:</label> <input type="date" id="cd-baseline-from">
+        <label>по:</label> <input type="date" id="cd-baseline-to">
+        <button class="cd-btn cd-btn-primary" id="cd-baseline-analyse-btn">Показать базовый период</button>
+      </div>
+      <div class="cd-row" style="margin-top:6px; gap:6px;">
+        <span class="cd-hint">Быстрый выбор:</span>
+        <span class="cd-pill" data-bpreset="7">Неделя до работ</span>
+        <span class="cd-pill" data-bpreset="30">Месяц до работ</span>
+        <span class="cd-pill" data-bpreset="custom">Свой</span>
+      </div>
+      <div id="cd-baseline-result" style="margin-top:10px;"></div>
+      <div class="cd-row" style="margin-top:10px; flex-direction:column; align-items:stretch; gap:6px;">
+        <label style="font-size:0.82rem; color:#444;">Комментарий к блоку (попадёт в PDF):</label>
+        <textarea id="cd-baseline-comment" rows="2"
+                  style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:6px; font-size:0.85rem; resize:vertical;"
+                  placeholder="Например: «Скв. работала на штуцере 12, периодически закрывалась на ремонт ГСП»"></textarea>
+        <div>
+          <button class="cd-btn cd-btn-success" id="cd-baseline-save-btn">☑ Добавить в отчёт</button>
+          <span id="cd-baseline-save-status" style="margin-left:8px; font-size:0.82rem; color:#10b981;"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ═══ 4. Период анализа ═══ -->
   <div class="cd-section" id="cd-period-section" style="display:none;">
-    <h2>3. Период анализа</h2>
+    <h2>4. Период анализа</h2>
     <div class="cd-row">
       <label>С:</label> <input type="date" id="cd-date-from">
       <label>по:</label> <input type="date" id="cd-date-to">
@@ -274,9 +319,24 @@
     <div class="cd-month-list" id="cd-monthly-desc"></div>
   </div>
 
+  <!-- ═══ 8.5. Добавить «Анализ периода» в отчёт ═══ -->
+  <div class="cd-section" id="cd-period-save-section" style="display:none;">
+    <h3 style="margin-top:0;">Добавить «Анализ периода» в отчёт об адаптации</h3>
+    <div class="cd-row" style="flex-direction:column; align-items:stretch; gap:6px;">
+      <label style="font-size:0.82rem; color:#444;">Комментарий (попадёт в PDF):</label>
+      <textarea id="cd-period-comment" rows="2"
+                style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:6px; font-size:0.85rem; resize:vertical;"
+                placeholder="Например: «За адаптационный период наблюдается стабилизация ΔP, прирост Q +30%»"></textarea>
+      <div>
+        <button class="cd-btn cd-btn-success" id="cd-period-save-btn">☑ Добавить в отчёт</button>
+        <span id="cd-period-save-status" style="margin-left:8px; font-size:0.82rem; color:#10b981;"></span>
+      </div>
+    </div>
+  </div>
+
   <!-- ═══ 9. Сравнение произвольных периодов ═══ -->
-  <div class="cd-section">
-    <h2>4. Сравнение произвольных периодов</h2>
+  <div class="cd-section" id="compare">
+    <h2>5. Сравнение произвольных периодов</h2>
     <div class="cd-hint" style="margin-bottom:8px;">
       Наложить две любых выборки — из данных заказчика, с наших датчиков (pressure_hourly)
       или из нашего расчётного дебита (flow_result baseline). Период A и B могут быть
@@ -343,6 +403,46 @@
     <div id="cmp-status" style="margin-top:8px;"></div>
     <div class="cd-chart" id="cmp-chart" style="min-height:420px; margin-top:8px; display:none;"></div>
     <div id="cmp-stats" style="margin-top:8px;"></div>
+
+    <!-- Сохранение текущего сравнения как карточка -->
+    <div id="cmp-save-block" style="display:none; margin-top:10px; padding:10px 12px;
+                background:#fdf4ff; border:1px solid #e9d5ff; border-radius:6px;">
+      <div class="cd-row" style="flex-direction:column; align-items:stretch; gap:6px;">
+        <label style="font-size:0.82rem; color:#444;">Название карточки:</label>
+        <input type="text" id="cmp-save-title"
+               style="padding:6px; border:1px solid #d1d5db; border-radius:6px; font-size:0.85rem;"
+               placeholder="Напр.: «Сравнение март–апрель по ΔP»">
+        <label style="font-size:0.82rem; color:#444;">Комментарий (попадёт в PDF):</label>
+        <textarea id="cmp-save-comment" rows="2"
+                  style="width:100%; padding:6px; border:1px solid #d1d5db; border-radius:6px; font-size:0.85rem; resize:vertical;"
+                  placeholder="Например: «Видно явный прирост дебита после применения реагента»"></textarea>
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <button class="cd-btn cd-btn-success" id="cmp-save-btn">➕ Сохранить как карточку</button>
+          <button class="cd-btn cd-btn-secondary" id="cmp-new-btn"
+                  style="display:none;">+ Новое сравнение</button>
+          <span id="cmp-save-status" style="font-size:0.82rem; color:#10b981;"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 6. Прикреплённые блоки отчёта ═══ -->
+  <div class="cd-section" id="cd-attached-section" style="display:none;">
+    <h2>6. Прикреплено к отчёту об адаптации <span id="cd-attached-count" style="color:#6b7280; font-weight:400;"></span></h2>
+    <div class="cd-hint" style="margin-bottom:8px;">
+      Список блоков, которые попадут в PDF отчёта при нажатии «Сформировать PDF» на странице
+      отчёта об адаптации. Можно временно отключить (галочка), удалить, переименовать,
+      изменить комментарий.
+    </div>
+    <div id="cd-attached-list"></div>
+    <div style="margin-top:12px; text-align:right;">
+      <a href="/adaptation-report"
+         style="display:inline-block; padding:8px 18px; background:#2563eb;
+                color:#fff; border-radius:6px; text-decoration:none;
+                font-size:0.88rem; font-weight:500;">
+        Перейти к отчёту об адаптации →
+      </a>
+    </div>
   </div>
 
 </div>
@@ -374,6 +474,16 @@
   let lastWellData = null;   // ответ /api/customer-daily/well/{well}
   let lastOurData = null;    // ответ /api/customer-daily/our-data/{well}
   let availability = null;   // ответ /api/customer-daily/availability/{well}
+
+  // wells.id текущей скв. (нужен для блоков customer_report_block).
+  // Резолвим через /api/customer-daily/resolve/{well_number}.
+  let currentWellId = null;
+  let currentWellInfo = null;  // {id, number, name}
+
+  // Снимок последнего построенного сравнения — для «Сохранить как карточка»
+  let lastCompareSnapshot = null;
+  // Снимок последнего анализа базового периода
+  let lastBaselineSnapshot = null;
 
   // ─────────────────────────── Helpers ───────────────────────────
   function alertBox(parent, type, html) {
@@ -455,21 +565,50 @@
     const well = $('cd-well-select').value;
     hideAll();
     clearChildren($('cd-avail-block'));
+    currentWellId = null;
+    currentWellInfo = null;
+    $('cd-baseline-section').style.display = 'none';
+    $('cd-attached-section').style.display = 'none';
     if (!well) return;
 
     $('cd-avail-block').appendChild(makeLoader('Проверяю наличие данных по скв. № ' + well + '…'));
 
     try {
+      // 1) Резолвим well_id (нужно для блоков)
+      try {
+        const rr = await fetch('/api/customer-daily/resolve/' + encodeURIComponent(well));
+        const rd = await rr.json();
+        if (rd.ok && rd.well) {
+          currentWellId = rd.well.id;
+          currentWellInfo = rd.well;
+        }
+      } catch (_) { /* без well_id — блоки недоступны, но availability сработает */ }
+
       const r = await fetch('/api/customer-daily/availability/' + encodeURIComponent(well));
       const a = await r.json();
       availability = a;
       renderAvailability(a);
       if (a.has_data) {
-        // Подставляем диапазон по умолчанию = всё
         $('cd-date-from').value = a.date_min;
         $('cd-date-to').value   = a.date_max;
         $('cd-period-section').style.display = '';
         $('cd-compare-section').style.display = '';
+        // Базовый период: предзаполняем = месяц до date_min (если есть), но
+        // секция показывается всегда при наличии данных.
+        const dMin = new Date(a.date_min + 'T00:00');
+        const dPre = new Date(dMin); dPre.setDate(dMin.getDate() - 30);
+        if (!$('cd-baseline-from').value) $('cd-baseline-from').value = dPre.toISOString().slice(0, 10);
+        if (!$('cd-baseline-to').value) {
+          const dEnd = new Date(dMin); dEnd.setDate(dMin.getDate() - 1);
+          $('cd-baseline-to').value = dEnd.toISOString().slice(0, 10);
+        }
+        $('cd-baseline-section').style.display = '';
+      }
+
+      // 2) Загружаем прикреплённые блоки (если well_id известен)
+      if (currentWellId) {
+        await refreshAttachedBlocks();
+        $('cd-attached-section').style.display = '';
       }
     } catch (e) {
       clearChildren($('cd-avail-block'));
@@ -567,6 +706,8 @@
       renderCharts(lastWellData);
       renderDescribe(lastWellData.describe);
       renderMonthly(lastWellData.monthly, lastWellData.monthly_desc);
+      // Открываем секцию «Добавить в отчёт» (если well_id известен)
+      if (currentWellId) $('cd-period-save-section').style.display = '';
 
       // Если включено сравнение — подгружаем наши данные и накладываем
       if ($('cd-compare-toggle').checked) await loadAndOverlayOurData();
@@ -977,11 +1118,36 @@
     const status = $('cmp-status');
     clearChildren(status);
     $('cmp-chart').style.display = 'none';
+    $('cmp-save-block').style.display = 'none';
     $('cmp-build-btn').disabled = true;
     $('cmp-build-btn').innerHTML = '<span class="cd-loader"></span> Загрузка…';
     try {
       const [a, b] = await Promise.all([fetchSeries('a'), fetchSeries('b')]);
       renderCompare(a, b);
+
+      // Сохраняем «снимок параметров» для возможного «Сохранить как карточку»
+      const collect = (letter) => ({
+        source: document.querySelector(`.cmp-source[data-ab="${letter}"]`).value,
+        well:   document.querySelector(`.cmp-well[data-ab="${letter}"]`).value.trim(),
+        date_from: document.querySelector(`.cmp-from[data-ab="${letter}"]`).value,
+        date_to:   document.querySelector(`.cmp-to[data-ab="${letter}"]`).value,
+      });
+      lastCompareSnapshot = {
+        params: {
+          metric: $('cmp-metric').value,
+          xaxis:  $('cmp-xaxis').value,
+          A: collect('a'), B: collect('b'),
+        },
+        a_label: a.label, b_label: b.label,
+      };
+      // Показываем блок сохранения только если well_id текущей скв. известен
+      if (currentWellId) {
+        $('cmp-save-block').style.display = '';
+        // Авто-заголовок
+        const lp = lastCompareSnapshot.params;
+        $('cmp-save-title').value = $('cmp-save-title').value
+          || `Сравнение: ${lp.A.date_from}…${lp.A.date_to} ↔ ${lp.B.date_from}…${lp.B.date_to}`;
+      }
     } catch (e) {
       alertBox(status, 'error', e.message);
     } finally {
@@ -1059,6 +1225,268 @@
     const u = new URL(window.location.href);
     window.open(u.pathname + u.search + '#compare', 'customer-daily-compare',
                 'width=1280,height=900');
+  });
+
+  // ═════════════ Прикреплённые блоки (customer_report_block) ═════════════
+
+  function _kindLabel(k) {
+    return ({
+      baseline: 'Базовый период',
+      period_analysis: 'Анализ периода',
+      comparison: 'Сравнение периодов',
+    })[k] || k;
+  }
+  function _kindColor(k) {
+    return ({
+      baseline: '#0891b2',
+      period_analysis: '#16a34a',
+      comparison: '#a855f7',
+    })[k] || '#6b7280';
+  }
+
+  async function refreshAttachedBlocks() {
+    if (!currentWellId) return;
+    try {
+      const r = await fetch('/api/customer-daily/blocks?well_id=' + currentWellId);
+      const d = await r.json();
+      renderAttachedBlocks(d.blocks || []);
+    } catch (e) {
+      console.warn('refreshAttachedBlocks failed', e);
+    }
+  }
+
+  function renderAttachedBlocks(blocks) {
+    const list = $('cd-attached-list');
+    const cnt = $('cd-attached-count');
+    const inReport = blocks.filter(b => b.in_report).length;
+    cnt.textContent = blocks.length
+      ? `(${inReport} в отчёт из ${blocks.length})`
+      : '(пока пусто)';
+    clearChildren(list);
+    if (!blocks.length) {
+      const empty = document.createElement('div');
+      empty.style.cssText = 'padding:14px; text-align:center; color:#6b7280; font-size:0.85rem;';
+      empty.textContent = 'Сохраните анализ базового периода, периода или сравнение — они появятся здесь.';
+      list.appendChild(empty);
+      return;
+    }
+    for (const b of blocks) {
+      const card = document.createElement('div');
+      card.style.cssText =
+        'border:1px solid #e5e7eb; border-radius:6px; padding:10px 12px; margin-bottom:8px; background:#fff;';
+      const periodStr = b.params && b.params.date_from
+        ? `${b.params.date_from} … ${b.params.date_to}` : '—';
+      const aPart = (b.params && b.params.A) ? `A: ${b.params.A.source}/${b.params.A.well} (${b.params.A.date_from}…${b.params.A.date_to})` : '';
+      const bPart = (b.params && b.params.B) ? ` · B: ${b.params.B.source}/${b.params.B.well} (${b.params.B.date_from}…${b.params.B.date_to})` : '';
+      const paramsLine = (b.kind === 'comparison' ? (aPart + bPart) : `Период: ${periodStr}`);
+
+      card.innerHTML =
+        `<div style="display:flex; align-items:center; gap:10px;">` +
+          `<span style="background:${_kindColor(b.kind)}; color:#fff; padding:2px 8px; border-radius:4px; font-size:0.7rem;">${_kindLabel(b.kind)}</span>` +
+          `<input type="text" class="atc-title" value="${b.title.replace(/"/g, '&quot;')}" data-id="${b.id}" ` +
+            `style="flex:1; padding:4px 8px; border:1px solid #d1d5db; border-radius:4px; font-size:0.88rem; font-weight:500;">` +
+          `<label style="font-size:0.78rem; display:flex; align-items:center; gap:4px;">` +
+            `<input type="checkbox" class="atc-inrep" data-id="${b.id}" ${b.in_report ? 'checked' : ''}> в отчёт` +
+          `</label>` +
+          `<button class="cd-btn cd-btn-secondary atc-del" data-id="${b.id}" style="padding:3px 9px;">✕</button>` +
+        `</div>` +
+        `<div style="font-size:0.78rem; color:#6b7280; margin-top:6px;">${paramsLine}</div>` +
+        `<textarea class="atc-comment" data-id="${b.id}" rows="2" placeholder="Комментарий к блоку (попадёт в PDF)..." ` +
+          `style="width:100%; margin-top:6px; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:0.82rem; resize:vertical;">${(b.comment || '').replace(/</g,'&lt;')}</textarea>`;
+      list.appendChild(card);
+    }
+    // Bind events: title/comment -> debounced save; checkbox -> immediate; delete
+    const debounce = (fn, ms) => {
+      let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+    };
+    list.querySelectorAll('.atc-title').forEach(el => {
+      const send = debounce(async () => {
+        await fetch('/api/customer-daily/blocks/' + el.dataset.id, {
+          method: 'PUT', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({title: el.value}),
+        });
+      }, 600);
+      el.addEventListener('input', send);
+    });
+    list.querySelectorAll('.atc-comment').forEach(el => {
+      const send = debounce(async () => {
+        await fetch('/api/customer-daily/blocks/' + el.dataset.id, {
+          method: 'PUT', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({comment: el.value}),
+        });
+      }, 800);
+      el.addEventListener('input', send);
+    });
+    list.querySelectorAll('.atc-inrep').forEach(el => {
+      el.addEventListener('change', async () => {
+        await fetch('/api/customer-daily/blocks/' + el.dataset.id, {
+          method: 'PUT', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({in_report: el.checked}),
+        });
+        // Перерисуем счётчик без полной перезагрузки
+        refreshAttachedBlocks();
+      });
+    });
+    list.querySelectorAll('.atc-del').forEach(el => {
+      el.addEventListener('click', async () => {
+        if (!confirm('Удалить блок безвозвратно?')) return;
+        await fetch('/api/customer-daily/blocks/' + el.dataset.id, {method: 'DELETE'});
+        refreshAttachedBlocks();
+      });
+    });
+  }
+
+  async function createBlock(kind, title, params, comment) {
+    if (!currentWellId) {
+      alert('Скважина не сопоставлена с wells.id — сохранение в отчёт недоступно.');
+      return null;
+    }
+    const r = await fetch('/api/customer-daily/blocks', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        well_id: currentWellId, kind, title,
+        params: params || {}, comment: comment || '', in_report: true,
+      }),
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      alert('Ошибка сохранения блока: ' + (d.detail || r.status));
+      return null;
+    }
+    return await r.json();
+  }
+
+  // ═════════════ Базовый период ═════════════
+
+  $('cd-baseline-enable').addEventListener('change', () => {
+    $('cd-baseline-body').style.display = $('cd-baseline-enable').checked ? '' : 'none';
+  });
+
+  document.querySelectorAll('.cd-pill[data-bpreset]').forEach(p => {
+    p.addEventListener('click', () => {
+      if (!availability || !availability.has_data) return;
+      const dMin = new Date(availability.date_min + 'T00:00');
+      const dEnd = new Date(dMin); dEnd.setDate(dMin.getDate() - 1);
+      const days = p.dataset.bpreset === 'custom' ? null : parseInt(p.dataset.bpreset);
+      if (days) {
+        const dStart = new Date(dEnd); dStart.setDate(dEnd.getDate() - (days - 1));
+        $('cd-baseline-from').value = dStart.toISOString().slice(0, 10);
+        $('cd-baseline-to').value   = dEnd.toISOString().slice(0, 10);
+      }
+      // визуальная подсветка
+      document.querySelectorAll('.cd-pill[data-bpreset]').forEach(x => x.classList.remove('active'));
+      p.classList.add('active');
+    });
+  });
+
+  $('cd-baseline-analyse-btn').addEventListener('click', async () => {
+    const well = $('cd-well-select').value;
+    const f = $('cd-baseline-from').value, t = $('cd-baseline-to').value;
+    if (!well || !f || !t) { alert('Укажите период.'); return; }
+    if (f > t) { alert('Начало периода позже конца.'); return; }
+    const result = $('cd-baseline-result');
+    clearChildren(result);
+    result.appendChild(makeLoader('Анализирую базовый период…'));
+    try {
+      const params = new URLSearchParams({date_from: f, date_to: t});
+      const r = await fetch(`/api/customer-daily/well/${encodeURIComponent(well)}?${params}`);
+      const d = await r.json();
+      clearChildren(result);
+      if (!d.rows) {
+        alertBox(result, 'warn', 'За выбранный период нет данных у заказчика.');
+        return;
+      }
+      lastBaselineSnapshot = d;
+      // Краткая сводка
+      const desc = d.describe || [];
+      const find = (k) => (desc.find(x => x.param === k) || {});
+      const q = find('q_gas_total');
+      const dp = (find('p_wellhead').median !== undefined && find('p_flowline').median !== undefined)
+        ? (find('p_wellhead').median - find('p_flowline').median) : null;
+      const sm = find('shutdown_min');
+      result.innerHTML =
+        `<div style="background:#ecfeff; border:1px solid #a5f3fc; border-radius:6px; padding:10px 12px;">` +
+        `<b>Базовый период:</b> ${d.date_min} … ${d.date_max} · <b>${d.rows}</b> сут.<br>` +
+        `Q общий: ср. <b>${fmtNum(q.mean)}</b>, мед. <b>${fmtNum(q.median)}</b>, макс. <b>${fmtNum(q.max)}</b> тыс.м³/сут<br>` +
+        (dp !== null ? `ΔP мед.: <b>${fmtNum(dp)}</b> кгс/см²<br>` : '') +
+        `Простой ср.: <b>${fmtNum(sm.mean)}</b> мин/сут` +
+        `</div>`;
+    } catch (e) {
+      clearChildren(result);
+      alertBox(result, 'error', 'Ошибка: ' + e.message);
+    }
+  });
+
+  $('cd-baseline-save-btn').addEventListener('click', async () => {
+    if (!lastBaselineSnapshot) {
+      alert('Сначала постройте анализ базового периода.');
+      return;
+    }
+    const well = $('cd-well-select').value;
+    const f = $('cd-baseline-from').value, t = $('cd-baseline-to').value;
+    const params = {date_from: f, date_to: t, well_number: well};
+    const title = `Базовый период ${f} … ${t} (скв. ${well})`;
+    const block = await createBlock('baseline', title, params, $('cd-baseline-comment').value || '');
+    if (block) {
+      $('cd-baseline-save-status').textContent = '✓ Добавлено в отчёт';
+      setTimeout(() => $('cd-baseline-save-status').textContent = '', 3000);
+      refreshAttachedBlocks();
+    }
+  });
+
+  // ═════════════ Период анализа → «Добавить в отчёт» ═════════════
+
+  $('cd-period-save-btn').addEventListener('click', async () => {
+    if (!lastWellData || !lastWellData.rows) {
+      alert('Сначала нажмите «Показать аналитику».');
+      return;
+    }
+    const well = $('cd-well-select').value;
+    const f = $('cd-date-from').value, t = $('cd-date-to').value;
+    const params = {date_from: f, date_to: t, well_number: well};
+    const title = `Анализ периода ${f} … ${t} (скв. ${well})`;
+    const block = await createBlock('period_analysis', title, params, $('cd-period-comment').value || '');
+    if (block) {
+      $('cd-period-save-status').textContent = '✓ Добавлено в отчёт';
+      setTimeout(() => $('cd-period-save-status').textContent = '', 3000);
+      refreshAttachedBlocks();
+    }
+  });
+
+  // ═════════════ Сравнение → «Сохранить как карточка» ═════════════
+
+  $('cmp-save-btn').addEventListener('click', async () => {
+    if (!lastCompareSnapshot) {
+      alert('Сначала постройте сравнение.');
+      return;
+    }
+    const params = lastCompareSnapshot.params;
+    const title = $('cmp-save-title').value
+      || `Сравнение ${params.A.date_from}…${params.A.date_to} ↔ ${params.B.date_from}…${params.B.date_to}`;
+    const block = await createBlock('comparison', title, params, $('cmp-save-comment').value || '');
+    if (block) {
+      $('cmp-save-status').textContent = '✓ Сохранено в карточки. Можно изменить параметры и создать ещё одно сравнение.';
+      $('cmp-new-btn').style.display = '';
+      refreshAttachedBlocks();
+    }
+  });
+
+  // «+ Новое сравнение» — чистит поля сохранения и предлагает построить новое
+  $('cmp-new-btn').addEventListener('click', () => {
+    $('cmp-save-title').value = '';
+    $('cmp-save-comment').value = '';
+    $('cmp-save-status').textContent = '';
+    $('cmp-new-btn').style.display = 'none';
+    lastCompareSnapshot = null;
+    // Скрыть прошлый snapshot-block — пусть пользователь сначала построит новое
+    $('cmp-save-block').style.display = 'none';
+    $('cmp-chart').style.display = 'none';
+    clearChildren($('cmp-stats'));
+    clearChildren($('cmp-status'));
+    // Прокрутить к форме сравнения для удобства
+    document.querySelector('.cmp-source[data-ab="a"]').scrollIntoView({
+      behavior: 'smooth', block: 'center',
+    });
   });
 
   loadMeta().then(loadWells).then(syncCmpDefaults);

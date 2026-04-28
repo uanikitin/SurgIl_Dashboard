@@ -107,6 +107,31 @@ Split across multiple routers: `equipment_management.py`, `equipment_documents.p
 **Reagent Accounting:**
 Routes in `app.py` + API in `api/reagents.py` + service logic in `services/reagent_balance_service.py`
 
+**Reagent Effectiveness Analysis (ИРВ + Score):**
+
+Анализ эффективности реагента построен на ИРВ (Интервал Реагентного Воздействия) —
+от вброса до следующего вброса/продувки. Для каждого ИРВ:
+
+1. Данные `pressure_raw` → `clean_pressure` → false-zero filter (`> 0`) →
+   active masks (без `verified_only`, как `/api/flow-rate/calculate`).
+2. На сглаженной ΔP (медиана 60 мин + среднее 20 мин) детектируются сегменты
+   `rise / plateau / decay` (`_detect_segments`).
+3. 7 расширенных метрик + сводный Score (0..100) — полное описание формулы,
+   весов и порогов в блоке-документации `services/reagent_effectiveness_service.py`
+   («Расширенные метрики реагента + Score»).
+
+Score отображается:
+
+- В модалке ИРВ (клик на 🔍 в таблице) — большой Score-плашкой + таблицей из 7 строк
+  с цветовой индикацией. Описание для оператора в блоке `<details>` «ⓘ как считается?»
+  на странице `templates/reagent_analysis.html`.
+- Колонкой в основной таблице ИРВ с сортировкой.
+
+**ВАЖНО:** при изменении логики Score править ОБА места одновременно —
+backend (`_SCORE_WEIGHTS`, `_compute_extended_metrics`) и UI
+(`static/js/reagent_analysis.js`: hover hints; `templates/reagent_analysis.html`:
+блок `<details>`). Калибровать веса/пороги по накопленным реальным данным.
+
 **Notifications:**
 `documents/services/notification_service.py` handles Telegram and email notifications for document events.
 

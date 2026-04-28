@@ -56,22 +56,40 @@ def get_choke_mm(well_id: int) -> Optional[float]:
     """
     Диаметр штуцера (мм) из well_construction.
 
-    Берёт самую свежую запись (по data_as_of).
+    Берёт самую свежую запись с непустым choke_diam_mm.
     Возвращает None если данных нет.
+
+    Реализация:
+      1) Получаем номер скважины из wells по id.
+      2) Ищем строку в well_construction по строковому номеру (TRIM,
+         защита от лишних пробелов / разной типизации). Тот же подход
+         использует страница /well/{id}.
     """
-    query = text("""
-        SELECT wc.choke_diam_mm
-        FROM well_construction wc
-        JOIN wells w ON w.number::text = wc.well_no
-        WHERE w.id = :well_id
-          AND wc.choke_diam_mm IS NOT NULL
-        ORDER BY wc.data_as_of DESC NULLS LAST
-        LIMIT 1
-    """)
     with pg_engine.connect() as conn:
-        row = conn.execute(query, {"well_id": well_id}).fetchone()
+        wrow = conn.execute(
+            text("SELECT number FROM wells WHERE id = :wid"),
+            {"wid": well_id},
+        ).fetchone()
+        if not wrow or wrow[0] is None:
+            log.warning("get_choke_mm: well not found or has no number, id=%d", well_id)
+            return None
+        well_no = str(wrow[0]).strip()
+
+        row = conn.execute(
+            text("""
+                SELECT choke_diam_mm
+                FROM well_construction
+                WHERE TRIM(well_no) = :wno
+                  AND choke_diam_mm IS NOT NULL
+                  AND choke_diam_mm > 0
+                ORDER BY data_as_of DESC NULLS LAST, id DESC
+                LIMIT 1
+            """),
+            {"wno": well_no},
+        ).fetchone()
     if row is None:
-        log.warning("choke_diam_mm not found for well_id=%d", well_id)
+        log.warning("choke_diam_mm not found for well_id=%d (well_no=%r)",
+                    well_id, well_no)
         return None
     return float(row[0])
 

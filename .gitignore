@@ -21,6 +21,10 @@ __pycache__/
 # Generated LaTeX/PDF artifacts
 backend/static/generated/pdf/
 backend/static/generated/temp/
+backend/static/generated/charts/
+
+# Runtime logs
+logs/
 *.aux
 *.log
 *.out

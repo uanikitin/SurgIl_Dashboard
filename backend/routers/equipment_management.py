@@ -584,6 +584,19 @@ async def transfer_equipment(
                 "Auto-reassign pressure on transfer failed: %s", e
             )
 
+    # ── Ретро-бэкфилл: если перевод задним числом, возможно в CSV есть
+    #    строки, которые импорт пропустил (installation ещё не было в БД).
+    try:
+        from backend.services.pressure_backfill_service import maybe_backfill_after_install
+        maybe_backfill_after_install(
+            equipment.serial_number, target_well_id, dt_transfer,
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            "backfill hook on transfer failed: %s", e,
+        )
+
     # ── Автоматическое создание актов демонтажа/монтажа ──
     removal_doc_id = None
     install_doc_id = None

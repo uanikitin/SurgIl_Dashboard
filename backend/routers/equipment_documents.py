@@ -829,6 +829,22 @@ async def equipment_doc_create(
 
     db.commit()
 
+    # Ретро-бэкфилл pressure_raw для LoRa-датчиков, установленных задним числом
+    if kind == "install" and not skip_ids:
+        try:
+            from backend.services.pressure_backfill_service import maybe_backfill_after_install
+            for eq_id in equipment_ids:
+                eq = db.query(Equipment).filter(Equipment.id == eq_id).first()
+                if eq and eq.serial_number:
+                    maybe_backfill_after_install(
+                        eq.serial_number, well_id, event_datetime,
+                    )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "backfill hook on equipment doc create failed: %s", e,
+            )
+
     return RedirectResponse(url=f"/documents/equipment/{doc.id}", status_code=303)
 
 

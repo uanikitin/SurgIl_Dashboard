@@ -39,3 +39,4 @@ from .well_antenna_distance import WellAntennaDistance
 from .sensor_daily_report import SensorDailyReport
 from .well_daily import WellDaily
 from .customer_baseline import CustomerBaseline
+from .customer_report_block import CustomerReportBlock

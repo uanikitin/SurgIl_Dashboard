@@ -91,7 +91,10 @@
 .ra-chart-wrap h3 {
     font-size:13px; font-weight:600; margin:0 0 10px 0; color:#374151;
 }
-.ra-chart-wrap canvas { width:100%; height:300px; }
+/* Chart.js v4 + maintainAspectRatio:false: высота — на родительском
+   <div style="position:relative; height:Npx">, canvas — без CSS-размеров.
+   Иначе resize-loop (canvas растёт → parent растёт → canvas растёт →…). */
+.ra-chart-wrap { position: relative; height: 320px; width: 100%; }
 
 /* Warnings */
 .ra-warnings { display:flex; flex-direction:column; gap:4px; }
@@ -124,6 +127,21 @@
     float:right; background:none; border:none; font-size:20px; cursor:pointer; color:#6b7280;
 }
 
+/* Embedded mode: селект скважины скрыт, показывается статичный лейбл */
+.ra-embedded-well-label {
+    display:none; padding:6px 10px; border:1px solid #d1d5db;
+    border-radius:6px; background:#f9fafb; font-size:13px;
+    font-weight:600; color:#111827; min-width:120px;
+}
+body.ra-embedded #ra-well { display:none !important; }
+body.ra-embedded .ra-embedded-well-label { display:inline-block; }
+
+/* Stale-hint в embedded — когда даты/скважина изменились, но анализ ещё не пересчитан */
+.ra-stale-hint {
+    padding:10px 14px; background:#fef9c3; border:1px solid #fde68a;
+    border-radius:6px; color:#92400e; font-size:13px;
+}
+
 /* Loading */
 .ra-loading { text-align:center; padding:40px; color:#6b7280; font-size:14px; }
 .ra-spin { display:inline-block; width:20px; height:20px; border:3px solid #e5e7eb;
@@ -135,9 +153,43 @@
 {% block content %}
 <div class="ra-page">
 
+    {# Панель пресетов «Этап» — пресеты приходят через postMessage из
+       adaptation-report. Если этапы не заданы — кнопка disabled с пометкой. #}
+    <div id="ra-stage-panel" style="padding:8px 12px;
+         background:#f0f9ff; border:1px solid #bae6fd; border-radius:6px;
+         margin-bottom:8px;">
+      <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+        <span style="font-size:0.85rem; color:#0c4a6e; font-weight:500;">
+          Период анализа:
+        </span>
+        <label style="display:flex; align-items:center; gap:4px; font-size:0.85rem;">
+          <input type="radio" name="ra-stage" value="observation" data-stage>
+          Наблюдение <span class="ra-stage-info" data-stage-info="observation"
+                            style="color:#6b7280; font-size:0.78rem;"></span>
+        </label>
+        <label style="display:flex; align-items:center; gap:4px; font-size:0.85rem;">
+          <input type="radio" name="ra-stage" value="adaptation" data-stage>
+          Адаптация <span class="ra-stage-info" data-stage-info="adaptation"
+                          style="color:#6b7280; font-size:0.78rem;"></span>
+        </label>
+        <label style="display:flex; align-items:center; gap:4px; font-size:0.85rem;">
+          <input type="radio" name="ra-stage" value="optimal" data-stage>
+          Оптимум <span class="ra-stage-info" data-stage-info="optimal"
+                        style="color:#6b7280; font-size:0.78rem;"></span>
+        </label>
+        <label style="display:flex; align-items:center; gap:4px; font-size:0.85rem;">
+          <input type="radio" name="ra-stage" value="custom" data-stage checked>
+          Свой период
+        </label>
+        <span id="ra-stage-hint" style="font-size:0.75rem; color:#6b7280;
+              margin-left:auto; max-width:48%;"></span>
+      </div>
+    </div>
+
     <!-- Toolbar -->
     <div class="ra-toolbar">
         <select id="ra-well"></select>
+        <span id="ra-well-label" class="ra-embedded-well-label">—</span>
         <input type="date" id="ra-date-from">
         <input type="date" id="ra-date-to">
         <div class="sep"></div>
@@ -203,27 +255,71 @@
         </table>
     </div>
 
-    <!-- Chart: M2 over time -->
-    <div class="ra-chart-wrap" id="ra-chart-block" style="display:none;">
-        <h3>Q/шт по вбросам во времени</h3>
-        <canvas id="ra-chart-m2"></canvas>
+    <!-- Chart: Score per injection (bar chart with detailed tooltip) -->
+    <div id="ra-chart-block" style="display:none;">
+        <h3 style="font-size:13px; font-weight:600; margin:0 0 10px 0; color:#374151;">
+          Эффективность вбросов (Score по времени)
+          <span style="font-weight:400; font-size:11px; color:#6b7280; margin-left:8px;">
+            наведение — метрики, клик — детали ИРВ
+          </span>
+        </h3>
+        <div class="ra-chart-wrap">
+          <canvas id="ra-chart-m2"></canvas>
+        </div>
     </div>
+
+    <style>
+    /* Кастомный HTML-tooltip для столбчатого графика эффективности */
+    #ra-chart-tooltip {
+        position: fixed; display: none; pointer-events: none;
+        background: #fff; border: 1px solid #d1d5db; border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+        padding: 10px 12px; font-size: 12px; color: #1f2937;
+        z-index: 1001; min-width: 260px; max-width: 320px;
+    }
+    #ra-chart-tooltip .rct-head {
+        font-weight: 700; font-size: 13px; margin-bottom: 2px;
+    }
+    #ra-chart-tooltip .rct-sub {
+        color: #6b7280; font-size: 11px; margin-bottom: 8px;
+    }
+    #ra-chart-tooltip .rct-score {
+        display: inline-block; padding: 2px 8px; border-radius: 10px;
+        font-weight: 700; font-size: 13px; color: #fff; margin-right: 6px;
+    }
+    #ra-chart-tooltip table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    #ra-chart-tooltip td { padding: 2px 4px; }
+    #ra-chart-tooltip .rct-bar {
+        display: inline-block; height: 6px; width: 60px;
+        background: #e5e7eb; border-radius: 3px; vertical-align: middle;
+        margin-left: 4px; position: relative;
+    }
+    #ra-chart-tooltip .rct-bar > span {
+        display: block; height: 100%; border-radius: 3px;
+    }
+    </style>
+    <div id="ra-chart-tooltip"></div>
 
     <!-- IRV table -->
     <div class="ra-table-wrap" id="ra-irv-block" style="display:none;">
         <h3>Интервалы реагентного воздействия (ИРВ)</h3>
-        <table class="ra-table">
+        <div style="font-size:11px; color:#6b7280; margin-bottom:6px;">
+          Клик по заголовку — сортировка. Score рассчитан по сегментам ИРВ
+          (T_resp, ΔP_peak, T_plateau, V_decay, T_decay, V_rise, M5). Подробности — лупа.
+        </div>
+        <table class="ra-table" id="ra-irv-table">
             <thead>
                 <tr>
-                    <th>Дата</th>
-                    <th>Реагент</th>
-                    <th>Кол-во</th>
-                    <th>Длит. (ч)</th>
-                    <th>Q_cum</th>
-                    <th>Q/шт</th>
-                    <th>&Delta;P прирост</th>
-                    <th>Эффект (ч)</th>
-                    <th>M5 (%)</th>
+                    <th data-sort="event_time">Дата</th>
+                    <th data-sort="reagent">Реагент</th>
+                    <th data-sort="qty">Кол-во</th>
+                    <th data-sort="duration_hours">Длит. (ч)</th>
+                    <th data-sort="q_cumulative">Q_cum</th>
+                    <th data-sort="q_per_unit">Q/шт</th>
+                    <th data-sort="dp_gain">&Delta;P прирост</th>
+                    <th data-sort="effect_duration_hours">Эффект (ч)</th>
+                    <th data-sort="utilisation_pct">M5 (%)</th>
+                    <th data-sort="score">Score</th>
                     <th></th>
                 </tr>
             </thead>
@@ -244,14 +340,87 @@
         <button class="ra-modal-close" id="ra-modal-close">&times;</button>
         <h2 id="ra-detail-title">Детали ИРВ</h2>
         <div class="ra-cards" id="ra-detail-metrics" style="margin:12px 0;"></div>
+        <h3 style="font-size:13px; font-weight:600; margin:0 0 6px 0; color:#374151;">Давление</h3>
         <div class="ra-chart-wrap" style="margin-bottom:12px;">
-            <h3>Давление</h3>
-            <canvas id="ra-detail-pressure" style="height:250px;"></canvas>
+            <canvas id="ra-detail-pressure"></canvas>
         </div>
+        <h3 style="font-size:13px; font-weight:600; margin:0 0 6px 0; color:#374151;">Дебит</h3>
         <div class="ra-chart-wrap">
-            <h3>Дебит</h3>
-            <canvas id="ra-detail-flow" style="height:250px;"></canvas>
+            <canvas id="ra-detail-flow"></canvas>
         </div>
+        <h3 style="font-size:13px; font-weight:600; margin:14px 0 6px 0; color:#374151;">
+          Сегменты ИРВ <span id="ra-detail-seg-empty" style="font-weight:400; color:#9ca3af; font-size:12px;"></span>
+        </h3>
+        <div id="ra-detail-segments"></div>
+
+        <h3 style="font-size:13px; font-weight:600; margin:14px 0 6px 0; color:#374151;">
+          Расширенные метрики реагента
+          <a href="#" onclick="document.getElementById('ra-score-help').open = !document.getElementById('ra-score-help').open; return false;"
+             style="font-weight:400; font-size:11px; color:#2563eb; margin-left:6px;">
+            ⓘ как считается?
+          </a>
+        </h3>
+        <details id="ra-score-help" style="margin:6px 0 12px; padding:10px 12px;
+                background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px;
+                font-size:12px; color:#374151; line-height:1.5;">
+          <summary style="cursor:pointer; font-weight:500; outline:none;">
+            Описание метрик и формулы Score
+          </summary>
+          <div style="margin-top:8px;">
+            <p style="margin:6px 0;"><b>Источник данных.</b> Сегменты ИРВ (rise / plateau / decay)
+            определяются на сглаженной ΔP-кривой (медиана 60 мин + среднее 20 мин)
+            после применения масок и удаления false-zero (LoRa). Эта же сглаженная
+            кривая показана фиолетовым пунктиром на графике «Давление» (правая ось).</p>
+
+            <p style="margin:6px 0;"><b>Метрики (7 штук):</b></p>
+            <table style="width:100%; border-collapse:collapse; font-size:11px;">
+              <thead>
+                <tr style="background:#e2e8f0;">
+                  <th style="padding:4px 6px; text-align:left;">Код</th>
+                  <th style="padding:4px 6px; text-align:left;">Что</th>
+                  <th style="padding:4px 6px; text-align:center;">Хорошо когда</th>
+                  <th style="padding:4px 6px; text-align:center;">Норм. диапазон</th>
+                  <th style="padding:4px 6px; text-align:center;">Вес</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td><b>T_resp</b></td><td>от вброса до начала первого <i>rise</i></td><td style="text-align:center;">↓ малое</td><td style="text-align:center;">0–2 ч</td><td style="text-align:center;">0.10</td></tr>
+                <tr><td><b>ΔP_peak</b></td><td>пик сглаж. ΔP минус baseline</td><td style="text-align:center;">↑ большой</td><td style="text-align:center;">0–3 кгс/см²</td><td style="text-align:center;">0.25</td></tr>
+                <tr><td><b>V_rise</b></td><td>slope первого <i>rise</i></td><td style="text-align:center;">↑ большой</td><td style="text-align:center;">0–1 кгс/см²/ч</td><td style="text-align:center;">0.10</td></tr>
+                <tr><td><b>T_plateau</b></td><td>сумма длит. всех <i>plateau</i></td><td style="text-align:center;">↑ большая</td><td style="text-align:center;">0–6 ч</td><td style="text-align:center;">0.20</td></tr>
+                <tr><td><b>V_decay</b></td><td>взвеш. среднее |slope| <i>decay</i></td><td style="text-align:center;">↓ малая</td><td style="text-align:center;">0–1 кгс/см²/ч</td><td style="text-align:center;">0.15</td></tr>
+                <tr><td><b>T_decay</b></td><td>сумма длит. всех <i>decay</i></td><td style="text-align:center;">↑ большая</td><td style="text-align:center;">0–12 ч</td><td style="text-align:center;">0.15</td></tr>
+                <tr><td><b>M5</b></td><td>коэф. использования времени</td><td style="text-align:center;">↑ большой</td><td style="text-align:center;">0–100 %</td><td style="text-align:center;">0.05</td></tr>
+              </tbody>
+            </table>
+
+            <p style="margin:8px 0 4px;"><b>Score (0–100)</b> = взвешенная сумма
+            нормализованных метрик (T_resp и V_decay инвертируются: меньшее значение даёт +).</p>
+            <p style="margin:4px 0;"><b>Категории:</b>
+              <span style="background:#dcfce7; color:#166534; padding:1px 6px; border-radius:3px;">≥70 хороший</span>,
+              <span style="background:#fef9c3; color:#854d0e; padding:1px 6px; border-radius:3px;">45–70 средний</span>,
+              <span style="background:#fee2e2; color:#991b1b; padding:1px 6px; border-radius:3px;">&lt;45 слабый</span>.
+            </p>
+
+            <p style="margin:8px 0 4px;"><b>Физическая интерпретация.</b></p>
+            <ul style="margin:4px 0 4px 18px; padding:0;">
+              <li>Рост ΔP (rise) — реагент вспенивает флюид, облегчая вынос воды (положительно).</li>
+              <li>Плато — стабильное действие реагента; чем дольше — тем лучше.</li>
+              <li>Спад (decay) — затухание эффекта. <b>Медленный</b> спад — лучше резкого
+                  (длительность спада ↑ вес положительный, но скорость спада ↓ инвертируется).</li>
+              <li>Время реагирования T_resp — задержка отклика; быстрее = лучше.</li>
+              <li>Если активен только <i>plateau</i> без выраженного <i>rise</i> и <i>decay</i> —
+                  реагент <b>не контактирует с водой</b>, рассмотреть другой состав.</li>
+            </ul>
+
+            <p style="margin:8px 0 4px; color:#6b7280;">
+              <i>Веса и пороги — настраиваемые константы в
+              <code>reagent_effectiveness_service.py</code> (<code>_SCORE_WEIGHTS</code> + блок «Пороги
+              нормализации»). Откалибровать после накопления реальных данных.</i>
+            </p>
+          </div>
+        </details>
+        <div id="ra-detail-ext-block"></div>
     </div>
 </div>
 {% endblock %}
@@ -259,5 +428,256 @@
 {% block extra_scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
+<script>
+  // Регистрируем плагин annotation для отметки точки вброса и сегментов
+  if (typeof Chart !== 'undefined' && typeof window['chartjs-plugin-annotation'] !== 'undefined') {
+    Chart.register(window['chartjs-plugin-annotation']);
+  }
+</script>
 <script src="/static/js/reagent_analysis.js?v={{ time() }}"></script>
+
+<!-- ─── Интеграция с adaptation-report (postMessage + preset) ─── -->
+<script>
+(function () {
+  const PRESET_WELL_ID = {{ preset_well_id|tojson if preset_well_id else "null" }};
+  const IS_EMBEDDED = {{ embedded|tojson if embedded is defined else "false" }};
+
+  const $$ = (id) => document.getElementById(id);
+  if (IS_EMBEDDED) document.body.classList.add('ra-embedded');
+
+  // Хранит {observation:{from,to}, adaptation:{from,to}, optimal:{from,to}}
+  let stagesByKey = {};
+  // Ключ последнего автозапуска — чтобы не триггерить повторно с теми же параметрами
+  let _lastAutoRunKey = null;
+  // Флаг: идёт программное изменение полей, не показывать stale-хинт
+  let _suppressStale = false;
+
+  function _toDateInput(iso) {
+    if (!iso) return '';
+    return String(iso).slice(0, 10);
+  }
+
+  function applyStage(key) {
+    const s = stagesByKey[key];
+    if (!s || !s.from || !s.to) return false;
+    _suppressStale = true;
+    try {
+      if ($$('ra-date-from')) $$('ra-date-from').value = _toDateInput(s.from);
+      if ($$('ra-date-to'))   $$('ra-date-to').value   = _toDateInput(s.to);
+    } finally {
+      _suppressStale = false;
+    }
+    return true;
+  }
+
+  function renderStageInfo() {
+    let anyAvailable = false;
+    document.querySelectorAll('.ra-stage-info').forEach(span => {
+      const k = span.dataset.stageInfo;
+      const s = stagesByKey[k];
+      const has = !!(s && s.from && s.to);
+      if (has) anyAvailable = true;
+      span.textContent = has
+        ? ` (${_toDateInput(s.from)} … ${_toDateInput(s.to)})`
+        : ' (не задан)';
+      const radio = document.querySelector(`input[data-stage][value="${k}"]`);
+      if (radio) radio.disabled = !has;
+    });
+    const hint = $$('ra-stage-hint');
+    if (hint) {
+      if (!anyAvailable) {
+        hint.textContent = IS_EMBEDDED
+          ? 'Этапы появятся, когда они будут заданы во вкладке «Этапы (Н/А)».'
+          : 'Открыто вне отчёта об адаптации — пресеты этапов недоступны.';
+      } else {
+        hint.textContent = '';
+      }
+    }
+  }
+  renderStageInfo();
+
+  // ── Очистка устаревших результатов + stale-хинт ──
+  function _clearResults() {
+    ['ra-cards', 'ra-scores-block', 'ra-chart-block', 'ra-irv-block'].forEach(id => {
+      const el = $$(id);
+      if (el) el.style.display = 'none';
+    });
+    const w = $$('ra-warnings');
+    if (w) w.innerHTML = '';
+    const btnExcel = $$('ra-btn-excel');
+    if (btnExcel) btnExcel.style.display = 'none';
+  }
+  function _showStaleHint() {
+    let el = $$('ra-stale-hint');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'ra-stale-hint';
+      el.className = 'ra-stale-hint';
+      el.textContent = 'Параметры изменены — нажмите «Анализ» для пересчёта.';
+      const warnings = $$('ra-warnings');
+      if (warnings && warnings.parentNode) {
+        warnings.parentNode.insertBefore(el, warnings.nextSibling);
+      }
+    }
+    el.style.display = '';
+  }
+  function _hideStaleHint() {
+    const el = $$('ra-stale-hint');
+    if (el) el.style.display = 'none';
+  }
+
+  // ── Обновление embedded-лейбла со скважиной ──
+  function _syncWellLabel() {
+    const sel = $$('ra-well');
+    const lbl = $$('ra-well-label');
+    if (!sel || !lbl) return;
+    const opt = sel.selectedOptions && sel.selectedOptions[0];
+    lbl.textContent = opt ? opt.textContent : '—';
+  }
+
+  // ── Готовность к запуску анализа ──
+  function _isReady() {
+    const well = +($$('ra-well')?.value || 0);
+    const from = $$('ra-date-from')?.value || '';
+    const to   = $$('ra-date-to')?.value   || '';
+    if (!well || !from || !to) return null;
+    return well + '|' + from + '|' + to;
+  }
+
+  function _clickAnalyze() {
+    const btn = $$('ra-btn-analyze');
+    if (btn) btn.click();
+  }
+
+  // Авто-запуск анализа: только в embedded и только при смене ключа (well|from|to).
+  function _maybeAutoAnalyze() {
+    if (!IS_EMBEDDED) return;
+    const key = _isReady();
+    if (!key || key === _lastAutoRunKey) return;
+    _lastAutoRunKey = key;
+    _hideStaleHint();
+    _clickAnalyze();
+  }
+
+  // Радио → подставить даты выбранного этапа (+ авто-анализ в embedded)
+  document.querySelectorAll('input[data-stage]').forEach(r => {
+    r.addEventListener('change', () => {
+      if (r.value === 'custom') return;
+      if (applyStage(r.value)) {
+        _clearResults();
+        _maybeAutoAnalyze();
+      }
+    });
+  });
+
+  // Смена скважины / дат пользователем → сброс результатов + stale-хинт
+  // (в embedded вместо хинта запустится авто-анализ)
+  ['ra-well', 'ra-date-from', 'ra-date-to'].forEach(id => {
+    const el = $$(id);
+    if (!el) return;
+    el.addEventListener('change', () => {
+      if (_suppressStale) return;
+      _clearResults();
+      if (id === 'ra-well') _syncWellLabel();
+      if (IS_EMBEDDED) {
+        _maybeAutoAnalyze();
+      } else {
+        _showStaleHint();
+      }
+    });
+  });
+
+  // При клике «Анализ» вручную — скрываем stale-хинт и обновляем ключ
+  const _btnAnalyze = $$('ra-btn-analyze');
+  if (_btnAnalyze) {
+    _btnAnalyze.addEventListener('click', () => {
+      _hideStaleHint();
+      const k = _isReady();
+      if (k) _lastAutoRunKey = k;
+    });
+  }
+
+  // Принимаем сообщения от родительской страницы (adaptation-report).
+  window.addEventListener('message', (ev) => {
+    const d = ev.data;
+    if (!d || typeof d !== 'object') return;
+    if (d.type !== 'adaptation-stages') return;
+    stagesByKey = {
+      observation: d.observation || null,
+      adaptation:  d.adaptation || null,
+      optimal:     d.optimal || null,
+    };
+    $$('ra-stage-panel').style.display = '';
+    renderStageInfo();
+
+    // Предустановка скважины (если опции уже загружены)
+    if (d.well_id && $$('ra-well')) {
+      const sel = $$('ra-well');
+      const opt = Array.from(sel.options)
+        .find(o => parseInt(o.value) === parseInt(d.well_id));
+      if (opt) {
+        _suppressStale = true;
+        sel.value = opt.value;
+        _suppressStale = false;
+        _syncWellLabel();
+      }
+    }
+
+    // Авто-выбор приоритетного этапа: adaptation → optimal → observation.
+    // В embedded — принудительно, т.к. отчёт строится по этапу адаптации.
+    // В не-embedded — не трогаем, если пользователь уже выбрал что-то нестандартное.
+    const pickable = ['adaptation', 'optimal', 'observation']
+      .find(k => stagesByKey[k] && stagesByKey[k].from && stagesByKey[k].to);
+    const active = document.querySelector('input[data-stage]:checked');
+    if (pickable) {
+      const forcePick = IS_EMBEDDED || !active || active.value === 'custom';
+      if (forcePick) {
+        const radio = document.querySelector(
+          `input[data-stage][value="${pickable}"]`);
+        if (radio && !radio.disabled) {
+          radio.checked = true;
+          applyStage(pickable);
+          _clearResults();
+        }
+      } else if (active && active.value !== 'custom') {
+        // Уже выбран конкретный этап — обновим его даты
+        applyStage(active.value);
+        _clearResults();
+      }
+    }
+
+    _maybeAutoAnalyze();
+  });
+
+  // Если открыто как iframe — сообщить родителю что мы готовы (попросить пресеты)
+  if (IS_EMBEDDED && window.parent !== window) {
+    try {
+      window.parent.postMessage({type: 'reagent-analysis-ready'}, '*');
+    } catch (_) {}
+  }
+
+  // Пресет well_id из query-параметра: ждём пока reagent_analysis.js подтянет опции
+  if (PRESET_WELL_ID && $$('ra-well')) {
+    const tryPreset = () => {
+      const sel = $$('ra-well');
+      const opt = Array.from(sel.options)
+        .find(o => parseInt(o.value) === parseInt(PRESET_WELL_ID));
+      if (!opt) return false;
+      _suppressStale = true;
+      sel.value = opt.value;
+      _suppressStale = false;
+      _syncWellLabel();
+      _maybeAutoAnalyze();
+      return true;
+    };
+    if (!tryPreset()) {
+      let tries = 0;
+      const iv = setInterval(() => {
+        if (tryPreset() || ++tries > 20) clearInterval(iv);
+      }, 250);
+    }
+  }
+})();
+</script>
 {% endblock %}

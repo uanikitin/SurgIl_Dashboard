@@ -6,8 +6,8 @@ from datetime import datetime, date as _date
 from pathlib import Path
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 from starlette.responses import RedirectResponse
@@ -19,7 +19,10 @@ from backend.models.wells import Well
 from backend.documents.models import Document, DocumentType
 from backend.models.events import Event
 from backend.models.well_status import WellStatus, ALLOWED_STATUS
-from backend.services.pressure_lookup import get_nearest_from_pressure_raw
+from backend.services.pressure_lookup import (
+    get_nearest_from_pressure_raw,
+    get_raw_candidates_around,
+)
 
 router = APIRouter(tags=["documents-well-handover"])
 
@@ -88,93 +91,66 @@ def _get_pressure_smart(
         mode: str = "nearest",
         *,
         well_id: int | None = None,
+        window_hours: int = 24,
 ) -> dict:
     """
-    Умный поиск давлений из ЛЮБЫХ событий (не только pressure).
+    Умный поиск давлений из pressure_raw и Events **независимо по каналам**.
 
-    mode:
-      - 'nearest' -> ближайшее давление к ref_dt (до или после)
-      - 'before'  -> последнее давление ДО ref_dt
-      - 'first'   -> первое давление ДО ref_dt (legacy)
-      - 'last'    -> последнее давление ДО ref_dt (legacy, = before)
+    Каналы p_tube и p_line ломаются независимо (SMOD-PT-60 false-zeros),
+    поэтому для каждого канала выбирается свой ближайший источник.
 
-    Возвращает dict:
-    {
-        "tube_pressure": float | None,
-        "line_pressure": float | None,
-        "source_type": str | None,    # тип события (pressure, equip, dosing...)
-        "source_time": datetime | None,
-        "source_desc": str | None,    # описание для UI
-    }
+    mode: 'nearest' | 'before' | 'first' | 'last'
+    window_hours: окно поиска в pressure_raw (по умолч. 24ч)
+
+    Возвращает dict с tube_pressure/line_pressure и описанием источника.
     """
-    result = {
-        "tube_pressure": None,
-        "line_pressure": None,
-        "source_type": None,
-        "source_time": None,
-        "source_desc": None,
-    }
-
-    # Базовый запрос: события с давлениями
+    # --- 1. Собираем кандидатов из Events ---
     base_q = (
         db.query(Event)
         .filter(sa.cast(Event.well, sa.String) == str(well_number))
         .filter(sa.or_(Event.p_tube.isnot(None), Event.p_line.isnot(None)))
     )
 
-    best_event = None
-
     if mode in ("before", "last"):
-        # Последнее давление ДО даты
-        best_event = (
-            base_q
-            .filter(Event.event_time <= ref_dt)
-            .order_by(Event.event_time.desc())
-            .first()
+        before_ev = (
+            base_q.filter(Event.event_time <= ref_dt)
+            .order_by(Event.event_time.desc()).first()
         )
+        after_ev = None
     elif mode == "first":
-        # Первое давление ДО даты (legacy)
-        best_event = (
-            base_q
-            .filter(Event.event_time <= ref_dt)
-            .order_by(Event.event_time.asc())
-            .first()
+        before_ev = (
+            base_q.filter(Event.event_time <= ref_dt)
+            .order_by(Event.event_time.asc()).first()
         )
+        after_ev = None
     else:
-        # mode == 'nearest': ближайшее к дате (до или после)
-        before_event = (
-            base_q
-            .filter(Event.event_time <= ref_dt)
-            .order_by(Event.event_time.desc())
-            .first()
+        before_ev = (
+            base_q.filter(Event.event_time <= ref_dt)
+            .order_by(Event.event_time.desc()).first()
         )
-        after_event = (
-            base_q
-            .filter(Event.event_time > ref_dt)
-            .order_by(Event.event_time.asc())
-            .first()
+        after_ev = (
+            base_q.filter(Event.event_time > ref_dt)
+            .order_by(Event.event_time.asc()).first()
         )
 
-        if before_event and after_event:
-            delta_before = ref_dt - before_event.event_time
-            delta_after = after_event.event_time - ref_dt
-            best_event = before_event if delta_before <= delta_after else after_event
-        else:
-            best_event = before_event or after_event
+    def _ev_channel(attr: str):
+        """Выбрать лучшего Event-кандидата по конкретному каналу."""
+        cands = []
+        for ev in (before_ev, after_ev):
+            if ev is None:
+                continue
+            v = getattr(ev, attr)
+            if v is not None:
+                cands.append((abs((ref_dt - ev.event_time).total_seconds()), ev, v))
+        if not cands:
+            return None
+        cands.sort(key=lambda x: x[0])
+        return cands[0]  # (delta, event, value)
 
-    # Дельта события (если найдено)
-    event_delta = float('inf')
-    if best_event:
-        event_delta = abs((ref_dt - best_event.event_time).total_seconds())
-        result["tube_pressure"] = best_event.p_tube
-        result["line_pressure"] = best_event.p_line
-        result["source_type"] = best_event.event_type
-        result["source_time"] = best_event.event_time
-        result["source_desc"] = _format_source_desc(
-            best_event.event_type, best_event.event_time, ref_dt,
-        )
+    ev_tube = _ev_channel("p_tube")
+    ev_line = _ev_channel("p_line")
 
-    # Проверяем pressure_raw (данные LoRa-датчиков)
+    # --- 2. Собираем кандидатов из pressure_raw (per channel) ---
     _wid = well_id
     if _wid is None:
         w = db.query(Well).filter(
@@ -182,19 +158,71 @@ def _get_pressure_smart(
         ).first()
         _wid = w.id if w else None
 
+    raw = None
     if _wid is not None:
         raw_mode = "before" if mode in ("before", "last") else "nearest"
-        raw = get_nearest_from_pressure_raw(_wid, ref_dt, mode=raw_mode)
-        if raw and raw["delta_seconds"] < event_delta:
-            result["tube_pressure"] = raw["p_tube"]
-            result["line_pressure"] = raw["p_line"]
-            result["source_type"] = "sensor"
-            result["source_time"] = raw["measured_at_local"]
-            result["source_desc"] = _format_source_desc(
-                "датчик", raw["measured_at_local"], ref_dt,
-            )
+        raw = get_nearest_from_pressure_raw(
+            _wid, ref_dt, mode=raw_mode, max_gap_hours=window_hours,
+        )
 
-    return result
+    # --- 3. Выбираем лучший источник для каждого канала ---
+    def _pick_channel(
+        ev_best, raw_value, raw_at,
+    ) -> tuple[float | None, str | None, datetime | None]:
+        """
+        Возвращает (value, source_type, source_time) для канала.
+        Приоритет отдаётся источнику с меньшей дельтой от ref_dt.
+        """
+        ev_delta = ev_best[0] if ev_best else float("inf")
+        raw_delta = (
+            abs((ref_dt - raw_at).total_seconds())
+            if raw_value is not None and raw_at is not None else float("inf")
+        )
+        if ev_delta == float("inf") and raw_delta == float("inf"):
+            return None, None, None
+        if raw_delta < ev_delta:
+            return float(raw_value), "sensor", raw_at
+        ev = ev_best[1]
+        return float(ev_best[2]), ev.event_type, ev.event_time
+
+    raw_tube_v = raw["p_tube"] if raw else None
+    raw_tube_at = raw["p_tube_at_local"] if raw else None
+    raw_line_v = raw["p_line"] if raw else None
+    raw_line_at = raw["p_line_at_local"] if raw else None
+
+    tube_v, tube_src, tube_at = _pick_channel(ev_tube, raw_tube_v, raw_tube_at)
+    line_v, line_src, line_at = _pick_channel(ev_line, raw_line_v, raw_line_at)
+
+    # --- 4. Сводим описание источника ---
+    parts = []
+    if tube_at is not None:
+        label = "датчик" if tube_src == "sensor" else (tube_src or "событие")
+        parts.append(f"трубн.: {_format_source_desc(label, tube_at, ref_dt)}")
+    if line_at is not None:
+        label = "датчик" if line_src == "sensor" else (line_src or "событие")
+        parts.append(f"шлейф.: {_format_source_desc(label, line_at, ref_dt)}")
+    source_desc = " · ".join(parts) if parts else None
+
+    # Для обратной совместимости (audit): общий type/time выбираем
+    # как «самый свежий» из двух каналов
+    src_type, src_time = None, None
+    for candidate_time, candidate_type in (
+        (tube_at, tube_src), (line_at, line_src),
+    ):
+        if candidate_time is None:
+            continue
+        if src_time is None or abs((ref_dt - candidate_time).total_seconds()) \
+                < abs((ref_dt - src_time).total_seconds()):
+            src_time = candidate_time
+            src_type = candidate_type
+
+    return {
+        "tube_pressure": tube_v,
+        "line_pressure": line_v,
+        "source_type": src_type,
+        "source_time": src_time,
+        "source_desc": source_desc,
+    }
 
 
 def _format_source_desc(
@@ -391,6 +419,10 @@ def well_handover_new(
     last_events: list[dict] = []
     # Даты из well_status (для этапных актов приёма)
     stage_dates: list[dict] = []
+    # Даты демонтажа/перемещения оборудования (для актов возврата/передачи)
+    equip_movements: list[dict] = []
+    # Даты завершения этапов (для well_stage_return)
+    stage_ends: list[dict] = []
 
     if well_id:
         well_obj = db.query(Well).filter(Well.id == well_id).first()
@@ -408,6 +440,53 @@ def well_handover_new(
                 "dt_start_display": ws.dt_start.strftime("%d.%m.%Y %H:%M") if ws.dt_start else "—",
                 "dt_end_iso": ws.dt_end.strftime("%Y-%m-%dT%H:%M") if ws.dt_end else "",
                 "dt_end_display": ws.dt_end.strftime("%d.%m.%Y %H:%M") if ws.dt_end else "—",
+            })
+
+        # --- Перемещения оборудования (removed_at) ---
+        # Последние демонтажи оборудования с этой скважины — служат маркером
+        # даты фактического прекращения пребывания оборудования.
+        rows = db.execute(
+            sa.text(
+                """
+                SELECT ei.removed_at, ei.notes,
+                       e.name AS eq_name, e.serial_number, e.equipment_type,
+                       (ls.id IS NOT NULL) AS is_lora
+                FROM equipment_installation ei
+                JOIN equipment e ON e.id = ei.equipment_id
+                LEFT JOIN lora_sensors ls ON ls.serial_number = e.serial_number
+                WHERE ei.well_id = :wid AND ei.removed_at IS NOT NULL
+                ORDER BY ei.removed_at DESC
+                LIMIT 15
+                """
+            ),
+            {"wid": well_id},
+        ).fetchall()
+        for r in rows:
+            dt = r.removed_at
+            if not dt:
+                continue
+            type_label = "Датчик" if r.is_lora else (r.equipment_type or "Оборудование")
+            label = r.eq_name or type_label
+            if r.serial_number:
+                label = f"{label} ({r.serial_number})"
+            equip_movements.append({
+                "dt_iso": dt.strftime("%Y-%m-%dT%H:%M"),
+                "dt_display": dt.strftime("%d.%m.%Y %H:%M"),
+                "type_label": type_label,
+                "label": label,
+                "is_lora": bool(r.is_lora),
+                "note": (r.notes or "")[:80],
+            })
+
+        # --- Завершения этапов (well_status.dt_end) ---
+        for ws in well_statuses:
+            if not ws.dt_end:
+                continue
+            stage_ends.append({
+                "id": ws.id,
+                "status": ws.status,
+                "dt_iso": ws.dt_end.strftime("%Y-%m-%dT%H:%M"),
+                "dt_display": ws.dt_end.strftime("%d.%m.%Y %H:%M"),
             })
 
     return templates.TemplateResponse(
@@ -430,6 +509,8 @@ def well_handover_new(
             "first_events": first_events,
             "last_events": last_events,
             "stage_dates": stage_dates,
+            "equip_movements": equip_movements,
+            "stage_ends": stage_ends,
         },
     )
 
@@ -643,15 +724,32 @@ def well_handover_update(
 # Rebuild from events (refetch pressures and sync dates)
 # ======================================================================================
 
+def _resolve_ref_dt(meta: dict) -> datetime:
+    """Вернуть техническую дату для выборки давлений: event_dt → handover_dt → now."""
+    for key in ("event_dt", "handover_dt"):
+        iso = (meta.get(key) or "").strip()
+        if iso:
+            try:
+                return datetime.fromisoformat(iso)
+            except Exception:
+                continue
+    return datetime.now()
+
+
 @router.post("/documents/well-handover/{doc_id}/rebuild-from-events")
-def well_handover_rebuild_from_events(doc_id: int, db: Session = Depends(get_db)):
+def well_handover_rebuild_from_events(
+    doc_id: int,
+    db: Session = Depends(get_db),
+    window_hours: int = Form(24),
+):
     """
-    Пересобирает давления из базы событий.
+    Пересобирает давления из базы событий + pressure_raw (per-channel).
 
     ВАЖНО:
     - Обновляет ТОЛЬКО давления
     - Использует event_dt для выборки (или handover_dt, если event_dt нет)
     - НЕ меняет даты (act_date, handover_dt, event_dt)
+    - window_hours: окно поиска в pressure_raw (по умолч. 24ч)
     """
     doc = db.query(Document).filter(Document.id == doc_id).first()
     if not doc or not doc.doc_type or doc.doc_type.code not in HANDOVER_DOC_CODES:
@@ -664,33 +762,17 @@ def well_handover_rebuild_from_events(doc_id: int, db: Session = Depends(get_db)
         raise HTTPException(status_code=400, detail="Document has no well")
 
     meta = doc.meta or {}
+    ref_dt = _resolve_ref_dt(meta)
 
-    # Определяем референсную точку для выборки давлений
-    ref_dt = None
+    if window_hours <= 0 or window_hours > 24 * 30:
+        window_hours = 24
 
-    # Приоритет: event_dt > handover_dt > now
-    ev_iso = (meta.get("event_dt") or "").strip()
-    ho_iso = (meta.get("handover_dt") or "").strip()
-
-    if ev_iso:
-        try:
-            ref_dt = datetime.fromisoformat(ev_iso)
-        except Exception:
-            pass
-
-    if ref_dt is None and ho_iso:
-        try:
-            ref_dt = datetime.fromisoformat(ho_iso)
-        except Exception:
-            pass
-
-    if ref_dt is None:
-        ref_dt = datetime.now()
-
-    # Получаем давления с улучшенной логикой
     is_accept = doc.doc_type.code in ("well_acceptance", "well_stage_accept")
     pressure_mode = "nearest" if is_accept else "before"
-    pressure_data = _get_pressure_smart(db, str(doc.well.number), ref_dt, pressure_mode, well_id=doc.well.id)
+    pressure_data = _get_pressure_smart(
+        db, str(doc.well.number), ref_dt, pressure_mode,
+        well_id=doc.well.id, window_hours=window_hours,
+    )
 
     # ВАЖНО: меняем ТОЛЬКО давления, НЕ трогаем даты!
     meta["tube_pressure"] = pressure_data["tube_pressure"]
@@ -705,6 +787,116 @@ def well_handover_rebuild_from_events(doc_id: int, db: Session = Depends(get_db)
     db.commit()
 
     return RedirectResponse(url=f"/documents/well-handover/{doc_id}", status_code=303)
+
+
+# ======================================================================================
+# Pressure candidates (pairs before/after event)
+# ======================================================================================
+
+@router.get("/documents/well-handover/{doc_id}/pressure-candidates")
+def well_handover_pressure_candidates(
+    doc_id: int,
+    db: Session = Depends(get_db),
+    window_hours: int = Query(24, ge=1, le=24 * 30),
+    limit: int = Query(8, ge=1, le=50),
+):
+    """
+    JSON со списком ближайших точек (pressure_raw) ДО и ПОСЛЕ event_dt.
+    Каждая точка — пара (p_tube, p_line), как физически лежит в БД.
+    """
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc or not doc.doc_type or doc.doc_type.code not in HANDOVER_DOC_CODES:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not doc.well:
+        raise HTTPException(status_code=400, detail="Document has no well")
+
+    meta = doc.meta or {}
+    ref_dt = _resolve_ref_dt(meta)
+
+    data = get_raw_candidates_around(
+        doc.well.id, ref_dt,
+        window_hours=window_hours, limit_each_side=limit,
+    )
+    data["event_local"] = ref_dt.strftime("%Y-%m-%dT%H:%M:%S")
+    data["event_display"] = ref_dt.strftime("%d.%m.%Y %H:%M")
+    return JSONResponse(data)
+
+
+@router.post("/documents/well-handover/{doc_id}/apply-candidate")
+def well_handover_apply_candidate(
+    doc_id: int,
+    db: Session = Depends(get_db),
+    measured_at: str = Form(...),  # YYYY-MM-DDTHH:MM:SS (местное)
+    apply_tube: str = Form(""),
+    apply_line: str = Form(""),
+):
+    """
+    Применить конкретную точку pressure_raw к акту.
+
+    apply_tube / apply_line — строки: "1" = применить, "" = не трогать.
+    Значения берутся из БД по переданному measured_at (local).
+    """
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc or not doc.doc_type or doc.doc_type.code not in HANDOVER_DOC_CODES:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if doc.status not in ("draft", "generated"):
+        raise HTTPException(status_code=400, detail="Only draft/generated can be edited")
+    if not doc.well:
+        raise HTTPException(status_code=400, detail="Document has no well")
+
+    try:
+        at_local = datetime.fromisoformat(measured_at)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Bad measured_at (ISO expected)")
+
+    want_tube = apply_tube.strip() in ("1", "true", "on", "yes")
+    want_line = apply_line.strip() in ("1", "true", "on", "yes")
+    if not (want_tube or want_line):
+        raise HTTPException(status_code=400, detail="Nothing to apply (tube/line unset)")
+
+    # Читаем точку из pressure_raw (конвертим local → utc)
+    at_utc = at_local - _kungrad_td()
+    row = db.execute(
+        sa.text(
+            "SELECT p_tube, p_line FROM pressure_raw "
+            "WHERE well_id = :wid AND measured_at = :at"
+        ),
+        {"wid": doc.well.id, "at": at_utc},
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Point not found in pressure_raw")
+
+    p_tube, p_line = row
+
+    meta = doc.meta or {}
+    updated = []
+    if want_tube:
+        meta["tube_pressure"] = float(p_tube) if p_tube is not None \
+            and 0 < float(p_tube) <= 85 else None
+        updated.append("трубн.")
+    if want_line:
+        meta["line_pressure"] = float(p_line) if p_line is not None \
+            and 0 < float(p_line) <= 85 else None
+        updated.append("шлейф.")
+
+    meta["pressure_source"] = (
+        f"выбрано вручную: {', '.join(updated)} из датчика "
+        f"{at_local.strftime('%d.%m.%Y %H:%M')}"
+    )
+    meta["pressure_source_type"] = "sensor_manual"
+    meta["pressure_source_time"] = at_local.isoformat(timespec="seconds")
+
+    doc.meta = meta
+    flag_modified(doc, "meta")
+    db.add(doc)
+    db.commit()
+
+    return RedirectResponse(url=f"/documents/well-handover/{doc_id}", status_code=303)
+
+
+def _kungrad_td():
+    from datetime import timedelta
+    return timedelta(hours=5)
 
 
 # ======================================================================================

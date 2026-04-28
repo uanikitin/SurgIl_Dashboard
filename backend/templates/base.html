@@ -9,7 +9,8 @@
     {# <-- сюда страницы смогут докидывать свои стили (Leaflet и др.) #}
     {% block extra_head %}{% endblock %}
 </head>
-<body>
+<body{% if embedded %} class="embedded-mode"{% endif %}>
+{% if not embedded %}
    <header class="main-header">
     <div class="header-left">
         <span class="header-project">СУРГИЛ · Дашборд</span>
@@ -31,8 +32,9 @@
         {% endif %}
     </div>
 </header>
+{% endif %}
 
-{% if current_user %}
+{% if current_user and not embedded %}
 {% set p = request.url.path %}
 <nav class="top-nav">
   <div class="top-nav-inner">
@@ -62,7 +64,7 @@
     {# <-- сюда страницы смогут докидывать свои скрипты #}
     {% block extra_scripts %}{% endblock %}
 
-{% if current_user %}
+{% if current_user and not embedded %}
 <!-- ===== WELLS QUICK-NAV (global) ===== -->
 <button id="wellsNavToggle" class="wells-nav-toggle" title="Скважины">
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -259,7 +261,7 @@
     crossorigin=""
 ></script>
 
-{% if is_admin or can_send_telegram %}
+{% if (is_admin or can_send_telegram) and not embedded %}
 <link rel="stylesheet" href="{{ url_for('static', path='/css/chat_drawer.css') }}?v={{ time() }}">
 
 <!-- Telegram Chat Toggle -->

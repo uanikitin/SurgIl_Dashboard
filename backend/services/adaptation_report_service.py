@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -28,6 +29,7 @@ from backend.services.daily_report_service import (
     _compute_month_flow_from_raw,
     _ensure_dirs,
     _linear_trend,
+    _robust_trend,
 )
 
 log = logging.getLogger(__name__)
@@ -404,16 +406,16 @@ def collect_stage_stats(
     q_trend = None
 
     if not hourly.empty:
-        pt = hourly["p_tube"].dropna()
-        pl = hourly["p_line"].dropna()
-        dp = (hourly["p_tube"] - hourly["p_line"]).dropna()
+        pt_all = hourly["p_tube"].dropna()
+        pl_all = hourly["p_line"].dropna()
+        dp_all = (hourly["p_tube"] - hourly["p_line"]).dropna()
 
-        if len(pt) > 0:
-            p_tube_median = float(pt.median())
-        if len(pl) > 0:
-            p_line_median = float(pl.median())
-        if len(dp) > 0:
-            dp_median = float(dp.median())
+        if len(pt_all) > 0:
+            p_tube_median = float(pt_all.median())
+        if len(pl_all) > 0:
+            p_line_median = float(pl_all.median())
+        if len(dp_all) > 0:
+            dp_median = float(dp_all.median())
 
         hours_with_data = len(hourly)
         working_mask = (
@@ -427,15 +429,21 @@ def collect_stage_stats(
             working_hours / hours_with_data * 100.0 if hours_with_data > 0 else None
         )
 
-        # Тренды за период (линейная регрессия по часовым точкам)
-        duration_hours = (hourly.index.max() - hourly.index.min()).total_seconds() / 3600.0
-        if duration_hours > 0:
-            if len(dp) >= 3:
-                dp_trend = _linear_trend(dp.tolist(), duration_hours)
-            if len(pt) >= 3:
-                p_tube_trend = _linear_trend(pt.tolist(), duration_hours)
-            if len(pl) >= 3:
-                p_line_trend = _linear_trend(pl.tolist(), duration_hours)
+        # Тренды считаются ТОЛЬКО на working-hours (p_tube > p_line, ΔP > 0.1).
+        # Закрытая скважина / аномальные пики при закрытии исключаются —
+        # иначе линия тренда тянется по верхушкам.
+        # Метод: Theil-Sen (медианный slope) + Mann-Kendall (значимость) + 95% CI.
+        working = hourly[working_mask]
+        if len(working) >= 4:
+            t0 = working.index.min()
+            hours_x = (
+                (working.index - t0).total_seconds() / 3600.0
+            ).tolist()
+            dp_trend = _robust_trend(
+                (working["p_tube"] - working["p_line"]).tolist(), hours_x,
+            )
+            p_tube_trend = _robust_trend(working["p_tube"].tolist(), hours_x)
+            p_line_trend = _robust_trend(working["p_line"].tolist(), hours_x)
     else:
         downtime_hours = 0
 
@@ -484,20 +492,28 @@ def collect_stage_stats(
                     # Время пика (UTC → Kungrad-local)
                     q_max_ts_utc = q_working.idxmax()
                     q_max_time = q_max_ts_utc + KUNGRAD_OFFSET
-                if len(q_working) >= 3:
-                    dur_h = (
-                        df_flow.index.max() - df_flow.index.min()
-                    ).total_seconds() / 3600.0
-                    if dur_h > 0:
-                        q_trend = _linear_trend(q_working.tolist(), dur_h)
+                if len(q_working) >= 4:
+                    # robust slope для Q — на working-точках (q > 0).
+                    # x в часах от первой working-точки.
+                    t0 = q_working.index.min()
+                    hours_x = (
+                        (q_working.index - t0).total_seconds() / 3600.0
+                    ).tolist()
+                    q_trend = _robust_trend(q_working.tolist(), hours_x)
 
     # 3. События за период (продувки, вбросы реагентов)
     local_start = dt_from
     local_end = dt_to
 
+    # Один полный цикл продувки = 3 события (start/press/stop). Считаем
+    # уникальные циклы по числу маркеров 'start' (а для легаси-данных без
+    # phase — каждое событие как один цикл).
     event_counts = db.execute(text("""
         SELECT
-            COUNT(*) FILTER (WHERE event_type = 'purge') AS purges,
+            COUNT(*) FILTER (
+                WHERE event_type = 'purge'
+                  AND (purge_phase = 'start' OR purge_phase IS NULL)
+            ) AS purges,
             COUNT(*) FILTER (WHERE event_type = 'reagent') AS reagents,
             COALESCE(SUM(qty) FILTER (WHERE event_type = 'reagent'), 0) AS reagent_qty
         FROM events
@@ -847,12 +863,15 @@ def detect_optimal_windows(
 
     df_flow = _compute_hourly_flow(hourly, choke_mm) if not hourly.empty else None
 
-    # Маркеры событий (нужны для частоты продувок)
+    # Маркеры событий (нужны для частоты продувок). Один полный цикл
+    # продувки = 3 события (start/press/stop) → берём только маркер 'start'
+    # как точку отсчёта цикла; для легаси-данных без phase — каждое.
     local_start = dt_from
     local_end = dt_to
     rows = db.execute(text("""
         SELECT event_time, event_type FROM events
         WHERE well = :wno AND event_type = 'purge'
+          AND (purge_phase = 'start' OR purge_phase IS NULL)
           AND event_time >= :start AND event_time <= :end
     """), {
         "wno": str(well.number), "start": local_start, "end": local_end,
@@ -961,12 +980,18 @@ def compute_monthly_stats(
     df_flow_local["year_month"] = df_flow_local.index.strftime("%Y-%m")
     df_flow_local["dp"] = (hourly["p_tube"] - hourly["p_line"]).clip(lower=0).values
 
-    # События помесячно — одним запросом
+    # События помесячно — одним запросом. Один цикл продувки = 3 события
+    # (start/press/stop) → считаем только маркер 'start' как 1 цикл
+    # (для легаси-данных без phase — каждое событие как 1 цикл).
     events_rows = db.execute(text("""
         SELECT
             to_char(event_time, 'YYYY-MM') AS ym,
             event_type,
-            COUNT(*) AS cnt
+            COUNT(*) FILTER (
+                WHERE event_type <> 'purge'
+                   OR purge_phase = 'start'
+                   OR purge_phase IS NULL
+            ) AS cnt
         FROM events
         WHERE well = :wno
           AND event_time >= :start
@@ -995,16 +1020,14 @@ def compute_monthly_stats(
         dp_series = group["dp"].dropna()
         dp_series = dp_series[dp_series > 0]
 
-        # Тренд Q за месяц (по рабочим часам)
+        # Тренд Q за месяц — robust (Theil-Sen + Mann-Kendall) по рабочим часам
         trend = None
         if len(q_working) >= 12:  # минимум 12 часов для осмысленного тренда
             t0 = q_working.index.min()
-            t_h = np.array(
-                [(t - t0).total_seconds() / 3600.0 for t in q_working.index]
-            )
-            dur_h = float(t_h[-1] - t_h[0])
-            if dur_h > 0:
-                trend = _linear_trend(q_working.tolist(), dur_h)
+            hours_x = [
+                (t - t0).total_seconds() / 3600.0 for t in q_working.index
+            ]
+            trend = _robust_trend(q_working.tolist(), hours_x)
 
         # События
         ev = events_by_month.get(ym, {})
@@ -1208,19 +1231,32 @@ def _render_stage_dp_chart(
     ax.plot(df_local.index, dp, color="#ef6c00", linewidth=0.8, label="ΔP")
     ax.fill_between(df_local.index, dp, alpha=0.15, color="#ef6c00")
 
-    # Линия тренда
+    # Линия тренда (Theil-Sen) + полоса 95% CI (Mann-Kendall значимость в подписи)
     if dp_trend and dp_trend.get("slope_per_day") is not None:
         slope_per_h = dp_trend["slope_per_day"] / 24.0
         t0 = df_local.index.min()
         t_hours = np.array([(t - t0).total_seconds() / 3600.0 for t in df_local.index])
         dp_mean = float(dp.mean())
-        trend_line = dp_mean - slope_per_h * (t_hours.mean() - t_hours) * 0 + (
-            slope_per_h * t_hours + (dp_mean - slope_per_h * t_hours.mean())
-        )
+        # центрируем линию по среднему ΔP
+        trend_line = slope_per_h * (t_hours - t_hours.mean()) + dp_mean
+
+        # 95% CI по slope: рисуем полосу low/high slope, относительно того же центра
+        low_per_h = (dp_trend.get("slope_low_per_day") or
+                     dp_trend["slope_per_day"]) / 24.0
+        high_per_h = (dp_trend.get("slope_high_per_day") or
+                      dp_trend["slope_per_day"]) / 24.0
+        trend_low = low_per_h * (t_hours - t_hours.mean()) + dp_mean
+        trend_high = high_per_h * (t_hours - t_hours.mean()) + dp_mean
+        ax.fill_between(df_local.index, trend_low, trend_high,
+                        color="#333", alpha=0.10, linewidth=0,
+                        label="95% CI тренда")
+
+        sig_mark = " ✓" if dp_trend.get("mk_significant") else ""
+        p_str = f", p={dp_trend.get('mk_p', 1):.3f}{sig_mark}"
         ax.plot(df_local.index, trend_line, color="#333", linewidth=1.0,
                 linestyle="--",
-                label=f"Тренд ({dp_trend.get('direction', 'flat')}, "
-                      f"{dp_trend.get('slope_per_day', 0):+.3f}/сут)")
+                label=(f"Тренд ({dp_trend.get('direction', 'flat')}, "
+                       f"{dp_trend.get('slope_per_day', 0):+.3f}/сут{p_str})"))
 
     _overlay_event_markers(ax, event_markers)
 
@@ -1345,7 +1381,7 @@ def _render_stage_combined_chart(
         fontsize=10, loc="left", pad=4,
     )
 
-    # ── 2. ΔP + тренд ──
+    # ── 2. ΔP + тренд (Theil-Sen + 95% CI + MK p-value) ──
     ax_dp.plot(df_local.index, dp, color="#ef6c00", linewidth=0.9, label="ΔP")
     ax_dp.fill_between(df_local.index, dp, alpha=0.15, color="#ef6c00")
     if dp_trend and dp_trend.get("slope_per_day") is not None:
@@ -1353,10 +1389,23 @@ def _render_stage_combined_chart(
         t0 = df_local.index.min()
         t_hours = np.array([(t - t0).total_seconds() / 3600.0 for t in df_local.index])
         dp_mean = float(dp.mean())
-        trend_line = slope_per_h * t_hours + (dp_mean - slope_per_h * t_hours.mean())
+        trend_line = slope_per_h * (t_hours - t_hours.mean()) + dp_mean
+
+        low_per_h = (dp_trend.get("slope_low_per_day") or
+                     dp_trend["slope_per_day"]) / 24.0
+        high_per_h = (dp_trend.get("slope_high_per_day") or
+                      dp_trend["slope_per_day"]) / 24.0
+        trend_low = low_per_h * (t_hours - t_hours.mean()) + dp_mean
+        trend_high = high_per_h * (t_hours - t_hours.mean()) + dp_mean
+        ax_dp.fill_between(df_local.index, trend_low, trend_high,
+                           color="#333", alpha=0.10, linewidth=0,
+                           label="95% CI тренда")
+
+        sig_mark = " ✓" if dp_trend.get("mk_significant") else ""
+        p_str = f", p={dp_trend.get('mk_p', 1):.3f}{sig_mark}"
         ax_dp.plot(
             df_local.index, trend_line, color="#333", linewidth=1.0, linestyle="--",
-            label=f"Тренд ({dp_trend.get('slope_per_day', 0):+.3f}/сут)",
+            label=(f"Тренд ({dp_trend.get('slope_per_day', 0):+.3f}/сут{p_str})"),
         )
     ax_dp.set_ylabel("ΔP, кгс/см²", fontsize=9)
     ax_dp.legend(fontsize=8, loc="upper right")
@@ -1379,10 +1428,23 @@ def _render_stage_combined_chart(
             )
             q_working = df_q["flow_rate"][df_q["flow_rate"] > 0]
             q_mean = float(q_working.mean()) if len(q_working) > 0 else 0.0
-            trend_line = slope_per_h * t_hours + (q_mean - slope_per_h * t_hours.mean())
+            trend_line = slope_per_h * (t_hours - t_hours.mean()) + q_mean
+
+            low_per_h = (q_trend.get("slope_low_per_day") or
+                         q_trend["slope_per_day"]) / 24.0
+            high_per_h = (q_trend.get("slope_high_per_day") or
+                          q_trend["slope_per_day"]) / 24.0
+            trend_low = low_per_h * (t_hours - t_hours.mean()) + q_mean
+            trend_high = high_per_h * (t_hours - t_hours.mean()) + q_mean
+            ax_q.fill_between(df_q.index, trend_low, trend_high,
+                              color="#333", alpha=0.10, linewidth=0,
+                              label="95% CI тренда")
+
+            sig_mark = " ✓" if q_trend.get("mk_significant") else ""
+            p_str = f", p={q_trend.get('mk_p', 1):.3f}{sig_mark}"
             ax_q.plot(
                 df_q.index, trend_line, color="#333", linewidth=1.0, linestyle="--",
-                label=f"Тренд ({q_trend.get('slope_per_day', 0):+.2f}/сут)",
+                label=(f"Тренд ({q_trend.get('slope_per_day', 0):+.2f}/сут{p_str})"),
             )
         ax_q.legend(fontsize=8, loc="upper right")
     else:
@@ -1498,8 +1560,14 @@ def _trend_phrase(trend: dict | None, unit: str, per: str = "сут") -> str:
     return f"{arrow} {word}, {abs(slope):.3f} {unit}/{per} (R²={r2:.2f})"
 
 
-def generate_stage_narrative(stage: dict, stage_name: str) -> str:
-    """Текстовое описание этапа: период, работа, характеристики, тренды."""
+def generate_stage_narrative(
+    stage: dict, stage_name: str, *, with_reagent_interp: bool = True,
+) -> str:
+    """Текстовое описание этапа: период, работа, характеристики, тренды.
+
+    with_reagent_interp=False: не подмешивать качественную интерпретацию
+    через реагент (для этапа наблюдения, где работ ещё нет).
+    """
     lines: list[str] = []
 
     # Период и длительность
@@ -1595,41 +1663,89 @@ def generate_stage_narrative(stage: dict, stage_name: str) -> str:
         lines.append("Динамика за этап:")
         lines.extend(trend_lines)
 
-    # Интерпретация трендов
-    interp = _interpret_trends(stage)
-    if interp:
-        lines.append("Анализ трендов: " + interp)
+    # Интерпретация трендов (только если разрешено вызывающим)
+    if with_reagent_interp:
+        interp = _interpret_trends(stage)
+        if interp:
+            lines.append("Анализ трендов: " + interp)
 
     return "\n".join(lines)
 
 
+def _trend_is_significant(tr: dict | None) -> bool:
+    """Считаем тренд значимым по Mann-Kendall (новый robust метод).
+
+    Для обратной совместимости с трендами, где ещё не сохранён mk_p,
+    используем r_squared > 0.3 (старый критерий).
+    """
+    if not tr:
+        return False
+    if "mk_significant" in tr:
+        return bool(tr["mk_significant"])
+    return (tr.get("r_squared") or 0) > 0.3
+
+
 def _interpret_trends(stage: dict) -> str:
-    """Качественная интерпретация основных трендов."""
+    """Качественная интерпретация трендов (с правильной физической привязкой).
+
+    Правила:
+      * рост Q  → эффективность реагента, удаление воды из ствола.
+      * рост ΔP → реагент вспенивает флюид — положительный эффект.
+      * рост P_tube без роста Q → возможное вспенивание (набор давления).
+      * плато Q + плато ΔP → реагент не контактирует с водой / требуется другой.
+      * снижение Q → падение эффективности, накопление жидкости или истощение.
+    """
     parts = []
     dp_tr = stage.get("dp_trend")
     q_tr = stage.get("q_trend")
     pt_tr = stage.get("p_tube_trend")
 
-    if dp_tr and dp_tr.get("direction") == "up" and (dp_tr.get("r_squared") or 0) > 0.3:
+    q_up = q_tr and q_tr.get("direction") == "up" and _trend_is_significant(q_tr)
+    q_dn = q_tr and q_tr.get("direction") == "down" and _trend_is_significant(q_tr)
+    q_flat = q_tr and not (q_up or q_dn)
+
+    dp_up = dp_tr and dp_tr.get("direction") == "up" and _trend_is_significant(dp_tr)
+    dp_dn = dp_tr and dp_tr.get("direction") == "down" and _trend_is_significant(dp_tr)
+    dp_flat = dp_tr and not (dp_up or dp_dn)
+
+    if q_up:
         parts.append(
-            "рост ΔP свидетельствует об активизации газопроявления — "
-            "отбор идёт эффективнее"
+            "рост дебита указывает на эффективность реагента и удаление "
+            "воды из ствола"
         )
-    elif dp_tr and dp_tr.get("direction") == "down" and (dp_tr.get("r_squared") or 0) > 0.3:
+    elif q_dn:
         parts.append(
-            "снижение ΔP указывает на падение интенсивности отбора "
-            "(истощение или накопление жидкости)"
+            "снижение дебита — возможное накопление жидкости, падение "
+            "контакта реагента с водой или истощение"
         )
 
-    if q_tr and q_tr.get("direction") == "up" and (q_tr.get("r_squared") or 0) > 0.3:
-        parts.append("дебит растёт по ходу этапа")
-    elif q_tr and q_tr.get("direction") == "down" and (q_tr.get("r_squared") or 0) > 0.3:
-        parts.append("дебит снижается по ходу этапа")
-
-    if pt_tr and pt_tr.get("direction") == "down" and (pt_tr.get("r_squared") or 0) > 0.3:
+    if dp_up:
         parts.append(
-            "снижение P трубного может быть связано с работой реагента "
-            "(очистка ствола от жидкости)"
+            "рост ΔP — реагент вспенивает флюид, облегчая вынос воды "
+            "(положительный эффект)"
+        )
+    elif dp_dn:
+        parts.append(
+            "снижение ΔP может быть связано с накоплением жидкости "
+            "в стволе или снижением притока"
+        )
+
+    if pt_tr and pt_tr.get("direction") == "down" and _trend_is_significant(pt_tr):
+        parts.append(
+            "снижение P трубного — очистка ствола от жидкости под "
+            "действием реагента"
+        )
+    elif pt_tr and pt_tr.get("direction") == "up" and _trend_is_significant(pt_tr) and not q_up:
+        parts.append(
+            "рост P трубного без увеличения дебита — возможное вспенивание "
+            "без прорыва"
+        )
+
+    # Плато: нет значимых трендов ни по Q, ни по ΔP
+    if q_flat and dp_flat:
+        parts.append(
+            "отсутствует значимая динамика по Q и ΔP — возможно, реагент "
+            "не контактирует с водой; рассмотреть другой состав"
         )
 
     return "; ".join(parts) + "." if parts else ""
@@ -1637,72 +1753,121 @@ def _interpret_trends(stage: dict) -> str:
 
 def generate_conclusions(
     obs: dict, adapt: dict, comparison: dict,
+    optimal: dict | None = None,
 ) -> list[str]:
-    """Сформировать текстовые выводы по правилам."""
+    """Сформировать текстовые выводы по правилам.
+
+    Длительности этапов (наблюдение/адаптация/оптимум) берутся из реальных
+    статистик; сравнительные показатели (Q, ΔP, простои, продувки) считаются
+    по переданному `comparison` — может быть как adapt↔obs, так и optimum↔obs.
+    """
     out: list[str] = []
 
-    # Длительность этапов
-    out.append(
-        f"Продолжительность этапа наблюдения: {obs['duration_days']} сут., "
-        f"адаптации: {adapt['duration_days']} сут."
-    )
+    # Длительности: наблюдение, адаптация, (опционально) оптимум.
+    # Раньше здесь была строка "адаптации: {adapt['duration_days']} сут.", но
+    # при передаче optimal_regime на месте adapt длительность подменялась на
+    # оптимум. Теперь явный триплет.
+    def _dur_str(stage: dict) -> str:
+        # Человеко-читаемое "7 сут. 17 ч" предпочтительнее округлённого int
+        return stage.get("duration_label") or f"{stage.get('duration_days', '—')} сут."
+    dur_parts = [
+        f"наблюдения: {_dur_str(obs)}",
+        f"адаптации: {_dur_str(adapt)}",
+    ]
+    if optimal is not None:
+        dur_parts.append(f"оптимума: {_dur_str(optimal)}")
+    out.append("Продолжительность этапа " + ", ".join(dur_parts))
 
-    # Дебит
+    # Дебит — интерпретируем как показатель эффективности реагента
     dq = comparison["delta_flow_median"]
     dq_pct = comparison["delta_flow_median_pct"]
     if dq is not None and dq_pct is not None:
         if dq_pct > 10:
             out.append(
                 f"Медианный дебит вырос на {dq:+.2f} тыс.м³/сут ({dq_pct:+.1f}%) "
-                f"по сравнению с этапом наблюдения."
+                f"по сравнению с этапом наблюдения — положительный эффект "
+                f"реагента (вынос воды из ствола)."
             )
         elif dq_pct < -10:
             out.append(
                 f"Медианный дебит снизился на {abs(dq):.2f} тыс.м³/сут "
-                f"({dq_pct:+.1f}%) по сравнению с этапом наблюдения."
+                f"({dq_pct:+.1f}%) по сравнению с этапом наблюдения — "
+                f"возможное накопление жидкости или недостаточный контакт "
+                f"реагента с водой."
             )
         else:
             out.append(
                 f"Дебит стабилен: изменение в пределах погрешности "
-                f"({dq_pct:+.1f}%)."
+                f"({dq_pct:+.1f}%) — если ожидался прирост, реагент "
+                f"вероятно не контактирует с водой."
             )
 
-    # Перепад давления
+    # Перепад давления — физически связан со вспениванием флюида реагентом
     ddp = comparison["delta_dp"]
     ddp_pct = comparison["delta_dp_pct"]
     if ddp is not None:
         if ddp > 0.5:
+            pct_str = f" ({ddp_pct:+.1f}%)" if ddp_pct is not None else ""
             out.append(
-                f"Перепад давления ΔP увеличился на {ddp:+.2f} кгс/см² "
-                f"({ddp_pct:+.1f}% если применимо), что свидетельствует "
-                f"об активизации газопроявления."
+                f"Перепад давления ΔP увеличился на {ddp:+.2f} кгс/см²{pct_str} — "
+                f"реагент вспенивает флюид, облегчая вынос воды "
+                f"(положительный признак эффективности)."
             )
         elif ddp < -0.5:
             out.append(
-                f"Перепад давления ΔP снизился на {abs(ddp):.2f} кгс/см²."
+                f"Перепад давления ΔP снизился на {abs(ddp):.2f} кгс/см² — "
+                f"возможное накопление жидкости в стволе или снижение притока."
+            )
+        else:
+            out.append(
+                f"ΔP практически не изменился ({ddp:+.2f} кгс/см²) — "
+                f"реагент не оказывает выраженного вспенивающего эффекта."
             )
 
-    # Утилизация
+    # КИВ (коэффициент использования времени) — показатель стабильности
     du = comparison["delta_utilization_pct"]
     if du is not None:
         if du > 5:
             out.append(
-                f"Коэффициент использования времени вырос на {du:+.1f} п.п. — "
-                f"скважина стала работать стабильнее."
+                f"КИВ вырос на {du:+.1f} п.п. — скважина стала работать "
+                f"стабильнее, меньше простаивает."
             )
         elif du < -5:
             out.append(
-                f"Коэффициент использования времени снизился на {abs(du):.1f} п.п."
+                f"КИВ снизился на {abs(du):.1f} п.п. — увеличилась доля "
+                f"нерабочего времени."
             )
 
-    # Продувки
+    # Простои — отдельный важный показатель
+    obs_down = obs.get("downtime_hours") or 0
+    adapt_down = adapt.get("downtime_hours") or 0
+    if obs_down > 0 and adapt_down is not None:
+        if obs_down >= 4 or adapt_down >= 4:
+            if adapt_down < obs_down * 0.5 and obs_down > 0:
+                out.append(
+                    f"Время простоев сократилось с {obs_down:.1f} ч (наблюдение) "
+                    f"до {adapt_down:.1f} ч (адаптация) — значимое улучшение."
+                )
+            elif adapt_down > obs_down * 1.5:
+                out.append(
+                    f"Время простоев выросло с {obs_down:.1f} ч до "
+                    f"{adapt_down:.1f} ч — негативный признак."
+                )
+
+    # Продувки — чем меньше, тем лучше для скважины и реагента
     dpurge = comparison["delta_purge_count"]
     if dpurge < 0:
-        out.append(f"Количество продувок уменьшилось на {abs(dpurge)}.")
+        out.append(
+            f"Количество продувок уменьшилось на {abs(dpurge)} — "
+            f"положительный признак эффективности реагента."
+        )
     elif dpurge > 0:
-        out.append(f"Количество продувок увеличилось на {dpurge}.")
+        out.append(
+            f"Количество продувок увеличилось на {dpurge} — "
+            f"возможно, текущий режим реагента недостаточен."
+        )
 
-    # Реагенты
+    # Реагенты — факт применения
     if adapt["reagent_count"] > 0 and obs["reagent_count"] == 0:
         out.append(
             f"На этапе адаптации применялись реагенты ({adapt['reagent_count']} "
@@ -1710,6 +1875,450 @@ def generate_conclusions(
         )
 
     return out
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Технические данные скважины (§1 отчёта): конструкция, перфорация,
+# карта расположения относительно соседей
+# ═══════════════════════════════════════════════════════════════════
+
+def _collect_well_tech_data(
+    db: Session, well: Well, *, render_map: bool = True,
+    neighbor_limit: int = 12,
+) -> dict:
+    """Собирает данные для §1 «Технические данные» PDF-отчёта.
+
+    Возвращает dict:
+      - construction:  параметры конструкции (или None если нет записи)
+      - perforation:   список интервалов перфорации (top, bottom, idx)
+      - neighbors:     список dict {number, name, lat, lon, distance_km}
+      - map_chart_path: абсолютный путь к PNG карты (или None если нет coords)
+    """
+    out: dict[str, Any] = {
+        "construction": None,
+        "perforation": [],
+        "neighbors": [],
+        "map_chart_path": None,
+    }
+
+    # ── 1. well_construction (последняя запись по data_as_of) ──
+    try:
+        row = db.execute(text("""
+            SELECT id, prod_casing_diam_mm, prod_casing_depth_m,
+                   current_bottomhole_m, horizon, tubing_diam_mm,
+                   tubing_shoe_depth_m, packer_depth_m, adapter_depth_m,
+                   pattern_stuck_depth_m, choke_diam_mm, data_as_of
+            FROM well_construction
+            WHERE TRIM(well_no) = :wno
+            ORDER BY data_as_of DESC NULLS LAST, id DESC
+            LIMIT 1
+        """), {"wno": str(well.number).strip()}).fetchone()
+    except Exception:
+        log.warning("well_construction lookup failed for well %s", well.id)
+        row = None
+
+    construction_id: int | None = None
+    if row:
+        construction_id = row[0]
+        out["construction"] = {
+            "prod_casing_diam_mm":  _safe_num(row[1]),
+            "prod_casing_depth_m":  _safe_num(row[2]),
+            "current_bottomhole_m": _safe_num(row[3]),
+            "horizon":              row[4] or None,
+            "tubing_diam_mm":       _safe_num(row[5]),
+            "tubing_shoe_depth_m":  _safe_num(row[6]),
+            "packer_depth_m":       _safe_num(row[7]),
+            "adapter_depth_m":      _safe_num(row[8]),
+            "pattern_stuck_depth_m": _safe_num(row[9]),
+            "choke_diam_mm":        _safe_num(row[10]),
+            "data_as_of":           row[11].isoformat() if row[11] else None,
+        }
+
+    # ── 2. Интервалы перфорации ──
+    if construction_id:
+        try:
+            rows = db.execute(text("""
+                SELECT interval_index, top_depth_m, bottom_depth_m
+                FROM well_perforation_interval
+                WHERE well_construction_id = :cid
+                ORDER BY interval_index, top_depth_m
+            """), {"cid": construction_id}).fetchall()
+            out["perforation"] = [
+                {
+                    "interval_index": r[0],
+                    "top_depth_m": _safe_num(r[1]),
+                    "bottom_depth_m": _safe_num(r[2]),
+                }
+                for r in rows
+            ]
+        except Exception:
+            log.warning("perforation lookup failed for well %s", well.id)
+
+    # ── 3. Соседи: все скважины с координатами, кроме текущей ──
+    if well.lat is not None and well.lon is not None:
+        try:
+            from math import asin, cos, radians, sin, sqrt
+
+            def _haversine_km(la1, lo1, la2, lo2):
+                R = 6371.0
+                la1, lo1, la2, lo2 = map(radians, (la1, lo1, la2, lo2))
+                dlat = la2 - la1
+                dlon = lo2 - lo1
+                a = sin(dlat / 2) ** 2 + cos(la1) * cos(la2) * sin(dlon / 2) ** 2
+                return 2 * R * asin(sqrt(a))
+
+            others = (
+                db.query(Well)
+                .filter(Well.id != well.id,
+                        Well.lat.isnot(None), Well.lon.isnot(None))
+                .all()
+            )
+            with_dist = [
+                {
+                    "id": w.id,
+                    "number": str(w.number),
+                    "name": w.name,
+                    "lat": float(w.lat),
+                    "lon": float(w.lon),
+                    "distance_km": _haversine_km(
+                        float(well.lat), float(well.lon),
+                        float(w.lat), float(w.lon),
+                    ),
+                }
+                for w in others
+            ]
+            with_dist.sort(key=lambda x: x["distance_km"])
+            out["neighbors"] = with_dist[:neighbor_limit]
+        except Exception:
+            log.warning("neighbors lookup failed for well %s", well.id)
+
+    # ── 4. Рендер карты ──
+    if render_map and well.lat is not None and well.lon is not None:
+        try:
+            from backend.services.well_map_renderer import render_well_map_png
+            _ensure_dirs()
+            map_path = TEMP_DIR / f"well_map_{well.id}.png"
+            rendered = render_well_map_png(
+                active={
+                    "number": str(well.number),
+                    "name": well.name,
+                    "lat": float(well.lat),
+                    "lon": float(well.lon),
+                },
+                neighbors=out["neighbors"],
+                output_path=map_path,
+            )
+            if rendered:
+                # xelatex запускается с cwd=TEMP_DIR.resolve() — путь должен
+                # быть абсолютным, иначе \includegraphics не найдёт файл.
+                out["map_chart_path"] = str(Path(rendered).resolve())
+        except Exception:
+            log.exception("well map render failed for well %s", well.id)
+
+    return out
+
+
+def _safe_num(v) -> float | None:
+    """SQL-numeric → float | None (NaN/Inf тоже → None)."""
+    if v is None:
+        return None
+    try:
+        f = float(v)
+        if np.isnan(f) or np.isinf(f):
+            return None
+        return f
+    except (TypeError, ValueError):
+        return None
+
+
+def _build_chart_captions(analysis: dict) -> dict[str, str]:
+    """Короткие динамические подписи к 4 графикам §2 PDF-отчёта.
+
+    Возвращает dict {pressures, dp, flow_dt, monthly} → строка-предложение
+    с ключевыми числами (медианы, диапазоны, простой). Текст plain, без
+    LaTeX-команд: дополнительное экранирование происходит в роутере.
+    """
+    out: dict[str, str] = {}
+
+    # Pressures
+    pieces: list[str] = []
+    if analysis.get("p_wellhead_median") is not None:
+        pieces.append(f"P устья мед. {analysis['p_wellhead_median']:.1f}")
+    if analysis.get("p_flowline_median") is not None:
+        pieces.append(f"P шлейфа мед. {analysis['p_flowline_median']:.1f}")
+    if pieces:
+        out["pressures"] = (
+            "Динамика устьевого, затрубного, линейного и статического давлений "
+            "по суткам. " + ", ".join(pieces) + " кгс/см²."
+        )
+
+    # ΔP
+    if analysis.get("dp_median") is not None:
+        dp_med = analysis["dp_median"]; dp_avg = analysis.get("dp_avg")
+        avg_part = (f", ср. {dp_avg:.2f}" if dp_avg is not None else "")
+        out["dp"] = (
+            f"Перепад давления по суткам (устье минус линия). "
+            f"Мед. {dp_med:.2f}{avg_part} кгс/см². "
+            f"Рост перепада — признак улучшения работы скважины "
+            f"(рост дебита, более стабильный режим)."
+        )
+
+    # Flow + downtime (с помесячными пунктирными линиями тренда Q)
+    pieces = []
+    if analysis.get("q_total_avg") is not None:
+        pieces.append(f"среднее Q общий {analysis['q_total_avg']:.1f}")
+    if analysis.get("q_working_avg") is not None:
+        pieces.append(f"среднее Q рабочий {analysis['q_working_avg']:.1f}")
+    sd_total = analysis.get("shutdown_min_total") or 0
+    sd_days = analysis.get("shutdown_days_count") or 0
+    if pieces:
+        cap = (
+            "Линиями — Q общий и рабочий (левая ось), барами — простой "
+            "в мин/сут (правая ось). Пунктир — линия линейной регрессии "
+            "(тренд) ПО КАЖДОМУ КАЛЕНДАРНОМУ МЕСЯЦУ отдельно; число рядом с линией — "
+            "наклон, тыс.м³/сут за день. " + ", ".join(pieces) + " тыс.м³/сут."
+        )
+        if sd_total > 0:
+            cap += (f" Простой суммарно {sd_total:.0f} мин "
+                    f"(~{sd_total/60:.1f} ч за {sd_days} сут.).")
+        else:
+            cap += " Простоев за период не зафиксировано."
+        # Помесячные тренды Q общ. — короткая сводка (если months есть)
+        months = analysis.get("months") or []
+        per_month = []
+        for m in months:
+            slope = m.get("trend_q_total")
+            label = m.get("month_label") or m.get("month")
+            if slope is not None and label:
+                per_month.append(f"{label} {slope:+.2f}")
+        if per_month:
+            cap += " Помесячный наклон Q общ.: " + "; ".join(per_month) + "."
+        out["flow_dt"] = cap
+
+    # Monthly bars
+    months = analysis.get("months") or []
+    if months:
+        out["monthly"] = (
+            f"Помесячные значения Q общ. и Q раб. (среднее и медиана) — "
+            f"{len(months)} мес. в выборке. Медиана устойчивее к выбросам "
+            f"и простоям, поэтому даёт более «спокойную» оценку режима, "
+            f"чем среднее."
+        )
+
+    return out
+
+
+def _build_observation_intro(
+    db: Session, well_id: int, obs_from: datetime, obs_to: datetime,
+) -> dict[str, Any]:
+    """Сводка для §3.1: дата приёмки, список датчиков, шлюз дозирования.
+
+    Источники:
+      - equipment_installation JOIN equipment JOIN lora_sensors
+        (датчики, активные на момент этапа наблюдения).
+      - Шлюз дозирования — статичный текст «Шлюз устьевой ШУ 50-36-550».
+
+    Возвращает dict (для прокидывания в LaTeX-шаблон):
+      {
+        "sensors": [{serial, label, position, position_label,
+                     installed_at, installed_at_fmt}, ...],
+        "earliest_install_dt": datetime | None,
+        "earliest_install_fmt": "DD.MM.YYYY" | None,
+        "acceptance_date_fmt": "DD.MM.YYYY",  # дата приёмки
+        "gateway_text": "...",  # описание шлюза
+        "intro_text": "...",   # готовая фраза целиком
+      }
+    """
+    obs_from_dt = obs_from
+    obs_to_dt = obs_to
+    sensors: list[dict[str, Any]] = []
+    try:
+        rows = db.execute(text("""
+            SELECT ls.serial_number, ls.label, ls.csv_column,
+                   ei.installed_at, ei.removed_at
+            FROM equipment_installation ei
+            JOIN equipment e ON e.id = ei.equipment_id
+            JOIN lora_sensors ls ON ls.serial_number = e.serial_number
+            WHERE ei.well_id = :wid
+              AND ei.installed_at <= :obs_to
+              AND (ei.removed_at IS NULL OR ei.removed_at >= :obs_from)
+            ORDER BY ei.installed_at ASC
+        """), {
+            "wid": well_id, "obs_from": obs_from_dt, "obs_to": obs_to_dt,
+        }).fetchall()
+    except Exception:
+        log.exception("observation-intro sensor query failed for well %s",
+                      well_id)
+        rows = []
+
+    for serial, label, csv_col, installed_at, _removed_at in rows:
+        position = "tube" if csv_col == "Ptr" else "line"
+        position_label = "устье" if position == "tube" else "шлейф"
+        sensors.append({
+            "serial": serial,
+            "label": label,
+            "position": position,
+            "position_label": position_label,
+            "installed_at": installed_at,
+            "installed_at_fmt": (
+                installed_at.strftime("%d.%m.%Y")
+                if hasattr(installed_at, "strftime") else None
+            ),
+        })
+
+    earliest_dt = None
+    if sensors:
+        with_dt = [s for s in sensors if s.get("installed_at")]
+        if with_dt:
+            earliest_dt = min(s["installed_at"] for s in with_dt)
+    earliest_fmt = (earliest_dt.strftime("%d.%m.%Y")
+                    if earliest_dt else None)
+
+    # Дата приёмки: ранняя установка датчика, иначе старт этапа наблюдения.
+    if earliest_dt:
+        acceptance_date = earliest_dt
+    else:
+        acceptance_date = obs_from_dt
+    acceptance_fmt = acceptance_date.strftime("%d.%m.%Y")
+
+    gateway_text = (
+        "Для дозирования реагента на устье установлен "
+        "Шлюз устьевой ШУ\\,50--36--550."
+    )
+
+    # Текст-вступление целиком (для LaTeX). Список датчиков — в отдельной
+    # таблице через шаблон, здесь только основная фраза.
+    if sensors:
+        sensor_count = len(sensors)
+        intro_text = (
+            f"С {acceptance_fmt} скважина принята для проведения работ по "
+            f"адаптации согласно договору. Установлено {sensor_count} "
+            f"датчик(ов) давления (см. таблицу 3.0); "
+            f"для дозирования реагента на устье установлен Шлюз устьевой "
+            f"ШУ\\,50--36--550."
+        )
+    else:
+        intro_text = (
+            f"С {acceptance_fmt} скважина принята для проведения работ по "
+            f"адаптации согласно договору. Для дозирования реагента на "
+            f"устье установлен Шлюз устьевой ШУ\\,50--36--550."
+        )
+
+    return {
+        "sensors": sensors,
+        "earliest_install_dt": earliest_dt,
+        "earliest_install_fmt": earliest_fmt,
+        "acceptance_date_fmt": acceptance_fmt,
+        "gateway_text": gateway_text,
+        "intro_text": intro_text,
+    }
+
+
+def _enrich_period_with_customer_data(
+    db: Session, well: Well,
+    period_from: date, period_to: date,
+    analysis: dict, render_charts: bool, p_idx: int,
+) -> None:
+    """Дополняет analysis-словарь данными со страницы /customer-daily:
+      - describe (описательная статистика, 8 колонок)
+      - months   (помесячная агрегация и тренды)
+      - month_descriptions (текст по месяцам)
+      - chart_paths (4 PNG-пути)
+
+    Изменяет analysis in-place. Все ошибки молча проглатываются — глава
+    останется частичной, но не упадёт.
+    """
+    try:
+        from backend.services.customer_daily_service import (
+            load_for_well, describe_well_period,
+            monthly_stats, monthly_description, well_chart_payload,
+            period_summary_text,
+        )
+    except Exception:
+        log.exception("customer_daily_service import failed")
+        return
+
+    try:
+        df = load_for_well(db, str(well.number),
+                           d_from=period_from, d_to=period_to)
+    except Exception:
+        log.exception("load_for_well failed for %s %s..%s",
+                      well.number, period_from, period_to)
+        return
+
+    if df is None or df.empty:
+        analysis["describe"] = []
+        analysis["months"] = []
+        analysis["month_descriptions"] = []
+        analysis["chart_paths"] = {}
+        return
+
+    try:
+        analysis["describe"] = describe_well_period(df) or []
+    except Exception:
+        log.exception("describe_well_period failed")
+        analysis["describe"] = []
+
+    try:
+        months = monthly_stats(df) or []
+        analysis["months"] = months
+        analysis["month_descriptions"] = monthly_description(months) or []
+    except Exception:
+        log.exception("monthly_stats / description failed")
+        analysis.setdefault("months", [])
+        analysis.setdefault("month_descriptions", [])
+
+    # Динамическая сводка периода (1–2 предложения с ключевыми числами).
+    try:
+        analysis["period_summary"] = period_summary_text(
+            analysis, analysis.get("months") or [],
+        )
+    except Exception:
+        log.exception("period_summary_text failed")
+        analysis["period_summary"] = ""
+
+    # Динамические подписи графиков (короткие, с числами для PDF-caption).
+    try:
+        analysis["chart_captions"] = _build_chart_captions(analysis)
+    except Exception:
+        log.exception("chart captions build failed")
+        analysis["chart_captions"] = {}
+
+    # ── 4 PNG-диаграммы ──
+    chart_paths: dict[str, str] = {}
+    if render_charts:
+        try:
+            from backend.services import customer_chart_renderer as ccr
+            payload = well_chart_payload(df)
+            _ensure_dirs()
+            base = TEMP_DIR / f"cust_p{p_idx}_w{well.id}"
+
+            renders = (
+                ("pressures",    ccr.render_pressures_chart),
+                ("dp",           ccr.render_dp_chart),
+                ("flow_dt",      ccr.render_flow_downtime_chart),
+            )
+            for key, fn in renders:
+                try:
+                    out = fn(payload, str(base) + f"_{key}.png")
+                    if out:
+                        chart_paths[key] = str(Path(out).resolve())
+                except Exception:
+                    log.exception("customer chart %s failed", key)
+
+            try:
+                m_out = ccr.render_monthly_bars(
+                    analysis.get("months") or [],
+                    str(base) + "_monthly.png",
+                )
+                if m_out:
+                    chart_paths["monthly"] = str(Path(m_out).resolve())
+            except Exception:
+                log.exception("customer chart monthly failed")
+        except Exception:
+            log.exception("customer chart renderer setup failed")
+
+    analysis["chart_paths"] = chart_paths
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1731,6 +2340,10 @@ def collect_report_data(
     optimal_to: datetime | None = None,      # manual override (конец окна)
     optimal_window_days: int = 3,            # ширина окна для автодетекта
     optimal_mode: str = "auto",              # "auto" | "manual" | "off"
+    # Глава «Анализ исходных данных» (по данным заказчика)
+    include_customer_chapter: bool = False,
+    customer_periods: list[dict] | None = None,
+    # [{"period_from": "YYYY-MM-DD", "period_to": "YYYY-MM-DD", "description": "..."}]
 ) -> dict[str, Any]:
     """Собрать все данные для отчёта об адаптации.
 
@@ -1842,6 +2455,15 @@ def collect_report_data(
         else obs_note
     )
 
+    # Вступление к §3.1: дата приёмки + датчики + шлюз дозирования.
+    try:
+        obs_stats["intro"] = _build_observation_intro(
+            db, well.id, obs_from, obs_to,
+        )
+    except Exception:
+        log.exception("observation intro build failed for well %s", well.id)
+        obs_stats["intro"] = None
+
     # ─── Сначала детектим кандидатов, чтобы передать в график адаптации ───
     optimal_candidates: list[dict] = []
     optimal_regime: dict | None = None
@@ -1922,13 +2544,22 @@ def collect_report_data(
     comparison_optimal = (
         build_comparison(obs_stats, optimal_regime) if optimal_regime else None
     )
+    # Сравнение-часть выводов считаем против лучшего (оптимум, если есть);
+    # длительности — всегда по реальным этапам.
     conclusions = generate_conclusions(
-        obs_stats, optimal_regime or adapt_stats,
+        obs_stats,
+        adapt_stats,
         comparison_optimal or comparison,
+        optimal=optimal_regime,
     )
 
     # Генерация текстового описания этапов
-    obs_stats["narrative"] = generate_stage_narrative(obs_stats, "наблюдения")
+    # Этап наблюдения: без качественной интерпретации через реагент —
+    # работы ещё не начались, рассуждения «рост Q → эффективность реагента»
+    # неуместны.
+    obs_stats["narrative"] = generate_stage_narrative(
+        obs_stats, "наблюдения", with_reagent_interp=False,
+    )
     adapt_stats["narrative"] = generate_stage_narrative(adapt_stats, "адаптации")
 
     # Эффективность реагентов (за этап адаптации)
@@ -1942,6 +2573,224 @@ def collect_report_data(
             log.exception("Reagent effectiveness analysis failed for well %s", well.id)
             reagent_effectiveness = {"error": "Анализ эффективности реагента не выполнен"}
 
+    # ─── Глава «Анализ исходных данных» (по данным заказчика) ───
+    # Источники периодов:
+    #   1. customer_periods — старый аргумент (передаётся вручную из вызова).
+    #   2. customer_report_block — новые блоки (kind=period_analysis, comparison),
+    #      добавленные пользователем со страницы /customer-daily.
+    # Глава собирается всегда — если ничего нет, останется None.
+    customer_chapter = None
+    if include_customer_chapter or True:  # авто-сборка независимо от флага
+        try:
+            from backend.services import customer_baseline_service as bsvc
+            from backend.services import customer_daily_service as csvc
+
+            baselines = bsvc.list_baselines(db, well.id)
+
+            # Собираем периоды для анализа: старые аргументы + блоки kind='period_analysis'
+            periods_input = list(customer_periods or [])
+            comparisons_input = []
+
+            try:
+                csvc.ensure_blocks_table(db)
+                blocks = csvc.get_blocks_for_report(db, well.id)
+            except Exception:
+                blocks = []
+
+            for b in blocks:
+                p = b.get("params") or {}
+                if b.get("kind") == "period_analysis":
+                    periods_input.append({
+                        "period_from": p.get("date_from"),
+                        "period_to":   p.get("date_to"),
+                        "description": b.get("comment") or b.get("title"),
+                        "block_id":    b.get("id"),
+                        "block_title": b.get("title"),
+                    })
+                elif b.get("kind") == "comparison":
+                    comparisons_input.append({
+                        "block_id": b.get("id"),
+                        "title":    b.get("title"),
+                        "comment":  b.get("comment"),
+                        "params":   p,
+                    })
+
+            # Дедупликация периодов по (period_from, period_to). При совпадении
+            # окна склеиваем описания/комментарии через "; ".
+            def _norm_d(v):
+                if v is None:
+                    return None
+                if isinstance(v, str):
+                    return v[:10]
+                if hasattr(v, "isoformat"):
+                    return v.isoformat()[:10]
+                return str(v)[:10]
+
+            seen_ranges: dict[tuple, dict] = {}
+            for _p in periods_input:
+                key = (_norm_d(_p.get("period_from")),
+                       _norm_d(_p.get("period_to")))
+                if key in seen_ranges:
+                    base = seen_ranges[key]
+                    extra_descr = _p.get("description")
+                    if extra_descr and extra_descr != base.get("description"):
+                        base_descr = base.get("description") or ""
+                        base["description"] = (
+                            (base_descr + "; " + extra_descr).strip("; ")
+                        )
+                else:
+                    seen_ranges[key] = dict(_p)
+            periods_input = list(seen_ranges.values())
+
+            periods_data = []
+            for p_idx, p in enumerate(periods_input):
+                pf = p.get("period_from"); pt = p.get("period_to")
+                if isinstance(pf, str):
+                    pf = date.fromisoformat(pf)
+                if isinstance(pt, str):
+                    pt = date.fromisoformat(pt)
+                if not pf or not pt:
+                    continue
+                analysis = bsvc.compute_period_analysis(
+                    db, str(well.number), pf, pt,
+                    p.get("description") or p.get("block_title"),
+                )
+                analysis["baselines_comparison"] = bsvc.compare_to_baselines(
+                    analysis, baselines,
+                )
+                # Прокидываем title/comment/block_id чтобы LaTeX мог
+                # подписать раздел «по выбору пользователя».
+                analysis["block_id"] = p.get("block_id")
+                analysis["block_title"] = p.get("block_title")
+
+                # ── Расширяем данными со страницы /customer-daily ──
+                # describe_well_period, monthly_stats, monthly_description
+                # + 4 PNG диаграммы (давления, ΔP, дебит+простой, помесячно).
+                _enrich_period_with_customer_data(
+                    db, well, pf, pt, analysis, render_charts, p_idx,
+                )
+
+                periods_data.append(analysis)
+
+            # Если по этой скв. вообще ничего нет — глава пустая (None).
+            if not (baselines or periods_data or comparisons_input):
+                customer_chapter = None
+            else:
+                customer_chapter = {
+                    "baselines": baselines,
+                    "periods": periods_data,
+                    "comparisons": comparisons_input,
+                }
+        except Exception:
+            log.exception("Customer chapter build failed for well %s", well.id)
+
+    # Сравнение этапа адаптации с baseline-ами (customer + observation).
+    # Берём 1 закреплённый baseline каждого источника (если несколько —
+    # самый свежий).
+    base_customer = None
+    base_observation = None
+    try:
+        from backend.services import customer_baseline_service as _bsvc
+        all_bls = _bsvc.list_baselines(db, well.id)
+        # сортируем: pinned первыми, потом по created_at desc
+        all_bls_sorted = sorted(
+            all_bls,
+            key=lambda b: (
+                0 if b.get("is_pinned") else 1,
+                -(b.get("id") or 0),
+            ),
+        )
+        for b in all_bls_sorted:
+            if b.get("source") == "customer" and base_customer is None:
+                base_customer = b
+            elif b.get("source") == "observation" and base_observation is None:
+                base_observation = b
+    except Exception:
+        log.exception("baseline lookup failed for well %s", well.id)
+
+    adapt_vs_baseline = {
+        "customer":    _bsvc.compare_stage_to_baseline(adapt_stats, base_customer),
+        "observation": _bsvc.compare_stage_to_baseline(adapt_stats, base_observation),
+        "baselines": {
+            "customer":    base_customer,
+            "observation": base_observation,
+        },
+    } if (base_customer or base_observation) else None
+
+    # Сравнение этапа НАБЛЮДЕНИЯ с customer-baseline (на этапе наблюдения
+    # сравниваем только с данными заказчика — это «до начала работ»).
+    # Если customer-baseline не выбран — раздел §3.X в PDF не появится.
+    obs_vs_baseline = None
+    if base_customer:
+        try:
+            obs_vs_baseline = {
+                "customer": _bsvc.compare_stage_to_baseline(
+                    obs_stats, base_customer,
+                ),
+                "baseline": base_customer,
+            }
+        except Exception:
+            log.exception("obs vs baseline compare failed")
+            obs_vs_baseline = None
+
+    # История изменений штуцера для §1 + диапазон-метка для каждого этапа
+    choke_history: list[dict[str, Any]] = []
+    try:
+        rows = db.execute(text("""
+            SELECT choke_diam_mm, data_as_of, id
+            FROM well_construction
+            WHERE TRIM(well_no) = :wno AND choke_diam_mm IS NOT NULL
+            ORDER BY data_as_of NULLS LAST, id
+        """), {"wno": str(well.number).strip()}).fetchall()
+        for r in rows:
+            choke_history.append({
+                "choke_mm": float(r[0]),
+                "data_as_of": r[1].isoformat() if r[1] else None,
+            })
+    except Exception:
+        log.warning("choke history lookup failed for well %s", well.id)
+
+    def _choke_for_period(d_from: datetime | date | None,
+                         d_to: datetime | date | None) -> str:
+        """Текстовая подпись 'Штуцер N мм' для периода: смена в течение
+        — диапазон, иначе одно значение."""
+        if not choke_history:
+            return f"{choke_mm} мм" if choke_mm else "—"
+        if d_from is None or d_to is None:
+            return f"{choke_mm} мм" if choke_mm else "—"
+        df = d_from.date() if isinstance(d_from, datetime) else d_from
+        dt = d_to.date() if isinstance(d_to, datetime) else d_to
+        # Какие записи актуальны на любой момент периода — берём ту,
+        # data_as_of которой ≤ текущей; меняем при пересечении
+        active: list[tuple[date, float]] = []
+        for h in choke_history:
+            if h.get("data_as_of"):
+                hd = date.fromisoformat(h["data_as_of"])
+                if hd <= dt:
+                    active.append((hd, h["choke_mm"]))
+        if not active:
+            return f"{choke_mm} мм" if choke_mm else "—"
+        # Уникальные значения внутри периода
+        relevant = [v for d, v in active if d <= dt]
+        # Берём те что покрывают период (не меньше начала)
+        in_period = [(d, v) for d, v in active if df <= d <= dt]
+        if not in_period:
+            # Изменений в течение периода нет — берём последнее до df
+            return f"{relevant[-1]:g} мм"
+        unique_vals = sorted({v for _, v in active})
+        if len(unique_vals) == 1:
+            return f"{unique_vals[0]:g} мм"
+        # Был хотя бы 1 переход в периоде
+        return f"{relevant[0]:g} → {relevant[-1]:g} мм (смена)"
+
+    obs_choke   = _choke_for_period(obs_stats.get("date_from"), obs_stats.get("date_to"))
+    adapt_choke = _choke_for_period(adapt_stats.get("date_from"), adapt_stats.get("date_to"))
+    obs_stats["choke_label"]   = obs_choke
+    adapt_stats["choke_label"] = adapt_choke
+
+    # Технические данные §1: конструкция, перфорация, карта (только при render_charts).
+    well_tech = _collect_well_tech_data(db, well, render_map=render_charts)
+
     return {
         "ok": True,
         "warnings": warnings,
@@ -1951,6 +2800,12 @@ def collect_report_data(
             "name": well.name,
             "horizon": horizon,
             "choke_mm": choke_mm,
+            "choke_history": choke_history,
+            # §1 «Технические данные»
+            "construction": well_tech["construction"],
+            "perforation": well_tech["perforation"],
+            "neighbors": well_tech["neighbors"],
+            "map_chart_path": well_tech["map_chart_path"],
         },
         "observation": obs_stats,
         "adaptation": adapt_stats,
@@ -1959,8 +2814,11 @@ def collect_report_data(
         "optimal_window_days": optimal_window_days,
         "comparison": comparison,
         "comparison_optimal": comparison_optimal,
+        "adapt_vs_baseline": adapt_vs_baseline,
+        "obs_vs_baseline": obs_vs_baseline,
         "conclusions": conclusions,
         "reagent_effectiveness": reagent_effectiveness,
+        "customer_chapter": customer_chapter,
     }
 
 
@@ -2118,6 +2976,17 @@ def _add_formatted_fields(stage: dict) -> dict:
         r["name"] = _tex_escape(r.get("name", ""))
         r["total_qty_fmt"] = _fmt_num(r.get("total_qty"), 1)
 
+    # Вступление к §3 — экранируем неконтролируемые поля (serial/label),
+    # но НЕ трогаем intro_text/gateway_text (мы авторим их сами с
+    # литералами LaTeX вроде \, и --).
+    intro = stage.get("intro")
+    if intro:
+        for s in (intro.get("sensors") or []):
+            if s.get("serial") is not None:
+                s["serial"] = _tex_escape(str(s["serial"]))
+            if s.get("label") is not None:
+                s["label"] = _tex_escape(str(s["label"]))
+
     return stage
 
 
@@ -2199,6 +3068,13 @@ def generate_adaptation_report_pdf(doc, db: Session) -> str:
     warnings_list = [_tex_escape(w) for w in (data.get("warnings") or [])]
 
     now_kungrad = datetime.utcnow() + KUNGRAD_OFFSET
+
+    # Toggle разделов PDF — берём из meta, незаполненные → True.
+    _SEC_KEYS = ("well_info", "customer_data", "observation",
+                 "adaptation", "charts_compare", "comparison")
+    _meta_sections = (meta.get("sections") or {})
+    include_sections = {k: bool(_meta_sections.get(k, True)) for k in _SEC_KEYS}
+
     context = {
         "doc_number": _tex_escape(doc.doc_number or f"ID{doc.id}"),
         "generated_at": now_kungrad.strftime("%d.%m.%Y %H:%M"),
@@ -2210,6 +3086,7 @@ def generate_adaptation_report_pdf(doc, db: Session) -> str:
         "comparison": comparison,
         "conclusions": [_tex_escape(c) for c in (data.get("conclusions") or [])],
         "warnings": warnings_list,
+        "include_sections": include_sections,
     }
 
     env = _get_latex_env()
@@ -2220,15 +3097,22 @@ def generate_adaptation_report_pdf(doc, db: Session) -> str:
     pdf_path = _compile_latex(latex_source, base_name)
 
     # Чистка временных PNG графиков
+    from pathlib import Path
     for stage in (observation, adaptation):
         for key in ("pressure_chart_path", "dp_chart_path", "flow_chart_path"):
             p = stage.get(key)
             if p:
                 try:
-                    from pathlib import Path
                     Path(p).unlink(missing_ok=True)
                 except Exception:
                     pass
+    # PNG карты §1
+    _map_path = well_ctx.get("map_chart_path") if isinstance(well_ctx, dict) else None
+    if _map_path:
+        try:
+            Path(_map_path).unlink(missing_ok=True)
+        except Exception:
+            pass
 
     log.info("Adaptation report PDF generated: %s", pdf_path)
     return f"generated/pdf/{base_name}.pdf"

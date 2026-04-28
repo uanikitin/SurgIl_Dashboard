@@ -39,6 +39,56 @@
   .ar-stage-ok { background: #c8e6c9; color: #2e7d32; }
   .ar-stage-no { background: #ffcdd2; color: #c62828; }
 
+  /* Section cards (визуальное разделение блоков настройки) */
+  .ar-section {
+    border: 1px solid #e5e7eb; border-radius: 8px;
+    padding: 0.7rem 0.8rem; margin-bottom: 0.8rem;
+    border-left-width: 3px; background: #fff;
+  }
+  .ar-section > h3:first-child {
+    margin-top: 0; border-bottom: none; padding-bottom: 0;
+  }
+  .ar-section-source   { border-left-color: #94a3b8; }
+  .ar-section-history  { border-left-color: #64748b; background: #f8fafc; }
+  .ar-section-obs      { border-left-color: #007bff; }
+  .ar-section-adapt    { border-left-color: #17a2b8; }
+  .ar-section-optimal  { border-left-color: #28a745; }
+
+  /* History tiles (этапы скважины) */
+  .ar-stages-tiles {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 0.4rem; margin-top: 0.4rem;
+  }
+  .ar-stage-tile {
+    border: 1px solid #e5e7eb; border-radius: 6px;
+    padding: 0.4rem 0.5rem 0.4rem 0.55rem; background: #fff;
+    border-left: 4px solid #6c757d; font-size: 0.78rem;
+    display: flex; flex-direction: column; gap: 0.15rem;
+    min-width: 0;
+  }
+  .ar-stage-tile.is-open { border-style: dashed; }
+  .ar-stage-tile-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 0.3rem;
+  }
+  .ar-stage-tile-name {
+    font-weight: 600; color: #1f2937; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .ar-stage-tile-open-badge {
+    font-size: 0.65rem; padding: 1px 5px; border-radius: 8px;
+    background: #fef3c7; color: #92400e; font-weight: 600;
+    flex-shrink: 0;
+  }
+  .ar-stage-tile-dates { color: #4b5563; font-size: 0.74rem; }
+  .ar-stage-tile-dur { color: #6b7280; font-size: 0.72rem; font-style: italic; }
+  .ar-stage-tile-note {
+    color: #6b7280; font-size: 0.7rem;
+    overflow: hidden; text-overflow: ellipsis;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+  .ar-stages-empty { color: #9ca3af; font-size: 0.78rem; font-style: italic; }
+
   /* Source selector */
   .ar-source-block { margin-bottom: 0.8rem; }
   .ar-source-options {
@@ -221,31 +271,106 @@
 
 {% block content %}
 
+<style>
+  /* ── Глобальный header отчёта: выбор скважины + горизонтальные вкладки ── */
+  .rw-header {
+    background:#fff; border-bottom:1px solid #ddd;
+    padding:10px 16px; position:sticky; top:0; z-index:50;
+  }
+  .rw-header-row {
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+  }
+  .rw-well-select {
+    font-size:0.95rem; font-weight:500; padding:6px 10px;
+    border:1px solid #ccc; border-radius:6px; min-width:280px;
+  }
+  .rw-state-status {
+    font-size:0.78rem; color:#10b981; margin-left:auto;
+  }
+  .rw-tabs {
+    display:flex; gap:2px; margin-top:8px; border-bottom:2px solid #e0e0e0;
+  }
+  .rw-tab {
+    padding:8px 18px; font-size:0.88rem; color:#555;
+    background:#f5f5f5; border:1px solid #ddd; border-bottom:none;
+    border-radius:5px 5px 0 0; cursor:pointer; user-select:none;
+    margin-bottom:-2px; border-bottom:2px solid transparent;
+    display:flex; align-items:center; gap:6px;
+  }
+  .rw-tab:hover { background:#eaeaea; }
+  .rw-tab.active {
+    background:#fff; color:#1976D2; font-weight:500;
+    border-color:#e0e0e0; border-bottom:2px solid #fff;
+  }
+  .rw-tab .rw-badge {
+    background:#10b981; color:#fff; padding:1px 7px; border-radius:8px;
+    font-size:0.7rem; font-weight:600;
+  }
+  .rw-pane { display:none; }
+  .rw-pane.active { display:block; }
+
+  /* iframe-контейнеры для встраиваемых страниц */
+  .rw-iframe { width:100%; height:calc(100vh - 130px); border:none; display:block; }
+  .rw-empty {
+    padding:40px; text-align:center; color:#9ca3af; font-size:0.95rem;
+  }
+</style>
+
+<!-- ═══════ Глобальный header: выбор скважины + статус сохранения ═══════ -->
+<div class="rw-header">
+  <div class="rw-header-row">
+    <label for="well-select" style="font-size:0.85rem; color:#555;">Скважина:</label>
+    <select id="well-select" class="rw-well-select">
+      <option value="">— выберите скважину —</option>
+    </select>
+    <span id="rw-state-status" class="rw-state-status"></span>
+  </div>
+
+  <div class="rw-tabs">
+    <div class="rw-tab" data-rwtab="well">1. Скважина</div>
+    <div class="rw-tab active" data-rwtab="stages">2. Этапы (Н/А)</div>
+    <div class="rw-tab" data-rwtab="customer">3. Данные заказчика</div>
+    <div class="rw-tab" data-rwtab="reagents">4. Реагенты</div>
+    <div class="rw-tab" data-rwtab="blocks">
+      5. Прикреплённые блоки
+      <span id="rw-blocks-badge" class="rw-badge" style="display:none;">0</span>
+    </div>
+    <div class="rw-tab" data-rwtab="pdf">6. PDF-отчёт</div>
+  </div>
+</div>
+
+<!-- ═══════ Pane: Скважина ═══════ -->
+<div class="rw-pane" data-rwpane="well">
+  <iframe id="rw-iframe-well" class="rw-iframe" data-empty></iframe>
+</div>
+
+<!-- ═══════ Pane: Этапы (Н/А) — текущий контент adaptation-report ═══════ -->
+<div class="rw-pane active" data-rwpane="stages">
+
 <div class="ar-page">
 
   <!-- ═══════════════════════ ЛЕВАЯ ПАНЕЛЬ ═══════════════════════ -->
   <div class="ar-panel ar-panel-left">
     <h2>Настройка отчёта об адаптации</h2>
 
-    <div class="ar-field">
-      <label for="well-select">Скважина</label>
-      <select id="well-select">
-        <option value="">— выберите скважину —</option>
-      </select>
-    </div>
-
     <div id="ar-alerts"></div>
 
     <div id="ar-params" style="display: none;">
 
+      <!-- Этапы скважины (плитки из well_status) -->
+      <div class="ar-section ar-section-history">
+        <h3 style="margin-top: 0;">Этапы скважины</h3>
+        <div id="ar-stages-tiles" class="ar-stages-tiles"></div>
+      </div>
+
       <!-- Источник дат этапов -->
-      <div class="ar-source-block">
-        <h3 style="margin-top: 0.5rem;">Источник дат этапов</h3>
+      <div class="ar-section ar-section-source">
+        <h3 style="margin-top: 0;">Источник дат этапов</h3>
         <div class="ar-source-options" id="ar-source-options"></div>
 
-        <div class="ar-field" style="margin-top: 0.5rem;">
+        <div class="ar-field" style="margin-top: 0.5rem; margin-bottom: 0;">
           <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
-            <input type="checkbox" id="limit-adapt-duration" checked
+            <input type="checkbox" id="limit-adapt-duration"
                    style="width: auto; margin: 0;">
             <span style="font-size: 0.85rem;">
               Ограничить адаптацию длительностью
@@ -261,81 +386,162 @@
         </div>
       </div>
 
-      <h3>Этап наблюдения</h3>
-      <div class="ar-dates">
-        <div class="ar-field">
-          <label for="obs-from">Начало</label>
-          <input type="datetime-local" id="obs-from">
-        </div>
-        <div class="ar-field">
-          <label for="obs-to">Конец</label>
-          <input type="datetime-local" id="obs-to">
-        </div>
-      </div>
-      <div class="ar-field">
-        <label for="obs-description">Описание этапа наблюдения</label>
-        <textarea id="obs-description" rows="3"
-                  style="width:100%; padding:0.4rem; border:1px solid #ccc; border-radius:5px; font-size:0.85rem; box-sizing: border-box; resize: vertical;"
-                  placeholder="Краткое описание условий и работ на этапе наблюдения..."></textarea>
-      </div>
-
-      <h3>Этап адаптации</h3>
-      <div class="ar-dates">
-        <div class="ar-field">
-          <label for="adapt-from">Начало</label>
-          <input type="datetime-local" id="adapt-from">
-        </div>
-        <div class="ar-field">
-          <label for="adapt-to">Конец</label>
-          <input type="datetime-local" id="adapt-to">
-        </div>
-      </div>
-      <div class="ar-field">
-        <label for="adapt-description">Описание этапа адаптации</label>
-        <textarea id="adapt-description" rows="3"
-                  style="width:100%; padding:0.4rem; border:1px solid #ccc; border-radius:5px; font-size:0.85rem; box-sizing: border-box; resize: vertical;"
-                  placeholder="Краткое описание применённых реагентов, условий, наблюдений..."></textarea>
-      </div>
-
-      <!-- ══════ Оптимальный режим ══════ -->
-      <h3>Оптимальный режим работы</h3>
-      <div class="ar-field" style="font-size: 0.83rem; color: #666; margin-bottom: 0.5rem;">
-        Лучшее окно стабильной работы внутри адаптации.
-        Усреднение по всему этапу сглаживает достижения —
-        оптимальный режим выделяется отдельно.
-      </div>
-      <div class="ar-field">
-        <label>Режим</label>
-        <div style="display: flex; gap: 1rem; font-size: 0.85rem;">
-          <label><input type="radio" name="optimal-mode" value="auto" checked> Авто</label>
-          <label><input type="radio" name="optimal-mode" value="manual"> Вручную</label>
-          <label><input type="radio" name="optimal-mode" value="off"> Не выделять</label>
-        </div>
-      </div>
-      <div class="ar-field">
-        <label for="optimal-window-days">Ширина окна (для автодетекта)</label>
-        <input type="number" id="optimal-window-days" min="1" max="10" value="3"
-               style="width: 4.5rem;">
-        <span style="font-size: 0.8rem; color: #888;"> сут.</span>
-      </div>
-      <div id="optimal-manual-block" style="display: none;">
+      <!-- Этап наблюдения -->
+      <div class="ar-section ar-section-obs">
+        <h3 style="margin-top: 0;">Этап наблюдения</h3>
         <div class="ar-dates">
           <div class="ar-field">
-            <label for="optimal-from">Начало</label>
-            <input type="datetime-local" id="optimal-from">
+            <label for="obs-from">Начало</label>
+            <input type="datetime-local" id="obs-from">
           </div>
           <div class="ar-field">
-            <label for="optimal-to">Конец</label>
-            <input type="datetime-local" id="optimal-to">
+            <label for="obs-to">Конец</label>
+            <input type="datetime-local" id="obs-to">
           </div>
         </div>
-        <button id="btn-clear-optimal" type="button"
-                style="margin-top:0.3rem; padding:0.25rem 0.6rem; font-size:0.78rem;
-                       background:#f5f5f5; border:1px solid #bbb; border-radius:4px;
-                       cursor:pointer; color:#555;">
-          ✕ Сбросить выбор
-        </button>
+        <div class="ar-field">
+          <label for="obs-description">Описание этапа наблюдения</label>
+          <textarea id="obs-description" rows="3"
+                    style="width:100%; padding:0.4rem; border:1px solid #ccc; border-radius:5px; font-size:0.85rem; box-sizing: border-box; resize: vertical;"
+                    placeholder="Краткое описание условий и работ на этапе наблюдения..."></textarea>
+        </div>
+        <div style="margin: 0.4rem 0 0; padding: 0.5rem 0.7rem;
+                    background:#fff7ed; border-left:3px solid #f97316; border-radius:4px;">
+          <div style="font-size:0.78rem; color:#7c2d12; margin-bottom:0.3rem;">
+            Зафиксировать baseline по этапу наблюдения — рассчитает Q/ΔP/давления/простой
+            из НАШИХ данных (LoRa) и сохранит как опорные значения для сравнения с этапом адаптации.
+            Параллельно с baseline по данным заказчика.
+          </div>
+          <button id="btn-save-obs-baseline" type="button"
+                  style="padding:0.3rem 0.7rem; font-size:0.78rem;
+                         background:#f97316; color:#fff; border:none;
+                         border-radius:4px; cursor:pointer;">
+            ☑ Зафиксировать как baseline наблюдения
+          </button>
+          <span id="obs-baseline-status" style="margin-left:0.5rem; font-size:0.75rem;"></span>
+
+          <!-- Постоянное отображение зафиксированного observation-baseline -->
+          <div id="obs-baseline-display"
+               style="margin-top:0.5rem; font-size:0.76rem; color:#1f2937;">
+            <div style="color:#9ca3af; font-style:italic;">
+              Baseline не зафиксирован — значения появятся после расчёта.
+            </div>
+          </div>
+        </div>
       </div>
+
+      <!-- Этап адаптации -->
+      <div class="ar-section ar-section-adapt">
+        <h3 style="margin-top: 0; display:flex; align-items:center; gap:0.6rem;">
+          <span>Этап адаптации</span>
+          <button id="btn-auto-dates" type="button"
+                  style="padding:0.2rem 0.55rem; font-size:0.72rem;
+                         background:#e3f2fd; color:#1565c0; border:1px solid #90caf9;
+                         border-radius:4px; cursor:pointer;">
+            ⟲ Автоподбор дат
+          </button>
+        </h3>
+        <div class="ar-dates">
+          <div class="ar-field">
+            <label for="adapt-from">Начало</label>
+            <input type="datetime-local" id="adapt-from">
+          </div>
+          <div class="ar-field">
+            <label for="adapt-to">Конец</label>
+            <input type="datetime-local" id="adapt-to">
+          </div>
+        </div>
+        <!-- Предупреждение если ручные даты ≠ автоопределённым -->
+        <div id="ar-dates-diff-warn"
+             style="display:none; margin-top:0.4rem; padding:0.4rem 0.6rem;
+                    background:#fff8e1; border-left:3px solid #ffa000;
+                    border-radius:4px; font-size:0.78rem; color:#5d4037;">
+        </div>
+        <div class="ar-field" style="margin-bottom: 0;">
+          <label for="adapt-description">Описание этапа адаптации</label>
+          <textarea id="adapt-description" rows="3"
+                    style="width:100%; padding:0.4rem; border:1px solid #ccc; border-radius:5px; font-size:0.85rem; box-sizing: border-box; resize: vertical;"
+                    placeholder="Краткое описание применённых реагентов, условий, наблюдений..."></textarea>
+        </div>
+      </div>
+
+      <!-- Оптимальный режим -->
+      <div class="ar-section ar-section-optimal">
+        <h3 style="margin-top: 0;">Оптимальный режим работы</h3>
+        <div class="ar-field" style="font-size: 0.83rem; color: #666; margin-bottom: 0.5rem;">
+          Лучшее окно стабильной работы внутри адаптации.
+          Усреднение по всему этапу сглаживает достижения —
+          оптимальный режим выделяется отдельно.
+        </div>
+        <div class="ar-field">
+          <label>Режим</label>
+          <div style="display: flex; gap: 1rem; font-size: 0.85rem;">
+            <label><input type="radio" name="optimal-mode" value="auto" checked> Авто</label>
+            <label><input type="radio" name="optimal-mode" value="manual"> Вручную</label>
+            <label><input type="radio" name="optimal-mode" value="off"> Не выделять</label>
+          </div>
+        </div>
+        <div class="ar-field">
+          <label for="optimal-window-days">Ширина окна (для автодетекта)</label>
+          <input type="number" id="optimal-window-days" min="1" max="10" value="3"
+                 style="width: 4.5rem;">
+          <span style="font-size: 0.8rem; color: #888;"> сут.</span>
+        </div>
+        <div id="optimal-manual-block" style="display: none;">
+          <div class="ar-dates">
+            <div class="ar-field">
+              <label for="optimal-from">Начало</label>
+              <input type="datetime-local" id="optimal-from">
+            </div>
+            <div class="ar-field">
+              <label for="optimal-to">Конец</label>
+              <input type="datetime-local" id="optimal-to">
+            </div>
+          </div>
+          <button id="btn-clear-optimal" type="button"
+                  style="margin-top:0.3rem; padding:0.25rem 0.6rem; font-size:0.78rem;
+                         background:#f5f5f5; border:1px solid #bbb; border-radius:4px;
+                         cursor:pointer; color:#555;">
+            ✕ Сбросить выбор
+          </button>
+        </div>
+      </div>
+
+      <!-- ═══ Разделы PDF (toggle) ═══ -->
+      <fieldset style="margin: 0.8rem 0; padding: 0.5rem 0.7rem;
+                       border: 1px solid #d1d5db; border-radius: 6px;
+                       background: #fafafa;">
+        <legend style="font-size: 0.78rem; color: #6b7280; padding: 0 0.4rem;">
+          Разделы PDF
+        </legend>
+        <div id="ar-sections-toggles"
+             style="display:flex; flex-wrap:wrap; gap:0.4rem 1rem; font-size:0.82rem;">
+          <label style="display:flex; align-items:center; gap:0.3rem;">
+            <input type="checkbox" data-section="well_info" checked
+                   style="width:auto; margin:0;"> 1. Тех. данные
+          </label>
+          <label style="display:flex; align-items:center; gap:0.3rem;">
+            <input type="checkbox" data-section="customer_data" checked
+                   style="width:auto; margin:0;"> 2. Анализ исх. данных
+          </label>
+          <label style="display:flex; align-items:center; gap:0.3rem;">
+            <input type="checkbox" data-section="observation" checked
+                   style="width:auto; margin:0;"> 3. Наблюдение
+          </label>
+          <label style="display:flex; align-items:center; gap:0.3rem;">
+            <input type="checkbox" data-section="adaptation" checked
+                   style="width:auto; margin:0;"> 4. Адаптация
+          </label>
+          <label style="display:flex; align-items:center; gap:0.3rem;">
+            <input type="checkbox" data-section="charts_compare" checked
+                   style="width:auto; margin:0;"> 5. Графики (сравнение)
+          </label>
+          <label style="display:flex; align-items:center; gap:0.3rem;">
+            <input type="checkbox" data-section="comparison" checked
+                   style="width:auto; margin:0;"> 6. Сравн. анализ
+          </label>
+        </div>
+      </fieldset>
 
       <div style="margin: 1rem 0;">
         <button id="btn-recompute" class="ar-btn ar-btn-secondary">Пересчитать</button>
@@ -345,7 +551,12 @@
       <div style="margin: 0.6rem 0; padding: 0.6rem; background: #f1f8e9;
                   border-left: 3px solid #689f38; border-radius: 4px;">
         <div style="font-size: 0.85rem; color: #33691e; margin-bottom: 0.4rem;">
-          <b>Данные заказчика (УзКорГаз)</b><br>
+          <b>Данные заказчика (УзКорГаз)</b>
+          <span id="cust-blocks-badge"
+                style="display:none; margin-left:6px; padding:1px 8px;
+                       background:#689f38; color:#fff; border-radius:10px;
+                       font-size:0.72rem; font-weight:600;">0</span>
+          <br>
           <span style="font-size: 0.78rem; color: #555;">
             Парсинг суточных сводок (xlsx) + предварительный анализ
             давлений / дебитов / трендов перед формированием отчёта.
@@ -355,11 +566,11 @@
                 style="background:#689f38; color:#fff;">
           Анализ данных заказчика →
         </button>
+        <div id="cust-blocks-summary"
+             style="display:none; margin-top:0.5rem; font-size:0.78rem;
+                    color:#33691e;"></div>
       </div>
 
-      <div id="ar-optimal-candidates"></div>
-
-      <div id="ar-stats-block"></div>
     </div>
   </div>
 
@@ -370,6 +581,8 @@
     <div class="ar-tabs">
       <div class="ar-tab active" data-tab="stages">Сравнение этапов</div>
       <div class="ar-tab" data-tab="monthly">Помесячная статистика</div>
+      <div class="ar-tab" data-tab="customer">Исходные данные</div>
+      <div class="ar-tab" data-tab="compare">Сравнение периодов</div>
     </div>
 
     <!-- Вкладка: Сравнение этапов -->
@@ -378,6 +591,16 @@
     <div class="ar-charts-section" id="ar-charts">
       <h2 style="margin: 0;">Графики этапов</h2>
       <div class="ar-preview-placeholder">Графики появятся после расчёта.</div>
+    </div>
+
+    <!-- Таблица сравнения этапов (Н vs А vs Оптимум) — под графиками -->
+    <div class="ar-charts-section" id="ar-stats-block-wrap">
+      <div id="ar-stats-block"></div>
+    </div>
+
+    <!-- Топ-3 кандидата окна оптимума — под таблицей -->
+    <div class="ar-charts-section" id="ar-optimal-candidates-wrap">
+      <div id="ar-optimal-candidates"></div>
     </div>
 
     <!-- Интерактивный Q-график для выбора оптимального окна -->
@@ -446,8 +669,244 @@
       </div>
     </div>
 
+    <!-- Вкладка: Исходные данные (заказчик) -->
+    <div class="ar-tab-content" id="tab-customer">
+      <div class="ar-charts-section">
+        <h2 style="margin: 0 0 0.5rem;">Анализ исходных данных (по данным заказчика)</h2>
+        <div style="font-size: 0.8rem; color: #666; margin-bottom: 0.6rem;">
+          Из <code>well_daily</code> (выгрузка УзКорГаз). Можно зафиксировать
+          несколько <b>baseline</b>-периодов для сравнения и собрать любое
+          число анализируемых периодов в PDF-отчёт.
+        </div>
+
+        <!-- Плитки-ориентиры с периодами этапов -->
+        <div style="font-size: 0.78rem; color: #666; margin: 0.4rem 0 0.3rem;">
+          Этапы (клик — открыть конструктор базового периода):
+        </div>
+        <div class="ar-stage-tiles" id="cust-stage-tiles" data-context="baseline"
+             style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.5rem;">
+          <!-- Заполняется из renderStageTiles('cust-stage-tiles') -->
+        </div>
+
+        <!-- Period selector + presets -->
+        <div class="ar-dates" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+          <div class="ar-field">
+            <label for="cust-from">Период с</label>
+            <input type="date" id="cust-from">
+          </div>
+          <div class="ar-field">
+            <label for="cust-to">Период по</label>
+            <input type="date" id="cust-to">
+          </div>
+        </div>
+        <div style="display: flex; gap: 0.4rem; margin-bottom: 0.4rem; flex-wrap: wrap; align-items: center;">
+          <span style="font-size: 0.78rem; color: #666;">Этапы:</span>
+          <button type="button" class="ar-preset-btn cust-stage-preset" data-stage="observation"
+                  title="Взять даты этапа наблюдения из формы слева">Наблюдение</button>
+          <button type="button" class="ar-preset-btn cust-stage-preset" data-stage="adaptation"
+                  title="Взять даты этапа адаптации из формы слева">Адаптация</button>
+          <button type="button" class="ar-preset-btn cust-stage-preset" data-stage="optimal"
+                  title="Взять даты оптимального режима">Оптимум</button>
+          <span style="font-size: 0.78rem; color: #666; margin-left: 0.4rem;">Длина:</span>
+          <button type="button" class="ar-preset-btn cust-preset" data-days="7">1 нед.</button>
+          <button type="button" class="ar-preset-btn cust-preset" data-days="30">1 мес.</button>
+          <button type="button" class="ar-preset-btn cust-preset" data-days="90">3 мес.</button>
+          <button type="button" class="ar-preset-btn cust-preset" data-days="0">Вся история</button>
+          <label style="font-size: 0.8rem; color: #555; margin-left: 0.6rem; display: inline-flex; align-items: center; gap: 0.3rem;"
+                 title="Ширина скользящего окна для поиска наиболее эффективного подпериода (тот же механизм, что и для этапа адаптации).">
+            Окно, сут:
+            <input type="number" id="cust-window-days" min="1" max="30" step="1" value="3"
+                   style="width: 4rem; padding: 0.2rem 0.3rem; font-size: 0.82rem;">
+          </label>
+          <button type="button" id="cust-analyze" class="ar-btn ar-btn-primary"
+                  style="margin-left: auto;">Проанализировать</button>
+        </div>
+
+        <div id="cust-analysis-result"></div>
+
+        <!-- Baselines list -->
+        <h3 style="margin: 1.2rem 0 0.4rem;">Зафиксированные baseline-периоды</h3>
+        <div id="cust-baselines-list" style="font-size: 0.85rem;">
+          <div style="color: #888;">Загрузка...</div>
+        </div>
+
+        <!-- Periods to include in PDF -->
+        <h3 style="margin: 1.2rem 0 0.4rem;">Периоды в PDF-отчёт</h3>
+        <div style="font-size: 0.78rem; color: #666; margin-bottom: 0.4rem;">
+          Все добавленные сюда периоды попадут в главу «Анализ исходных данных»
+          PDF-отчёта вместе с описаниями.
+        </div>
+        <div id="cust-pdf-periods"></div>
+        <div style="display: flex; gap: 0.4rem; margin-top: 0.4rem; flex-wrap: wrap;">
+          <button type="button" id="cust-add-to-pdf" class="ar-btn ar-btn-secondary"
+                  disabled>
+            + Добавить текущий период в отчёт
+          </button>
+          <button type="button" id="cust-split-months" class="ar-btn ar-btn-secondary"
+                  title="Разбить текущий выбранный период (cust-from..cust-to) на календарные месяцы и добавить каждый отдельным пунктом. Полезно для этапа оптимизации — помесячный анализ."
+                  disabled>
+            📅 Разбить на календарные месяцы
+          </button>
+        </div>
+
+        <div style="margin-top: 0.8rem;">
+          <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.88rem;">
+            <input type="checkbox" id="cust-include-chapter" style="width: auto; margin: 0;">
+            Включить главу «Анализ исходных данных» в PDF
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Вкладка: Сравнение произвольных периодов -->
+    <!-- Использует готовую секцию #compare страницы /customer-daily через iframe.
+         Источники A/B: данные заказчика, наши датчики (pressure_hourly), наш расчёт (flow_result). -->
+    <div class="ar-tab-content" id="tab-compare">
+      <div style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.4rem;">
+        <span style="font-size: 0.82rem; color: #666;">
+          Сравнение двух произвольных периодов (метрика, источник, окно дат — внутри).
+        </span>
+        <button type="button" id="cmp-open-window-btn" class="ar-btn ar-btn-secondary"
+                style="margin-left: auto; padding: 0.25rem 0.6rem; font-size: 0.82rem;">
+          ↗ В отдельном окне
+        </button>
+      </div>
+      <iframe id="ar-iframe-compare" class="rw-iframe"
+              style="width: 100%; height: calc(100vh - 220px); min-height: 600px; border: 1px solid #e5e7eb; border-radius: 6px;"
+              data-empty></iframe>
+    </div>
+
   </div>
 
+</div>
+</div><!-- /pane stages -->
+
+<!-- ═══════ Модалка: конструктор «опорного периода» ═══════ -->
+<div id="period-picker-modal" class="ar-modal" style="display:none;">
+  <div class="ar-modal-backdrop"></div>
+  <div class="ar-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="pp-title">
+    <div class="ar-modal-header">
+      <h3 id="pp-title" style="margin:0;">Конструктор опорного периода</h3>
+      <button type="button" class="ar-modal-close" id="pp-close" aria-label="Закрыть">×</button>
+    </div>
+    <div class="ar-modal-body">
+      <!-- Якорь -->
+      <fieldset style="border:1px solid #e5e7eb; border-radius:6px; padding:0.5rem 0.6rem; margin-bottom:0.5rem;">
+        <legend style="padding:0 0.4rem; font-size:0.8rem; color:#666;">Якорь</legend>
+        <div id="pp-anchor-options" style="display:flex; gap:0.8rem; flex-wrap:wrap; font-size:0.85rem;">
+          <!-- radio-кнопки заполняются JS из текущих этапов -->
+        </div>
+      </fieldset>
+
+      <!-- Направление -->
+      <fieldset style="border:1px solid #e5e7eb; border-radius:6px; padding:0.5rem 0.6rem; margin-bottom:0.5rem;">
+        <legend style="padding:0 0.4rem; font-size:0.8rem; color:#666;">Направление</legend>
+        <label style="font-size:0.85rem; margin-right:0.8rem;">
+          <input type="radio" name="pp-direction" value="before" checked> до якоря
+        </label>
+        <label style="font-size:0.85rem; margin-right:0.8rem;">
+          <input type="radio" name="pp-direction" value="after"> после якоря
+        </label>
+        <label style="font-size:0.85rem; margin-left:0.8rem;">
+          <input type="checkbox" id="pp-include-anchor"> включая день якоря
+        </label>
+      </fieldset>
+
+      <!-- Длина -->
+      <fieldset style="border:1px solid #e5e7eb; border-radius:6px; padding:0.5rem 0.6rem; margin-bottom:0.5rem;">
+        <legend style="padding:0 0.4rem; font-size:0.8rem; color:#666;">Длина</legend>
+        <div style="display:flex; flex-direction:column; gap:0.35rem; font-size:0.85rem;">
+          <label><input type="radio" name="pp-preset" value="week" checked> 1 неделя (7 дн.)</label>
+          <label><input type="radio" name="pp-preset" value="month"> 1 месяц (30 дн.)</label>
+          <label><input type="radio" name="pp-preset" value="calendar"> Календарный месяц</label>
+          <label>
+            <input type="radio" name="pp-preset" value="custom"> Произвольно:
+            <input type="number" id="pp-custom-days" min="1" max="365" step="1" value="14"
+                   style="width: 4.5rem; padding: 0.15rem 0.3rem; font-size: 0.82rem;"> дн.
+          </label>
+          <label>
+            <input type="radio" name="pp-preset" value="manual"> Свои даты:
+            <input type="date" id="pp-manual-from" style="font-size:0.82rem;">
+            –
+            <input type="date" id="pp-manual-to" style="font-size:0.82rem;">
+          </label>
+        </div>
+      </fieldset>
+
+      <!-- Превью -->
+      <div id="pp-preview" style="background:#f3f4f6; border-radius:6px; padding:0.5rem 0.7rem; font-size:0.88rem;">
+        <span style="color:#666;">Период: </span><span id="pp-preview-text">—</span>
+      </div>
+    </div>
+    <div class="ar-modal-footer" style="display:flex; gap:0.5rem; justify-content:flex-end;">
+      <button type="button" class="ar-btn ar-btn-secondary" id="pp-cancel">Отмена</button>
+      <!-- Динамические кнопки действия (Сохранить / A / B) -->
+      <span id="pp-actions" style="display:flex; gap:0.4rem;"></span>
+    </div>
+  </div>
+</div>
+
+<style>
+  .ar-stage-tile {
+    border: 1px solid #d1d5db; border-radius: 6px; padding: 0.5rem 0.6rem;
+    cursor: pointer; background: #fafafa; transition: background .12s, border-color .12s;
+    user-select: none;
+  }
+  .ar-stage-tile:hover:not(.disabled) { background: #eef2ff; border-color: #818cf8; }
+  .ar-stage-tile.disabled { opacity: .55; cursor: not-allowed; background: #f5f5f5; }
+  .ar-stage-tile .tile-title { font-size: 0.85rem; font-weight: 600; margin-bottom: 0.15rem; }
+  .ar-stage-tile .tile-dates { font-size: 0.82rem; color: #374151; }
+  .ar-stage-tile .tile-len   { font-size: 0.75rem; color: #6b7280; margin-top: 0.1rem; }
+
+  .ar-modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 9000;
+  }
+  .ar-modal-dialog {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    background: #fff; border-radius: 8px; padding: 0; z-index: 9001;
+    width: 480px; max-width: 95vw; max-height: 90vh; overflow: auto;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+  }
+  .ar-modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.7rem 1rem; border-bottom: 1px solid #e5e7eb;
+  }
+  .ar-modal-close {
+    background: none; border: none; font-size: 1.4rem; cursor: pointer; color: #555;
+    line-height: 1; padding: 0 0.3rem;
+  }
+  .ar-modal-body   { padding: 0.8rem 1rem; }
+  .ar-modal-footer { padding: 0.6rem 1rem; border-top: 1px solid #e5e7eb; }
+</style>
+
+<!-- ═══════ Pane: Данные заказчика ═══════ -->
+<div class="rw-pane" data-rwpane="customer">
+  <iframe id="rw-iframe-customer" class="rw-iframe" data-empty></iframe>
+</div>
+
+<!-- ═══════ Pane: Реагенты ═══════ -->
+<div class="rw-pane" data-rwpane="reagents">
+  <iframe id="rw-iframe-reagents" class="rw-iframe" data-empty></iframe>
+</div>
+
+<!-- ═══════ Pane: Прикреплённые блоки ═══════ -->
+<div class="rw-pane" data-rwpane="blocks">
+  <iframe id="rw-iframe-blocks" class="rw-iframe" data-empty></iframe>
+</div>
+
+<!-- ═══════ Pane: PDF ═══════ -->
+<div class="rw-pane" data-rwpane="pdf">
+  <div style="padding:12px;">
+    <p style="font-size:0.9rem; color:#555;">
+      Превью PDF собирается во вкладке <b>«Этапы (Н/А)»</b> по кнопке
+      «Сформировать PDF». Все настройки — даты этапов, источник, оптимальный
+      режим — сохраняются автоматически. Прикреплённые блоки заказчика
+      попадают в PDF автоматически.
+    </p>
+    <p style="font-size:0.85rem; color:#9ca3af;">
+      Скоро здесь появится отдельный превью-фрейм PDF.
+    </p>
+  </div>
 </div>
 
 <script>
@@ -475,6 +934,15 @@
   }
   function clearAlerts() { $('ar-alerts').innerHTML = ''; }
 
+  // Автоподобранные даты этапов (запоминаем при первичной загрузке скв.,
+  // чтобы кнопка «Автоподбор дат» могла их вернуть и плашка-предупреждение
+  // могла сравнить с тем, что сейчас в форме).
+  let autoDates = {
+    obs_from: null, obs_to: null,
+    adapt_from: null, adapt_to: null,
+    source: null,
+  };
+
   // Преобразовать Date в строку datetime-local (YYYY-MM-DDTHH:MM, локальное время)
   function toDTLocal(d) {
     const pad = (n) => String(n).padStart(2, '0');
@@ -488,6 +956,62 @@
     if (iso.length === 10) return iso + 'T00:00';
     // Если есть tz offset или секунды — обрезаем до минут
     return iso.slice(0, 16);
+  }
+
+  // ─── Помощник для подписи длительности
+  function _durLabel(fromStr, toStr) {
+    if (!fromStr || !toStr) return '';
+    const ms = new Date(toStr).getTime() - new Date(fromStr).getTime();
+    if (!(ms > 0)) return '';
+    const totalH = Math.round(ms / 3600000 * 10) / 10;
+    const days = Math.floor(totalH / 24);
+    const remH = Math.round(totalH - days * 24);
+    return days > 0 ? (remH > 0 ? `${days} сут ${remH} ч` : `${days} сут`) : `${totalH} ч`;
+  }
+  function _shortDT(dt) {
+    if (!dt) return '—';
+    return dt.replace('T', ' ').slice(5, 16); // 04.04 12:00
+  }
+
+  // Показать/скрыть предупреждение «текущие даты ≠ автоподобранным»
+  function updateDatesDiffWarn() {
+    const box = $('ar-dates-diff-warn');
+    if (!autoDates.adapt_from || !autoDates.adapt_to) {
+      box.style.display = 'none';
+      return;
+    }
+    const curFrom = $('adapt-from').value;
+    const curTo = $('adapt-to').value;
+    const sameFrom = curFrom === autoDates.adapt_from;
+    const sameTo = curTo === autoDates.adapt_to;
+    if (sameFrom && sameTo) {
+      box.style.display = 'none';
+      return;
+    }
+    const autoLbl = `${_shortDT(autoDates.adapt_from)} → ${_shortDT(autoDates.adapt_to)} (${_durLabel(autoDates.adapt_from, autoDates.adapt_to)})`;
+    const curLbl = `${_shortDT(curFrom)} → ${_shortDT(curTo)} (${_durLabel(curFrom, curTo)})`;
+    box.innerHTML =
+      `<b>⚠ Текущие даты адаптации отличаются от автоподобранных</b><br>` +
+      `Авто (${autoDates.source || 'auto'}): <b>${autoLbl}</b><br>` +
+      `Сейчас в форме: <b>${curLbl}</b><br>` +
+      `<span style="color:#7a5d10">Top-3 кандидата окна и оптимум пересчитаются для текущих дат. ` +
+      `Нажмите «⟲ Автоподбор дат» чтобы вернуть автоподбор.</span>`;
+    box.style.display = 'block';
+  }
+
+  // Кнопка «Автоподбор дат» — возвращает форму к датам из stage-data
+  function applyAutoDates() {
+    if (!autoDates.adapt_from) return;
+    $('obs-from').value = autoDates.obs_from || '';
+    $('obs-to').value = autoDates.obs_to || '';
+    $('adapt-from').value = autoDates.adapt_from || '';
+    $('adapt-to').value = autoDates.adapt_to || '';
+    // Снимаем чекбокс «Ограничить длительность» — иначе он тут же подрежет дату
+    if ($('limit-adapt-duration').checked) {
+      $('limit-adapt-duration').checked = false;
+    }
+    applyDurationLimit();
+    updateDatesDiffWarn();
   }
 
   // Применить ограничение длительности: adapt_to = adapt_from + N сут. (cap now)
@@ -509,6 +1033,7 @@
     const now = new Date();
     const capped = d > now ? now : d;
     adaptTo.value = toDTLocal(capped);
+    updateDatesDiffWarn();
   }
 
   // ─────────────────────────── Wells ───────────────────────────
@@ -541,8 +1066,58 @@
     }
     currentWellId = wellId;
     lastMonthlyWellId = null;  // инвалидируем кеш помесячной статистики
+    custBaselines = [];
+    custPdfPeriods = [];
+    custCurrentAnalysis = null;
     clearAlerts();
     await reloadStageData();
+    refreshCustomerBlocks();
+    // Подгружаем baseline-ы сразу, чтобы блок "Baseline наблюдения" был актуален
+    // ещё до открытия вкладки «Исходные данные».
+    if (typeof reloadBaselines === 'function') {
+      reloadBaselines(currentWellId).catch(e => console.warn('baselines preload', e));
+    }
+
+    // Persistent state: подтянуть сохранённые поля и активный таб
+    if (typeof restoreState === 'function') {
+      // сбрасываем кэш iframe для новой скважины — в открываемых
+      // вкладках перезагрузится с новым ?well=
+      if (typeof _iframeLoaded === 'object') {
+        Object.keys(_iframeLoaded).forEach(k => delete _iframeLoaded[k]);
+      }
+      try { await restoreState(); } catch (_) {}
+    }
+  }
+
+  // ─── Customer-блоки: индикатор «прикреплено N» возле кнопки ───
+  async function refreshCustomerBlocks() {
+    const badge = $('cust-blocks-badge');
+    const summary = $('cust-blocks-summary');
+    badge.style.display = 'none';
+    summary.style.display = 'none';
+    summary.innerHTML = '';
+    if (!currentWellId) return;
+    try {
+      const r = await fetch('/api/customer-daily/blocks?well_id=' + currentWellId);
+      if (!r.ok) return;
+      const d = await r.json();
+      const blocks = (d.blocks || []).filter(b => b.in_report);
+      if (!blocks.length) return;
+      badge.textContent = blocks.length;
+      badge.style.display = 'inline-block';
+      const labels = {
+        baseline: 'базовый',
+        period_analysis: 'анализ',
+        comparison: 'сравнение',
+      };
+      summary.innerHTML = '<b>В PDF попадут:</b><br>' +
+        blocks.map(b =>
+          `&nbsp;• [${labels[b.kind] || b.kind}] ${b.title}`
+        ).join('<br>');
+      summary.style.display = '';
+    } catch (e) {
+      console.warn('refreshCustomerBlocks failed', e);
+    }
   }
 
   async function reloadStageData() {
@@ -553,6 +1128,8 @@
 
     $('ar-params').style.display = 'block';
 
+    renderStageTiles(data.all_stages || []);
+
     // Сохраняем источники для переключения
     stageSources.status = data.stages_from_status;
     stageSources.events = data.stages_from_events;
@@ -561,12 +1138,21 @@
 
     // Если есть данные — заполняем даты
     if (data.ok) {
-      $('obs-from').value = isoToDTLocal(data.observation.date_from);
-      $('obs-to').value = isoToDTLocal(data.observation.date_to);
-      $('adapt-from').value = isoToDTLocal(data.adaptation.date_from);
-      $('adapt-to').value = isoToDTLocal(data.adaptation.date_to);
+      // Запоминаем автоподобранные даты — для кнопки «Автоподбор дат»
+      // и для подсказки «выбранное ≠ автоподобранному».
+      autoDates.obs_from   = isoToDTLocal(data.observation.date_from);
+      autoDates.obs_to     = isoToDTLocal(data.observation.date_to);
+      autoDates.adapt_from = isoToDTLocal(data.adaptation.date_from);
+      autoDates.adapt_to   = isoToDTLocal(data.adaptation.date_to);
+      autoDates.source     = data.source_used || 'auto';
+
+      $('obs-from').value = autoDates.obs_from;
+      $('obs-to').value = autoDates.obs_to;
+      $('adapt-from').value = autoDates.adapt_from;
+      $('adapt-to').value = autoDates.adapt_to;
       // Если включено ограничение — применить его к adapt_to
       applyDurationLimit();
+      updateDatesDiffWarn();
       // Prefill описаний (только если пользователь ещё не вводил)
       if (!$('obs-description').value) {
         $('obs-description').value = (data.observation.description || '').trim();
@@ -593,6 +1179,49 @@
     $('ar-charts').innerHTML =
       '<h2 style="margin: 0;">Графики этапов</h2>' +
       '<div class="ar-preview-placeholder">Нажмите «Пересчитать» для отрисовки графиков.</div>';
+  }
+
+  // Render well stages tiles (история этапов из well_status)
+  function renderStageTiles(stages) {
+    const box = $('ar-stages-tiles');
+    if (!box) return;
+    if (!stages || stages.length === 0) {
+      box.innerHTML = '<div class="ar-stages-empty">В журнале статусов нет записей по этой скважине.</div>';
+      return;
+    }
+    const fmt = (iso) => {
+      if (!iso) return '—';
+      // YYYY-MM-DDTHH:MM → DD.MM.YYYY
+      const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      return m ? `${m[3]}.${m[2]}.${m[1]}` : iso;
+    };
+    const fmtDur = (d) => {
+      if (d == null) return '—';
+      if (d < 1) return `${Math.round(d * 24)} ч`;
+      return `${d.toFixed(d < 10 ? 1 : 0)} сут`;
+    };
+    const esc = (s) => String(s ?? '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    box.innerHTML = stages.map(s => {
+      const openCls = s.is_open ? ' is-open' : '';
+      const openBadge = s.is_open
+        ? '<span class="ar-stage-tile-open-badge">открыт</span>' : '';
+      const noteBlock = s.note
+        ? `<div class="ar-stage-tile-note" title="${esc(s.note)}">${esc(s.note)}</div>` : '';
+      const dateRange = s.is_open
+        ? `${fmt(s.dt_from)} → сейчас`
+        : `${fmt(s.dt_from)} → ${fmt(s.dt_to)}`;
+      return `
+        <div class="ar-stage-tile${openCls}" style="border-left-color: ${esc(s.color)};">
+          <div class="ar-stage-tile-head">
+            <span class="ar-stage-tile-name" title="${esc(s.status)}">${esc(s.status)}</span>
+            ${openBadge}
+          </div>
+          <div class="ar-stage-tile-dates">${dateRange}</div>
+          <div class="ar-stage-tile-dur">Продолжительность: ${fmtDur(s.duration_days)}</div>
+          ${noteBlock}
+        </div>`;
+    }).join('');
   }
 
   // Render source picker
@@ -1349,7 +1978,15 @@
                   `Реагентов: ${m.reagent_count}, продувок: ${m.purge_count}`,
                 ];
                 if (tr.slope_per_day !== undefined) {
-                  lines.push(`Тренд: ${(tr.slope_per_day || 0).toFixed(3)} тыс.м³/сут`);
+                  let trendLine = `Тренд (Theil-Sen): ${(tr.slope_per_day || 0).toFixed(3)}/сут`;
+                  if (tr.slope_low_per_day !== undefined && tr.slope_high_per_day !== undefined) {
+                    trendLine += ` · 95% CI [${tr.slope_low_per_day.toFixed(3)}, ${tr.slope_high_per_day.toFixed(3)}]`;
+                  }
+                  if (tr.mk_p !== undefined) {
+                    trendLine += ` · MK p=${tr.mk_p.toFixed(3)}` +
+                                 (tr.mk_significant ? ' (значим)' : ' (не значим)');
+                  }
+                  lines.push(trendLine);
                 }
                 return lines;
               },
@@ -1406,6 +2043,530 @@
     }
     $('ar-monthly-descriptions').innerHTML = html;
   }
+
+  // ─────────────────────────── Customer source data tab ───────────
+  let custBaselines = [];
+  let custPdfPeriods = [];     // {from, to, description, stage, snapshot}
+  let custCurrentAnalysis = null;
+  let custCurrentStage = null; // 'observation' | 'adaptation' | 'optimal' | null
+  let custIsAdmin = {{ 'true' if is_admin else 'false' }};
+
+  function fmtN(v, d=2) {
+    if (v === null || v === undefined || isNaN(v)) return '—';
+    return Number(v).toFixed(d);
+  }
+
+  async function loadCustomerTab(wellId) {
+    // Загружаем список baseline-ов
+    await reloadBaselines(wellId);
+    renderPdfPeriodsList();
+    // Дефолтный диапазон — последние 30 дней (или весь well_daily период)
+    if (!$('cust-from').value || !$('cust-to').value) {
+      const today = new Date();
+      const monthAgo = new Date(today.getTime() - 30 * 86400000);
+      $('cust-from').value = monthAgo.toISOString().slice(0, 10);
+      $('cust-to').value = today.toISOString().slice(0, 10);
+    }
+    if (typeof updateSplitMonthsState === 'function') updateSplitMonthsState();
+  }
+
+  async function reloadBaselines(wellId) {
+    const r = await fetch(`/api/adaptation-report/baselines?well_id=${wellId}`);
+    const d = await r.json();
+    custBaselines = d.baselines || [];
+    renderBaselinesList();
+    if (typeof renderObsBaselineDisplay === 'function') renderObsBaselineDisplay();
+  }
+
+  function renderBaselinesList() {
+    const box = $('cust-baselines-list');
+    if (!custBaselines.length) {
+      box.innerHTML = `<div style="color:#888;">Нет сохранённых baseline-ов.</div>`;
+      return;
+    }
+    let html = '<div style="display: flex; flex-direction: column; gap: 0.4rem;">';
+    for (const b of custBaselines) {
+      const dq = (b.q_total_avg !== null || b.q_working_avg !== null)
+        ? `Q общ. ${fmtN(b.q_total_avg)} / раб. ${fmtN(b.q_working_avg)}`
+        : '—';
+      const dp = b.dp_avg !== null ? `ΔP ${fmtN(b.dp_avg)}` : '';
+      const sd = b.shutdown_min_total ? `простой ${b.shutdown_min_total} мин (${b.shutdown_days_count || 0} дн.)` : '';
+      html += `<div style="border:1px solid #ddd; padding:0.5rem 0.7rem; border-radius:5px; background:${b.is_pinned ? '#e8f5e9' : '#fafafa'};">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap: 0.5rem;">
+          <div>
+            <b>${b.name}</b> ${b.is_pinned ? '📌' : ''}
+            <span style="color:#888; font-size:0.78rem;">[${b.source}] ${b.period_from} → ${b.period_to} (${b.days_count} дн.)</span>
+          </div>
+          ${custIsAdmin ? `<button class="ar-btn ar-btn-secondary" style="padding:0.2rem 0.5rem; font-size:0.78rem;" onclick="deleteBaseline(${b.id})">Удалить</button>` : ''}
+        </div>
+        <div style="font-size:0.8rem; color:#555; margin-top:0.2rem;">
+          ${dq} · ${dp} · ${sd}
+        </div>
+        ${b.notes ? `<div style="font-size:0.78rem; color:#777; font-style:italic; margin-top:0.2rem;">${b.notes}</div>` : ''}
+      </div>`;
+    }
+    html += '</div>';
+    if (custIsAdmin && custCurrentAnalysis) {
+      html += `<div style="margin-top: 0.6rem;">
+        <button id="cust-save-baseline" class="ar-btn ar-btn-primary"
+                style="padding:0.3rem 0.7rem; font-size:0.82rem;">
+          + Сохранить текущий период как baseline
+        </button>
+      </div>`;
+    } else if (!custIsAdmin) {
+      html += `<div style="font-size:0.75rem; color:#888; margin-top:0.4rem;">
+        Сохранение baseline доступно только администратору.
+      </div>`;
+    }
+    box.innerHTML = html;
+    const btn = $('cust-save-baseline');
+    if (btn) btn.addEventListener('click', saveCurrentAsBaseline);
+  }
+
+  window.deleteBaseline = async function(bid) {
+    if (!confirm('Удалить baseline?')) return;
+    const r = await fetch(`/api/adaptation-report/baselines/${bid}`, {method: 'DELETE'});
+    if (r.ok) {
+      reloadBaselines(currentWellId);
+    } else {
+      alert('Ошибка удаления');
+    }
+  };
+
+  async function saveCurrentAsBaseline() {
+    if (!currentWellId || !custCurrentAnalysis) return;
+    const name = prompt('Название baseline (например: «До работ — янв-мар 2026»):');
+    if (!name) return;
+    const notes = prompt('Заметки (можно пусто):') || '';
+    const body = {
+      well_id: currentWellId,
+      name,
+      period_from: $('cust-from').value,
+      period_to: $('cust-to').value,
+      source: 'customer',
+      notes,
+      is_pinned: false,
+    };
+    const r = await fetch('/api/adaptation-report/baselines', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      reloadBaselines(currentWellId);
+    } else {
+      alert(d.detail || 'Ошибка сохранения');
+    }
+  }
+
+  async function runCustomerAnalysis() {
+    if (!currentWellId) return;
+    const from = $('cust-from').value;
+    const to = $('cust-to').value;
+    if (!from || !to) {
+      alert('Укажите период');
+      return;
+    }
+    const box = $('cust-analysis-result');
+    box.innerHTML = '<div style="text-align:center; color:#888; padding:1rem;"><div class="ar-spinner" style="display:inline-block; vertical-align:middle;"></div> Анализ…</div>';
+
+    const wd = parseInt($('cust-window-days')?.value, 10);
+    const windowDays = (!isNaN(wd) && wd > 0) ? wd : 3;
+    const r = await fetch('/api/adaptation-report/source-analysis', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        well_id: currentWellId,
+        period_from: from, period_to: to,
+        window_days: windowDays,
+      }),
+    });
+    const d = await r.json();
+    custCurrentAnalysis = d;
+    renderCustomerAnalysis(d);
+    $('cust-add-to-pdf').disabled = !(d.days_count > 0);
+    renderBaselinesList();  // обновляем кнопку «сохранить как baseline»
+  }
+
+  function renderCustomerAnalysis(d) {
+    const box = $('cust-analysis-result');
+    if (!d || !d.days_count) {
+      box.innerHTML = '<div style="color:#c62828;">За выбранный период нет данных в well_daily.</div>';
+      return;
+    }
+    const cmps = d.baselines_comparison || [];
+    let html = `<div style="background:#f5f5f5; padding:0.6rem; border-radius:5px; margin-top:0.5rem;">
+      <b>Дней в периоде:</b> ${d.days_count} ·
+      <b>Q ср.:</b> ${fmtN(d.q_total_avg)} (раб: ${fmtN(d.q_working_avg)}) ·
+      <b>Q мед.:</b> ${fmtN(d.q_total_median)} ·
+      <b>ΔP мед.:</b> ${fmtN(d.dp_median)} ·
+      <b>Простоев:</b> ${fmtN(d.shutdown_min_total, 0)} мин (${d.shutdown_days_count || 0} дн.)
+      ${d.q_trend ? ` · <b>Тренд Q:</b> ${d.q_trend.direction === 'up' ? '↑' : d.q_trend.direction === 'down' ? '↓' : '→'} ${fmtN(d.q_trend.slope_per_day, 3)}/сут` : ''}
+    </div>`;
+
+    // Графики
+    html += `
+      <div style="height:240px; margin-top:0.6rem;"><canvas id="cust-q-chart"></canvas></div>
+      <div style="height:200px; margin-top:0.4rem;"><canvas id="cust-shutdown-chart"></canvas></div>
+    `;
+
+    // Расширенные блоки: измерения, продувки, вбросы реагента, лучшее окно
+    html += renderCustomerExtras(d);
+
+    // Сравнение с baselines
+    if (cmps.length > 0) {
+      html += `<h4 style="margin: 0.8rem 0 0.3rem;">Сравнение с baseline:</h4>`;
+      html += `<table class="ar-monthly-table"><thead><tr>
+        <th>Baseline</th><th>Метрика</th>
+        <th>baseline</th><th>период</th><th>Δ</th><th>Δ%</th>
+        <th>Простой baseline</th><th>Простой период</th>
+      </tr></thead><tbody>`;
+      const _delta = (a, b) => {
+        if (a === null || a === undefined || b === null || b === undefined) return [null, null];
+        const da = b - a;
+        const dp = a !== 0 ? (da / a) * 100 : null;
+        return [da, dp];
+      };
+      const _fmtSign = (v, dec=2) => {
+        if (v === null || v === undefined || isNaN(v)) return '—';
+        return (v >= 0 ? '+' : '') + Number(v).toFixed(dec);
+      };
+      for (const c of cmps) {
+        const bsd = c.shutdown_min_total || 0;
+        const csd = d.shutdown_min_total || 0;
+        const [dTotAbs, dTotPct] = _delta(c.q_total_avg,   d.q_total_avg);
+        const [dWrkAbs, dWrkPct] = _delta(c.q_working_avg, d.q_working_avg);
+        html += `<tr>
+          <td rowspan="2" style="vertical-align: top;"><b>${c.name}</b></td>
+          <td>Q общ. ср.</td>
+          <td>${fmtN(c.q_total_avg)}</td>
+          <td>${fmtN(d.q_total_avg)}</td>
+          <td>${_fmtSign(dTotAbs)}</td>
+          <td>${_fmtSign(dTotPct, 1)}${dTotPct !== null ? '%' : ''}</td>
+          <td rowspan="2" style="vertical-align: top;">${bsd ? bsd + ' мин' : '—'}</td>
+          <td rowspan="2" style="vertical-align: top;">${csd ? csd + ' мин' : '—'}</td>
+        </tr>
+        <tr>
+          <td>Q раб. ср.</td>
+          <td>${fmtN(c.q_working_avg)}</td>
+          <td>${fmtN(d.q_working_avg)}</td>
+          <td>${_fmtSign(dWrkAbs)}</td>
+          <td>${_fmtSign(dWrkPct, 1)}${dWrkPct !== null ? '%' : ''}</td>
+        </tr>`;
+      }
+      html += '</tbody></table>';
+    }
+
+    box.innerHTML = html;
+
+    // Q chart with baseline lines
+    drawCustQChart(d, cmps);
+    drawCustShutdownChart(d);
+  }
+
+  // ─── Расширенные блоки сводки (измерения / продувки / реагенты / best-window) ───
+  function renderCustomerExtras(d) {
+    let html = '';
+    // Измерения по датчикам
+    if (d.measurements) {
+      const m = d.measurements;
+      const fmtSensor = (s) => {
+        const name = s.label || s.serial || (s.sensor_id != null ? `#${s.sensor_id}` : '—');
+        const zeroPct = s.non_null ? (100 * (s.non_null - s.non_zero) / s.non_null) : 0;
+        return `<tr>
+          <td>${name}</td>
+          <td>${s.total.toLocaleString('ru-RU')}</td>
+          <td>${s.non_null.toLocaleString('ru-RU')}</td>
+          <td>${s.non_zero.toLocaleString('ru-RU')}</td>
+          <td>${zeroPct.toFixed(1)}%</td>
+        </tr>`;
+      };
+      html += `<details open style="margin-top:0.8rem;">
+        <summary style="cursor:pointer; font-weight:600;">
+          Измерения (сырые точки pressure_raw) — всего ${m.period_rows.toLocaleString('ru-RU')} строк
+        </summary>
+        <div style="font-size:0.78rem; color:#666; margin:0.2rem 0 0.4rem;">
+          «Валидных» — значение не NULL. «Реальных» — строго &gt; 0 (для LoRa SMOD-PT-60 около 4% записей приходят «ложными нулями»).
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.6rem;">
+          <div>
+            <div style="font-size:0.82rem; margin-bottom:0.2rem;"><b>Датчики трубки (P<sub>tr</sub>)</b></div>
+            <table class="ar-monthly-table"><thead><tr>
+              <th>Датчик</th><th>Всего</th><th>Валидных</th><th>Реальных</th><th>Нули</th>
+            </tr></thead><tbody>
+              ${(m.tube_by_sensor || []).map(fmtSensor).join('') || '<tr><td colspan="5" style="color:#888;">Нет данных</td></tr>'}
+            </tbody></table>
+          </div>
+          <div>
+            <div style="font-size:0.82rem; margin-bottom:0.2rem;"><b>Датчики шлейфа (P<sub>shl</sub>)</b></div>
+            <table class="ar-monthly-table"><thead><tr>
+              <th>Датчик</th><th>Всего</th><th>Валидных</th><th>Реальных</th><th>Нули</th>
+            </tr></thead><tbody>
+              ${(m.line_by_sensor || []).map(fmtSensor).join('') || '<tr><td colspan="5" style="color:#888;">Нет данных</td></tr>'}
+            </tbody></table>
+          </div>
+        </div>
+      </details>`;
+    }
+
+    // Продувки
+    if (d.purges) {
+      const p = d.purges;
+      html += `<details open style="margin-top:0.6rem;">
+        <summary style="cursor:pointer; font-weight:600;">
+          Продувки — ${p.count} шт. (${fmtN(p.frequency_per_day, 2)}/сут)
+        </summary>
+        <div style="font-size:0.82rem; margin:0.3rem 0;">
+          ${p.count > 0
+            ? `Интервал между продувками: мед. <b>${fmtN(p.median_interval_hours, 1)} ч</b>,
+               ср. ${fmtN(p.avg_interval_hours, 1)} ч,
+               мин ${fmtN(p.min_interval_hours, 1)} ч,
+               макс ${fmtN(p.max_interval_hours, 1)} ч.`
+            : 'За период продувки не зафиксированы.'}
+        </div>
+      </details>`;
+    }
+
+    // Вбросы реагента
+    if (d.reagents) {
+      const r = d.reagents;
+      html += `<details open style="margin-top:0.6rem;">
+        <summary style="cursor:pointer; font-weight:600;">
+          Вбросы реагента — ${r.count} шт. (${fmtN(r.frequency_per_day, 2)}/сут, всего ${fmtN(r.total_qty, 1)} л/кг)
+        </summary>
+        <div style="font-size:0.82rem; margin:0.3rem 0;">
+          ${r.count > 0
+            ? `Интервал между вбросами: мед. <b>${fmtN(r.median_interval_hours, 1)} ч</b>,
+               ср. ${fmtN(r.avg_interval_hours, 1)} ч,
+               мин ${fmtN(r.min_interval_hours, 1)} ч,
+               макс ${fmtN(r.max_interval_hours, 1)} ч.`
+            : 'За период вбросы не зафиксированы.'}
+        </div>
+        ${(r.by_type && r.by_type.length) ? `
+          <table class="ar-monthly-table"><thead><tr>
+            <th>Тип ПАВ / реагента</th><th>Вбросов</th><th>Всего, л/кг</th><th>Ср. объём</th><th>Доля, %</th>
+          </tr></thead><tbody>
+            ${r.by_type.map(t => `<tr>
+              <td>${t.reagent || '—'}</td>
+              <td>${t.injections}</td>
+              <td>${fmtN(t.total_qty, 1)}</td>
+              <td>${fmtN(t.avg_qty, 2)}</td>
+              <td>${t.share_pct !== null ? t.share_pct.toFixed(1) + '%' : '—'}</td>
+            </tr>`).join('')}
+          </tbody></table>` : ''}
+      </details>`;
+    }
+
+    // Наиболее эффективное окно
+    if (d.best_window && d.best_window.best) {
+      const bw = d.best_window;
+      const b = bw.best;
+      const topReg = (b.reagent && b.reagent.by_type && b.reagent.by_type.length)
+        ? b.reagent.by_type[0] : null;
+      html += `<details open style="margin-top:0.6rem; background:#f3f9ff; padding:0.5rem; border-radius:5px; border:1px solid #bbdefb;">
+        <summary style="cursor:pointer; font-weight:600; color:#0d47a1;">
+          Наиболее эффективный диапазон (окно ${bw.window_days} сут, штуцер ${fmtN(bw.choke_mm, 1)} мм)
+        </summary>
+        <div style="margin-top:0.3rem; font-size:0.85rem;">
+          <b>Период:</b> ${b.start || '—'} → ${b.end || '—'}<br>
+          <b>Q ср.:</b> ${fmtN(b.q_mean)} · <b>Q мед.:</b> ${fmtN(b.q_median)} ·
+          <b>CV Q:</b> ${b.cv_q !== null ? (b.cv_q * 100).toFixed(2) + '%' : '—'} ·
+          <b>КИВ:</b> ${fmtN(b.utilization_pct, 1)}% ·
+          <b>Продувок/сут:</b> ${fmtN(b.purge_freq_per_day, 2)} ·
+          <b>Часов данных:</b> ${b.data_points || 0}
+        </div>
+        ${topReg ? `
+          <div style="margin-top:0.4rem; font-size:0.85rem;">
+            <b>Активный ПАВ:</b> ${topReg.reagent || '—'} —
+            вбросов ${topReg.injections}, ср. объём ${fmtN(topReg.avg_qty, 2)} л/кг,
+            период. ${b.reagent.median_interval_hours !== null ? 'мед. ' + b.reagent.median_interval_hours.toFixed(1) + ' ч' : '—'}.
+          </div>` : (b.reagent && b.reagent.count === 0
+            ? `<div style="margin-top:0.4rem; font-size:0.85rem; color:#666;">В лучшем окне вбросов реагента не было.</div>`
+            : '')}
+        ${(bw.others && bw.others.length) ? `
+          <div style="margin-top:0.5rem; font-size:0.78rem; color:#444;">
+            <b>Другие кандидаты:</b>
+            <ul style="margin:0.2rem 0 0 1rem; padding:0;">
+              ${bw.others.map(o => `<li>${o.start} → ${o.end}: Q мед. ${fmtN(o.q_median)}, КИВ ${fmtN(o.utilization_pct, 0)}%</li>`).join('')}
+            </ul>
+          </div>` : ''}
+      </details>`;
+    }
+    return html;
+  }
+
+  function drawCustQChart(d, cmps) {
+    const ctx = $('cust-q-chart');
+    if (!ctx) return;
+    const wrkPoints = (d.chart_data || []).map(c => ({x: new Date(c.date).getTime(), y: c.q_working})).filter(p => p.y !== null);
+    const totPoints = (d.chart_data || []).map(c => ({x: new Date(c.date).getTime(), y: c.q_total  })).filter(p => p.y !== null);
+
+    // baseline линии (горизонтальные): по две на baseline — рабочая и общая.
+    const annotations = {};
+    const colors = ['#1976D2', '#9c27b0', '#ff5722', '#00897b'];
+    cmps.forEach((c, i) => {
+      const color = colors[i % colors.length];
+      if (c.q_working_avg !== null && c.q_working_avg !== undefined) {
+        annotations[`blW${i}`] = {
+          type: 'line',
+          yMin: c.q_working_avg, yMax: c.q_working_avg,
+          borderColor: color, borderWidth: 2, borderDash: [6, 4],
+          label: {
+            content: `${c.name} · раб: ${c.q_working_avg.toFixed(1)}`,
+            display: true, position: 'end',
+            backgroundColor: color, color: '#fff', font: {size: 10}, padding: 3,
+          },
+        };
+      }
+      if (c.q_total_avg !== null && c.q_total_avg !== undefined) {
+        annotations[`blT${i}`] = {
+          type: 'line',
+          yMin: c.q_total_avg, yMax: c.q_total_avg,
+          borderColor: color, borderWidth: 1.5, borderDash: [2, 3],
+          label: {
+            content: `${c.name} · общ: ${c.q_total_avg.toFixed(1)}`,
+            display: true, position: 'start',
+            backgroundColor: '#fff', color: color,
+            borderColor: color, borderWidth: 1,
+            font: {size: 9}, padding: 2,
+          },
+        };
+      }
+    });
+
+    if (window._custQ) window._custQ.destroy();
+    window._custQ = new Chart(ctx, {
+      type: 'line',
+      data: {datasets: [
+        {
+          label: 'Q раб., тыс.м³/сут',
+          data: wrkPoints,
+          borderColor: '#2e7d32',
+          borderWidth: 2,
+          pointRadius: 2,
+          tension: 0.1,
+        },
+        {
+          label: 'Q общ., тыс.м³/сут',
+          data: totPoints,
+          borderColor: '#ef6c00',
+          borderWidth: 1.5,
+          borderDash: [4, 3],
+          pointRadius: 1,
+          tension: 0.1,
+        },
+      ]},
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        scales: {
+          x: {type: 'time', time: {displayFormats: {day: 'dd.MM'}}, ticks: {font: {size: 10}}},
+          y: {title: {display: true, text: 'Q, тыс.м³/сут', font: {size: 10}}, beginAtZero: true},
+        },
+        plugins: {
+          legend: {display: true, position: 'top', labels: {font: {size: 10}, boxWidth: 18}},
+          annotation: {annotations},
+        },
+      },
+    });
+  }
+
+  function drawCustShutdownChart(d) {
+    const ctx = $('cust-shutdown-chart');
+    if (!ctx) return;
+    const labels = (d.downtime_by_day || []).map(x => x.date.slice(5));
+    const data = (d.downtime_by_day || []).map(x => x.minutes);
+    if (window._custSd) window._custSd.destroy();
+    if (!labels.length) {
+      const c2d = ctx.getContext('2d');
+      c2d.clearRect(0, 0, ctx.width, ctx.height);
+      c2d.fillStyle = '#888'; c2d.font = '14px sans-serif';
+      c2d.fillText('Простоев не зафиксировано', 20, 40);
+      return;
+    }
+    window._custSd = new Chart(ctx, {
+      type: 'bar',
+      data: {labels, datasets: [{
+        label: 'Простой, мин/день',
+        data,
+        backgroundColor: '#ef6c00',
+      }]},
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        scales: {
+          x: {ticks: {font: {size: 10}, maxRotation: 60}},
+          y: {title: {display: true, text: 'мин', font: {size: 10}}, beginAtZero: true},
+        },
+        plugins: {legend: {display: false}, title: {display: true, text: 'Простои по дням', font: {size: 12}}},
+      },
+    });
+  }
+
+  function addCurrentToPdf() {
+    if (!custCurrentAnalysis || !custCurrentAnalysis.days_count) return;
+    const stageName = custCurrentStage ? (
+      {observation: 'Наблюдение', adaptation: 'Адаптация', optimal: 'Оптимум'}[custCurrentStage]
+    ) : null;
+    const defaultDesc = custCurrentAnalysis.description
+      || (stageName ? `Этап «${stageName}»` : '');
+    const desc = prompt('Описание этого периода для отчёта:', defaultDesc);
+    if (desc === null) return;
+    custPdfPeriods.push({
+      period_from: $('cust-from').value,
+      period_to: $('cust-to').value,
+      description: desc,
+      stage: custCurrentStage,
+      // Сохраняем минимальный snapshot чтобы пользователь видел что там
+      snapshot: {
+        days_count: custCurrentAnalysis.days_count,
+        q_total_avg: custCurrentAnalysis.q_total_avg,
+        shutdown_min_total: custCurrentAnalysis.shutdown_min_total,
+      },
+    });
+    renderPdfPeriodsList();
+    // Автоматически включаем чекбокс на главу
+    if (custPdfPeriods.length === 1) {
+      $('cust-include-chapter').checked = true;
+    }
+  }
+
+  function renderPdfPeriodsList() {
+    const box = $('cust-pdf-periods');
+    if (!custPdfPeriods.length) {
+      box.innerHTML = '<div style="color:#888; font-size:0.82rem;">Периодов пока не добавлено.</div>';
+      return;
+    }
+    const badge = (stage) => {
+      const map = {
+        observation: {text: 'набл.', bg: '#e3f2fd', fg: '#0d47a1'},
+        adaptation:  {text: 'адапт.', bg: '#fff3e0', fg: '#e65100'},
+        optimal:     {text: 'опт.',  bg: '#e8f5e9', fg: '#1b5e20'},
+      };
+      const b = map[stage];
+      if (!b) return '';
+      return `<span style="display:inline-block; padding:0 0.3rem; margin-right:0.3rem;
+              background:${b.bg}; color:${b.fg}; border-radius:3px; font-size:0.72rem;
+              font-weight:600; vertical-align:middle;">${b.text}</span>`;
+    };
+    let html = '<ol style="padding-left:1.2rem; margin:0; font-size:0.85rem;">';
+    custPdfPeriods.forEach((p, i) => {
+      const sn = p.snapshot || {};
+      const q = sn.q_total_avg != null ? `Q ср. ${fmtN(sn.q_total_avg)}` : 'данных нет';
+      const sd = sn.shutdown_min_total != null ? `простой ${fmtN(sn.shutdown_min_total, 0)} мин` : '';
+      html += `<li style="margin-bottom:0.4rem;">
+        ${badge(p.stage)}<b>${p.period_from} → ${p.period_to}</b>
+        (${sn.days_count || 0} дн.${sn.q_total_avg != null ? ', ' + q : ''}${sd ? ', ' + sd : ''})
+        <button class="ar-btn ar-btn-secondary" style="padding:0.1rem 0.4rem; font-size:0.75rem; margin-left:0.4rem;" onclick="removePdfPeriod(${i})">×</button>
+        ${p.description ? `<div style="font-style:italic; color:#666;">${p.description}</div>` : ''}
+      </li>`;
+    });
+    html += '</ol>';
+    box.innerHTML = html;
+  }
+  window.removePdfPeriod = function(i) {
+    custPdfPeriods.splice(i, 1);
+    renderPdfPeriodsList();
+  };
 
   function toggleOptimalMode() {
     const mode = document.querySelector('input[name="optimal-mode"]:checked').value;
@@ -1516,8 +2677,83 @@
   }
 
   // ─────────────────────────── Preview PDF ───────────────────────────
-  function previewPdf() {
+  // Сбор toggle-флагов «Разделы PDF» в dict {key: bool}.
+  function _readSectionsToggles() {
+    const out = {};
+    document.querySelectorAll('#ar-sections-toggles input[data-section]')
+      .forEach(el => { out[el.dataset.section] = !!el.checked; });
+    return out;
+  }
+  function _hasDisabledSection(sections) {
+    return Object.values(sections).some(v => v === false);
+  }
+
+  async function previewPdf() {
     if (!currentWellId) return;
+
+    const includeCustomer = $('cust-include-chapter') && $('cust-include-chapter').checked;
+    const optimalMode = document.querySelector('input[name="optimal-mode"]:checked').value;
+    const sections = _readSectionsToggles();
+    const hasDisabled = _hasDisabledSection(sections);
+
+    let pdfUrl = null;
+
+    // POST-путь обязателен если: (а) включена глава «Анализ исх. данных» с периодами,
+    // ИЛИ (б) хотя бы один раздел отключён (sections не передаются в GET).
+    if ((includeCustomer && custPdfPeriods.length > 0) || hasDisabled) {
+      // POST вариант с body — нужен для customer_periods и/или toggle-разделов
+      const body = {
+        well_id: currentWellId,
+        obs_from: $('obs-from').value,
+        obs_to: $('obs-to').value,
+        adapt_from: $('adapt-from').value,
+        adapt_to: $('adapt-to').value,
+        obs_description: $('obs-description').value || null,
+        adapt_description: $('adapt-description').value || null,
+        optimal_mode: optimalMode,
+        optimal_window_days: parseInt($('optimal-window-days').value) || 3,
+        optimal_from: optimalMode === 'manual' ? ($('optimal-from').value || null) : null,
+        optimal_to: optimalMode === 'manual' ? ($('optimal-to').value || null) : null,
+        include_customer_chapter: includeCustomer,
+        customer_periods: (includeCustomer ? custPdfPeriods : []).map(p => ({
+          period_from: p.period_from,
+          period_to: p.period_to,
+          description: p.description,
+        })),
+        sections: sections,
+      };
+      // POST → blob → URL для iframe
+      const container = $('ar-preview');
+      container.innerHTML = `
+        <div class="ar-loading"><div class="ar-spinner"></div>Генерация PDF (с главой исходных данных)...</div>
+        <iframe class="ar-preview-iframe" id="ar-iframe"></iframe>
+      `;
+      try {
+        const r = await fetch('/api/adaptation-report/preview-pdf', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          container.innerHTML = `<div class="ar-preview-placeholder" style="color:#c62828;">Ошибка: ${err.detail || r.status}</div>`;
+          return;
+        }
+        const blob = await r.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const iframe = $('ar-iframe');
+        iframe.onload = () => {
+          const loader = container.querySelector('.ar-loading');
+          if (loader) loader.remove();
+        };
+        iframe.src = blobUrl;
+      } catch (e) {
+        container.innerHTML = `<div class="ar-preview-placeholder" style="color:#c62828;">Ошибка сети</div>`;
+      }
+      return;
+    }
+
+    // GET вариант (без главы customer)
     const params = new URLSearchParams({
       well_id: currentWellId,
       obs_from: $('obs-from').value,
@@ -1530,8 +2766,6 @@
     if (obsDesc) params.set('obs_description', obsDesc);
     if (adaptDesc) params.set('adapt_description', adaptDesc);
 
-    // Оптимальный режим
-    const optimalMode = document.querySelector('input[name="optimal-mode"]:checked').value;
     params.set('optimal_mode', optimalMode);
     params.set('optimal_window_days', $('optimal-window-days').value || '3');
     if (optimalMode === 'manual') {
@@ -1589,8 +2823,107 @@
                 'customer-daily', 'noopener');
   });
 
+  // Когда вкладка снова становится видимой (юзер вернулся со страницы
+  // /customer-daily) — обновить счётчик прикреплённых блоков.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') refreshCustomerBlocks();
+  });
+
   // Чекбокс ограничения длительности → применяем / снимаем лимит
-  $('limit-adapt-duration').addEventListener('change', applyDurationLimit);
+  $('btn-auto-dates').addEventListener('click', applyAutoDates);
+
+  // ─── Сохранить baseline по этапу наблюдения (НАШИ данные) ───
+  $('btn-save-obs-baseline').addEventListener('click', async () => {
+    if (!currentWellId) { alert('Выберите скважину'); return; }
+    const f = $('obs-from').value, t = $('obs-to').value;
+    if (!f || !t) { alert('Заполните даты этапа наблюдения'); return; }
+    const status = $('obs-baseline-status');
+    status.style.color = '#6b7280';
+    status.textContent = 'Сохранение…';
+    try {
+      const r = await fetch('/api/adaptation-report/baselines/observation', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          well_id: currentWellId,
+          obs_from: f, obs_to: t,
+          name: `Этап наблюдения ${f.slice(0,10)}…${t.slice(0,10)}`,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        status.style.color = '#dc2626';
+        status.textContent = 'Ошибка: ' + (d.detail || r.status);
+        return;
+      }
+      status.style.color = '#16a34a';
+      const bl = d.baseline || {};
+      status.textContent = `✓ baseline #${bl.id} сохранён`;
+      // Перегружаем список baseline-ов и обновляем постоянное отображение
+      if (typeof reloadBaselines === 'function') {
+        await reloadBaselines(currentWellId);
+      }
+      renderObsBaselineDisplay();
+    } catch (e) {
+      status.style.color = '#dc2626';
+      status.textContent = 'Сетевая ошибка: ' + e.message;
+    }
+  });
+
+  // ─── Постоянное отображение последнего observation-baseline ───
+  function renderObsBaselineDisplay() {
+    const box = $('obs-baseline-display');
+    if (!box) return;
+    const list = (custBaselines || []).filter(b => b.source === 'observation');
+    if (!list.length) {
+      box.innerHTML = `<div style="color:#9ca3af; font-style:italic;">
+        Baseline не зафиксирован — значения появятся после расчёта.
+      </div>`;
+      return;
+    }
+    // Берём закреплённый, иначе — самый свежий по created_at
+    list.sort((a, b) => {
+      if (!!b.is_pinned - !!a.is_pinned !== 0) return (b.is_pinned?1:0) - (a.is_pinned?1:0);
+      return (b.created_at || '').localeCompare(a.created_at || '');
+    });
+    const bl = list[0];
+    const f = (v, d=2) => (v === null || v === undefined || isNaN(v)) ? '—' : Number(v).toFixed(d);
+    const sdMin = bl.shutdown_min_total || 0;
+    const sdH = sdMin ? (sdMin / 60).toFixed(1) : '0';
+    box.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.3rem;">
+        <div style="font-weight:600; color:#7c2d12;">
+          Baseline наблюдения (LoRa) · #${bl.id}${bl.is_pinned ? ' 📌' : ''}
+        </div>
+        <div style="font-size:0.7rem; color:#6b7280;">
+          ${bl.period_from || '—'} → ${bl.period_to || '—'} · ${bl.days_count || 0} дн.
+        </div>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:0.15rem 0.6rem;">
+        <div><b>Q ср:</b> ${f(bl.q_total_avg)} тыс.м³/сут</div>
+        <div><b>Q мед:</b> ${f(bl.q_total_median)} тыс.м³/сут</div>
+        <div><b>Q раб. ср:</b> ${f(bl.q_working_avg)}</div>
+        <div><b>Q раб. мед:</b> ${f(bl.q_working_median)}</div>
+        <div><b>P тр мед:</b> ${f(bl.p_wellhead_median)} кгс/см²</div>
+        <div><b>P лин мед:</b> ${f(bl.p_flowline_median)} кгс/см²</div>
+        <div><b>ΔP ср:</b> ${f(bl.dp_avg)} кгс/см²</div>
+        <div><b>ΔP мед:</b> ${f(bl.dp_median)} кгс/см²</div>
+        <div><b>Простой:</b> ${f(sdMin, 0)} мин (${sdH} ч)</div>
+        <div><b>Дней с простоем:</b> ${bl.shutdown_days_count || 0}</div>
+      </div>
+      ${list.length > 1 ? `
+        <div style="margin-top:0.3rem; font-size:0.7rem; color:#9ca3af;">
+          + ещё ${list.length - 1} observation-baseline (см. «Исходные данные»).
+        </div>` : ''}
+    `;
+  }
+  ['adapt-from', 'adapt-to'].forEach(id => {
+    $(id).addEventListener('input', updateDatesDiffWarn);
+    $(id).addEventListener('change', updateDatesDiffWarn);
+  });
+  $('limit-adapt-duration').addEventListener('change', () => {
+    applyDurationLimit();
+    updateDatesDiffWarn();
+  });
   // Изменение длительности или начала адаптации → пересчитать adapt_to
   $('adapt-days').addEventListener('input', applyDurationLimit);
   $('adapt-from').addEventListener('change', applyDurationLimit);
@@ -1627,8 +2960,154 @@
       if (name === 'monthly' && currentWellId) {
         loadMonthlyStats(currentWellId);
       }
+      if (name === 'customer' && currentWellId) {
+        loadCustomerTab(currentWellId);
+        renderStageTiles('cust-stage-tiles');
+      }
+      if (name === 'compare') {
+        loadCompareIframe();
+      }
     });
   });
+
+  // ─── Вкладка «Сравнение периодов»: lazy-load iframe → /customer-daily#compare ───
+  let _compareIframeLoadedFor = null;
+  function _compareIframeUrl(wellId) {
+    const w = (wellsList || []).find(x => x.id === wellId);
+    const wn = (w && w.number !== null && w.number !== undefined) ? String(w.number) : '';
+    const parts = ['embedded=1'];
+    if (wn) parts.push('well=' + encodeURIComponent(wn));
+    return '/customer-daily?' + parts.join('&') + '#compare';
+  }
+  function loadCompareIframe() {
+    const fr = $('ar-iframe-compare');
+    if (!fr) return;
+    if (!currentWellId) {
+      fr.src = 'about:blank';
+      fr.removeAttribute('data-empty');
+      fr.setAttribute('data-empty', '');
+      return;
+    }
+    if (_compareIframeLoadedFor === currentWellId) return;
+    fr.src = _compareIframeUrl(currentWellId);
+    _compareIframeLoadedFor = currentWellId;
+  }
+  // Кнопка «В отдельном окне»
+  document.getElementById('cmp-open-window-btn')?.addEventListener('click', () => {
+    if (!currentWellId) { alert('Выберите скважину'); return; }
+    window.open(_compareIframeUrl(currentWellId), 'customer-daily-compare', 'width=1280,height=900');
+  });
+  // Сброс кэша iframe при смене скважины — чтобы при переключении грузилось снова
+  // (currentWellId меняется в onWellChange ниже; iframe load случится при клике на вкладку).
+  // Отдельно ничего слушать не нужно — _compareIframeLoadedFor сам сравнивается.
+
+  // Customer tab handlers
+  $('cust-analyze').addEventListener('click', runCustomerAnalysis);
+  $('cust-add-to-pdf').addEventListener('click', addCurrentToPdf);
+  $('cust-split-months').addEventListener('click', splitPeriodIntoMonths);
+  document.querySelectorAll('.cust-preset').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const days = parseInt(btn.dataset.days) || 30;
+      const today = new Date();
+      let from;
+      if (days === 0) {
+        from = new Date('2024-01-01');  // вся история
+      } else {
+        from = new Date(today.getTime() - days * 86400000);
+      }
+      $('cust-from').value = from.toISOString().slice(0, 10);
+      $('cust-to').value = today.toISOString().slice(0, 10);
+      custCurrentStage = null;
+      updateSplitMonthsState();
+    });
+  });
+
+  // Пресеты этапов: берут даты из формы слева (obs-from, adapt-from, optimal-from)
+  const STAGE_LABELS = {
+    observation: 'Наблюдение',
+    adaptation: 'Адаптация',
+    optimal: 'Оптимум',
+  };
+  document.querySelectorAll('.cust-stage-preset').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const stage = btn.dataset.stage;
+      const fromId = ({observation: 'obs-from', adaptation: 'adapt-from', optimal: 'optimal-from'})[stage];
+      const toId   = ({observation: 'obs-to',   adaptation: 'adapt-to',   optimal: 'optimal-to'  })[stage];
+      const f = $(fromId)?.value;
+      const t = $(toId)?.value;
+      if (!f || !t) {
+        alert(`Даты этапа «${STAGE_LABELS[stage]}» не заданы в форме слева.`);
+        return;
+      }
+      // datetime-local → date (YYYY-MM-DD)
+      $('cust-from').value = f.slice(0, 10);
+      $('cust-to').value = t.slice(0, 10);
+      custCurrentStage = stage;
+      updateSplitMonthsState();
+    });
+  });
+
+  function updateSplitMonthsState() {
+    const btn = $('cust-split-months');
+    if (!btn) return;
+    const f = $('cust-from').value, t = $('cust-to').value;
+    btn.disabled = !(f && t && new Date(f) < new Date(t));
+  }
+  ['cust-from', 'cust-to'].forEach(id => {
+    $(id).addEventListener('change', () => { custCurrentStage = null; updateSplitMonthsState(); });
+  });
+
+  function splitPeriodIntoMonths() {
+    const f = $('cust-from').value, t = $('cust-to').value;
+    if (!f || !t) { alert('Укажите период'); return; }
+    const stage = custCurrentStage || 'custom';
+    const stageLbl = stage === 'optimal' ? 'опт.' :
+                     stage === 'adaptation' ? 'адапт.' :
+                     stage === 'observation' ? 'набл.' : 'период';
+    const months = enumerateMonths(f, t);
+    if (!months.length) { alert('Период слишком короткий'); return; }
+    let added = 0;
+    for (const m of months) {
+      custPdfPeriods.push({
+        period_from: m.from,
+        period_to: m.to,
+        description: `${stageLbl}: ${m.label}`,
+        stage: stage,
+        snapshot: {days_count: m.days, q_total_avg: null, shutdown_min_total: null},
+      });
+      added++;
+    }
+    renderPdfPeriodsList();
+    if (custPdfPeriods.length) $('cust-include-chapter').checked = true;
+    alert(`Добавлено месячных периодов: ${added}`);
+  }
+
+  function enumerateMonths(fromStr, toStr) {
+    // Разбиение [fromStr..toStr] на календарные месяцы (обрезая крайние).
+    const out = [];
+    const start = new Date(fromStr + 'T00:00:00');
+    const end = new Date(toStr + 'T00:00:00');
+    if (!(start < end)) return out;
+    let cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+    const MONTH_NAMES = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+    while (cursor <= end) {
+      const nextMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+      const segFrom = cursor < start ? start : cursor;
+      const segTo = new Date(Math.min(nextMonth.getTime() - 86400000, end.getTime()));
+      if (segFrom <= segTo) {
+        const fmt = (d) => d.toISOString().slice(0, 10);
+        const days = Math.round((segTo - segFrom) / 86400000) + 1;
+        out.push({
+          from: fmt(segFrom),
+          to: fmt(segTo),
+          label: `${MONTH_NAMES[cursor.getMonth()]} ${cursor.getFullYear()}`,
+          days: days,
+        });
+      }
+      cursor = nextMonth;
+    }
+    return out;
+  }
 
   // Изменение полей optimal_from/to вручную → синхронизировать всё
   ['optimal-from', 'optimal-to'].forEach(id => {
@@ -1640,6 +3119,458 @@
   });
 
   loadWells();
+
+  // ═════════════════════════════════════════════════════════════════
+  //   Workspace tabs (Этап A) + persistent state (Этап D)
+  // ═════════════════════════════════════════════════════════════════
+
+  // Для какой well_id уже загружен какой iframe (lazy + предотвращаем
+  // повторную перезагрузку при смене tab без смены well).
+  const _iframeLoaded = {};   // {paneKey: lastWellId}
+
+  function _getIframe(paneKey) {
+    return document.getElementById('rw-iframe-' + paneKey);
+  }
+  function _iframeUrl(paneKey, wellId) {
+    const w = wellsList.find(x => x.id === wellId);
+    const wn = (w && (w.number !== null && w.number !== undefined))
+      ? String(w.number) : '';
+    // embedded=1 — убирает шапку и nav внутри iframe (см. base.html)
+    if (paneKey === 'well') return '/well/' + wellId + '?embedded=1';
+    if (paneKey === 'customer' || paneKey === 'blocks') {
+      const parts = ['embedded=1'];
+      if (wn) parts.push('well=' + encodeURIComponent(wn));
+      const hash = paneKey === 'blocks' ? '#cd-attached-section' : '';
+      return '/customer-daily?' + parts.join('&') + hash;
+    }
+    if (paneKey === 'reagents') {
+      return '/reagent-analysis?embedded=1&well_id=' + wellId;
+    }
+    return null;
+  }
+
+  function activateTab(key) {
+    document.querySelectorAll('.rw-tab').forEach(t =>
+      t.classList.toggle('active', t.dataset.rwtab === key));
+    document.querySelectorAll('.rw-pane').forEach(p =>
+      p.classList.toggle('active', p.dataset.rwpane === key));
+
+    // Lazy-load iframe для не-stages вкладок
+    if (['well', 'customer', 'reagents', 'blocks'].includes(key)) {
+      const fr = _getIframe(key);
+      if (!fr) return;
+      if (!currentWellId) {
+        fr.src = 'about:blank';
+        const pane = fr.closest('.rw-pane');
+        if (!pane.querySelector('.rw-empty-msg')) {
+          const m = document.createElement('div');
+          m.className = 'rw-empty rw-empty-msg';
+          m.textContent = 'Выберите скважину в шапке.';
+          pane.appendChild(m);
+        }
+        return;
+      }
+      const url = _iframeUrl(key, currentWellId);
+      if (url && _iframeLoaded[key] !== currentWellId) {
+        const m = fr.closest('.rw-pane').querySelector('.rw-empty-msg');
+        if (m) m.remove();
+        fr.src = url;
+        _iframeLoaded[key] = currentWellId;
+      }
+    }
+
+    saveState();  // запоминаем активную вкладку
+    if (key === 'blocks' || key === 'customer' || key === 'pdf') {
+      refreshCustomerBlocks();
+    }
+  }
+
+  document.querySelectorAll('.rw-tab').forEach(t => {
+    t.addEventListener('click', () => activateTab(t.dataset.rwtab));
+  });
+
+  // ─── postMessage в iframe «Реагенты»: даты этапов
+  function _stagesPayload() {
+    return {
+      type: 'adaptation-stages',
+      well_id: currentWellId,
+      observation: {
+        from: $('obs-from')?.value || null,
+        to:   $('obs-to')?.value || null,
+      },
+      adaptation: {
+        from: $('adapt-from')?.value || null,
+        to:   $('adapt-to')?.value || null,
+      },
+      optimal: {
+        from: $('optimal-from')?.value || null,
+        to:   $('optimal-to')?.value || null,
+      },
+    };
+  }
+  function _postStagesToReagentsIframe() {
+    const fr = _getIframe('reagents');
+    if (!fr || !fr.contentWindow) return;
+    try { fr.contentWindow.postMessage(_stagesPayload(), '*'); }
+    catch (_) {}
+  }
+  // Когда iframe «Реагенты» сообщает что готов — отправляем ему пресеты
+  window.addEventListener('message', (ev) => {
+    if (ev.data && ev.data.type === 'reagent-analysis-ready') {
+      _postStagesToReagentsIframe();
+    }
+  });
+  // Каждое изменение даты этапов → пушим в iframe (если он уже загружен)
+  ['obs-from','obs-to','adapt-from','adapt-to','optimal-from','optimal-to']
+    .forEach(id => {
+      const el = $(id);
+      if (el) el.addEventListener('change', _postStagesToReagentsIframe);
+    });
+
+  // ── Persistent state: GET/PUT /api/adaptation-report/state/{well_id} ──
+  const _stateDebounce = (() => {
+    let t;
+    return (fn) => { clearTimeout(t); t = setTimeout(fn, 1500); };
+  })();
+  function _setStatus(text, color) {
+    const el = $('rw-state-status');
+    el.textContent = text;
+    el.style.color = color || '#10b981';
+  }
+  function getCurrentState() {
+    return {
+      active_tab: document.querySelector('.rw-tab.active')?.dataset.rwtab || 'stages',
+      obs_from: $('obs-from')?.value || null,
+      obs_to: $('obs-to')?.value || null,
+      adapt_from: $('adapt-from')?.value || null,
+      adapt_to: $('adapt-to')?.value || null,
+      obs_description: $('obs-description')?.value || null,
+      adapt_description: $('adapt-description')?.value || null,
+      limit_adapt_duration: $('limit-adapt-duration')?.checked || false,
+      adapt_days: parseInt($('adapt-days')?.value) || 10,
+      optimal_mode: document.querySelector('input[name="optimal-mode"]:checked')?.value || 'auto',
+      optimal_window_days: parseInt($('optimal-window-days')?.value) || 3,
+      optimal_from: $('optimal-from')?.value || null,
+      optimal_to: $('optimal-to')?.value || null,
+      sections: _readSectionsToggles(),
+    };
+  }
+  async function saveState() {
+    if (!currentWellId) return;
+    _stateDebounce(async () => {
+      _setStatus('Сохранение…', '#6b7280');
+      try {
+        const r = await fetch('/api/adaptation-report/state/' + currentWellId, {
+          method: 'PUT', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({state: getCurrentState()}),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        _setStatus('✓ Сохранено', '#10b981');
+        setTimeout(() => _setStatus(''), 2000);
+      } catch (e) {
+        _setStatus('Не сохранено', '#ef4444');
+      }
+    });
+  }
+  async function restoreState() {
+    if (!currentWellId) return null;
+    try {
+      const r = await fetch('/api/adaptation-report/state/' + currentWellId);
+      if (!r.ok) return null;
+      const d = await r.json();
+      const s = d.state || {};
+      // Восстанавливаем поля только если они есть
+      if (s.obs_from) $('obs-from').value = s.obs_from;
+      if (s.obs_to) $('obs-to').value = s.obs_to;
+      if (s.adapt_from) $('adapt-from').value = s.adapt_from;
+      if (s.adapt_to) $('adapt-to').value = s.adapt_to;
+      if (s.obs_description !== null && s.obs_description !== undefined)
+        $('obs-description').value = s.obs_description;
+      if (s.adapt_description !== null && s.adapt_description !== undefined)
+        $('adapt-description').value = s.adapt_description;
+      if (s.limit_adapt_duration !== undefined)
+        $('limit-adapt-duration').checked = !!s.limit_adapt_duration;
+      if (s.adapt_days) $('adapt-days').value = s.adapt_days;
+      if (s.optimal_mode) {
+        const r2 = document.querySelector(`input[name="optimal-mode"][value="${s.optimal_mode}"]`);
+        if (r2) r2.checked = true;
+      }
+      if (s.optimal_window_days) $('optimal-window-days').value = s.optimal_window_days;
+      if (s.optimal_from) $('optimal-from').value = s.optimal_from;
+      if (s.optimal_to) $('optimal-to').value = s.optimal_to;
+      // Toggle разделов PDF (если ключ был сохранён)
+      if (s.sections && typeof s.sections === 'object') {
+        document.querySelectorAll('#ar-sections-toggles input[data-section]')
+          .forEach(el => {
+            const v = s.sections[el.dataset.section];
+            if (v !== undefined) el.checked = !!v;
+          });
+      }
+      if (s.active_tab) activateTab(s.active_tab);
+      _setStatus('Состояние восстановлено', '#10b981');
+      setTimeout(() => _setStatus(''), 2000);
+      return s;
+    } catch (e) {
+      console.warn('restoreState failed', e);
+      return null;
+    }
+  }
+
+  // Подписываем сохранение на ключевые события форм
+  ['obs-from','obs-to','adapt-from','adapt-to','obs-description',
+   'adapt-description','limit-adapt-duration','adapt-days',
+   'optimal-window-days','optimal-from','optimal-to'].forEach(id => {
+    const el = $(id);
+    if (el) {
+      el.addEventListener('change', saveState);
+      el.addEventListener('input', saveState);
+    }
+  });
+  document.querySelectorAll('input[name="optimal-mode"]').forEach(el =>
+    el.addEventListener('change', saveState));
+  // Toggle «Разделы PDF» — авто-сохранение
+  document.querySelectorAll('#ar-sections-toggles input[data-section]')
+    .forEach(el => el.addEventListener('change', saveState));
+
+  // (restoreState вызывается из onWellChange — wrapped версия удалена,
+  // т.к. addEventListener в Init берёт ссылку на оригинал)
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  Конструктор «опорного периода»: плитки этапов + модалка
+  // ═══════════════════════════════════════════════════════════════════
+
+  // Прочитать текущие даты этапов из формы.
+  function _readStages() {
+    const obsF = ($('obs-from')?.value || '').slice(0, 10);
+    const obsT = ($('obs-to')?.value || '').slice(0, 10);
+    const adF  = ($('adapt-from')?.value || '').slice(0, 10);
+    const adT  = ($('adapt-to')?.value || '').slice(0, 10);
+    return {
+      observation: (obsF && obsT) ? { from: obsF, to: obsT, label: 'Наблюдение' } : null,
+      adaptation:  (adF  && adT)  ? { from: adF,  to: adT,  label: 'Адаптация'  } : null,
+    };
+  }
+
+  function _daysBetween(fromStr, toStr) {
+    if (!fromStr || !toStr) return 0;
+    const a = new Date(fromStr), b = new Date(toStr);
+    return Math.round((b - a) / 86400000) + 1;
+  }
+  function _fmtRu(s) {
+    if (!s) return '—';
+    const [y, m, d] = s.split('-');
+    return `${d}.${m}.${y.slice(2)}`;
+  }
+
+  // Отрисовать 2 плитки (Наблюдение / Адаптация) в указанный контейнер.
+  function renderStageTiles(containerId) {
+    const box = $(containerId);
+    if (!box) return;
+    const stages = _readStages();
+    const ctx = box.dataset.context || 'baseline';   // baseline | compare
+    const items = [
+      { key: 'observation', icon: '👁', stage: stages.observation, color: '#6366f1' },
+      { key: 'adaptation',  icon: '⚙', stage: stages.adaptation,  color: '#ef6c00' },
+    ];
+    box.innerHTML = '';
+    for (const it of items) {
+      const el = document.createElement('div');
+      el.className = 'ar-stage-tile' + (it.stage ? '' : ' disabled');
+      el.dataset.stage = it.key;
+      if (it.stage) {
+        el.innerHTML = `
+          <div class="tile-title" style="color:${it.color}">${it.icon} ${it.stage.label}</div>
+          <div class="tile-dates">${_fmtRu(it.stage.from)} – ${_fmtRu(it.stage.to)}</div>
+          <div class="tile-len">${_daysBetween(it.stage.from, it.stage.to)} дн.</div>
+        `;
+        el.addEventListener('click', () => openPeriodPicker({ context: ctx, defaultAnchor: it.key }));
+      } else {
+        el.innerHTML = `
+          <div class="tile-title" style="color:#9ca3af">${it.icon} ${it.key === 'observation' ? 'Наблюдение' : 'Адаптация'}</div>
+          <div class="tile-dates" style="color:#9ca3af">— даты не заданы —</div>
+          <div class="tile-len">задайте период на левой панели</div>
+        `;
+      }
+      box.appendChild(el);
+    }
+  }
+
+  // ─── Модалка ───
+  const _ppEl = () => $('period-picker-modal');
+
+  function openPeriodPicker({ defaultAnchor = null } = {}) {
+    const stages = _readStages();
+    const anchorBox = $('pp-anchor-options');
+    anchorBox.innerHTML = '';
+    const opts = [];
+    if (stages.observation) opts.push({ key: 'obs_from',   label: `Начало Наблюдения (${_fmtRu(stages.observation.from)})`, date: stages.observation.from });
+    if (stages.observation) opts.push({ key: 'obs_to',     label: `Конец Наблюдения (${_fmtRu(stages.observation.to)})`,   date: stages.observation.to });
+    if (stages.adaptation)  opts.push({ key: 'adapt_from', label: `Начало Адаптации (${_fmtRu(stages.adaptation.from)})`,   date: stages.adaptation.from });
+    if (stages.adaptation)  opts.push({ key: 'adapt_to',   label: `Конец Адаптации (${_fmtRu(stages.adaptation.to)})`,     date: stages.adaptation.to });
+    if (!opts.length) {
+      alert('Сначала задайте этапы Наблюдения / Адаптации в форме слева.');
+      return;
+    }
+    // По умолчанию: для defaultAnchor='observation' → obs_from; для 'adaptation' → adapt_from.
+    const want = defaultAnchor === 'adaptation' ? 'adapt_from' : 'obs_from';
+    const defaultIdx = Math.max(0, opts.findIndex(o => o.key === want));
+    opts.forEach((o, i) => {
+      const lbl = document.createElement('label');
+      lbl.style.display = 'inline-flex';
+      lbl.style.gap = '0.25rem';
+      lbl.innerHTML = `<input type="radio" name="pp-anchor" value="${o.date}" ${i === defaultIdx ? 'checked' : ''}> ${o.label}`;
+      anchorBox.appendChild(lbl);
+    });
+
+    // Сбросить direction/preset/include на дефолты
+    document.querySelector('input[name="pp-direction"][value="before"]').checked = true;
+    document.querySelector('input[name="pp-preset"][value="week"]').checked = true;
+    $('pp-include-anchor').checked = false;
+    $('pp-custom-days').value = 14;
+
+    // Подсказать manual диапазон по якорю
+    const anchorDate = opts[defaultIdx].date;
+    $('pp-manual-to').value   = anchorDate;
+    const d = new Date(anchorDate); d.setDate(d.getDate() - 14);
+    $('pp-manual-from').value = d.toISOString().slice(0, 10);
+
+    _renderPpActions();
+    _ppRecompute();
+    _ppEl().style.display = '';
+  }
+
+  function closePeriodPicker() { _ppEl().style.display = 'none'; }
+
+  function _ppGetState() {
+    const anchorEl = document.querySelector('input[name="pp-anchor"]:checked');
+    if (!anchorEl) return null;
+    const anchor = anchorEl.value;            // YYYY-MM-DD
+    const direction = document.querySelector('input[name="pp-direction"]:checked').value;
+    const preset = document.querySelector('input[name="pp-preset"]:checked').value;
+    const include_anchor = $('pp-include-anchor').checked;
+    const n_days = parseInt($('pp-custom-days').value) || null;
+    return { anchor, direction, preset, include_anchor, n_days };
+  }
+
+  // Локальный (без сети) расчёт period_from/period_to для превью.
+  function _ppLocalResolve(state) {
+    if (!state || !state.anchor) return null;
+    const anchor = new Date(state.anchor + 'T00:00:00');
+    const dayMs = 86400000;
+    if (state.preset === 'manual') {
+      const f = $('pp-manual-from').value;
+      const t = $('pp-manual-to').value;
+      if (!f || !t) return null;
+      return { from: f, to: t };
+    }
+    if (state.preset === 'calendar') {
+      const ref = new Date(anchor); ref.setDate(ref.getDate() + (state.direction === 'before' ? -1 : 1));
+      const first = new Date(ref.getFullYear(), ref.getMonth(), 1);
+      const last  = new Date(ref.getFullYear(), ref.getMonth() + 1, 0);
+      return { from: first.toISOString().slice(0,10), to: last.toISOString().slice(0,10) };
+    }
+    let length;
+    if (state.preset === 'week')  length = 7;
+    else if (state.preset === 'month') length = 30;
+    else if (state.preset === 'custom') length = state.n_days && state.n_days >= 1 ? state.n_days : null;
+    if (!length) return null;
+    let from, to;
+    if (state.direction === 'before') {
+      to = new Date(anchor); if (!state.include_anchor) to.setDate(to.getDate() - 1);
+      from = new Date(to);   from.setDate(from.getDate() - (length - 1));
+    } else {
+      from = new Date(anchor); if (!state.include_anchor) from.setDate(from.getDate() + 1);
+      to = new Date(from);     to.setDate(to.getDate() + (length - 1));
+    }
+    return { from: from.toISOString().slice(0,10), to: to.toISOString().slice(0,10) };
+  }
+
+  function _ppRecompute() {
+    const st = _ppGetState();
+    const r = _ppLocalResolve(st);
+    if (!r) {
+      $('pp-preview-text').textContent = '—';
+      return;
+    }
+    const days = _daysBetween(r.from, r.to);
+    $('pp-preview-text').innerHTML =
+      `<b>${_fmtRu(r.from)} – ${_fmtRu(r.to)}</b> · ${days} дн.`;
+  }
+
+  function _renderPpActions() {
+    const box = $('pp-actions');
+    box.innerHTML = '';
+    // Контекст 'baseline' — единственный (модалка вызывается только из tab-customer)
+    const b1 = document.createElement('button');
+    b1.type = 'button'; b1.className = 'ar-btn ar-btn-secondary';
+    b1.textContent = 'Только заполнить даты';
+    b1.addEventListener('click', () => _ppApplyBaseline(false));
+    const b2 = document.createElement('button');
+    b2.type = 'button'; b2.className = 'ar-btn ar-btn-primary';
+    b2.textContent = 'Сохранить как базовый';
+    b2.addEventListener('click', () => _ppApplyBaseline(true));
+    box.append(b1, b2);
+  }
+
+  function _ppGetPeriod() {
+    const st = _ppGetState();
+    return _ppLocalResolve(st);
+  }
+  function _ppGetLabel() {
+    const st = _ppGetState();
+    if (!st) return '';
+    const presetLbl = ({week:'1 нед.', month:'1 мес.', calendar:'кал. мес.', custom:`${st.n_days||'?'} дн.`, manual:'своя'})[st.preset];
+    const dir = st.direction === 'before' ? 'до' : 'после';
+    return `${presetLbl} ${dir} ${_fmtRu(st.anchor)}`;
+  }
+
+  async function _ppApplyBaseline(save) {
+    const r = _ppGetPeriod();
+    if (!r) { alert('Не удалось определить период'); return; }
+    // Заполняем cust-from/to и переключаем на customer-таб
+    $('cust-from').value = r.from;
+    $('cust-to').value = r.to;
+    closePeriodPicker();
+    if (save) {
+      if (!currentWellId) { alert('Выберите скважину'); return; }
+      const name = `Базовый: ${_ppGetLabel()} (${_fmtRu(r.from)}–${_fmtRu(r.to)})`;
+      try {
+        const resp = await fetch('/api/adaptation-report/baselines', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            well_id: currentWellId,
+            name,
+            period_from: r.from,
+            period_to:   r.to,
+            source: 'manual',
+            is_pinned: true,
+          }),
+        });
+        const d = await resp.json();
+        if (!resp.ok) { alert('Ошибка сохранения: ' + (d.detail || resp.status)); return; }
+        if (typeof reloadBaselines === 'function') await reloadBaselines(currentWellId);
+        if (typeof runCustomerAnalysis === 'function') runCustomerAnalysis();
+      } catch (e) {
+        alert('Сетевая ошибка: ' + e.message);
+      }
+    }
+  }
+
+  // События в модалке
+  ['change','input'].forEach(ev => {
+    _ppEl().addEventListener(ev, _ppRecompute);
+  });
+  $('pp-close').addEventListener('click', closePeriodPicker);
+  $('pp-cancel').addEventListener('click', closePeriodPicker);
+  _ppEl().querySelector('.ar-modal-backdrop').addEventListener('click', closePeriodPicker);
+
+  // Перерисовать плитки tab-customer, когда даты этапов меняются на левой панели
+  ['obs-from','obs-to','adapt-from','adapt-to'].forEach(id => {
+    const el = $(id);
+    if (el) el.addEventListener('change', () => {
+      renderStageTiles('cust-stage-tiles');
+    });
+  });
 </script>
 
 {% endblock %}

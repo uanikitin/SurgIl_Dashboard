@@ -56,13 +56,22 @@ INVALID_VALUES = {-1.0, -2.0}
 # Регулярка для имени файла: DD.MM.YYYY.{группа}_arc.csv
 FILENAME_RE = re.compile(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})\.(\d+)_arc\.csv$")
 
-# SQL для batch INSERT
+# SQL для batch INSERT с merge-семантикой: при конфликте (well_id, measured_at)
+# обновляем только те поля, для которых пришло не-NULL значение (COALESCE).
+# Это позволяет ретро-импорту дозаписать недостающий канал (p_tube ИЛИ p_line),
+# не затирая уже заполненный.
 _INSERT_SQL = text(
-    "INSERT OR IGNORE INTO pressure_readings "
+    "INSERT INTO pressure_readings "
     "(well_id, channel, measured_at, p_tube, p_line, "
     " sensor_id_tube, sensor_id_line, source, source_file) "
     "VALUES (:well_id, :channel, :measured_at, :p_tube, :p_line, "
-    " :sensor_id_tube, :sensor_id_line, 'csv', :source_file)"
+    " :sensor_id_tube, :sensor_id_line, 'csv', :source_file) "
+    "ON CONFLICT(well_id, measured_at) DO UPDATE SET "
+    " p_tube = COALESCE(excluded.p_tube, pressure_readings.p_tube), "
+    " p_line = COALESCE(excluded.p_line, pressure_readings.p_line), "
+    " sensor_id_tube = COALESCE(excluded.sensor_id_tube, pressure_readings.sensor_id_tube), "
+    " sensor_id_line = COALESCE(excluded.sensor_id_line, pressure_readings.sensor_id_line), "
+    " source_file = excluded.source_file"
 )
 
 

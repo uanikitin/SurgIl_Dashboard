@@ -66,6 +66,17 @@ def get_db_with_table():
         db.close()
 
 
+def get_db_with_blocks():
+    """Сессия + гарантия таблицы customer_report_block."""
+    db = SessionLocal()
+    try:
+        svc.ensure_table(db)
+        svc.ensure_blocks_table(db)
+        yield db
+    finally:
+        db.close()
+
+
 # ═══════════════════════════════════════════════════════════════════════
 #  HTML-страница
 # ═══════════════════════════════════════════════════════════════════════
@@ -77,15 +88,21 @@ def customer_daily_page(
     well: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    embedded: int = 0,
     current_user: str = Depends(get_current_user),
 ):
-    """Открывается в отдельном окне с предзаполненными скважиной/периодом."""
+    """Открывается в отдельном окне с предзаполненными скважиной/периодом.
+
+    embedded=1 — режим встраивания в iframe: убирает шапку, nav и плавающие
+    кнопки (см. base.html:if not embedded).
+    """
     return templates.TemplateResponse(
         "customer_daily.html",
         {
             "request": request,
             "current_user": current_user,
             "is_admin": request.session.get("is_admin", False),
+            "embedded": bool(embedded),
             "preset_well": well,
             "preset_from": date_from,
             "preset_to": date_to,
@@ -227,6 +244,96 @@ def api_series(
         source=source, well=well, metric=metric,
         d_from=d_from, d_to=d_to,
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  API: блоки отчёта (customer_report_block)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+from pydantic import BaseModel as _BM
+from typing import Any as _Any
+
+
+class BlockCreate(_BM):
+    well_id: int
+    kind: str  # 'baseline' | 'period_analysis' | 'comparison'
+    title: str
+    params: dict[str, _Any] | None = None
+    comment: str | None = None
+    in_report: bool = True
+
+
+class BlockUpdate(_BM):
+    title: str | None = None
+    params: dict[str, _Any] | None = None
+    comment: str | None = None
+    in_report: bool | None = None
+    sort_order: int | None = None
+    data_snapshot: dict[str, _Any] | None = None
+
+
+@router.get("/blocks")
+def api_list_blocks(
+    well_id: int = Query(...),
+    db: Session = Depends(get_db_with_blocks),
+):
+    """Все блоки скважины для отчёта об адаптации."""
+    return {"blocks": svc.list_blocks(db, well_id)}
+
+
+@router.get("/blocks/count")
+def api_blocks_count(
+    well_id: int = Query(...),
+    db: Session = Depends(get_db_with_blocks),
+):
+    """Сколько блоков с in_report=True (для индикатора)."""
+    return {"well_id": well_id, "in_report": svc.count_blocks_in_report(db, well_id)}
+
+
+@router.post("/blocks")
+def api_create_block(
+    body: BlockCreate,
+    db: Session = Depends(get_db_with_blocks),
+):
+    if body.kind not in svc.VALID_BLOCK_KINDS:
+        raise HTTPException(
+            400, f"kind должен быть one of {sorted(svc.VALID_BLOCK_KINDS)}",
+        )
+    try:
+        return svc.create_block(
+            db,
+            well_id=body.well_id, kind=body.kind, title=body.title,
+            params=body.params, comment=body.comment, in_report=body.in_report,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@router.put("/blocks/{block_id}")
+def api_update_block(
+    block_id: int,
+    body: BlockUpdate,
+    db: Session = Depends(get_db_with_blocks),
+):
+    if svc.get_block(db, block_id) is None:
+        raise HTTPException(404, f"Block {block_id} not found")
+    return svc.update_block(
+        db, block_id,
+        title=body.title, params=body.params, comment=body.comment,
+        in_report=body.in_report, sort_order=body.sort_order,
+        data_snapshot=body.data_snapshot,
+    )
+
+
+@router.delete("/blocks/{block_id}")
+def api_delete_block(
+    block_id: int,
+    db: Session = Depends(get_db_with_blocks),
+):
+    if not svc.delete_block(db, block_id):
+        raise HTTPException(404, f"Block {block_id} not found")
+    return {"ok": True, "deleted_id": block_id}
 
 
 # ═══════════════════════════════════════════════════════════════════════

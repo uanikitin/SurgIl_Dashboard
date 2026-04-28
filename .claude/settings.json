@@ -28,7 +28,11 @@
       "Bash(pg_isready:*)",
       "Bash(pgrep:*)",
       "Bash(xxd)",
-      "Bash(ps -p 36670 -o pid,pcpu,pmem,state,command)"
+      "Bash(ps -p 36670 -o pid,pcpu,pmem,state,command)",
+      "Read(//var/folders/rj/gxn1dn0d7kg3t2043l9prdd00000gn/T/TemporaryItems/NSIRD_screencaptureui_rLsKTF/**)",
+      "Read(//private/var/folders/rj/gxn1dn0d7kg3t2043l9prdd00000gn/T/TemporaryItems/NSIRD_screencaptureui_rLsKTF/**)",
+      "Bash(xxd /tmp/_pdf_test.bin)",
+      "Bash(xxd /tmp/preview1.pdf)"
     ],
     "additionalDirectories": [
       "/Users/volodymyrnikitin/Documents/PythonFiles/SurgIl_Dashboard/data/lora",

@@ -302,7 +302,11 @@ def _compute_month_flow_from_raw(
 # ── Linear trend (copied from flow_rate router) ─────────
 
 def _linear_trend(values: list, duration_hours: float) -> dict | None:
-    """Linear regression Y(t) = a + b*t. Returns slope_per_day, direction, r_squared."""
+    """Linear regression Y(t) = a + b*t. Returns slope_per_day, direction, r_squared.
+
+    DEPRECATED: используйте _robust_trend (Theil-Sen + Mann-Kendall).
+    Оставлено для обратной совместимости с daily_report.
+    """
     valid = [(i, v) for i, v in enumerate(values) if v is not None and not np.isnan(v)]
     if len(valid) < 2:
         return None
@@ -329,6 +333,127 @@ def _linear_trend(values: list, duration_hours: float) -> dict | None:
         "slope_per_day": round(slope_day, 4),
         "r_squared": round(r2, 4),
         "direction": direction,
+    }
+
+
+# ── Robust trend (Theil-Sen + Mann-Kendall) ───────────
+#
+# Используется в adaptation_report для тренда ΔP, P_tube, P_line, Q.
+# Theil-Sen — медианный slope из всех пар точек, robust к одиночным
+# выбросам (продувкам, пикам). Mann-Kendall — тест на наличие
+# монотонного тренда: возвращает p-value (значимость).
+#
+# Перед вызовом данные ОБЯЗАТЕЛЬНО фильтруются по working-hours
+# (p_tube > p_line, ΔP > 0.1 кгс/см²) — нерабочие часы исключаются,
+# иначе пики при закрытии скважины тянут slope.
+
+
+def _mann_kendall(y: np.ndarray) -> tuple[float, float]:
+    """Mann-Kendall test для наличия монотонного тренда.
+
+    Returns
+    -------
+    (z, p_value): Z-статистика и двусторонний p-value.
+    """
+    from scipy import stats as _stats
+
+    n = len(y)
+    if n < 4:
+        return 0.0, 1.0
+
+    # S-статистика — векторно через сумму sign(y[j]-y[i]) для всех j>i.
+    diffs = y[None, :] - y[:, None]   # (n, n)
+    iu = np.triu_indices(n, k=1)
+    s = float(np.sign(diffs[iu]).sum())
+
+    # Дисперсия с поправкой на ties.
+    var_s = n * (n - 1) * (2 * n + 5) / 18.0
+    _, counts = np.unique(y, return_counts=True)
+    ties = counts[counts > 1]
+    if ties.size:
+        var_s -= float(np.sum(ties * (ties - 1) * (2 * ties + 5))) / 18.0
+
+    if var_s <= 0:
+        return 0.0, 1.0
+
+    # Z с поправкой непрерывности.
+    if s > 0:
+        z = (s - 1.0) / np.sqrt(var_s)
+    elif s < 0:
+        z = (s + 1.0) / np.sqrt(var_s)
+    else:
+        z = 0.0
+
+    p = 2.0 * (1.0 - float(_stats.norm.cdf(abs(z))))
+    return float(z), float(p)
+
+
+def _robust_trend(values: list, hours_x: list) -> dict | None:
+    """Robust slope (Theil-Sen) + значимость (Mann-Kendall) + 95% CI.
+
+    Parameters
+    ----------
+    values : list[float]
+        Значения метрики (например, ΔP кгс/см² или Q тыс.м³/сут).
+    hours_x : list[float]
+        x-координаты в ЧАСАХ от начала периода (могут быть неравномерны
+        если в каких-то часах NaN убраны вызывающим).
+
+    Returns
+    -------
+    dict с ключами:
+      slope_per_day, slope_low_per_day, slope_high_per_day  — slope и 95% CI;
+      mk_z, mk_p, mk_significant  — Mann-Kendall;
+      direction  — 'up' / 'down' / 'flat';
+      n  — число точек, использованных в расчёте;
+      method  — 'theil-sen + mann-kendall'.
+    Если данных < 4 точек — None.
+    """
+    from scipy import stats as _stats
+
+    pairs = [
+        (float(x), float(v))
+        for x, v in zip(hours_x, values)
+        if v is not None and not (isinstance(v, float) and np.isnan(v))
+    ]
+    if len(pairs) < 4:
+        return None
+
+    x = np.array([p[0] for p in pairs], dtype=float)
+    y = np.array([p[1] for p in pairs], dtype=float)
+
+    # Theil-Sen: медианный slope. Возвращает (slope, intercept, low, high).
+    # alpha=0.95 → 95%-доверительный интервал для slope.
+    try:
+        slope_h, intercept_h, low_h, high_h = _stats.theilslopes(y, x, 0.95)
+    except Exception:
+        return None
+
+    z, p_value = _mann_kendall(y)
+
+    slope_day = float(slope_h) * 24.0
+    low_day = float(low_h) * 24.0
+    high_day = float(high_h) * 24.0
+
+    # Направление — по slope; flat если |slope| меньше порога чувствительности.
+    if slope_day > 0.001:
+        direction = "up"
+    elif slope_day < -0.001:
+        direction = "down"
+    else:
+        direction = "flat"
+
+    return {
+        "slope_per_day": round(slope_day, 4),
+        "slope_low_per_day": round(low_day, 4),
+        "slope_high_per_day": round(high_day, 4),
+        "intercept": round(float(intercept_h), 4),  # base value at x=0 (часы)
+        "mk_z": round(z, 3),
+        "mk_p": round(p_value, 4),
+        "mk_significant": bool(p_value < 0.05),
+        "direction": direction,
+        "n": int(len(y)),
+        "method": "theil-sen + mann-kendall",
     }
 
 

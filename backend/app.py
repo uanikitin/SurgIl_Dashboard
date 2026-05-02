@@ -178,6 +178,10 @@ from backend.routers.customer_daily import (
 app.include_router(customer_daily_router)
 app.include_router(customer_daily_pages_router)
 
+# Конструктор сравнения (наборы кривых для отчёта адаптации)
+from backend.routers.comparison import router as comparison_router
+app.include_router(comparison_router)
+
 # Аннотации на графиках
 from backend.routers.chart_annotations import router as chart_annotations_router
 app.include_router(chart_annotations_router)

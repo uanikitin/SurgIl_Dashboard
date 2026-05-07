@@ -743,9 +743,84 @@ def api_timeline(
                 "dt_end":   r[2].isoformat() if r[2] else None,
                 "color":    color,
                 "note":     r[3] or "",
+                "source":   "status",
             })
     except Exception:
         log.exception("timeline: well_status query failed")
+
+    # Ключевые события из events (для отображения как маркеры на шкале)
+    # Ровно одно событие каждого типа — самое раннее (для контекста начала работ).
+    events: list[dict] = []
+    equip_first = None
+    reagent_first = None
+    try:
+        wno = str(well.number)
+        # Установка оборудования (первый equip)
+        row = db.execute(text("""
+            SELECT MIN(event_time) FROM events
+            WHERE well = :wno AND event_type = 'equip'
+        """), {"wno": wno}).fetchone()
+        if row and row[0]:
+            equip_first = row[0]
+            events.append({
+                "kind":  "equip",
+                "label": "Установка оборудования",
+                "dt":    equip_first.isoformat() if hasattr(equip_first, 'isoformat') else str(equip_first),
+                "color": "#0288d1",
+                "icon":  "🔧",
+            })
+        # Первый вброс реагента
+        row = db.execute(text("""
+            SELECT MIN(event_time) FROM events
+            WHERE well = :wno AND event_type = 'reagent'
+        """), {"wno": wno}).fetchone()
+        if row and row[0]:
+            reagent_first = row[0]
+            events.append({
+                "kind":  "reagent_first",
+                "label": "Первый вброс",
+                "dt":    reagent_first.isoformat() if hasattr(reagent_first, 'isoformat') else str(reagent_first),
+                "color": "#2e7d32",
+                "icon":  "💧",
+            })
+    except Exception:
+        log.exception("timeline: events query failed")
+
+    # Виртуальные этапы из событий — если в well_status пусто.
+    # Логика как в suggest_stages_from_events (упрощённая):
+    #   Наблюдение: equip_first .. (reagent_first - 1 день)
+    #   Адаптация:  reagent_first .. today
+    if not stages and equip_first:
+        if reagent_first:
+            obs_to = reagent_first
+            obs_color = STATUS_BY_LABEL.get("Наблюдение", {}).get("color") or "#1565c0"
+            stages.append({
+                "label":    "Наблюдение (по событиям)",
+                "dt_start": equip_first.isoformat() if hasattr(equip_first, 'isoformat') else str(equip_first),
+                "dt_end":   obs_to.isoformat() if hasattr(obs_to, 'isoformat') else str(obs_to),
+                "color":    obs_color,
+                "note":     "Виртуальный этап: well_status пуст, восстановлено из events",
+                "source":   "events",
+            })
+            adapt_color = STATUS_BY_LABEL.get("Адаптация", {}).get("color") or "#f57c00"
+            stages.append({
+                "label":    "Адаптация (по событиям)",
+                "dt_start": reagent_first.isoformat() if hasattr(reagent_first, 'isoformat') else str(reagent_first),
+                "dt_end":   None,
+                "color":    adapt_color,
+                "note":     "Виртуальный этап: well_status пуст, восстановлено из events",
+                "source":   "events",
+            })
+        else:
+            obs_color = STATUS_BY_LABEL.get("Наблюдение", {}).get("color") or "#1565c0"
+            stages.append({
+                "label":    "Наблюдение (по событиям)",
+                "dt_start": equip_first.isoformat() if hasattr(equip_first, 'isoformat') else str(equip_first),
+                "dt_end":   None,
+                "color":    obs_color,
+                "note":     "Виртуальный этап: well_status пуст, события вбросов не найдены",
+                "source":   "events",
+            })
 
     return {
         "ok": True,
@@ -755,6 +830,7 @@ def api_timeline(
         "customer_data": customer,
         "our_data": our,
         "stages": stages,
+        "events": events,
     }
 
 

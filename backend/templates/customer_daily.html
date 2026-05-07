@@ -232,6 +232,15 @@
     transition: transform 0.1s;
 }
 .cdtl-stage-dot:hover { transform: translateX(-50%) scale(1.4); }
+.cdtl-event-icon {
+    position: absolute; top: 22px;
+    transform: translateX(-50%);
+    font-size: 14px; line-height: 14px;
+    background: #fff; border-radius: 50%;
+    padding: 1px 2px; box-shadow: 0 0 0 1px currentColor, 0 1px 3px rgba(0,0,0,0.15);
+    pointer-events: auto; cursor: help;
+    user-select: none;
+}
 .cdtl-stage-line {
     position: absolute; top: 12px; height: 88px;
     width: 2px; background: currentColor; opacity: 0.45;
@@ -1092,28 +1101,42 @@
       parts.push(`<div class="cdtl-bar-label" style="top:60px; color:#9ca3af;">Датчики: нет данных</div>`);
     }
 
-    // Этапы — точки + вертикальная линия + подпись
+    // Этапы — точки + вертикальная линия + подпись С ДАТОЙ
     for (const s of (d.stages || [])) {
       if (!s.dt_start) continue;
       const xStart = _cdtlPct(_cdtlParse(s.dt_start));
       const xEnd   = s.dt_end ? _cdtlPct(_cdtlParse(s.dt_end)) : 100;
-      const lblShort = (s.label || '').slice(0, 14);
-      // Линия + точка-маркер на старте
+      const lblShort = (s.label || '').slice(0, 16);
+      const startStr = s.dt_start.slice(0, 10);
+      // Подпись: «Наблюдение · 2026-02-02» — с датой старта
+      const labelHtml = `${lblShort} · <span style="opacity:0.85;">${startStr}</span>`;
+      const sourceTag = s.source === 'events' ? ' (по событиям)' : '';
       parts.push(
         `<div class="cdtl-stage-line" style="left:${xStart}%; color:${s.color};"></div>`,
         `<div class="cdtl-stage-dot" style="left:${xStart}%; color:${s.color};"
               data-stage-from="${_cdtlYmd(_cdtlParse(s.dt_start))}"
               data-stage-to="${s.dt_end ? _cdtlYmd(_cdtlParse(s.dt_end)) : _cdtlYmd(cdtlState.latest)}"
-              title="${s.label}: ${s.dt_start.slice(0,10)}${s.dt_end ? ' → ' + s.dt_end.slice(0,10) : ' → сейчас'}\nКлик — выбрать диапазон этапа">
+              title="${s.label}${sourceTag}: ${startStr}${s.dt_end ? ' → ' + s.dt_end.slice(0,10) : ' → сейчас'}\nКлик — выбрать диапазон этапа">
          </div>`,
-        `<div class="cdtl-stage-label" style="left:${(xStart+xEnd)/2}%; color:${s.color};">${lblShort}</div>`
+        `<div class="cdtl-stage-label" style="left:${(xStart+xEnd)/2}%; color:${s.color};">${labelHtml}</div>`
       );
-      // Если у этапа есть конец — линия конца тоже
       if (s.dt_end) {
         parts.push(
           `<div class="cdtl-stage-line" style="left:${xEnd}%; color:${s.color}; opacity:0.25;"></div>`
         );
       }
+    }
+
+    // Ключевые события (установка оборудования, первый вброс) — иконкой
+    for (const ev of (d.events || [])) {
+      if (!ev.dt) continue;
+      const x = _cdtlPct(_cdtlParse(ev.dt));
+      parts.push(
+        `<div class="cdtl-event-icon" style="left:${x}%; color:${ev.color};"
+              title="${ev.label}: ${ev.dt.slice(0,16).replace('T',' ')}">
+           ${ev.icon || '●'}
+         </div>`
+      );
     }
 
     // Range — выбранный период
@@ -1187,26 +1210,41 @@
     const row = $('cdtl-stage-shortcuts');
     if (!row) return;
     const stages = (cdtlState.data && cdtlState.data.stages) || [];
-    if (!stages.length) {
+    const events = (cdtlState.data && cdtlState.data.events) || [];
+    if (!stages.length && !events.length) {
       row.style.display = 'none';
       return;
     }
-    // Сохраняем заголовок-метку, перерисовываем кнопки
     let html = `<span style="font-size:0.78rem; color:#1e40af;">
                   Точки отсчёта из БД (клик = поставить точку отсчёта):
                 </span>`;
+    // Сначала события (Установка оборудования / Первый вброс) — крупнее
+    for (const ev of events) {
+      if (!ev.dt) continue;
+      const dStr = ev.dt.slice(0, 10);
+      html +=
+        `<button type="button" class="cdtl-zoom-btn"
+                 data-stage-anchor="${dStr}"
+                 style="border-color:${ev.color}; color:${ev.color};"
+                 title="Поставить точку отсчёта на ${dStr} (${ev.label})">
+           <span style="margin-right:4px;">${ev.icon || '●'}</span>
+           ${ev.label}: ${dStr}
+         </button>`;
+    }
+    // Этапы (well_status или виртуальные «по событиям»)
     for (const s of stages) {
       if (!s.dt_start) continue;
       const dStr = s.dt_start.slice(0, 10);
-      const lbl = (s.label || '').slice(0, 18);
+      const lbl = (s.label || '').slice(0, 24);
+      const tag = s.source === 'events' ? ' ⓘ' : '';
       html +=
         `<button type="button" class="cdtl-zoom-btn"
                  data-stage-anchor="${dStr}"
                  style="border-color:${s.color}; color:${s.color};"
-                 title="Поставить точку отсчёта на ${dStr} (${s.label})">
+                 title="Поставить точку отсчёта на ${dStr} (${s.label})${s.source === 'events' ? '\nВиртуальный этап (восстановлен из событий — well_status пуст)' : ''}">
            <span style="display:inline-block; width:8px; height:8px; border-radius:50%;
                         background:${s.color}; vertical-align:middle; margin-right:4px;"></span>
-           ${lbl}: ${dStr}
+           ${lbl}${tag}: ${dStr}
          </button>`;
     }
     row.innerHTML = html;

@@ -700,6 +700,18 @@ def api_timeline(
 
     errors: list[dict] = []
 
+    def _rollback_on_error(step: str, exc: Exception) -> None:
+        """Каждое исключение делает транзакцию aborted в Postgres —
+        rollback нужен ДО любого следующего запроса, иначе каскад из
+        InFailedSqlTransaction. Все sub-queries здесь независимы.
+        """
+        log.exception("timeline: %s failed", step)
+        errors.append({"step": step, "error": str(exc)})
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
     # Диапазон well_daily (данные заказчика)
     customer = {"first_date": None, "last_date": None, "days_count": 0}
     try:
@@ -716,28 +728,28 @@ def api_timeline(
                 "days_count": int(row[2] or 0),
             }
     except Exception as e:
-        log.exception("timeline: customer well_daily query failed")
-        errors.append({"step": "well_daily", "error": str(e)})
+        _rollback_on_error("well_daily", e)
 
-    # Диапазон pressure_hourly (наши датчики)
-    our = {"first_date": None, "last_date": None}
+    # Диапазон pressure_raw (наши датчики). Используем pressure_raw, а не
+    # pressure_hourly — потому что pressure_hourly это агрегаты, которые
+    # могут быть пустыми, даже если raw полный. Все рабочие модули
+    # (daily_report, adaptation, flow_rate) читают из pressure_raw.
+    our = {"first_date": None, "last_date": None, "rows": 0}
     try:
         from backend.services.adaptation_report_service import KUNGRAD_OFFSET
         row = db.execute(text("""
-            SELECT MIN(measured_at), MAX(measured_at)
-            FROM pressure_hourly WHERE well_id = :wid
+            SELECT MIN(measured_at), MAX(measured_at), COUNT(*)
+            FROM pressure_raw WHERE well_id = :wid
         """), {"wid": well_id}).fetchone()
         if row and row[0]:
-            # measured_at — UTC; в Asia/Tashkent = UTC+5
+            # measured_at — UTC; для отображения переводим в локальное Asia/Tashkent
             our = {
-                "first_date": (row[0] + KUNGRAD_OFFSET).date().isoformat()
-                              if row[0] else None,
-                "last_date":  (row[1] + KUNGRAD_OFFSET).date().isoformat()
-                              if row[1] else None,
+                "first_date": (row[0] + KUNGRAD_OFFSET).date().isoformat(),
+                "last_date":  (row[1] + KUNGRAD_OFFSET).date().isoformat(),
+                "rows":       int(row[2] or 0),
             }
     except Exception as e:
-        log.exception("timeline: pressure_hourly range failed")
-        errors.append({"step": "pressure_hourly", "error": str(e)})
+        _rollback_on_error("pressure_raw", e)
 
     # Этапы из well_status (все записи, не только последние).
     # Пробуем сначала с AT TIME ZONE (если dt_start TIMESTAMPTZ), при ошибке
@@ -756,6 +768,10 @@ def api_timeline(
             """), {"wid": well_id}).fetchall()
         except Exception as e_tz:
             log.warning("timeline well_status tz cast failed, fallback: %s", e_tz)
+            try:
+                db.rollback()
+            except Exception:
+                pass
             rows = db.execute(text("""
                 SELECT status, dt_start, dt_end, note
                 FROM well_status
@@ -774,8 +790,7 @@ def api_timeline(
                 "source":   "status",
             })
     except Exception as e:
-        log.exception("timeline: well_status query failed")
-        errors.append({"step": "well_status", "error": str(e)})
+        _rollback_on_error("well_status", e)
 
     # Ключевые события из events (для отображения как маркеры на шкале)
     events: list[dict] = []
@@ -811,8 +826,7 @@ def api_timeline(
                 "icon":  "💧",
             })
     except Exception as e:
-        log.exception("timeline: events query failed")
-        errors.append({"step": "events", "error": str(e)})
+        _rollback_on_error("events", e)
 
     # Виртуальные этапы из событий — если в well_status пусто.
     # Логика как в suggest_stages_from_events (упрощённая):

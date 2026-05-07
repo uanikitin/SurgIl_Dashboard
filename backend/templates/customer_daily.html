@@ -165,6 +165,134 @@
 .cd-collapsible[open] > summary { margin-bottom: 8px; }
 
 .cd-hint { font-size: 0.78rem; color: #6b7280; margin-top: 4px; }
+
+/* ─── Timeline period builder (cd-tl) ─── */
+.cdtl-wrap {
+    background: #fafafa; border: 1px solid #e5e7eb; border-radius: 6px;
+    padding: 10px 12px; margin-bottom: 10px;
+}
+.cdtl-headerrow {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 0.84rem; color: #374151; flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+.cdtl-mode { color: #1d4ed8; font-weight: 500; }
+.cdtl-period-display {
+    margin-left: auto; font-family: monospace; color: #374151;
+    background: #fff; border: 1px solid #e5e7eb; padding: 2px 8px;
+    border-radius: 4px; font-size: 0.78rem;
+}
+.cdtl-zoom-row {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 6px; font-size: 0.78rem; color: #6b7280;
+}
+.cdtl-zoom-btn {
+    padding: 3px 10px; font-size: 0.76rem; background: #fff;
+    border: 1px solid #d1d5db; border-radius: 999px; cursor: pointer;
+    color: #374151;
+}
+.cdtl-zoom-btn:hover { background: #eff6ff; border-color: #93c5fd; }
+.cdtl-zoom-btn.active {
+    background: #2563eb; color: #fff; border-color: #1d4ed8;
+}
+.cdtl-scroll {
+    width: 100%; overflow-x: auto; overflow-y: hidden;
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 4px;
+    padding: 6px 0;
+}
+.cdtl-scale {
+    position: relative; height: 110px; min-width: 100%;
+    cursor: crosshair; user-select: none;
+}
+.cdtl-bar {
+    position: absolute; height: 16px; border-radius: 3px;
+    pointer-events: none;
+}
+.cdtl-bar-customer { top: 38px; background: #93c5fd; }
+.cdtl-bar-our      { top: 60px; background: #6ee7b7; }
+.cdtl-bar-label {
+    position: absolute; left: 6px; font-size: 0.7rem;
+    color: rgba(0,0,0,0.7); line-height: 16px; pointer-events: none;
+}
+
+/* Этап как точка */
+.cdtl-stage-dot {
+    position: absolute; top: 6px;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 0 2px #fff, 0 1px 4px rgba(0,0,0,0.2);
+    transform: translateX(-50%);
+    cursor: pointer; pointer-events: auto;
+    transition: transform 0.1s;
+}
+.cdtl-stage-dot:hover { transform: translateX(-50%) scale(1.4); }
+.cdtl-stage-line {
+    position: absolute; top: 12px; height: 88px;
+    width: 2px; background: currentColor; opacity: 0.45;
+    transform: translateX(-50%); pointer-events: none;
+}
+.cdtl-stage-label {
+    position: absolute; top: 22px;
+    background: currentColor; color: #fff;
+    font-size: 0.66rem; font-weight: 600;
+    padding: 1px 5px; border-radius: 2px;
+    white-space: nowrap; transform: translateX(-50%);
+    pointer-events: none;
+}
+
+/* Точки дней (для зума «сутки») */
+.cdtl-day-dot {
+    position: absolute; top: 86px; width: 4px; height: 4px;
+    background: #2563eb; border-radius: 50%;
+    transform: translateX(-50%);
+    pointer-events: none;
+}
+.cdtl-day-gap {
+    position: absolute; top: 86px; width: 4px; height: 4px;
+    background: #ef4444; border-radius: 50%;
+    transform: translateX(-50%);
+    pointer-events: none;
+}
+
+.cdtl-anchor {
+    position: absolute; top: 0; bottom: 18px; width: 0;
+    pointer-events: none;
+}
+.cdtl-anchor-line {
+    position: absolute; top: 0; bottom: 0; left: -1px; width: 2px;
+    background: #dc2626; box-shadow: 0 0 6px rgba(220,38,38,0.5);
+}
+.cdtl-range {
+    position: absolute; top: 34px; height: 56px;
+    background: rgba(220,38,38,0.10);
+    border-left: 2px solid rgba(220,38,38,0.55);
+    border-right: 2px solid rgba(220,38,38,0.55);
+    pointer-events: none;
+}
+.cdtl-range-label {
+    position: absolute; top: -2px;
+    background: rgba(220,38,38,0.85); color: #fff;
+    font-size: 0.66rem; font-weight: 600;
+    padding: 1px 5px; border-radius: 2px;
+    white-space: nowrap;
+}
+.cdtl-axis {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    height: 16px; pointer-events: none;
+}
+.cdtl-axis-tick {
+    position: absolute; top: 0; font-size: 0.65rem;
+    color: #6b7280; transform: translateX(-50%); white-space: nowrap;
+}
+.cdtl-axis-tick::before {
+    content: ""; display: block; width: 1px; height: 4px;
+    background: #9ca3af; margin: 0 auto 1px;
+}
+.cdtl-help {
+    font-size: 0.72rem; color: #9ca3af; margin-top: 4px;
+    display: flex; gap: 12px; flex-wrap: wrap;
+}
+.cdtl-help b { color: #4b5563; }
 </style>
 {% endblock %}
 
@@ -264,20 +392,54 @@
   <!-- ═══ 4. Период анализа ═══ -->
   <div class="cd-section" id="cd-period-section" style="display:none;">
     <h2>4. Период анализа</h2>
+
+    <!-- ─── Временная шкала с этапами ─── -->
+    <div class="cdtl-wrap" id="cdtl-wrap">
+      <div class="cdtl-headerrow">
+        Режим: <span class="cdtl-mode" id="cdtl-mode">не выбран</span>
+        <span class="cdtl-period-display" id="cdtl-period-display"></span>
+      </div>
+      <div class="cdtl-zoom-row">
+        <span>Масштаб:</span>
+        <button type="button" class="cdtl-zoom-btn" data-zoom="day"
+                title="День — каждая дата отдельной точкой (горизонтальный скролл)">Сутки</button>
+        <button type="button" class="cdtl-zoom-btn" data-zoom="week">Неделя</button>
+        <button type="button" class="cdtl-zoom-btn active" data-zoom="month">Месяц</button>
+        <button type="button" class="cdtl-zoom-btn" data-zoom="year">Год</button>
+        <span style="margin-left:auto;">
+          <button type="button" class="cdtl-zoom-btn" id="cdtl-clear-btn"
+                  title="Снять выбор">✕ Сбросить</button>
+        </span>
+      </div>
+      <div class="cdtl-scroll" id="cdtl-scroll">
+        <div class="cdtl-scale" id="cdtl-scale"
+             title="Кликните по этапу — возьмёт его диапазон. Кликните по шкале — сначала ставится начало, потом конец."></div>
+      </div>
+      <div class="cdtl-help">
+        <span><b>Точки сверху</b> — этапы из журнала статусов (клик по точке = взять диапазон этапа)</span>
+        <span><b>Синяя полоса</b> — данные заказчика (well_daily)</span>
+        <span><b>Зелёная полоса</b> — наши датчики (pressure_hourly)</span>
+        <span><b>Клик по пустому месту</b> = выбор «от»; <b>повторный</b> = «до»</span>
+      </div>
+    </div>
+
     <div class="cd-row">
       <label>С:</label> <input type="date" id="cd-date-from">
       <label>по:</label> <input type="date" id="cd-date-to">
       <button class="cd-btn cd-btn-primary" id="cd-analyse-btn">Показать аналитику</button>
     </div>
-    <div class="cd-row" style="margin-top:8px; gap:6px;">
-      <span class="cd-hint">Быстрый выбор:</span>
-      <span class="cd-pill" data-preset="all">Всё что есть</span>
-      <span class="cd-pill" data-preset="30">Последние 30 дней</span>
-      <span class="cd-pill" data-preset="90">90 дней</span>
-      <span class="cd-pill" data-preset="180">180 дней</span>
-      <span class="cd-pill" data-preset="365">Год</span>
-      <span class="cd-pill" data-preset="preset">Период из отчёта</span>
-    </div>
+    <details class="cd-collapsible" style="margin-top:8px;">
+      <summary>Старый быстрый выбор пресетами</summary>
+      <div class="cd-row" style="margin-top:8px; gap:6px;">
+        <span class="cd-hint">Быстрый выбор:</span>
+        <span class="cd-pill" data-preset="all">Всё что есть</span>
+        <span class="cd-pill" data-preset="30">Последние 30 дней</span>
+        <span class="cd-pill" data-preset="90">90 дней</span>
+        <span class="cd-pill" data-preset="180">180 дней</span>
+        <span class="cd-pill" data-preset="365">Год</span>
+        <span class="cd-pill" data-preset="preset">Период из отчёта</span>
+      </div>
+    </details>
   </div>
 
   <!-- ═══ 5. Сравнение с нашими данными ═══ -->
@@ -593,6 +755,10 @@
         $('cd-date-to').value   = a.date_max;
         $('cd-period-section').style.display = '';
         $('cd-compare-section').style.display = '';
+        // Загружаем timeline для шкалы
+        if (typeof cdtlInit === 'function') {
+          cdtlInit().catch(e => console.warn('cdtl init', e));
+        }
         // Базовый период: предзаполняем = месяц до date_min (если есть), но
         // секция показывается всегда при наличии данных.
         const dMin = new Date(a.date_min + 'T00:00');
@@ -652,6 +818,283 @@
     block.appendChild(card);
   }
 
+  // ════════════════════════════════════════════════════════════════════
+  //   Timeline period builder (cdtl)
+  //   Шкала с этапами, дни, зум, клик-выбор для блока «Период анализа».
+  // ════════════════════════════════════════════════════════════════════
+  let cdtlState = {
+    earliest: null, latest: null,
+    from: null, to: null,
+    pendingFirstClick: false, // следующий клик ставит "from"; повторный — "to"
+    zoom: 'month',           // day | week | month | year
+    data: null,
+  };
+
+  function _cdtlYmd(d) {
+    if (!d || isNaN(d.getTime())) return '';
+    return [d.getFullYear(), String(d.getMonth()+1).padStart(2,'0'),
+            String(d.getDate()).padStart(2,'0')].join('-');
+  }
+  function _cdtlParse(s) {
+    if (!s) return null;
+    const m = String(s).slice(0,10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    return new Date(+m[1], +m[2]-1, +m[3]);
+  }
+  function _cdtlAddDays(d, n) {
+    if (!d) return null;
+    const out = new Date(d); out.setDate(out.getDate()+n); return out;
+  }
+  function _cdtlDayDiff(a, b) {
+    if (!a || !b) return 0;
+    return Math.round((b - a) / 86400000);
+  }
+  function _cdtlPct(d) {
+    if (!d || !cdtlState.earliest || !cdtlState.latest) return 0;
+    const total = (cdtlState.latest - cdtlState.earliest) || 86400000;
+    return Math.max(0, Math.min(100, ((d - cdtlState.earliest) / total) * 100));
+  }
+
+  // Ширина шкалы в зависимости от зума (в px на день)
+  function _cdtlScaleWidth() {
+    if (!cdtlState.earliest || !cdtlState.latest) return '100%';
+    const days = _cdtlDayDiff(cdtlState.earliest, cdtlState.latest) + 1;
+    const pxPerDay = { day: 12, week: 4, month: 1.6, year: 0.5 }[cdtlState.zoom] || 1.6;
+    const minW = 600;
+    const w = Math.max(minW, Math.round(days * pxPerDay));
+    return w + 'px';
+  }
+
+  async function cdtlInit() {
+    if (!currentWellId) return;
+    try {
+      const r = await fetch('/api/adaptation-report/timeline?well_id=' + currentWellId);
+      if (!r.ok) { console.warn('cdtl fetch fail', r.status); return; }
+      const d = await r.json();
+      cdtlState.data = d;
+      // Левая граница: самая ранняя из дат
+      const cands = [];
+      if (d.customer_data?.first_date) cands.push(_cdtlParse(d.customer_data.first_date));
+      if (d.our_data?.first_date)      cands.push(_cdtlParse(d.our_data.first_date));
+      for (const s of (d.stages || [])) {
+        if (s.dt_start) cands.push(_cdtlParse(s.dt_start));
+      }
+      const today = _cdtlParse(d.today) || new Date();
+      cdtlState.earliest = cands.length
+        ? _cdtlAddDays(cands.reduce((a,b) => a < b ? a : b), -7)
+        : _cdtlAddDays(today, -365);
+      cdtlState.latest = today;
+      // Подцепить уже выставленные даты в форме
+      cdtlState.from = _cdtlParse($('cd-date-from').value);
+      cdtlState.to   = _cdtlParse($('cd-date-to').value);
+      cdtlState.pendingFirstClick = false;
+      cdtlRender();
+      cdtlUpdateMode();
+    } catch (e) {
+      console.warn('cdtlInit', e);
+    }
+  }
+
+  function cdtlRender() {
+    const scale = $('cdtl-scale');
+    if (!scale || !cdtlState.earliest || !cdtlState.latest) return;
+    // Ширина: зависит от зума
+    scale.style.width = _cdtlScaleWidth();
+    const d = cdtlState.data || {};
+    const parts = [];
+
+    // Бар данных заказчика
+    if (d.customer_data?.first_date && d.customer_data?.last_date) {
+      const a = _cdtlPct(_cdtlParse(d.customer_data.first_date));
+      const b = _cdtlPct(_cdtlParse(d.customer_data.last_date));
+      parts.push(
+        `<div class="cdtl-bar cdtl-bar-customer" style="left:${a}%; width:${Math.max(b-a,0.3)}%;"
+              title="well_daily: ${d.customer_data.first_date} — ${d.customer_data.last_date} (${d.customer_data.days_count} дн.)"></div>` +
+        `<div class="cdtl-bar-label" style="top:38px;">Заказчик</div>`
+      );
+    } else {
+      parts.push(`<div class="cdtl-bar-label" style="top:38px; color:#9ca3af;">Заказчик: нет данных</div>`);
+    }
+    // Бар наших датчиков
+    if (d.our_data?.first_date && d.our_data?.last_date) {
+      const a = _cdtlPct(_cdtlParse(d.our_data.first_date));
+      const b = _cdtlPct(_cdtlParse(d.our_data.last_date));
+      parts.push(
+        `<div class="cdtl-bar cdtl-bar-our" style="left:${a}%; width:${Math.max(b-a,0.3)}%;"
+              title="pressure_hourly: ${d.our_data.first_date} — ${d.our_data.last_date}"></div>` +
+        `<div class="cdtl-bar-label" style="top:60px;">Датчики</div>`
+      );
+    } else {
+      parts.push(`<div class="cdtl-bar-label" style="top:60px; color:#9ca3af;">Датчики: нет данных</div>`);
+    }
+
+    // Этапы — точки + вертикальная линия + подпись
+    for (const s of (d.stages || [])) {
+      if (!s.dt_start) continue;
+      const xStart = _cdtlPct(_cdtlParse(s.dt_start));
+      const xEnd   = s.dt_end ? _cdtlPct(_cdtlParse(s.dt_end)) : 100;
+      const lblShort = (s.label || '').slice(0, 14);
+      // Линия + точка-маркер на старте
+      parts.push(
+        `<div class="cdtl-stage-line" style="left:${xStart}%; color:${s.color};"></div>`,
+        `<div class="cdtl-stage-dot" style="left:${xStart}%; color:${s.color};"
+              data-stage-from="${_cdtlYmd(_cdtlParse(s.dt_start))}"
+              data-stage-to="${s.dt_end ? _cdtlYmd(_cdtlParse(s.dt_end)) : _cdtlYmd(cdtlState.latest)}"
+              title="${s.label}: ${s.dt_start.slice(0,10)}${s.dt_end ? ' → ' + s.dt_end.slice(0,10) : ' → сейчас'}\nКлик — выбрать диапазон этапа">
+         </div>`,
+        `<div class="cdtl-stage-label" style="left:${(xStart+xEnd)/2}%; color:${s.color};">${lblShort}</div>`
+      );
+      // Если у этапа есть конец — линия конца тоже
+      if (s.dt_end) {
+        parts.push(
+          `<div class="cdtl-stage-line" style="left:${xEnd}%; color:${s.color}; opacity:0.25;"></div>`
+        );
+      }
+    }
+
+    // Range — выбранный период
+    if (cdtlState.from && cdtlState.to) {
+      const a = _cdtlPct(cdtlState.from);
+      const b = _cdtlPct(cdtlState.to);
+      const days = _cdtlDayDiff(cdtlState.from, cdtlState.to) + 1;
+      parts.push(
+        `<div class="cdtl-range" style="left:${a}%; width:${Math.max(b-a,0.3)}%;">
+           <div class="cdtl-range-label" style="left:6px;">${_cdtlYmd(cdtlState.from)} → ${_cdtlYmd(cdtlState.to)} (${days} дн.)</div>
+         </div>`
+      );
+    } else if (cdtlState.from) {
+      // Только нижняя граница — рисуем якорь как линию
+      const x = _cdtlPct(cdtlState.from);
+      parts.push(
+        `<div class="cdtl-anchor" style="left:${x}%;">
+           <div class="cdtl-anchor-line"></div>
+         </div>`
+      );
+    }
+
+    // Ось — метки в зависимости от зума
+    const totalDays = _cdtlDayDiff(cdtlState.earliest, cdtlState.latest) || 1;
+    let step;
+    if (cdtlState.zoom === 'day') step = 7;
+    else if (cdtlState.zoom === 'week') step = 14;
+    else if (cdtlState.zoom === 'month') step = totalDays > 365 ? 60 : 30;
+    else step = totalDays > 1500 ? 180 : 90;
+    const axis = [];
+    for (let cur = new Date(cdtlState.earliest); cur <= cdtlState.latest; cur = _cdtlAddDays(cur, step)) {
+      const x = _cdtlPct(cur);
+      let lbl;
+      if (cdtlState.zoom === 'day' || cdtlState.zoom === 'week') {
+        lbl = String(cur.getDate()).padStart(2,'0') + '.' + String(cur.getMonth()+1).padStart(2,'0');
+      } else {
+        lbl = String(cur.getMonth()+1).padStart(2,'0') + '.' + String(cur.getFullYear()).slice(-2);
+      }
+      axis.push(`<div class="cdtl-axis-tick" style="left:${x}%;">${lbl}</div>`);
+    }
+    parts.push(`<div class="cdtl-axis">${axis.join('')}</div>`);
+
+    scale.innerHTML = parts.join('');
+
+    // Bind clicks on stage dots
+    scale.querySelectorAll('.cdtl-stage-dot').forEach(dot => {
+      dot.addEventListener('click', ev => {
+        ev.stopPropagation();
+        const f = dot.dataset.stageFrom;
+        const t = dot.dataset.stageTo;
+        if (!f || !t) return;
+        cdtlState.from = _cdtlParse(f);
+        cdtlState.to   = _cdtlParse(t);
+        cdtlState.pendingFirstClick = false;
+        cdtlWriteToFields();
+        cdtlRender();
+        cdtlUpdateMode();
+      });
+    });
+  }
+
+  function cdtlWriteToFields() {
+    if (cdtlState.from) $('cd-date-from').value = _cdtlYmd(cdtlState.from);
+    if (cdtlState.to)   $('cd-date-to').value   = _cdtlYmd(cdtlState.to);
+  }
+  function cdtlSyncFromFields() {
+    cdtlState.from = _cdtlParse($('cd-date-from').value);
+    cdtlState.to   = _cdtlParse($('cd-date-to').value);
+    cdtlRender();
+    cdtlUpdateMode();
+  }
+
+  function cdtlUpdateMode() {
+    const lbl = $('cdtl-mode');
+    const disp = $('cdtl-period-display');
+    if (!lbl) return;
+    if (cdtlState.from && cdtlState.to) {
+      const days = _cdtlDayDiff(cdtlState.from, cdtlState.to) + 1;
+      lbl.textContent = `выбран диапазон`;
+      if (disp) disp.textContent = `${_cdtlYmd(cdtlState.from)} → ${_cdtlYmd(cdtlState.to)} · ${days} дн.`;
+    } else if (cdtlState.from) {
+      lbl.textContent = `задана левая граница, кликните по правой`;
+      if (disp) disp.textContent = `${_cdtlYmd(cdtlState.from)} → …`;
+    } else {
+      lbl.textContent = 'не выбран';
+      if (disp) disp.textContent = '';
+    }
+  }
+
+  // Клик по шкале: первый клик = from, второй = to (как в других builder'ах)
+  function cdtlBindOnce() {
+    const scale = $('cdtl-scale');
+    const scroll = $('cdtl-scroll');
+    if (!scale || scale.dataset.bound) return;
+    scale.dataset.bound = '1';
+    scale.addEventListener('click', ev => {
+      // если кликнули по точке этапа — обработка уже была
+      if (ev.target.closest('.cdtl-stage-dot')) return;
+      if (!cdtlState.earliest || !cdtlState.latest) return;
+      const rect = scale.getBoundingClientRect();
+      const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+      const ms = cdtlState.earliest.getTime() + pct * (cdtlState.latest - cdtlState.earliest);
+      const d = new Date(ms); d.setHours(0,0,0,0);
+      // Если уже есть полный диапазон — начинаем заново с «from»
+      if (cdtlState.from && cdtlState.to) {
+        cdtlState.from = d; cdtlState.to = null; cdtlState.pendingFirstClick = false;
+      } else if (!cdtlState.from) {
+        cdtlState.from = d; cdtlState.pendingFirstClick = false;
+      } else {
+        // Уже есть from → ставим to. Меняем местами если порядок неверный.
+        if (d < cdtlState.from) {
+          cdtlState.to = cdtlState.from; cdtlState.from = d;
+        } else {
+          cdtlState.to = d;
+        }
+      }
+      cdtlWriteToFields();
+      cdtlRender();
+      cdtlUpdateMode();
+    });
+    // Зум-кнопки
+    document.querySelectorAll('.cdtl-zoom-btn[data-zoom]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        cdtlState.zoom = btn.dataset.zoom;
+        document.querySelectorAll('.cdtl-zoom-btn[data-zoom]').forEach(b => {
+          b.classList.toggle('active', b === btn);
+        });
+        cdtlRender();
+      });
+    });
+    // Сброс
+    $('cdtl-clear-btn')?.addEventListener('click', () => {
+      cdtlState.from = null; cdtlState.to = null;
+      cdtlState.pendingFirstClick = false;
+      cdtlRender();
+      cdtlUpdateMode();
+    });
+    // Двусторонняя синхронизация со старыми полями
+    ['cd-date-from','cd-date-to'].forEach(id => {
+      $(id)?.addEventListener('change', cdtlSyncFromFields);
+    });
+  }
+  // Привяжем при загрузке (DOM уже есть к моменту исполнения скрипта)
+  cdtlBindOnce();
+
   // ─────────────────────────── Period presets ──────────────────────
   function applyPreset(kind) {
     if (!availability || !availability.has_data) return;
@@ -673,6 +1116,7 @@
     }
     $('cd-date-from').value = dFromStr;
     $('cd-date-to').value = dMaxStr;
+    if (typeof cdtlSyncFromFields === 'function') cdtlSyncFromFields();
   }
 
   // ─────────────────────────── Run analytics ───────────────────────

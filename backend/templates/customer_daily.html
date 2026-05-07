@@ -418,6 +418,11 @@
     <div class="cdtl-wrap" id="cdtl-wrap">
       <div class="cdtl-headerrow">
         Режим: <span class="cdtl-mode" id="cdtl-mode">не выбран</span>
+        <span id="cdtl-diag" style="font-size:0.72rem; color:#6b7280; margin-left:10px;
+                                    font-family:monospace;"></span>
+        <button type="button" class="cdtl-zoom-btn" id="cdtl-reload-btn"
+                title="Перезагрузить таймлайн (этапы/события из БД)"
+                style="margin-left:8px;">🔄</button>
         <span class="cdtl-period-display" id="cdtl-period-display"></span>
       </div>
       <div class="cdtl-zoom-row">
@@ -943,11 +948,40 @@
 
   async function cdtlInit() {
     if (!currentWellId) return;
+    const diag = $('cdtl-diag');
+    if (diag) diag.textContent = '⏳ загружаю /timeline…';
     try {
-      const r = await fetch('/api/adaptation-report/timeline?well_id=' + currentWellId);
-      if (!r.ok) { console.warn('cdtl fetch fail', r.status); return; }
+      // Cache-buster чтобы избежать прилипшего HTTP-кэша от старой версии endpoint
+      const url = '/api/adaptation-report/timeline?well_id=' + currentWellId
+                  + '&_=' + Date.now();
+      const r = await fetch(url, { cache: 'no-store' });
+      if (!r.ok) {
+        if (diag) diag.textContent = '✗ /timeline → HTTP ' + r.status;
+        console.warn('cdtl fetch fail', r.status);
+        return;
+      }
       const d = await r.json();
       cdtlState.data = d;
+      // Видимая диагностика — что именно вернул API
+      if (diag) {
+        const stCount = (d.stages || []).length;
+        const evCount = (d.events || []).length;
+        const stSrc = (d.stages || []).map(s => s.source || '?').join(',') || '—';
+        const cdays = d.customer_data?.days_count || 0;
+        const ours = d.our_data?.first_date ? '✓' : '—';
+        diag.textContent =
+          `БД: stages=${stCount} [${stSrc}] · events=${evCount} · ` +
+          `well_daily=${cdays}д · pressure_hourly=${ours}`;
+        diag.title = JSON.stringify({
+          stages: d.stages, events: d.events,
+          customer_data: d.customer_data, our_data: d.our_data,
+        }, null, 2);
+        if (stCount === 0 && evCount === 0) {
+          diag.style.color = '#dc2626';
+        } else {
+          diag.style.color = '#059669';
+        }
+      }
       // Самая ранняя дата из всех источников (без ограничения окна)
       const cands = [];
       if (d.customer_data?.first_date) cands.push(_cdtlParse(d.customer_data.first_date));
@@ -1354,6 +1388,10 @@
       });
     });
     // (Кнопки годов/«Вся история» биндятся в cdtlRenderWindowButtons)
+    // Перезагрузка таймлайна
+    $('cdtl-reload-btn')?.addEventListener('click', () => {
+      if (typeof cdtlInit === 'function') cdtlInit();
+    });
     // Кнопки ±N от якоря
     document.querySelectorAll('.cdtl-zoom-btn[data-shift]').forEach(btn => {
       btn.addEventListener('click', () => {

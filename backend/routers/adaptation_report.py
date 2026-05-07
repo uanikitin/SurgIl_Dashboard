@@ -668,6 +668,96 @@ def get_monthly_stats(
     return {"well_id": well_id, "months": _json_safe(months)}
 
 
+@router.get("/timeline")
+def api_timeline(
+    well_id: int = Query(...),
+    db: Session = Depends(get_db),
+):
+    """Временная шкала скважины для конструктора периода на вкладке «Исходные данные».
+
+    Возвращает диапазоны и опорные точки, нужные UI для отрисовки таймлайна:
+    - customer_data: первый/последний день в well_daily + кол-во дней
+    - our_data: первый/последний час в pressure_hourly
+    - stages: все записи well_status (наблюдение / адаптация / оптимизация / ...) с датами и цветами
+    - today: текущая дата (анкер «сегодня»)
+    """
+    well = db.query(_Well).filter(_Well.id == well_id).first()
+    if not well:
+        raise HTTPException(404, "Скважина не найдена")
+
+    # Диапазон well_daily (данные заказчика)
+    customer = {"first_date": None, "last_date": None, "days_count": 0}
+    try:
+        from backend.services import customer_daily_service as csvc
+        csvc.ensure_table(db)
+        row = db.execute(text("""
+            SELECT MIN(date), MAX(date), COUNT(*)
+            FROM well_daily WHERE well = :wn
+        """), {"wn": str(well.number)}).fetchone()
+        if row and row[0]:
+            customer = {
+                "first_date": row[0].isoformat(),
+                "last_date": row[1].isoformat(),
+                "days_count": int(row[2] or 0),
+            }
+    except Exception:
+        log.exception("timeline: customer well_daily query failed")
+
+    # Диапазон pressure_hourly (наши датчики)
+    our = {"first_date": None, "last_date": None}
+    try:
+        from backend.services.adaptation_report_service import KUNGRAD_OFFSET
+        row = db.execute(text("""
+            SELECT MIN(measured_at), MAX(measured_at)
+            FROM pressure_hourly WHERE well_id = :wid
+        """), {"wid": well_id}).fetchone()
+        if row and row[0]:
+            # measured_at — UTC; в Asia/Tashkent = UTC+5
+            our = {
+                "first_date": (row[0] + KUNGRAD_OFFSET).date().isoformat()
+                              if row[0] else None,
+                "last_date":  (row[1] + KUNGRAD_OFFSET).date().isoformat()
+                              if row[1] else None,
+            }
+    except Exception:
+        log.exception("timeline: pressure_hourly range failed")
+
+    # Этапы из well_status (все записи, не только последние)
+    stages: list[dict] = []
+    try:
+        rows = db.execute(text("""
+            SELECT status,
+                   (dt_start AT TIME ZONE 'Asia/Tashkent')::timestamp,
+                   (dt_end   AT TIME ZONE 'Asia/Tashkent')::timestamp,
+                   note
+            FROM well_status
+            WHERE well_id = :wid
+            ORDER BY dt_start
+        """), {"wid": well_id}).fetchall()
+        for r in rows:
+            label = r[0]
+            color = STATUS_BY_LABEL.get(label, {}).get("color") or "#6b7280"
+            stages.append({
+                "label": label,
+                "dt_start": r[1].isoformat() if r[1] else None,
+                "dt_end":   r[2].isoformat() if r[2] else None,
+                "color":    color,
+                "note":     r[3] or "",
+            })
+    except Exception:
+        log.exception("timeline: well_status query failed")
+
+    return {
+        "ok": True,
+        "well_id": well_id,
+        "well_number": str(well.number),
+        "today": date.today().isoformat(),
+        "customer_data": customer,
+        "our_data": our,
+        "stages": stages,
+    }
+
+
 _SECTION_KEYS = (
     "well_info", "customer_data", "observation",
     "adaptation", "charts_compare", "comparison",

@@ -1004,19 +1004,50 @@
     box.style.display = 'block';
   }
 
-  // Кнопка «Автоподбор дат» — возвращает форму к датам из stage-data
-  function applyAutoDates() {
-    if (!autoDates.adapt_from) return;
-    $('obs-from').value = autoDates.obs_from || '';
-    $('obs-to').value = autoDates.obs_to || '';
-    $('adapt-from').value = autoDates.adapt_from || '';
-    $('adapt-to').value = autoDates.adapt_to || '';
-    // Снимаем чекбокс «Ограничить длительность» — иначе он тут же подрежет дату
+  // Кнопка «Автоподбор дат» — обновляет ТОЛЬКО поля адаптации из событий
+  // (вброс реагента → adapt_from; +N сут или сегодня → adapt_to).
+  // Работает независимо от выбранного источника дат (per TZ §3.4 / §7.8):
+  // если источник = manual, кнопка не должна молча отказываться.
+  // Поля наблюдения не трогаются.
+  async function applyAutoDates() {
+    let ev = stageSources.events;
+    // Если кэш событий пуст (например, открыли страницу при source='manual') —
+    // подтянем актуальные данные с учётом текущего adapt_days.
+    if (!ev || !ev.adapt_from) {
+      try {
+        const adaptDays = parseInt($('adapt-days').value) || 10;
+        const r = await fetch(
+          `/api/adaptation-report/stage-data?well_id=${currentWellId}&adapt_days=${adaptDays}`
+        );
+        const d = await r.json();
+        ev = d.stages_from_events;
+        stageSources.events = ev;
+      } catch (e) {
+        console.warn('autodates fetch failed', e);
+      }
+    }
+    if (!ev || !ev.adapt_from) {
+      alert('Вбросы реагентов не найдены. Укажите даты адаптации вручную.');
+      return;
+    }
+    // Обновляем только адапт-поля
+    $('adapt-from').value = isoToDTLocal(ev.adapt_from) || '';
+    $('adapt-to').value = isoToDTLocal(ev.adapt_to) || '';
     if ($('limit-adapt-duration').checked) {
       $('limit-adapt-duration').checked = false;
     }
     applyDurationLimit();
     updateDatesDiffWarn();
+    // Подсказка пользователю — что изменилось
+    const warn = $('ar-dates-diff-warn');
+    if (warn) {
+      warn.style.display = 'block';
+      warn.innerHTML =
+        '✓ Обновлены только поля адаптации (по событиям вбросов). ' +
+        'Источник дат остаётся текущим. Поля наблюдения не изменены.';
+      // Через 4 сек вернём логику updateDatesDiffWarn
+      setTimeout(updateDatesDiffWarn, 4000);
+    }
   }
 
   // Применить ограничение длительности: adapt_to = adapt_from + N сут. (cap now)
@@ -2073,6 +2104,18 @@
       $('cust-to').value = today.toISOString().slice(0, 10);
     }
     if (typeof updateSplitMonthsState === 'function') updateSplitMonthsState();
+    // Инструкция в пустой области результата (per TZ §7.9)
+    const box = $('cust-analysis-result');
+    if (box && !custCurrentAnalysis) {
+      box.innerHTML = `
+        <div style="background:#f0f9ff; border-left:4px solid #0284c7;
+                    padding:0.7rem 0.9rem; border-radius:4px; margin-top:0.5rem;
+                    font-size:0.85rem; color:#0c4a6e;">
+          ℹ Выберите период (или нажмите пресет «1 нед./1 мес./3 мес.») и
+          нажмите <b>«Проанализировать»</b>. Данные берутся из таблицы
+          <code>well_daily</code> (заполняется через парсер /customer-daily).
+        </div>`;
+    }
   }
 
   async function reloadBaselines(wellId) {
@@ -2197,7 +2240,31 @@
   function renderCustomerAnalysis(d) {
     const box = $('cust-analysis-result');
     if (!d || !d.days_count) {
-      box.innerHTML = '<div style="color:#c62828;">За выбранный период нет данных в well_daily.</div>';
+      // Per TZ §7.9: graceful degradation для пустой well_daily
+      const f = $('cust-from').value || '?';
+      const t = $('cust-to').value || '?';
+      box.innerHTML = `
+        <div style="background:#fff8e1; border-left:4px solid #ffa000;
+                    padding:0.8rem 1rem; border-radius:4px; margin-top:0.5rem;">
+          <div style="font-weight:600; color:#92400e; margin-bottom:0.3rem;">
+            ⚠ Данные заказчика для скв ${currentWellId || '—'} не найдены
+          </div>
+          <div style="font-size:0.85rem; color:#5d4037; margin-bottom:0.5rem;">
+            За период <b>${f} — ${t}</b> в таблице <code>well_daily</code> нет
+            записей. Источник — выгрузка УзКорГаз, импортируется через парсер
+            на странице <code>/customer-daily</code>.
+          </div>
+          <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+            <button type="button" class="ar-btn ar-btn-primary"
+                    style="padding:0.3rem 0.7rem; font-size:0.82rem;"
+                    onclick="window.open('/customer-daily?well=${currentWellId || ''}', '_blank')">
+              📥 Открыть парсер /customer-daily
+            </button>
+            <span style="font-size:0.78rem; color:#777; align-self:center;">
+              После загрузки XLSX — вернитесь сюда и нажмите «Проанализировать».
+            </span>
+          </div>
+        </div>`;
       return;
     }
     const cmps = d.baselines_comparison || [];
@@ -2838,13 +2905,35 @@
   $('btn-auto-dates').addEventListener('click', applyAutoDates);
 
   // ─── Сохранить baseline по этапу наблюдения (НАШИ данные) ───
+  // Per TZ §7.6: показать какой период будет сохранён, спросить
+  // подтверждение если уже есть B2, отрисовать развёрнутый ответ.
   $('btn-save-obs-baseline').addEventListener('click', async () => {
     if (!currentWellId) { alert('Выберите скважину'); return; }
     const f = $('obs-from').value, t = $('obs-to').value;
     if (!f || !t) { alert('Заполните даты этапа наблюдения'); return; }
+
+    // Превью периода + подтверждение
+    const fShort = f.slice(0, 16).replace('T', ' ');
+    const tShort = t.slice(0, 16).replace('T', ' ');
+    const days = Math.max(1, Math.ceil(
+      (new Date(t) - new Date(f)) / (1000 * 60 * 60 * 24)
+    ));
+    const existing = (custBaselines || []).filter(b => b.source === 'observation');
+    let confirmMsg = `Будет зафиксирован baseline наблюдения (B2):\n\n` +
+                     `Период: ${fShort} — ${tShort}\n` +
+                     `Длительность: ${days} дн.\n` +
+                     `Скважина: ${currentWellId}\n\n` +
+                     `Расчёт по нашим данным (pressure_raw + маски).`;
+    if (existing.length) {
+      confirmMsg += `\n\n⚠ Уже есть ${existing.length} зафиксированный B2 ` +
+                    `для этой скважины. Будет создан ещё один (новый).`;
+    }
+    confirmMsg += `\n\nПродолжить?`;
+    if (!confirm(confirmMsg)) return;
+
     const status = $('obs-baseline-status');
     status.style.color = '#6b7280';
-    status.textContent = 'Сохранение…';
+    status.textContent = `⏳ Сохраняю период ${fShort} — ${tShort}…`;
     try {
       const r = await fetch('/api/adaptation-report/baselines/observation', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -2857,20 +2946,25 @@
       const d = await r.json();
       if (!r.ok) {
         status.style.color = '#dc2626';
-        status.textContent = 'Ошибка: ' + (d.detail || r.status);
+        status.textContent = '✗ Ошибка: ' + (d.detail || r.status);
         return;
       }
-      status.style.color = '#16a34a';
       const bl = d.baseline || {};
-      status.textContent = `✓ baseline #${bl.id} сохранён`;
-      // Перегружаем список baseline-ов и обновляем постоянное отображение
+      status.style.color = '#16a34a';
+      const fmt = v => (v === null || v === undefined || isNaN(v))
+        ? '—' : Number(v).toFixed(2);
+      status.innerHTML =
+        `✓ B2 #${bl.id} сохранён · ` +
+        `Q мед <b>${fmt(bl.q_total_median)}</b> тыс.м³/сут · ` +
+        `ΔP мед <b>${fmt(bl.dp_median)}</b> кгс/см² · ` +
+        `${bl.days_count || days} дн.`;
       if (typeof reloadBaselines === 'function') {
         await reloadBaselines(currentWellId);
       }
       renderObsBaselineDisplay();
     } catch (e) {
       status.style.color = '#dc2626';
-      status.textContent = 'Сетевая ошибка: ' + e.message;
+      status.textContent = '✗ Сетевая ошибка: ' + e.message;
     }
   });
 

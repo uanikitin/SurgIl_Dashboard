@@ -418,25 +418,11 @@
         <button type="button" class="cdtl-zoom-btn" data-zoom="week">Неделя</button>
         <button type="button" class="cdtl-zoom-btn active" data-zoom="month">Месяц</button>
         <button type="button" class="cdtl-zoom-btn" data-zoom="year">Год</button>
-        <span style="margin-left:8px; display:inline-flex; gap:8px; align-items:center;
-                     padding-left:8px; border-left:1px solid #e5e7eb;">
+        <span style="margin-left:8px; display:inline-flex; gap:6px; align-items:center;
+                     padding-left:8px; border-left:1px solid #e5e7eb;
+                     flex-wrap:wrap;" id="cdtl-window-row">
           <span style="font-size:0.78rem; color:#6b7280;">Окно:</span>
-          <label style="display:inline-flex; align-items:center; gap:3px; font-size:0.76rem; cursor:pointer;">
-            <input type="radio" name="cdtl-window" value="365" checked
-                   style="margin:0;"> 1 год
-          </label>
-          <label style="display:inline-flex; align-items:center; gap:3px; font-size:0.76rem; cursor:pointer;">
-            <input type="radio" name="cdtl-window" value="730"
-                   style="margin:0;"> 2 года
-          </label>
-          <label style="display:inline-flex; align-items:center; gap:3px; font-size:0.76rem; cursor:pointer;">
-            <input type="radio" name="cdtl-window" value="1095"
-                   style="margin:0;"> 3 года
-          </label>
-          <label style="display:inline-flex; align-items:center; gap:3px; font-size:0.76rem; cursor:pointer;">
-            <input type="radio" name="cdtl-window" value="all"
-                   style="margin:0;"> Вся история
-          </label>
+          <!-- Кнопки годов и «Вся история» рендерятся из cdtlInit на основе данных -->
         </span>
         <span style="margin-left:auto;">
           <button type="button" class="cdtl-zoom-btn" id="cdtl-clear-btn"
@@ -448,10 +434,18 @@
              title="Кликните по этапу — возьмёт его диапазон. Кликните по шкале — поставит точку отсчёта."></div>
       </div>
 
+      <!-- Точки отсчёта из БД (этапы) — кнопки-shortcut для якоря -->
+      <div class="cdtl-zoom-row" id="cdtl-stage-shortcuts" style="display:none;
+           background:#eff6ff; border:1px solid #bfdbfe; border-radius:5px;
+           padding:5px 8px; margin-top:6px; flex-wrap:wrap;">
+        <span style="font-size:0.78rem; color:#1e40af;">Этапы из БД (клик = поставить точку отсчёта):</span>
+        <!-- Кнопки рендерятся в cdtlRender на основе stages -->
+      </div>
+
       <!-- Быстрый выбор «±N от точки» — появляется когда выбран якорь -->
       <div class="cdtl-zoom-row" id="cdtl-anchor-bar" style="display:none;
            background:#fef3c7; border:1px solid #fcd34d; border-radius:5px;
-           padding:5px 8px; margin-top:6px;">
+           padding:5px 8px; margin-top:6px; flex-wrap:wrap;">
         <span style="font-size:0.78rem; color:#92400e;">
           От точки <b id="cdtl-anchor-date">—</b>:
         </span>
@@ -463,9 +457,13 @@
         <button type="button" class="cdtl-zoom-btn" data-shift="fwd" data-days="3">+3 сут.</button>
         <button type="button" class="cdtl-zoom-btn" data-shift="fwd" data-days="7">+1 нед.</button>
         <button type="button" class="cdtl-zoom-btn" data-shift="fwd" data-days="30">+1 мес.</button>
-        <span style="margin-left:auto; font-size:0.7rem; color:#92400e;">
-          Кнопки расширяют диапазон от точки. Сбросить — ✕.
-        </span>
+        <span style="font-size:0.74rem; color:#92400e; margin-left:8px;">±N сут.:</span>
+        <input type="number" id="cdtl-custom-days" min="1" max="3650" step="1"
+               placeholder="N"
+               style="width:5rem; padding:3px 6px; font-size:0.78rem;
+                      border:1px solid #fcd34d; border-radius:3px; background:#fff;">
+        <button type="button" class="cdtl-zoom-btn" id="cdtl-custom-back-btn">−N назад</button>
+        <button type="button" class="cdtl-zoom-btn" id="cdtl-custom-fwd-btn">+N вперёд</button>
       </div>
 
       <div class="cdtl-help">
@@ -890,7 +888,8 @@
   let cdtlState = {
     earliest: null, latest: null,
     earliestRaw: null,        // самая ранняя дата из всех данных (без ограничения окна)
-    windowDays: 365,          // окно отображения шкалы: 365 / 730 / 1095 / 'all'
+    windowMode: 'year',       // 'year' | 'all'
+    windowYear: null,         // если windowMode === 'year' — какой именно (число)
     from: null, to: null,
     anchor: null,             // точка-якорь для кнопок ±N
     pendingFirstClick: false, // следующий клик ставит "from"; повторный — "to"
@@ -952,7 +951,10 @@
         ? _cdtlAddDays(cands.reduce((a,b) => a < b ? a : b), -7)
         : _cdtlAddDays(today, -365);
       cdtlState.latest = today;
+      // По умолчанию — текущий год
+      if (!cdtlState.windowYear) cdtlState.windowYear = today.getFullYear();
       cdtlApplyWindow();
+      cdtlRenderWindowButtons();
       // Подцепить уже выставленные даты в форме
       cdtlState.from = _cdtlParse($('cd-date-from').value);
       cdtlState.to   = _cdtlParse($('cd-date-to').value);
@@ -964,18 +966,91 @@
     }
   }
 
-  // Применить выбранное окно (1 год / 2 / 3 / вся история)
+  // Применить выбранное окно. Режимы:
+  //   'year' + windowYear → календарный год [year-01-01 .. year-12-31] (или today для текущего)
+  //   'all'               → от earliestRaw до today
   function cdtlApplyWindow() {
     const today = cdtlState.latest || new Date();
-    if (cdtlState.windowDays === 'all' || !cdtlState.earliestRaw) {
+    if (cdtlState.windowMode === 'all' || !cdtlState.earliestRaw) {
       cdtlState.earliest = cdtlState.earliestRaw || _cdtlAddDays(today, -365);
-    } else {
-      const requested = _cdtlAddDays(today, -cdtlState.windowDays);
-      // Не уходим левее реальных самых ранних данных
-      cdtlState.earliest = (requested < cdtlState.earliestRaw)
-        ? cdtlState.earliestRaw
-        : requested;
+      // latest при «вся история» — today
+      cdtlState.latest = _cdtlParse(cdtlState.data?.today) || today;
+      return;
     }
+    // Режим «год»
+    const y = cdtlState.windowYear || today.getFullYear();
+    cdtlState.earliest = new Date(y, 0, 1);
+    const todayCur = _cdtlParse(cdtlState.data?.today) || today;
+    if (y === todayCur.getFullYear()) {
+      // текущий год — до сегодня
+      cdtlState.latest = todayCur;
+    } else {
+      // прошлый/будущий — до конца года
+      cdtlState.latest = new Date(y, 11, 31);
+    }
+    // Если данных за этот год меньше — earliest всё равно 1 января (пустота слева ок).
+    // Не уходим левее earliestRaw для красоты.
+    if (cdtlState.earliestRaw && cdtlState.earliest < cdtlState.earliestRaw) {
+      // допустимо: год может начаться раньше, чем первые данные
+      // оставляем как есть — пустые дни слева видны как незаполненная шкала
+    }
+  }
+
+  // Построить список лет с данными для кнопок-окна
+  function _cdtlYearOptions() {
+    const years = new Set();
+    const today = _cdtlParse(cdtlState.data?.today) || new Date();
+    years.add(today.getFullYear());
+    if (cdtlState.earliestRaw) {
+      const fromY = cdtlState.earliestRaw.getFullYear();
+      const toY = today.getFullYear();
+      for (let y = fromY; y <= toY; y++) years.add(y);
+    }
+    return Array.from(years).sort((a, b) => b - a);  // новейший сверху
+  }
+
+  function cdtlRenderWindowButtons() {
+    const row = $('cdtl-window-row');
+    if (!row) return;
+    const years = _cdtlYearOptions();
+    const todayY = (_cdtlParse(cdtlState.data?.today) || new Date()).getFullYear();
+    // Текущая активная — чтобы по клику переключать
+    const activeY = (cdtlState.windowMode === 'year') ? cdtlState.windowYear : null;
+    const activeAll = (cdtlState.windowMode === 'all');
+    let html = '<span style="font-size:0.78rem; color:#6b7280;">Окно:</span>';
+    for (const y of years) {
+      const isActive = y === activeY;
+      html += `<button type="button" class="cdtl-zoom-btn ${isActive ? 'active' : ''}"
+                       data-cdtl-year="${y}"
+                       title="Окно за ${y} год${y === todayY ? ' (до сегодня)' : ''}">
+                 ${y}${y === todayY ? ' (тек.)' : ''}
+               </button>`;
+    }
+    html += `<button type="button" class="cdtl-zoom-btn ${activeAll ? 'active' : ''}"
+                     data-cdtl-window-all="1"
+                     title="Показать всю историю с самой ранней даты до сегодня">
+               Вся история
+             </button>`;
+    row.innerHTML = html;
+    // Bind clicks
+    row.querySelectorAll('[data-cdtl-year]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        cdtlState.windowMode = 'year';
+        cdtlState.windowYear = parseInt(btn.dataset.cdtlYear, 10);
+        cdtlApplyWindow();
+        cdtlRenderWindowButtons();
+        cdtlRender();
+      });
+    });
+    row.querySelectorAll('[data-cdtl-window-all]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        cdtlState.windowMode = 'all';
+        cdtlState.windowYear = null;
+        cdtlApplyWindow();
+        cdtlRenderWindowButtons();
+        cdtlRender();
+      });
+    });
   }
 
   function cdtlRender() {
@@ -1100,6 +1175,48 @@
         cdtlUpdateAnchorBar();
       });
     });
+
+    // Рендерим shortcut-кнопки этапов (точки отсчёта из БД)
+    cdtlRenderStageShortcuts();
+  }
+
+  // Кнопки-shortcut под шкалой: «Установка датчиков 2026-02-02»,
+  // «Наблюдение 2026-02-02», «Адаптация 2026-02-18» и т.д.
+  // Клик = поставить якорь на дату начала этого этапа.
+  function cdtlRenderStageShortcuts() {
+    const row = $('cdtl-stage-shortcuts');
+    if (!row) return;
+    const stages = (cdtlState.data && cdtlState.data.stages) || [];
+    if (!stages.length) {
+      row.style.display = 'none';
+      return;
+    }
+    // Сохраняем заголовок-метку, перерисовываем кнопки
+    let html = `<span style="font-size:0.78rem; color:#1e40af;">
+                  Точки отсчёта из БД (клик = поставить точку отсчёта):
+                </span>`;
+    for (const s of stages) {
+      if (!s.dt_start) continue;
+      const dStr = s.dt_start.slice(0, 10);
+      const lbl = (s.label || '').slice(0, 18);
+      html +=
+        `<button type="button" class="cdtl-zoom-btn"
+                 data-stage-anchor="${dStr}"
+                 style="border-color:${s.color}; color:${s.color};"
+                 title="Поставить точку отсчёта на ${dStr} (${s.label})">
+           <span style="display:inline-block; width:8px; height:8px; border-radius:50%;
+                        background:${s.color}; vertical-align:middle; margin-right:4px;"></span>
+           ${lbl}: ${dStr}
+         </button>`;
+    }
+    row.innerHTML = html;
+    row.style.display = '';
+    row.querySelectorAll('[data-stage-anchor]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const d = _cdtlParse(btn.dataset.stageAnchor);
+        if (d) cdtlSetAnchor(d);
+      });
+    });
   }
 
   function cdtlWriteToFields() {
@@ -1198,20 +1315,29 @@
         cdtlRender();
       });
     });
-    // Окно отображения (1 год / 2 / 3 / вся история)
-    document.querySelectorAll('input[name="cdtl-window"]').forEach(rb => {
-      rb.addEventListener('change', () => {
-        const v = rb.value;
-        cdtlState.windowDays = (v === 'all') ? 'all' : parseInt(v, 10);
-        cdtlApplyWindow();
-        cdtlRender();
-      });
-    });
+    // (Кнопки годов/«Вся история» биндятся в cdtlRenderWindowButtons)
     // Кнопки ±N от якоря
     document.querySelectorAll('.cdtl-zoom-btn[data-shift]').forEach(btn => {
       btn.addEventListener('click', () => {
         cdtlShiftFromAnchor(btn.dataset.shift, btn.dataset.days);
       });
+    });
+    // Произвольное N сут.
+    const customInput = $('cdtl-custom-days');
+    const customBack = $('cdtl-custom-back-btn');
+    const customFwd  = $('cdtl-custom-fwd-btn');
+    const onCustom = (direction) => {
+      const n = parseInt(customInput?.value || '0', 10);
+      if (!n || n <= 0) {
+        if (customInput) customInput.focus();
+        return;
+      }
+      cdtlShiftFromAnchor(direction, n);
+    };
+    customBack?.addEventListener('click', () => onCustom('back'));
+    customFwd?.addEventListener('click',  () => onCustom('fwd'));
+    customInput?.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter') onCustom('fwd');  // Enter = +N (по умолчанию)
     });
     // Сброс
     $('cdtl-clear-btn')?.addEventListener('click', () => {

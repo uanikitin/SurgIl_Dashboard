@@ -986,6 +986,40 @@
         } else {
           diag.style.color = '#059669';
         }
+        // Раскрываемая панель с деталями ошибок и сырым JSON.
+        // Уже не прячем в tooltip — выводим явно под шкалой.
+        let detail = $('cdtl-diag-detail');
+        if (!detail) {
+          detail = document.createElement('div');
+          detail.id = 'cdtl-diag-detail';
+          detail.style.cssText =
+            'margin-top:6px; padding:8px 10px; background:#fee2e2;' +
+            'border:1px solid #fca5a5; border-radius:5px;' +
+            'font-family:monospace; font-size:0.72rem; color:#991b1b;' +
+            'white-space:pre-wrap; max-height:280px; overflow:auto;';
+          $('cdtl-wrap')?.appendChild(detail);
+        }
+        if (errs.length) {
+          detail.style.display = '';
+          detail.style.background = '#fee2e2';
+          detail.style.borderColor = '#fca5a5';
+          detail.style.color = '#991b1b';
+          detail.textContent =
+            'ОШИБКИ /timeline (показываются явно):\n' +
+            errs.map((e, i) => `  ${i+1}. ${e.step}: ${e.error}`).join('\n') +
+            '\n\nПолный ответ:\n' + JSON.stringify(d, null, 2);
+        } else if (stCount === 0 && evCount === 0) {
+          // Нет ошибок, но и нет stages/events — показываем raw JSON чтобы понять
+          detail.style.display = '';
+          detail.style.background = '#fef3c7';
+          detail.style.borderColor = '#fcd34d';
+          detail.style.color = '#92400e';
+          detail.textContent =
+            'Запросы прошли без ошибок, но stages=0 и events=0.\n' +
+            'Полный ответ /timeline:\n' + JSON.stringify(d, null, 2);
+        } else {
+          detail.style.display = 'none';
+        }
       }
       // Самая ранняя дата из всех источников (без ограничения окна)
       const cands = [];

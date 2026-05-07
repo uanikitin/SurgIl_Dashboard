@@ -261,7 +261,52 @@
   @keyframes wz-spin { to { transform: rotate(360deg); } }
 
   /* ─── Period builder timeline (wizard step 2) ─── */
-  .tl2-builder { margin-bottom: 0.6rem; }
+  .tl2-builder {
+    margin-bottom: 0.6rem;
+    background: #fafafa; border: 1px solid #e5e7eb; border-radius: 6px;
+    padding: 10px 12px;
+  }
+  .tl2-zoom-row {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 6px; font-size: 0.78rem; color: #6b7280;
+  }
+  .tl2-zoom-btn {
+    padding: 3px 10px; font-size: 0.76rem; background: #fff;
+    border: 1px solid #d1d5db; border-radius: 999px; cursor: pointer;
+    color: #374151;
+  }
+  .tl2-zoom-btn:hover { background: #eff6ff; border-color: #93c5fd; }
+  .tl2-zoom-btn.active {
+    background: #2563eb; color: #fff; border-color: #1d4ed8;
+  }
+  .tl2-scroll {
+    width: 100%; overflow-x: auto; overflow-y: hidden;
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 4px;
+    padding: 6px 0; margin-bottom: 4px;
+  }
+  /* Этап как точка-кружок */
+  .tl2-stage-dot {
+    position: absolute; top: 6px;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 0 2px #fff, 0 1px 4px rgba(0,0,0,0.2);
+    transform: translateX(-50%);
+    cursor: pointer; pointer-events: auto;
+    transition: transform 0.1s;
+  }
+  .tl2-stage-dot:hover { transform: translateX(-50%) scale(1.4); }
+  .tl2-range-label {
+    position: absolute; top: -2px;
+    background: rgba(220,38,38,0.85); color: #fff;
+    font-size: 0.66rem; font-weight: 600;
+    padding: 1px 5px; border-radius: 2px;
+    white-space: nowrap;
+  }
+  .tl2-help {
+    font-size: 0.7rem; color: #9ca3af; margin-top: 4px;
+    display: flex; gap: 12px; flex-wrap: wrap;
+  }
+  .tl2-help b { color: #4b5563; }
   .tl2-mode-row {
     display: flex; align-items: center; gap: 0.5rem;
     font-size: 0.84rem; color: #374151; margin-bottom: 0.4rem;
@@ -273,33 +318,31 @@
     font-size: 0.78rem;
   }
   .tl2-scale {
-    position: relative; height: 86px; background: #fff;
-    border: 1px solid #d1d5db; border-radius: 4px;
-    margin-bottom: 0.55rem; cursor: crosshair;
-    user-select: none;
+    position: relative; height: 110px; min-width: 100%;
+    cursor: crosshair; user-select: none;
   }
   .tl2-bar {
     position: absolute; height: 16px; border-radius: 3px;
     pointer-events: none;
   }
-  .tl2-bar-customer { top: 30px; background: #93c5fd; }
-  .tl2-bar-our      { top: 50px; background: #6ee7b7; }
+  .tl2-bar-customer { top: 38px; background: #93c5fd; }
+  .tl2-bar-our      { top: 60px; background: #6ee7b7; }
   .tl2-bar-label {
     position: absolute; left: 6px; font-size: 0.66rem;
     color: rgba(0,0,0,0.7); line-height: 16px; pointer-events: none;
   }
-  .tl2-stage-marker {
-    position: absolute; top: 0; height: 26px; pointer-events: none;
-  }
   .tl2-stage-line {
-    position: absolute; left: 0; top: 0; width: 2px; height: 86px;
-    background: currentColor; opacity: 0.55;
+    position: absolute; top: 12px; height: 88px;
+    width: 2px; background: currentColor; opacity: 0.45;
+    transform: translateX(-50%); pointer-events: none;
   }
   .tl2-stage-label {
-    position: absolute; top: -2px; left: 5px;
-    font-size: 0.66rem; font-weight: 600;
+    position: absolute; top: 22px;
     background: currentColor; color: #fff;
-    padding: 1px 5px; border-radius: 2px; white-space: nowrap;
+    font-size: 0.66rem; font-weight: 600;
+    padding: 1px 5px; border-radius: 2px;
+    white-space: nowrap; transform: translateX(-50%);
+    pointer-events: none;
   }
   .tl2-anchor {
     position: absolute; top: 0; bottom: 0; width: 0; pointer-events: none;
@@ -764,53 +807,34 @@
       <div class="wz-section">
         <h3>Параметры периода</h3>
 
-        <!-- ═══ Конструктор периода: шкала + якорь + до/после ═══ -->
+        <!-- ═══ Временная шкала с этапами (как на /customer-daily) ═══ -->
         <div class="tl2-builder">
           <div class="tl2-mode-row">
             Режим: <b id="tl2-mode-label">не выбран</b>
             <span class="tl2-period-display" id="tl2-period-display"></span>
           </div>
-          <div class="tl2-scale" id="tl2-scale"
-               title="Клик — поставить точку отсчёта"></div>
-          <!-- Якорь (точка отсчёта) -->
-          <div class="tl2-controls-row">
-            <span class="tl2-controls-label">Точка отсчёта:</span>
-            <button type="button" class="tl2-btn" data-tl2-anchor="customer-start"
-                    title="Первая дата в well_daily">Начало данных</button>
-            <button type="button" class="tl2-btn" data-tl2-anchor="obs-start"
-                    title="Дата начала этапа Наблюдения">Наблюдение</button>
-            <button type="button" class="tl2-btn" data-tl2-anchor="adapt-start"
-                    title="Дата начала этапа Адаптации">Адаптация</button>
-            <button type="button" class="tl2-btn" data-tl2-anchor="opt-start"
-                    title="Дата начала этапа Оптимизации">Оптимизация</button>
-            <button type="button" class="tl2-btn" data-tl2-anchor="today">Сегодня</button>
-            <span class="tl2-divider"></span>
-            <input type="date" class="tl2-date-input" id="tl2-anchor-input"
-                   title="Точная дата якоря">
+          <div class="tl2-zoom-row">
+            <span style="font-size:0.78rem; color:#6b7280;">Масштаб:</span>
+            <button type="button" class="tl2-zoom-btn" data-tl2-zoom="day"
+                    title="Каждая дата отдельно (горизонтальный скролл)">Сутки</button>
+            <button type="button" class="tl2-zoom-btn" data-tl2-zoom="week">Неделя</button>
+            <button type="button" class="tl2-zoom-btn active" data-tl2-zoom="month">Месяц</button>
+            <button type="button" class="tl2-zoom-btn" data-tl2-zoom="year">Год</button>
+            <span style="margin-left:auto;">
+              <button type="button" class="tl2-zoom-btn" id="tl2-clear-btn"
+                      title="Снять выбор">✕ Сбросить</button>
+            </span>
           </div>
-          <!-- До якоря -->
-          <div class="tl2-controls-row">
-            <span class="tl2-controls-label">До якоря:</span>
-            <button type="button" class="tl2-btn" data-tl2-before="3">−3 сут.</button>
-            <button type="button" class="tl2-btn" data-tl2-before="7">−1 нед.</button>
-            <button type="button" class="tl2-btn" data-tl2-before="30">−1 мес.</button>
-            <button type="button" class="tl2-btn" data-tl2-before="90">−3 мес.</button>
-            <button type="button" class="tl2-btn" data-tl2-before="all">До начала</button>
-            <span class="tl2-divider"></span>
-            <input type="date" class="tl2-date-input" id="tl2-before-input"
-                   title="Точная левая граница периода">
+          <div class="tl2-scroll" id="tl2-scroll">
+            <div class="tl2-scale" id="tl2-scale"
+                 title="Кликните по точке этапа = взять диапазон этапа. Клик по пустому месту: первый = «от», второй = «до».">
+            </div>
           </div>
-          <!-- После якоря -->
-          <div class="tl2-controls-row">
-            <span class="tl2-controls-label">После якоря:</span>
-            <button type="button" class="tl2-btn" data-tl2-after="3">+3 сут.</button>
-            <button type="button" class="tl2-btn" data-tl2-after="7">+1 нед.</button>
-            <button type="button" class="tl2-btn" data-tl2-after="30">+1 мес.</button>
-            <button type="button" class="tl2-btn" data-tl2-after="90">+3 мес.</button>
-            <button type="button" class="tl2-btn" data-tl2-after="today">До сегодня</button>
-            <span class="tl2-divider"></span>
-            <input type="date" class="tl2-date-input" id="tl2-after-input"
-                   title="Точная правая граница периода">
+          <div class="tl2-help">
+            <span><b>Точки сверху</b> — этапы из журнала статусов скважины (клик = взять весь диапазон этапа)</span>
+            <span><b>Синяя полоса</b> — well_daily</span>
+            <span><b>Зелёная полоса</b> — pressure_hourly (наши датчики)</span>
+            <span><b>Клик по пустому месту</b>: первый = «от», повторный = «до»</span>
           </div>
         </div>
 
@@ -1001,8 +1025,9 @@
   // ════════════════════════════════════════════════════════════════════
   let tl2State = {
     earliest: null, latest: null,
-    anchor: null, anchorLabel: '',
+    anchor: null, anchorLabel: '',  // legacy (не используется в новом UI)
     from: null, to: null,
+    zoom: 'month',                  // day | week | month | year
     data: null, suspendSync: false,
   };
   function _tl2Ymd(d) {
@@ -1063,9 +1088,18 @@
     }
   }
 
+  function _tl2ScaleWidth() {
+    if (!tl2State.earliest || !tl2State.latest) return '100%';
+    const days = _tl2DayDiff(tl2State.earliest, tl2State.latest) + 1;
+    const pxPerDay = { day: 12, week: 4, month: 1.6, year: 0.5 }[tl2State.zoom || 'month'] || 1.6;
+    const minW = 600;
+    return Math.max(minW, Math.round(days * pxPerDay)) + 'px';
+  }
+
   function tl2Render() {
     const scale = $('tl2-scale');
     if (!scale || !tl2State.earliest || !tl2State.latest) return;
+    scale.style.width = _tl2ScaleWidth();
     const d = tl2State.data || {};
     const parts = [];
 
@@ -1074,141 +1108,102 @@
       const a = _tl2Pct(_tl2Parse(d.customer_data.first_date));
       const b = _tl2Pct(_tl2Parse(d.customer_data.last_date));
       parts.push(
-        `<div class="tl2-bar tl2-bar-customer" style="left:${a}%; width:${Math.max(b-a, 0.3)}%;"
+        `<div class="tl2-bar tl2-bar-customer" style="left:${a}%; width:${Math.max(b-a,0.3)}%;"
               title="well_daily: ${d.customer_data.first_date} — ${d.customer_data.last_date} (${d.customer_data.days_count} дн.)"></div>` +
-        `<div class="tl2-bar-label" style="top:30px;">Заказчик</div>`
+        `<div class="tl2-bar-label" style="top:38px;">Заказчик</div>`
       );
     } else {
-      parts.push(`<div class="tl2-bar-label" style="top:30px; color:#9ca3af;">Заказчик: нет данных</div>`);
+      parts.push(`<div class="tl2-bar-label" style="top:38px; color:#9ca3af;">Заказчик: нет данных</div>`);
     }
     // Бар наших датчиков
     if (d.our_data?.first_date && d.our_data?.last_date) {
       const a = _tl2Pct(_tl2Parse(d.our_data.first_date));
       const b = _tl2Pct(_tl2Parse(d.our_data.last_date));
       parts.push(
-        `<div class="tl2-bar tl2-bar-our" style="left:${a}%; width:${Math.max(b-a, 0.3)}%;"
+        `<div class="tl2-bar tl2-bar-our" style="left:${a}%; width:${Math.max(b-a,0.3)}%;"
               title="pressure_hourly: ${d.our_data.first_date} — ${d.our_data.last_date}"></div>` +
-        `<div class="tl2-bar-label" style="top:50px;">Датчики</div>`
+        `<div class="tl2-bar-label" style="top:60px;">Датчики</div>`
       );
     } else {
-      parts.push(`<div class="tl2-bar-label" style="top:50px; color:#9ca3af;">Датчики: нет данных</div>`);
+      parts.push(`<div class="tl2-bar-label" style="top:60px; color:#9ca3af;">Датчики: нет данных</div>`);
     }
 
-    // Маркеры этапов
+    // Этапы — кликабельная точка + вертикальная линия + центрированный лейбл
     for (const s of (d.stages || [])) {
       if (!s.dt_start) continue;
-      const x = _tl2Pct(_tl2Parse(s.dt_start));
-      const lbl = (s.label || '').slice(0, 12);
+      const xStart = _tl2Pct(_tl2Parse(s.dt_start));
+      const xEnd   = s.dt_end ? _tl2Pct(_tl2Parse(s.dt_end)) : 100;
+      const lblShort = (s.label || '').slice(0, 14);
       parts.push(
-        `<div class="tl2-stage-marker" style="left:${x}%; color:${s.color};"
-              title="${s.label}: ${s.dt_start.slice(0,10)}${s.dt_end ? ' → ' + s.dt_end.slice(0,10) : ''}">
-           <div class="tl2-stage-line"></div>
-           <div class="tl2-stage-label">${lbl}</div>
-         </div>`
+        `<div class="tl2-stage-line" style="left:${xStart}%; color:${s.color};"></div>`,
+        `<div class="tl2-stage-dot" style="left:${xStart}%; color:${s.color};"
+              data-stage-from="${_tl2Ymd(_tl2Parse(s.dt_start))}"
+              data-stage-to="${s.dt_end ? _tl2Ymd(_tl2Parse(s.dt_end)) : _tl2Ymd(tl2State.latest)}"
+              title="${s.label}: ${s.dt_start.slice(0,10)}${s.dt_end ? ' → ' + s.dt_end.slice(0,10) : ' → сейчас'}\nКлик — взять диапазон этапа">
+         </div>`,
+        `<div class="tl2-stage-label" style="left:${(xStart+xEnd)/2}%; color:${s.color};">${lblShort}</div>`
       );
+      if (s.dt_end) {
+        parts.push(`<div class="tl2-stage-line" style="left:${xEnd}%; color:${s.color}; opacity:0.25;"></div>`);
+      }
     }
 
     // Range — выбранный период
     if (tl2State.from && tl2State.to) {
       const a = _tl2Pct(tl2State.from);
       const b = _tl2Pct(tl2State.to);
-      parts.push(`<div class="tl2-range" style="left:${a}%; width:${Math.max(b-a, 0.3)}%;"></div>`);
-    }
-    // Якорь
-    if (tl2State.anchor) {
-      const x = _tl2Pct(tl2State.anchor);
+      const days = _tl2DayDiff(tl2State.from, tl2State.to) + 1;
+      parts.push(
+        `<div class="tl2-range" style="left:${a}%; width:${Math.max(b-a,0.3)}%;">
+           <div class="tl2-range-label" style="left:6px;">${_tl2Ymd(tl2State.from)} → ${_tl2Ymd(tl2State.to)} (${days} дн.)</div>
+         </div>`
+      );
+    } else if (tl2State.from) {
+      const x = _tl2Pct(tl2State.from);
       parts.push(
         `<div class="tl2-anchor" style="left:${x}%;">
            <div class="tl2-anchor-line"></div>
-           <div class="tl2-anchor-label">▼ ${_tl2Ymd(tl2State.anchor)}</div>
          </div>`
       );
     }
 
-    // Ось — метки месяцев
+    // Ось — метки в зависимости от зума
     const totalDays = _tl2DayDiff(tl2State.earliest, tl2State.latest) || 1;
-    let step = 30;
-    if (totalDays > 730) step = 90;
-    else if (totalDays > 365) step = 60;
-    else if (totalDays > 120) step = 30;
-    else if (totalDays > 30)  step = 7;
-    else step = 1;
+    let step;
+    if (tl2State.zoom === 'day') step = 7;
+    else if (tl2State.zoom === 'week') step = 14;
+    else if (tl2State.zoom === 'month') step = totalDays > 365 ? 60 : 30;
+    else step = totalDays > 1500 ? 180 : 90;
     const axis = [];
     for (let cur = new Date(tl2State.earliest); cur <= tl2State.latest; cur = _tl2AddDays(cur, step)) {
       const x = _tl2Pct(cur);
-      const lbl = String(cur.getMonth()+1).padStart(2,'0') + '.' + String(cur.getFullYear()).slice(-2);
+      let lbl;
+      if (tl2State.zoom === 'day' || tl2State.zoom === 'week') {
+        lbl = String(cur.getDate()).padStart(2,'0') + '.' + String(cur.getMonth()+1).padStart(2,'0');
+      } else {
+        lbl = String(cur.getMonth()+1).padStart(2,'0') + '.' + String(cur.getFullYear()).slice(-2);
+      }
       axis.push(`<div class="tl2-axis-tick" style="left:${x}%;">${lbl}</div>`);
     }
     parts.push(`<div class="tl2-axis">${axis.join('')}</div>`);
 
     scale.innerHTML = parts.join('');
-  }
 
-  function tl2ResolveAnchor(key) {
-    const d = tl2State.data || {};
-    if (key === 'today') return _tl2Parse(d.today) || new Date();
-    if (key === 'customer-start') return _tl2Parse(d.customer_data?.first_date);
-    const map = {
-      'obs-start':   ['Наблюдение'],
-      'adapt-start': ['Адаптация'],
-      'opt-start':   ['Оптимизация', 'Оптимизация Optimization'],
-    };
-    const labels = map[key];
-    if (labels) {
-      for (const s of (d.stages || [])) {
-        if (labels.includes(s.label) && s.dt_start) return _tl2Parse(s.dt_start);
-      }
-    }
-    return null;
-  }
-
-  function tl2SetAnchor(date, sourceKey) {
-    if (!date) {
-      alert('Дата для этой точки отсчёта не задана.');
-      return;
-    }
-    tl2State.anchor = date;
-    tl2State.anchorLabel = sourceKey || 'manual';
-    $('tl2-anchor-input').value = _tl2Ymd(date);
-    document.querySelectorAll('.tl2-builder [data-tl2-anchor]').forEach(b => {
-      b.classList.toggle('active', b.dataset.tl2Anchor === sourceKey);
+    // Bind clicks on stage dots (rebind при каждом render — элементы новые)
+    scale.querySelectorAll('.tl2-stage-dot').forEach(dot => {
+      dot.addEventListener('click', ev => {
+        ev.stopPropagation();
+        const f = dot.dataset.stageFrom;
+        const t = dot.dataset.stageTo;
+        if (!f || !t) return;
+        tl2State.from = _tl2Parse(f);
+        tl2State.to   = _tl2Parse(t);
+        tl2State.anchor = null;
+        tl2WriteToFields();
+        tl2Render();
+        tl2UpdateMode();
+      });
     });
-    tl2Render();
-    tl2UpdateMode();
-  }
-
-  function tl2ApplyBefore(key) {
-    if (!tl2State.anchor) { alert('Сначала выберите точку отсчёта.'); return; }
-    let from;
-    if (key === 'all') from = new Date(tl2State.earliest);
-    else from = _tl2AddDays(tl2State.anchor, -parseInt(key, 10));
-    if (from < tl2State.earliest) from = new Date(tl2State.earliest);
-    tl2State.from = from;
-    if (!tl2State.to) tl2State.to = new Date(tl2State.anchor);
-    $('tl2-before-input').value = _tl2Ymd(from);
-    document.querySelectorAll('.tl2-builder [data-tl2-before]').forEach(b => {
-      b.classList.toggle('active', b.dataset.tl2Before === String(key));
-    });
-    tl2WriteToFields();
-    tl2Render();
-    tl2UpdateMode();
-  }
-
-  function tl2ApplyAfter(key) {
-    if (!tl2State.anchor) { alert('Сначала выберите точку отсчёта.'); return; }
-    let to;
-    if (key === 'today') to = new Date(tl2State.latest);
-    else to = _tl2AddDays(tl2State.anchor, parseInt(key, 10));
-    if (to > tl2State.latest) to = new Date(tl2State.latest);
-    tl2State.to = to;
-    if (!tl2State.from) tl2State.from = new Date(tl2State.anchor);
-    $('tl2-after-input').value = _tl2Ymd(to);
-    document.querySelectorAll('.tl2-builder [data-tl2-after]').forEach(b => {
-      b.classList.toggle('active', b.dataset.tl2After === String(key));
-    });
-    tl2WriteToFields();
-    tl2Render();
-    tl2UpdateMode();
   }
 
   function tl2WriteToFields() {
@@ -1236,71 +1231,61 @@
     const lbl = $('tl2-mode-label');
     const disp = $('tl2-period-display');
     if (!lbl) return;
-    if (!tl2State.from || !tl2State.to) {
+    if (tl2State.from && tl2State.to) {
+      const days = _tl2DayDiff(tl2State.from, tl2State.to) + 1;
+      lbl.textContent = 'выбран диапазон';
+      if (disp) disp.textContent = `${_tl2Ymd(tl2State.from)} → ${_tl2Ymd(tl2State.to)} · ${days} дн.`;
+    } else if (tl2State.from) {
+      lbl.textContent = 'задана левая граница, кликните по правой';
+      if (disp) disp.textContent = `${_tl2Ymd(tl2State.from)} → …`;
+    } else {
       lbl.textContent = 'не выбран';
       if (disp) disp.textContent = '';
-      return;
-    }
-    const days = _tl2DayDiff(tl2State.from, tl2State.to) + 1;
-    const labelMap = {
-      'today': 'Сегодня', 'customer-start': 'Начала данных',
-      'obs-start': 'Наблюдения', 'adapt-start': 'Адаптации',
-      'opt-start': 'Оптимизации', 'manual': 'клика по шкале',
-    };
-    let modeText;
-    if (tl2State.anchor) {
-      const before = _tl2DayDiff(tl2State.from, tl2State.anchor);
-      const after  = _tl2DayDiff(tl2State.anchor, tl2State.to);
-      const al = labelMap[tl2State.anchorLabel] || tl2State.anchorLabel || _tl2Ymd(tl2State.anchor);
-      modeText = `от «${al}» (${_tl2Ymd(tl2State.anchor)}): −${before} / +${after} сут.`;
-    } else {
-      modeText = 'произвольный диапазон';
-    }
-    lbl.textContent = modeText;
-    if (disp) {
-      disp.textContent = `${_tl2Ymd(tl2State.from)} → ${_tl2Ymd(tl2State.to)} · ${days} дн.`;
     }
   }
 
-  // Однократная привязка обработчиков (rebind при каждом renderStep2 ок —
-  // элементы каждый раз новые после innerHTML).
+  // Привязка обработчиков. Rebind при каждом renderStep2 — элементы
+  // каждый раз новые после innerHTML.
   function tl2BindHandlers() {
-    document.querySelectorAll('.tl2-builder [data-tl2-anchor]').forEach(btn => {
+    // Зум-кнопки
+    document.querySelectorAll('.tl2-builder [data-tl2-zoom]').forEach(btn => {
       btn.addEventListener('click', () => {
-        const key = btn.dataset.tl2Anchor;
-        const d = tl2ResolveAnchor(key);
-        tl2SetAnchor(d, key);
+        tl2State.zoom = btn.dataset.tl2Zoom;
+        document.querySelectorAll('.tl2-builder [data-tl2-zoom]').forEach(b => {
+          b.classList.toggle('active', b === btn);
+        });
+        tl2Render();
       });
     });
-    document.querySelectorAll('.tl2-builder [data-tl2-before]').forEach(btn => {
-      btn.addEventListener('click', () => tl2ApplyBefore(btn.dataset.tl2Before));
+    // Сброс
+    $('tl2-clear-btn')?.addEventListener('click', () => {
+      tl2State.from = null; tl2State.to = null; tl2State.anchor = null;
+      tl2WriteToFields();
+      tl2Render();
+      tl2UpdateMode();
     });
-    document.querySelectorAll('.tl2-builder [data-tl2-after]').forEach(btn => {
-      btn.addEventListener('click', () => tl2ApplyAfter(btn.dataset.tl2After));
-    });
-    $('tl2-anchor-input')?.addEventListener('change', e => {
-      const d = _tl2Parse(e.target.value);
-      if (d) tl2SetAnchor(d, 'manual');
-    });
-    $('tl2-before-input')?.addEventListener('change', e => {
-      const d = _tl2Parse(e.target.value);
-      if (!d) return;
-      tl2State.from = d;
-      tl2WriteToFields(); tl2Render(); tl2UpdateMode();
-    });
-    $('tl2-after-input')?.addEventListener('change', e => {
-      const d = _tl2Parse(e.target.value);
-      if (!d) return;
-      tl2State.to = d;
-      tl2WriteToFields(); tl2Render(); tl2UpdateMode();
-    });
+    // Клик по шкале: первый = «от», второй = «до», третий перезапускает
     $('tl2-scale')?.addEventListener('click', ev => {
+      if (ev.target.closest('.tl2-stage-dot')) return;  // кружок этапа
       if (!tl2State.earliest || !tl2State.latest) return;
       const rect = ev.currentTarget.getBoundingClientRect();
       const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
       const ms = tl2State.earliest.getTime() + pct * (tl2State.latest - tl2State.earliest);
       const d = new Date(ms); d.setHours(0, 0, 0, 0);
-      tl2SetAnchor(d, 'manual');
+      if (tl2State.from && tl2State.to) {
+        tl2State.from = d; tl2State.to = null;
+      } else if (!tl2State.from) {
+        tl2State.from = d;
+      } else {
+        if (d < tl2State.from) {
+          tl2State.to = tl2State.from; tl2State.from = d;
+        } else {
+          tl2State.to = d;
+        }
+      }
+      tl2WriteToFields();
+      tl2Render();
+      tl2UpdateMode();
     });
   }
 

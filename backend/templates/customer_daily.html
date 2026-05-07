@@ -483,6 +483,11 @@
       <button class="cd-btn cd-btn-success" id="cd-attach-quick-btn"
               title="Прикрепить выбранный период к отчёту с дефолтным комментарием. Можно потом отредактировать в списке внизу."
               style="display:none;">➕ Прикрепить к отчёту</button>
+      <button class="cd-btn cd-btn-secondary" id="cd-set-baseline-btn"
+              title="Сохранить выбранный период как базовый (B1) в БД. Метрики Q/ΔP/P записываются для дальнейшего сравнения с любыми периодами."
+              style="display:none; background:#fef3c7; color:#92400e; border-color:#fcd34d;">
+        📌 Сохранить как базовый (B1)
+      </button>
       <span id="cd-attach-quick-status"
             style="font-size:0.82rem; color:#10b981;"></span>
     </div>
@@ -1286,6 +1291,8 @@
         $('cd-period-save-section').style.display = '';
         const qb = $('cd-attach-quick-btn');
         if (qb) qb.style.display = '';
+        const bb = $('cd-set-baseline-btn');
+        if (bb) bb.style.display = '';
       }
 
       // Если включено сравнение — подгружаем наши данные и накладываем
@@ -2049,6 +2056,71 @@
     }
   });
 
+  // Сохранить текущий период как базовый (B1) в БД для сравнения.
+  // Записывает метрики через POST /api/adaptation-report/baselines с
+  // source='customer' (стандартный baseline заказчика). После сохранения
+  // baseline доступен на странице отчёта об адаптации в сравнениях.
+  $('cd-set-baseline-btn')?.addEventListener('click', async () => {
+    if (!lastWellData || !lastWellData.rows) {
+      alert('Сначала нажмите «Показать аналитику».');
+      return;
+    }
+    if (!currentWellId) {
+      alert('Скважина не определена.');
+      return;
+    }
+    const well = $('cd-well-select').value;
+    const f = $('cd-date-from').value, t = $('cd-date-to').value;
+    const days = lastWellData.rows;
+    const defName = `B1 ${f} … ${t} (скв. ${well})`;
+    const name = prompt(
+      `Сохранить выбранный период как базовый (B1) для скв. ${well}?\n\n` +
+      `Период: ${f} — ${t} (${days} сут.)\n\n` +
+      `Имя baseline:`,
+      defName
+    );
+    if (!name) return;
+    const notes = prompt('Заметки (можно пусто, попадут в подпись baseline):', '') || '';
+    const status = $('cd-attach-quick-status');
+    if (status) { status.textContent = '⏳ Сохраняю как B1…'; status.style.color = '#92400e'; }
+    try {
+      const r = await fetch('/api/adaptation-report/baselines', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          well_id: currentWellId,
+          name: name,
+          period_from: f,
+          period_to: t,
+          source: 'customer',
+          notes: notes,
+          is_pinned: false,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok || d.ok === false) {
+        if (status) {
+          status.textContent = '✗ ' + (d.detail || d.error || 'Ошибка сохранения');
+          status.style.color = '#dc2626';
+        }
+        return;
+      }
+      const bl = d.baseline || {};
+      if (status) {
+        status.textContent = `✓ B1 #${bl.id || '?'} сохранён`;
+        status.style.color = '#059669';
+      }
+      setTimeout(() => {
+        if (status) { status.textContent = ''; status.style.color = '#10b981'; }
+      }, 5000);
+    } catch (e) {
+      if (status) {
+        status.textContent = '✗ Сетевая ошибка: ' + e.message;
+        status.style.color = '#dc2626';
+      }
+    }
+  });
+
   // Быстрое прикрепление одной кнопкой (рядом с «Показать аналитику»):
   // сохранить с дефолтным комментарием → сбросить выбор шкалы для следующего
   // периода → проскроллить наверх к шкале.
@@ -2073,8 +2145,10 @@
         if (typeof cdtlRender === 'function') cdtlRender();
         if (typeof cdtlUpdateMode === 'function') cdtlUpdateMode();
       }
-      // Прячем кнопку до следующего «Показать аналитику»
+      // Прячем кнопки до следующего «Показать аналитику»
       $('cd-attach-quick-btn').style.display = 'none';
+      const bb = $('cd-set-baseline-btn');
+      if (bb) bb.style.display = 'none';
       // Скрываем графики предыдущего анализа — они больше не для этого выбора
       $('cd-charts-section').style.display = 'none';
       $('cd-describe-section').style.display = 'none';

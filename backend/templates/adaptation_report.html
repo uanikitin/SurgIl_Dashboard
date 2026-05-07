@@ -266,6 +266,115 @@
   .ar-monthly-desc .ym {
     font-weight: 600; color: #1976D2; margin-right: 0.4rem;
   }
+
+  /* ─── Period builder timeline (TZ §3.8 redesign) ─── */
+  .tl-builder {
+    border: 1px solid #d4d4d8; border-radius: 6px;
+    padding: 0.7rem 0.8rem; background: #fafafa;
+    margin-bottom: 0.6rem;
+  }
+  .tl-mode-row {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-size: 0.82rem; color: #374151; margin-bottom: 0.5rem;
+  }
+  .tl-mode-row b { color: #1565c0; }
+  .tl-mode-row .tl-period-display {
+    margin-left: auto; font-family: monospace; color: #6b7280;
+    font-size: 0.78rem;
+  }
+  .tl-scale {
+    position: relative; height: 78px; background: #fff;
+    border: 1px solid #e5e7eb; border-radius: 4px;
+    margin-bottom: 0.5rem; cursor: crosshair;
+    user-select: none;
+  }
+  .tl-bar {
+    position: absolute; height: 14px; border-radius: 3px;
+    pointer-events: none;
+  }
+  .tl-bar-customer { top: 28px; background: #93c5fd; }
+  .tl-bar-our      { top: 46px; background: #6ee7b7; }
+  .tl-bar-label {
+    position: absolute; left: 4px; font-size: 0.65rem;
+    color: rgba(0,0,0,0.65); line-height: 14px;
+  }
+  .tl-stage-marker {
+    position: absolute; top: 0; height: 24px;
+    pointer-events: none;
+  }
+  .tl-stage-marker .tl-stage-line {
+    position: absolute; left: 0; top: 0;
+    width: 2px; height: 78px;
+    background: currentColor; opacity: 0.5;
+  }
+  .tl-stage-marker .tl-stage-label {
+    position: absolute; top: -2px; left: 4px;
+    font-size: 0.65rem; font-weight: 600;
+    background: currentColor; color: #fff;
+    padding: 1px 4px; border-radius: 2px;
+    white-space: nowrap;
+  }
+  .tl-stage-label-text { color: #fff; }
+  .tl-anchor {
+    position: absolute; top: 0; bottom: 0;
+    width: 0; pointer-events: none;
+  }
+  .tl-anchor-line {
+    position: absolute; top: 0; bottom: 0; left: -1px;
+    width: 2px; background: #dc2626;
+    box-shadow: 0 0 4px rgba(220,38,38,0.5);
+  }
+  .tl-anchor-label {
+    position: absolute; bottom: -2px; left: 4px;
+    background: #dc2626; color: #fff;
+    font-size: 0.7rem; font-weight: 600;
+    padding: 1px 5px; border-radius: 2px;
+    white-space: nowrap; pointer-events: none;
+  }
+  .tl-range {
+    position: absolute; top: 24px; height: 40px;
+    background: rgba(220,38,38,0.10);
+    border-left: 1px dashed rgba(220,38,38,0.35);
+    border-right: 1px dashed rgba(220,38,38,0.35);
+    pointer-events: none;
+  }
+  .tl-axis {
+    position: absolute; bottom: 2px; left: 0; right: 0;
+    height: 14px; pointer-events: none;
+  }
+  .tl-axis-tick {
+    position: absolute; top: 0; font-size: 0.62rem;
+    color: #6b7280; transform: translateX(-50%);
+    white-space: nowrap;
+  }
+  .tl-axis-tick::before {
+    content: ""; display: block; width: 1px; height: 4px;
+    background: #9ca3af; margin: 0 auto 1px;
+  }
+  .tl-controls-row {
+    display: flex; align-items: center; gap: 0.35rem;
+    flex-wrap: wrap; font-size: 0.78rem;
+    margin-bottom: 0.35rem;
+  }
+  .tl-controls-label { color: #374151; font-weight: 500; }
+  .tl-btn {
+    padding: 0.18rem 0.5rem; font-size: 0.75rem;
+    background: #fff; border: 1px solid #d1d5db;
+    border-radius: 3px; cursor: pointer;
+    color: #374151;
+  }
+  .tl-btn:hover { background: #eff6ff; border-color: #93c5fd; }
+  .tl-btn.active { background: #2563eb; color: #fff; border-color: #1d4ed8; }
+  .tl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .tl-date-input {
+    padding: 0.18rem 0.4rem; font-size: 0.75rem;
+    border: 1px solid #d1d5db; border-radius: 3px;
+    width: 8rem;
+  }
+  .tl-side-divider {
+    width: 1px; height: 22px; background: #d4d4d8;
+    margin: 0 0.3rem;
+  }
 </style>
 {% endblock %}
 
@@ -684,14 +793,74 @@
           число анализируемых периодов в PDF-отчёт.
         </div>
 
-        <!-- Плитки-ориентиры с периодами этапов -->
-        <div style="font-size: 0.78rem; color: #666; margin: 0.4rem 0 0.3rem;">
-          Этапы (клик — открыть конструктор базового периода):
+        <!-- ═══ Новый конструктор периода (timeline) ═══ -->
+        <div class="tl-builder" id="tl-builder">
+          <div class="tl-mode-row">
+            Режим: <b id="tl-mode-label">не выбран</b>
+            <span class="tl-period-display" id="tl-period-display"></span>
+          </div>
+          <div class="tl-scale" id="tl-scale">
+            <!-- Заполняется renderTimeline() -->
+          </div>
+          <!-- Якорь -->
+          <div class="tl-controls-row">
+            <span class="tl-controls-label">Точка отсчёта:</span>
+            <button type="button" class="tl-btn" data-anchor="customer-start"
+                    title="Первая дата в данных заказчика">Начало данных</button>
+            <button type="button" class="tl-btn" data-anchor="obs-start"
+                    title="Дата начала этапа наблюдения">Наблюдение</button>
+            <button type="button" class="tl-btn" data-anchor="adapt-start"
+                    title="Дата начала этапа адаптации">Адаптация</button>
+            <button type="button" class="tl-btn" data-anchor="opt-start"
+                    title="Дата начала этапа оптимизации">Оптимизация</button>
+            <button type="button" class="tl-btn" data-anchor="today"
+                    title="Сегодня">Сегодня</button>
+            <span class="tl-side-divider"></span>
+            <span class="tl-controls-label">Вручную:</span>
+            <input type="date" class="tl-date-input" id="tl-anchor-input">
+            <span style="font-size:0.7rem; color:#9ca3af; margin-left:auto;">
+              или клик по шкале
+            </span>
+          </div>
+          <!-- До якоря -->
+          <div class="tl-controls-row">
+            <span class="tl-controls-label">До якоря:</span>
+            <button type="button" class="tl-btn" data-before="3">−3 сут.</button>
+            <button type="button" class="tl-btn" data-before="7">−1 нед.</button>
+            <button type="button" class="tl-btn" data-before="30">−1 мес.</button>
+            <button type="button" class="tl-btn" data-before="90">−3 мес.</button>
+            <button type="button" class="tl-btn" data-before="all"
+                    title="Раздвинуть до начала данных">До начала</button>
+            <span class="tl-side-divider"></span>
+            <input type="date" class="tl-date-input" id="tl-before-input"
+                   title="Точная левая граница периода">
+          </div>
+          <!-- После якоря -->
+          <div class="tl-controls-row">
+            <span class="tl-controls-label">После якоря:</span>
+            <button type="button" class="tl-btn" data-after="3">+3 сут.</button>
+            <button type="button" class="tl-btn" data-after="7">+1 нед.</button>
+            <button type="button" class="tl-btn" data-after="30">+1 мес.</button>
+            <button type="button" class="tl-btn" data-after="90">+3 мес.</button>
+            <button type="button" class="tl-btn" data-after="today"
+                    title="Раздвинуть до сегодня">До сегодня</button>
+            <span class="tl-side-divider"></span>
+            <input type="date" class="tl-date-input" id="tl-after-input"
+                   title="Точная правая граница периода">
+          </div>
         </div>
-        <div class="ar-stage-tiles" id="cust-stage-tiles" data-context="baseline"
-             style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.5rem;">
-          <!-- Заполняется из renderStageTiles('cust-stage-tiles') -->
-        </div>
+
+        <!-- Плитки-ориентиры с периодами этапов (старый интерфейс — оставляем
+             на время для отката, удалим после подтверждения нового) -->
+        <details style="margin-bottom: 0.5rem;">
+          <summary style="font-size: 0.78rem; color: #888; cursor: pointer;">
+            Старый выбор по плиткам этапов (клик — конструктор базового периода)
+          </summary>
+          <div class="ar-stage-tiles" id="cust-stage-tiles" data-context="baseline"
+               style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin: 0.4rem 0;">
+            <!-- Заполняется из renderStageTiles('cust-stage-tiles') -->
+          </div>
+        </details>
 
         <!-- Period selector + presets -->
         <div class="ar-dates" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
@@ -1135,6 +1304,11 @@
     const activeArTab = document.querySelector('.ar-tab.active')?.dataset.tab;
     if (activeArTab === 'compare' && typeof loadCompareIframe === 'function') {
       loadCompareIframe();
+    }
+    // Если открыта вкладка «Исходные данные» — перезагружаем таймлайн
+    // (loadCustomerTab инициируется только при click по вкладке).
+    if (activeArTab === 'customer' && typeof loadTimeline === 'function') {
+      loadTimeline(wellId).catch(e => console.warn('timeline reload', e));
     }
 
     // Persistent state: подтянуть сохранённые поля и активный таб
@@ -2175,6 +2349,10 @@
       $('cust-to').value = today.toISOString().slice(0, 10);
     }
     if (typeof updateSplitMonthsState === 'function') updateSplitMonthsState();
+    // Загружаем timeline для нового конструктора периода
+    if (typeof loadTimeline === 'function') {
+      loadTimeline(wellId).catch(e => console.warn('timeline load', e));
+    }
     // Инструкция в пустой области результата (per TZ §7.9)
     const box = $('cust-analysis-result');
     if (box && !custCurrentAnalysis) {
@@ -2196,6 +2374,374 @@
     renderBaselinesList();
     if (typeof renderObsBaselineDisplay === 'function') renderObsBaselineDisplay();
   }
+
+  // ════════════════════════════════════════════════════════════════════
+  //   КОНСТРУКТОР ПЕРИОДА: timeline + anchor + before/after presets
+  //   (TZ §3.8 redesign — заменяет плитки этапов и Длина-кнопки)
+  // ════════════════════════════════════════════════════════════════════
+  let tlState = {
+    earliest: null,    // Date — левая граница шкалы
+    latest:   null,    // Date — правая граница шкалы (today)
+    anchor:   null,    // Date — точка отсчёта
+    anchorLabel: '',   // подпись режима
+    from:     null,    // Date — левая граница периода
+    to:       null,    // Date — правая граница периода
+    data:     null,    // ответ /timeline
+    suspendSync: false, // защита от рекурсивной синхронизации
+  };
+
+  function _ymdToDate(s) {
+    if (!s) return null;
+    const m = String(s).slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    return new Date(+m[1], +m[2] - 1, +m[3]);
+  }
+  function _dateToYmd(d) {
+    if (!d || isNaN(d.getTime())) return '';
+    return [
+      d.getFullYear(),
+      String(d.getMonth() + 1).padStart(2, '0'),
+      String(d.getDate()).padStart(2, '0'),
+    ].join('-');
+  }
+  function _dayDiff(a, b) {
+    if (!a || !b) return 0;
+    return Math.round((b - a) / 86400000);
+  }
+  function _addDays(d, n) {
+    if (!d) return null;
+    const out = new Date(d);
+    out.setDate(out.getDate() + n);
+    return out;
+  }
+
+  async function loadTimeline(wellId) {
+    if (!wellId) return;
+    const r = await fetch('/api/adaptation-report/timeline?well_id=' + wellId);
+    if (!r.ok) {
+      console.warn('timeline fetch failed', r.status);
+      return;
+    }
+    const d = await r.json();
+    tlState.data = d;
+    // Левая граница шкалы — самая ранняя из:
+    //   customer.first_date, our.first_date, первый stage.dt_start
+    const candidates = [];
+    if (d.customer_data?.first_date) candidates.push(_ymdToDate(d.customer_data.first_date));
+    if (d.our_data?.first_date)      candidates.push(_ymdToDate(d.our_data.first_date));
+    for (const s of (d.stages || [])) {
+      if (s.dt_start) candidates.push(_ymdToDate(s.dt_start));
+    }
+    const today = _ymdToDate(d.today) || new Date();
+    if (!candidates.length) {
+      // Fallback: год до сегодня
+      tlState.earliest = _addDays(today, -365);
+    } else {
+      tlState.earliest = candidates.reduce((a, b) => a < b ? a : b);
+      // Чуть отступим назад (5% запаса слева)
+      tlState.earliest = _addDays(tlState.earliest, -7);
+    }
+    tlState.latest = today;
+    // Подсасываем from/to из текущих cust-from/cust-to полей если есть
+    tlState.from = _ymdToDate($('cust-from').value);
+    tlState.to   = _ymdToDate($('cust-to').value);
+    renderTimeline();
+    updateModeLabel();
+  }
+
+  function _tlPercent(d) {
+    if (!d || !tlState.earliest || !tlState.latest) return 0;
+    const total = (tlState.latest - tlState.earliest) || 86400000;
+    return Math.max(0, Math.min(100, ((d - tlState.earliest) / total) * 100));
+  }
+
+  function renderTimeline() {
+    const scale = $('tl-scale');
+    if (!scale || !tlState.earliest || !tlState.latest) return;
+    const d = tlState.data || {};
+    const parts = [];
+
+    // Бар данных заказчика
+    if (d.customer_data?.first_date && d.customer_data?.last_date) {
+      const a = _tlPercent(_ymdToDate(d.customer_data.first_date));
+      const b = _tlPercent(_ymdToDate(d.customer_data.last_date));
+      parts.push(
+        `<div class="tl-bar tl-bar-customer" style="left:${a}%; width:${b-a}%;"
+              title="Данные заказчика (well_daily): ${d.customer_data.first_date} — ${d.customer_data.last_date}, ${d.customer_data.days_count} дн.">
+         </div>
+         <div class="tl-bar-label" style="top:28px;">Заказчик</div>`
+      );
+    } else {
+      parts.push(
+        `<div class="tl-bar-label" style="top:28px; color:#9ca3af;">Заказчик: нет данных</div>`
+      );
+    }
+    // Бар наших датчиков
+    if (d.our_data?.first_date && d.our_data?.last_date) {
+      const a = _tlPercent(_ymdToDate(d.our_data.first_date));
+      const b = _tlPercent(_ymdToDate(d.our_data.last_date));
+      parts.push(
+        `<div class="tl-bar tl-bar-our" style="left:${a}%; width:${b-a}%;"
+              title="Наши датчики (pressure_hourly): ${d.our_data.first_date} — ${d.our_data.last_date}">
+         </div>
+         <div class="tl-bar-label" style="top:46px;">Датчики</div>`
+      );
+    } else {
+      parts.push(
+        `<div class="tl-bar-label" style="top:46px; color:#9ca3af;">Датчики: нет данных</div>`
+      );
+    }
+
+    // Маркеры этапов
+    for (const s of (d.stages || [])) {
+      if (!s.dt_start) continue;
+      const x = _tlPercent(_ymdToDate(s.dt_start));
+      const labelShort = (s.label || '').slice(0, 12);
+      parts.push(
+        `<div class="tl-stage-marker" style="left:${x}%; color:${s.color};"
+              title="${s.label}: ${s.dt_start.slice(0,10)}${s.dt_end ? ' → ' + s.dt_end.slice(0,10) : ''}">
+           <div class="tl-stage-line"></div>
+           <div class="tl-stage-label">${labelShort}</div>
+         </div>`
+      );
+    }
+
+    // Range (выбранный период)
+    if (tlState.from && tlState.to) {
+      const a = _tlPercent(tlState.from);
+      const b = _tlPercent(tlState.to);
+      parts.push(
+        `<div class="tl-range" style="left:${a}%; width:${Math.max(b-a, 0.5)}%;"></div>`
+      );
+    }
+
+    // Якорь
+    if (tlState.anchor) {
+      const x = _tlPercent(tlState.anchor);
+      const ymd = _dateToYmd(tlState.anchor);
+      parts.push(
+        `<div class="tl-anchor" style="left:${x}%;">
+           <div class="tl-anchor-line"></div>
+           <div class="tl-anchor-label">▼ ${ymd}</div>
+         </div>`
+      );
+    }
+
+    // Ось-метки (квартальные деления для общего ориентирования)
+    const totalDays = _dayDiff(tlState.earliest, tlState.latest) || 1;
+    let stepDays = 30;
+    if (totalDays > 730) stepDays = 90;
+    else if (totalDays > 365) stepDays = 60;
+    else if (totalDays > 120) stepDays = 30;
+    else if (totalDays > 30) stepDays = 7;
+    else stepDays = 1;
+    const axisParts = [];
+    for (let cur = new Date(tlState.earliest); cur <= tlState.latest; cur = _addDays(cur, stepDays)) {
+      const x = _tlPercent(cur);
+      const lbl = (cur.getMonth() + 1).toString().padStart(2,'0') + '.' + String(cur.getFullYear()).slice(-2);
+      axisParts.push(`<div class="tl-axis-tick" style="left:${x}%;">${lbl}</div>`);
+    }
+    parts.push(`<div class="tl-axis">${axisParts.join('')}</div>`);
+
+    scale.innerHTML = parts.join('');
+  }
+
+  // Вычислить дату события для анкера-кнопки
+  function _resolveAnchorPreset(key) {
+    const d = tlState.data || {};
+    if (key === 'today') return _ymdToDate(d.today) || new Date();
+    if (key === 'customer-start') return _ymdToDate(d.customer_data?.first_date);
+    // Для этапов — ищем первый matching status в stages
+    const stagePrefixes = {
+      'obs-start':   ['Наблюдение'],
+      'adapt-start': ['Адаптация'],
+      'opt-start':   ['Оптимизация', 'Оптимизация Optimization'],
+    };
+    const labels = stagePrefixes[key];
+    if (labels) {
+      for (const s of (d.stages || [])) {
+        if (labels.includes(s.label) && s.dt_start) {
+          return _ymdToDate(s.dt_start);
+        }
+      }
+    }
+    // Fallback — попробуем взять из формы слева
+    const fieldMap = {
+      'obs-start':   $('obs-from')?.value,
+      'adapt-start': $('adapt-from')?.value,
+      'opt-start':   $('optimal-from')?.value,
+    };
+    const v = fieldMap[key];
+    return v ? _ymdToDate(v.slice(0, 10)) : null;
+  }
+
+  function setAnchor(date, sourceLabel) {
+    if (!date) {
+      alert('Дата для этой точки отсчёта не задана.');
+      return;
+    }
+    tlState.anchor = date;
+    tlState.anchorLabel = sourceLabel || _dateToYmd(date);
+    $('tl-anchor-input').value = _dateToYmd(date);
+    // Подсветим активную кнопку якоря
+    document.querySelectorAll('.tl-builder [data-anchor]').forEach(b => {
+      b.classList.toggle('active', b.dataset.anchor === sourceLabel);
+    });
+    renderTimeline();
+    updateModeLabel();
+  }
+
+  function _applyBeforePreset(key) {
+    if (!tlState.anchor) {
+      alert('Сначала выберите точку отсчёта.');
+      return;
+    }
+    let from;
+    if (key === 'all') {
+      from = tlState.earliest;
+    } else {
+      from = _addDays(tlState.anchor, -parseInt(key, 10));
+    }
+    if (from < tlState.earliest) from = new Date(tlState.earliest);
+    tlState.from = from;
+    if (!tlState.to) tlState.to = new Date(tlState.anchor);
+    $('tl-before-input').value = _dateToYmd(from);
+    document.querySelectorAll('.tl-builder [data-before]').forEach(b => {
+      b.classList.toggle('active', b.dataset.before === String(key));
+    });
+    syncToFields();
+    renderTimeline();
+    updateModeLabel();
+  }
+
+  function _applyAfterPreset(key) {
+    if (!tlState.anchor) {
+      alert('Сначала выберите точку отсчёта.');
+      return;
+    }
+    let to;
+    if (key === 'today') {
+      to = tlState.latest;
+    } else {
+      to = _addDays(tlState.anchor, parseInt(key, 10));
+    }
+    if (to > tlState.latest) to = new Date(tlState.latest);
+    tlState.to = to;
+    if (!tlState.from) tlState.from = new Date(tlState.anchor);
+    $('tl-after-input').value = _dateToYmd(to);
+    document.querySelectorAll('.tl-builder [data-after]').forEach(b => {
+      b.classList.toggle('active', b.dataset.after === String(key));
+    });
+    syncToFields();
+    renderTimeline();
+    updateModeLabel();
+  }
+
+  function syncToFields() {
+    if (tlState.suspendSync) return;
+    if (tlState.from) $('cust-from').value = _dateToYmd(tlState.from);
+    if (tlState.to)   $('cust-to').value   = _dateToYmd(tlState.to);
+  }
+  function syncFromFields() {
+    // При ручном редактировании cust-from / cust-to — отражаем в шкале
+    tlState.suspendSync = true;
+    tlState.from = _ymdToDate($('cust-from').value);
+    tlState.to   = _ymdToDate($('cust-to').value);
+    renderTimeline();
+    updateModeLabel();
+    tlState.suspendSync = false;
+  }
+
+  function updateModeLabel() {
+    const lbl = $('tl-mode-label');
+    const disp = $('tl-period-display');
+    if (!lbl) return;
+    if (!tlState.from || !tlState.to) {
+      lbl.textContent = 'не выбран';
+      if (disp) disp.textContent = '';
+      return;
+    }
+    const days = _dayDiff(tlState.from, tlState.to) + 1;
+    let mode;
+    if (tlState.anchor) {
+      const before = _dayDiff(tlState.from, tlState.anchor);
+      const after  = _dayDiff(tlState.anchor, tlState.to);
+      mode = `от «${tlState.anchorLabel || _dateToYmd(tlState.anchor)}» ` +
+             `(–${before} / +${after} сут.)`;
+    } else {
+      mode = 'произвольный диапазон';
+    }
+    lbl.textContent = mode;
+    if (disp) {
+      disp.textContent = `${_dateToYmd(tlState.from)} → ${_dateToYmd(tlState.to)} · ${days} дн.`;
+    }
+  }
+
+  // Обработчики кнопок
+  document.querySelectorAll('.tl-builder [data-anchor]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.anchor;
+      const date = _resolveAnchorPreset(key);
+      const labelMap = {
+        'today': 'Сегодня',
+        'customer-start': 'Начала данных',
+        'obs-start': 'Наблюдения',
+        'adapt-start': 'Адаптации',
+        'opt-start': 'Оптимизации',
+      };
+      setAnchor(date, key);
+      // Подменим anchorLabel на человекочитаемое
+      tlState.anchorLabel = labelMap[key] || _dateToYmd(date);
+      updateModeLabel();
+    });
+  });
+  document.querySelectorAll('.tl-builder [data-before]').forEach(btn => {
+    btn.addEventListener('click', () => _applyBeforePreset(btn.dataset.before));
+  });
+  document.querySelectorAll('.tl-builder [data-after]').forEach(btn => {
+    btn.addEventListener('click', () => _applyAfterPreset(btn.dataset.after));
+  });
+  // Ручной ввод якоря
+  $('tl-anchor-input')?.addEventListener('change', (ev) => {
+    const d = _ymdToDate(ev.target.value);
+    if (d) setAnchor(d, 'manual');
+    if (d) tlState.anchorLabel = _dateToYmd(d);
+    updateModeLabel();
+  });
+  // Ручной ввод границ
+  $('tl-before-input')?.addEventListener('change', (ev) => {
+    const d = _ymdToDate(ev.target.value);
+    if (!d) return;
+    tlState.from = d;
+    syncToFields();
+    renderTimeline();
+    updateModeLabel();
+  });
+  $('tl-after-input')?.addEventListener('change', (ev) => {
+    const d = _ymdToDate(ev.target.value);
+    if (!d) return;
+    tlState.to = d;
+    syncToFields();
+    renderTimeline();
+    updateModeLabel();
+  });
+  // Клик по шкале — ставит якорь
+  $('tl-scale')?.addEventListener('click', (ev) => {
+    if (!tlState.earliest || !tlState.latest) return;
+    const rect = ev.currentTarget.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+    const ms = tlState.earliest.getTime() + pct * (tlState.latest - tlState.earliest);
+    const d = new Date(ms);
+    d.setHours(0, 0, 0, 0);
+    setAnchor(d, 'manual');
+    tlState.anchorLabel = _dateToYmd(d);
+    updateModeLabel();
+  });
+  // Обратная синхронизация: ручной ввод в старые поля cust-from/cust-to
+  ['cust-from', 'cust-to'].forEach(id => {
+    const el = $(id);
+    if (el) el.addEventListener('change', syncFromFields);
+  });
 
   function renderBaselinesList() {
     const box = $('cust-baselines-list');
@@ -2339,7 +2885,34 @@
       return;
     }
     const cmps = d.baselines_comparison || [];
-    let html = `<div style="background:#f5f5f5; padding:0.6rem; border-radius:5px; margin-top:0.5rem;">
+    // Подпись режима выбора периода (TZ §3.8)
+    let modeBadge = '';
+    if (typeof tlState === 'object' && tlState.from && tlState.to) {
+      const days = _dayDiff(tlState.from, tlState.to) + 1;
+      let mode;
+      if (tlState.anchor) {
+        const before = _dayDiff(tlState.from, tlState.anchor);
+        const after  = _dayDiff(tlState.anchor, tlState.to);
+        const lblMap = {
+          'today': 'Сегодня', 'customer-start': 'Начала данных',
+          'obs-start': 'Наблюдения', 'adapt-start': 'Адаптации',
+          'opt-start': 'Оптимизации',
+        };
+        const al = lblMap[tlState.anchorLabel] || tlState.anchorLabel || _dateToYmd(tlState.anchor);
+        mode = `Якорь: <b>${al}</b> (${_dateToYmd(tlState.anchor)}) · ` +
+               `−${before} сут. / +${after} сут.`;
+      } else {
+        mode = `Произвольный диапазон`;
+      }
+      modeBadge = `<div style="background:#eff6ff; border-left:3px solid #2563eb;
+                             padding:0.4rem 0.7rem; border-radius:3px;
+                             font-size:0.8rem; color:#1e40af; margin-top:0.5rem;">
+        🎯 Режим выбора: ${mode} ·
+        <span style="font-family:monospace;">${_dateToYmd(tlState.from)} → ${_dateToYmd(tlState.to)}</span>
+        · ${days} дн.
+      </div>`;
+    }
+    let html = modeBadge + `<div style="background:#f5f5f5; padding:0.6rem; border-radius:5px; margin-top:0.5rem;">
       <b>Дней в периоде:</b> ${d.days_count} ·
       <b>Q ср.:</b> ${fmtN(d.q_total_avg)} (раб: ${fmtN(d.q_working_avg)}) ·
       <b>Q мед.:</b> ${fmtN(d.q_total_median)} ·

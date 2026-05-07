@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+import time as _time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Optional
@@ -800,8 +801,48 @@ def _build_dp_curve(
 # Расчёт метрик для одного ИРВ
 # ---------------------------------------------------------------------------
 
-def _compute_irv_metrics(
+def _prepare_period_pressure(
     well_id: int,
+    period_start: datetime,
+    period_end: datetime,
+) -> pd.DataFrame:
+    """
+    Загружает и подготавливает давление ОДИН раз на весь период.
+
+    Делает: SQL → удаление LoRa false-zeros → активные маски →
+    clean_pressure → smooth_pressure (SavGol).
+
+    Используется в analyze_reagent_effectiveness как замена
+    N+1 загрузки внутри цикла по вбросам.
+
+    Возвращает DataFrame с колонками p_tube, p_line (+ _raw),
+    индекс = measured_at (UTC). Пустой DF если нет данных.
+    """
+    df = get_pressure_data(
+        well_id,
+        start=period_start.isoformat(),
+        end=period_end.isoformat(),
+    )
+    if df.empty:
+        return df
+
+    # LoRa false-zeros → NaN (SMOD-PT-60 ~4% даёт 0.0 вместо реального).
+    df["p_tube"] = df["p_tube"].where(df["p_tube"] > 0)
+    df["p_line"] = df["p_line"].where(df["p_line"] > 0)
+
+    # Все active маски за период.
+    masks = load_active_masks(well_id, period_start, period_end)
+    if masks:
+        df, _ = apply_masks(df, masks)
+
+    # Единый pipeline: clean → smooth (Savitzky-Golay 2 прохода).
+    df = clean_pressure(df)
+    df = smooth_pressure(df)
+    return df
+
+
+def _compute_irv_metrics_from_df(
+    df_full: pd.DataFrame,
     inj: ReagentInjection,
     t_start: datetime,
     t_end: datetime,
@@ -810,43 +851,27 @@ def _compute_irv_metrics(
     cfg: ReagentAnalysisConfig,
 ) -> tuple[IRVMetrics, Optional[pd.DataFrame]]:
     """
-    Рассчитывает M1-M5 для одного ИРВ.
-    Возвращает (metrics, pressure_df для графиков).
+    Рассчитывает M1-M5 для одного ИРВ из УЖЕ ПОДГОТОВЛЕННОГО давления.
+
+    df_full должен быть результатом _prepare_period_pressure (или
+    эквивалентного pipeline) и содержать pre-window + ИРВ.
+
+    Не делает SQL и не вызывает clean/smooth — только slice + расчёты.
     """
     metrics = IRVMetrics()
 
     duration_hours = (t_end - t_start).total_seconds() / 3600.0
 
-    # --- Получаем данные давления: pre-window + ИРВ ---
-    pre_start = inj.event_time - timedelta(hours=cfg.pre_window_hours)
-    df_full = get_pressure_data(
-        well_id,
-        start=pre_start.isoformat(),
-        end=t_end.isoformat(),
-    )
-    if df_full.empty:
+    if df_full is None or df_full.empty:
         metrics.invalid_reason = "нет данных давления"
         return metrics, None
 
-    # --- Очистка от LoRa false-zeros (SMOD-PT-60 ~4% времени даёт 0.0
-    # вместо реального значения; реальное p_tube/p_line физически > 0).
-    # Делается ДО применения масок чтобы маски видели NaN, а не 0.
-    df_full["p_tube"] = df_full["p_tube"].where(df_full["p_tube"] > 0)
-    df_full["p_line"] = df_full["p_line"].where(df_full["p_line"] > 0)
-
-    # --- Применяем ВСЕ active маски (как делает /api/flow-rate/calculate
-    # и страница /well — единый pipeline для всей системы).
-    masks = load_active_masks(well_id, pre_start, t_end)
-    if masks:
-        df_full, _ = apply_masks(df_full, masks)
-
-    # --- Единый pipeline со страницей скважины и /api/flow-rate/calculate:
-    # clean_pressure (ffill/bfill) → smooth_pressure (Savitzky–Golay,
-    # окно 17 мин, polyorder 3, 2 прохода). БЕЗ этого сегментация
-    # теряла реальные пики/впадины из-за внутреннего агрессивного
-    # сглаживания медианой 60 мин + средним 20 мин.
-    df_full = clean_pressure(df_full)
-    df_full = smooth_pressure(df_full)
+    # Slice интересующего диапазона: pre-window + ИРВ
+    pre_start = inj.event_time - timedelta(hours=cfg.pre_window_hours)
+    df_full = df_full.loc[pre_start:t_end]
+    if df_full.empty:
+        metrics.invalid_reason = "нет данных давления"
+        return metrics, None
 
     # --- Baseline ΔP (pre-window) ---
     pre_end = inj.event_time
@@ -939,6 +964,33 @@ def _compute_irv_metrics(
             metrics.q_per_unit = round(q_cum / inj.qty, 4)
 
     return metrics, df_full
+
+
+def _compute_irv_metrics(
+    well_id: int,
+    inj: ReagentInjection,
+    t_start: datetime,
+    t_end: datetime,
+    choke_mm: Optional[float],
+    flow_cfg: FlowRateConfig,
+    cfg: ReagentAnalysisConfig,
+) -> tuple[IRVMetrics, Optional[pd.DataFrame]]:
+    """
+    Совместимая обёртка: загружает давление + маски + clean/smooth для ОДНОГО ИРВ
+    и считает метрики. Используется в `get_irv_detail` (детальный popup для
+    одного вброса).
+
+    Для массового анализа (analyze_reagent_effectiveness) используется связка
+    `_prepare_period_pressure` + `_compute_irv_metrics_from_df`, которая
+    загружает давление ОДИН раз на весь период.
+    """
+    pre_start = inj.event_time - timedelta(hours=cfg.pre_window_hours)
+    df_full = _prepare_period_pressure(well_id, pre_start, t_end)
+    if df_full is None or df_full.empty:
+        return IRVMetrics(invalid_reason="нет данных давления"), None
+    return _compute_irv_metrics_from_df(
+        df_full, inj, t_start, t_end, choke_mm, flow_cfg, cfg,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1166,12 +1218,30 @@ def analyze_reagent_effectiveness(
     # --- 6. FlowRateConfig из baseline сценария ---
     flow_cfg = _get_flow_config(well_id)
 
+    # --- 6a. Подготавливаем давление ОДИН раз на весь период.
+    # Раньше это делалось для каждого ИРВ отдельно (N+1 SQL + N×clean+smooth).
+    # Теперь: один SQL, одно применение масок, один clean+smooth.
+    # Слайсим под каждый ИРВ через df.loc[pre_start:t_end].
+    if boundaries:
+        _t0 = _time.perf_counter()
+        first_inj_time = min(inj.event_time for inj, _, _ in boundaries)
+        load_start = first_inj_time - timedelta(hours=cfg.pre_window_hours)
+        load_end = max(t_end for _, _, t_end in boundaries)
+        df_period = _prepare_period_pressure(well_id, load_start, load_end)
+        log.info(
+            "reagent_effectiveness: well=%d IRV=%d prepare_period_pressure=%.2fs rows=%d",
+            well_id, len(boundaries), _time.perf_counter() - _t0, len(df_period),
+        )
+    else:
+        df_period = pd.DataFrame()
+
     # --- 7. Рассчитываем метрики для каждого ИРВ ---
+    _t_loop = _time.perf_counter()
     irv_results: list[IRVResult] = []
     for inj, t_start, t_end in boundaries:
         duration_hours = (t_end - t_start).total_seconds() / 3600.0
-        metrics, df = _compute_irv_metrics(
-            well_id, inj, t_start, t_end,
+        metrics, df = _compute_irv_metrics_from_df(
+            df_period, inj, t_start, t_end,
             choke_mm, flow_cfg, cfg,
         )
         # Сегменты + extended (Score) — для сводной таблицы ИРВ.
@@ -1197,6 +1267,13 @@ def analyze_reagent_effectiveness(
             extended=ext,
             pressure_df=df if include_pressure_data else None,
         ))
+
+    if boundaries:
+        log.info(
+            "reagent_effectiveness: well=%d IRV loop=%.2fs (avg %.3fs/IRV)",
+            well_id, _time.perf_counter() - _t_loop,
+            (_time.perf_counter() - _t_loop) / max(len(boundaries), 1),
+        )
 
     # --- 8. Группируем ИРВ по реагенту и считаем Score ---
     irv_by_reagent: dict[str, list[IRVResult]] = {}

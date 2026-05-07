@@ -28,7 +28,6 @@ from backend.services.daily_report_service import (
     _load_masked_hourly,
     _compute_month_flow_from_raw,
     _ensure_dirs,
-    _linear_trend,
     _robust_trend,
 )
 
@@ -2580,7 +2579,7 @@ def collect_report_data(
     #      добавленные пользователем со страницы /customer-daily.
     # Глава собирается всегда — если ничего нет, останется None.
     customer_chapter = None
-    if include_customer_chapter or True:  # авто-сборка независимо от флага
+    if include_customer_chapter:
         try:
             from backend.services import customer_baseline_service as bsvc
             from backend.services import customer_daily_service as csvc

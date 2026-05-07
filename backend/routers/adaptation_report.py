@@ -23,6 +23,7 @@ from backend.deps import get_current_user
 from backend.models.wells import Well
 from backend.services.adaptation_report_service import (
     collect_report_data,
+    collect_stage_stats,
     validate_stages,
     suggest_stages_from_events,
     compute_monthly_stats,
@@ -456,6 +457,7 @@ class BaselineCreateRequest(BaseModel):
     source: str = "customer"
     notes: str | None = None
     is_pinned: bool = False
+    precomputed_stats: dict | None = None  # для source='observation'
 
 
 @router.post("/baselines")
@@ -479,6 +481,7 @@ def api_baseline_create(
             notes=req.notes,
             created_by=current_user,
             is_pinned=req.is_pinned,
+            precomputed_stats=req.precomputed_stats,
         )
         return {"ok": True, "baseline": bl}
     except ValueError as e:
@@ -572,6 +575,70 @@ class ResolvePeriodRequest(BaseModel):
     n_days: int | None = None
     direction: str = "before"  # before | after
     include_anchor: bool = False
+
+
+@router.get("/our-segment")
+def api_our_segment(
+    well_id: int = Query(...),
+    date_from: date = Query(...),
+    date_to: date = Query(...),
+    db: Session = Depends(get_db),
+):
+    """Наши данные после масок (pressure_raw → clean → masks) за произвольный период.
+
+    Используется в шаге 4 для наложения наших данных на выбранный участок
+    данных заказчика.
+
+    Возвращает chart_data (массив часовых точек) + сводные статистики
+    (Q ср/мед/cum, ΔP мед, P_tube/P_line мед, working/downtime hours).
+    """
+    well = db.query(_Well).filter(_Well.id == well_id).first()
+    if not well:
+        raise HTTPException(404, "Скважина не найдена")
+    if date_from > date_to:
+        raise HTTPException(400, "date_from > date_to")
+    # Штуцер: читаем из well_construction по номеру скважины (как в compute_monthly_stats),
+    # т.к. у Well нет поля choke_mm — оно в well_construction.choke_diam_mm
+    try:
+        row = db.execute(text("""
+            SELECT choke_diam_mm FROM well_construction
+            WHERE well_no = :wno
+            ORDER BY data_as_of DESC NULLS LAST LIMIT 1
+        """), {"wno": str(well.number)}).fetchone()
+        choke_mm = float(row[0]) if row and row[0] else None
+        if choke_mm is not None and choke_mm <= 0:
+            choke_mm = None
+    except Exception:
+        choke_mm = None
+    stats = collect_stage_stats(
+        db, well, choke_mm, date_from, date_to,
+        render_charts=False, chart_tag="",
+    )
+    cd = stats.get("chart_data") or []
+    return {
+        "ok": True,
+        "well_id": well_id,
+        "well_number": str(well.number),
+        "date_from": date_from.isoformat(),
+        "date_to": date_to.isoformat(),
+        "duration_days": stats.get("duration_days"),
+        "duration_label": stats.get("duration_label"),
+        "chart_data": cd,
+        "events_for_chart": stats.get("events_for_chart") or [],
+        "stats": {
+            "p_tube_median": stats.get("p_tube_median"),
+            "p_line_median": stats.get("p_line_median"),
+            "dp_median":     stats.get("dp_median"),
+            "flow_median":   stats.get("flow_median"),
+            "flow_avg":      stats.get("flow_avg"),
+            "flow_cumulative": stats.get("flow_cumulative"),
+            "hours_with_data": stats.get("hours_with_data"),
+            "working_hours":   stats.get("working_hours"),
+            "downtime_hours":  stats.get("downtime_hours"),
+            "utilization_pct": stats.get("utilization_pct"),
+            "purge_count":     stats.get("purge_count"),
+        },
+    }
 
 
 @router.post("/resolve-period")
@@ -839,9 +906,25 @@ def adaptation_report_page(
     request: Request,
     current_user: str = Depends(get_current_user),
 ):
-    """Страница настройки и просмотра отчёта об адаптации."""
+    """Страница настройки и просмотра отчёта об адаптации (старая версия)."""
     return templates.TemplateResponse(
         "adaptation_report.html",
+        {
+            "request": request,
+            "current_user": current_user,
+            "is_admin": request.session.get("is_admin", False),
+        },
+    )
+
+
+@pages_router.get("/adaptation-report/wizard", response_class=HTMLResponse)
+def adaptation_wizard_page(
+    request: Request,
+    current_user: str = Depends(get_current_user),
+):
+    """Новый мастер сборки отчёта (параллельный flow, не трогает старую страницу)."""
+    return templates.TemplateResponse(
+        "adaptation_wizard.html",
         {
             "request": request,
             "current_user": current_user,

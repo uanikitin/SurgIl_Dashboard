@@ -638,19 +638,31 @@ def save_baseline(
     notes: str | None = None,
     created_by: str | None = None,
     is_pinned: bool = False,
+    precomputed_stats: dict | None = None,
 ) -> dict[str, Any]:
-    """Создать baseline: посчитать статистику и записать в БД."""
+    """Создать baseline: посчитать статистику и записать в БД.
+
+    precomputed_stats (опционально) — готовый словарь с ключами
+    q_total_avg/median, q_working_avg/median, p_wellhead_*, p_flowline_*,
+    dp_avg/median, shutdown_min_*, days_count. Используется для source='observation',
+    когда статистика считается на наших данных, а не на well_daily.
+    """
     well = db.query(Well).filter(Well.id == well_id).first()
     if not well:
         raise ValueError(f"Скважина id={well_id} не найдена")
     well_number = str(well.number)
 
-    stats = compute_period_stats(db, well_number, period_from, period_to)
-    if stats.get("days_count", 0) == 0:
-        raise ValueError(
-            f"За период {period_from}..{period_to} нет данных по скважине "
-            f"в well_daily."
-        )
+    if precomputed_stats:
+        stats = dict(precomputed_stats)
+        if not stats.get("days_count"):
+            stats["days_count"] = (period_to - period_from).days + 1
+    else:
+        stats = compute_period_stats(db, well_number, period_from, period_to)
+        if stats.get("days_count", 0) == 0:
+            raise ValueError(
+                f"За период {period_from}..{period_to} нет данных по скважине "
+                f"в well_daily."
+            )
 
     bl = CustomerBaseline(
         well_id=well_id,

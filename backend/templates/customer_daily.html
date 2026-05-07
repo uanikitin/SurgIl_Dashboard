@@ -232,10 +232,22 @@
     transition: transform 0.1s;
 }
 .cdtl-stage-dot:hover { transform: translateX(-50%) scale(1.4); }
+.cdtl-stage-band {
+    position: absolute; height: 3px; border-radius: 2px;
+    pointer-events: none; opacity: 0.55;
+}
+.cdtl-stage-label-side {
+    position: absolute; font-size: 0.66rem; font-weight: 600;
+    background: #fff; padding: 1px 4px; border-radius: 2px;
+    border: 1px solid currentColor;
+    white-space: nowrap; pointer-events: none;
+    line-height: 14px; max-width: 200px;
+    overflow: hidden; text-overflow: ellipsis;
+}
 .cdtl-event-icon {
-    position: absolute; top: 22px;
+    position: absolute; top: 56px;
     transform: translateX(-50%);
-    font-size: 14px; line-height: 14px;
+    font-size: 13px; line-height: 13px;
     background: #fff; border-radius: 50%;
     padding: 1px 2px; box-shadow: 0 0 0 1px currentColor, 0 1px 3px rgba(0,0,0,0.15);
     pointer-events: auto; cursor: help;
@@ -1175,35 +1187,48 @@
     }
 
     // Этапы — точки + вертикальная линия + подпись С ДАТОЙ
-    for (const s of (d.stages || [])) {
-      if (!s.dt_start) continue;
+    // Каждый этап на своей высоте лейбла (top + i*16) чтобы не наезжали
+    // друг на друга, когда они расположены рядом по горизонтали.
+    const stageList = (d.stages || []).filter(s => s.dt_start);
+    stageList.forEach((s, i) => {
       const xStart = _cdtlPct(_cdtlParse(s.dt_start));
       const xEnd   = s.dt_end ? _cdtlPct(_cdtlParse(s.dt_end)) : 100;
       const lblShort = (s.label || '').slice(0, 16);
       const startStr = s.dt_start.slice(0, 10);
-      // Подпись: «Наблюдение · 2026-02-02» — с датой старта
-      const labelHtml = `${lblShort} · <span style="opacity:0.85;">${startStr}</span>`;
+      const endStr   = s.dt_end ? s.dt_end.slice(0, 10) : 'сейчас';
       const sourceTag = s.source === 'events' ? ' (по событиям)' : '';
+      // Полоска-индикатор длины этапа (полупрозрачная) на отдельной высоте
+      const yBand = 4 + i * 4;
       parts.push(
+        `<div class="cdtl-stage-band" style="left:${xStart}%; width:${Math.max(xEnd-xStart,0.4)}%;
+              top:${yBand}px; background:${s.color};"></div>`,
         `<div class="cdtl-stage-line" style="left:${xStart}%; color:${s.color};"></div>`,
         `<div class="cdtl-stage-dot" style="left:${xStart}%; color:${s.color};"
               data-stage-from="${_cdtlYmd(_cdtlParse(s.dt_start))}"
               data-stage-to="${s.dt_end ? _cdtlYmd(_cdtlParse(s.dt_end)) : _cdtlYmd(cdtlState.latest)}"
-              title="${s.label}${sourceTag}: ${startStr}${s.dt_end ? ' → ' + s.dt_end.slice(0,10) : ' → сейчас'}\nКлик — выбрать диапазон этапа">
+              title="${s.label}${sourceTag}: ${startStr} → ${endStr}\nКлик — выбрать диапазон этапа">
          </div>`,
-        `<div class="cdtl-stage-label" style="left:${(xStart+xEnd)/2}%; color:${s.color};">${labelHtml}</div>`
+        // Лейбл смещён вправо от точки, на своей строке. Если точка близко
+        // к правому краю — кладём слева от неё, иначе справа.
+        `<div class="cdtl-stage-label-side"
+              style="left:${xStart}%; top:${1 + i * 17}px; color:${s.color};
+                     transform:translateX(${xStart > 70 ? '-100%' : '6px'});">
+           ${lblShort} · <span style="opacity:0.85;">${startStr}</span>
+         </div>`
       );
       if (s.dt_end) {
         parts.push(
           `<div class="cdtl-stage-line" style="left:${xEnd}%; color:${s.color}; opacity:0.25;"></div>`
         );
       }
-    }
+    });
 
-    // Ключевые события (установка оборудования, первый вброс) — иконкой
+    // Ключевые события (установка оборудования, первый вброс) —
+    // на отдельной высоте (между этапами и баром заказчика), не пересекаются
     for (const ev of (d.events || [])) {
       if (!ev.dt) continue;
       const x = _cdtlPct(_cdtlParse(ev.dt));
+      const dStr = ev.dt.slice(0, 10);
       parts.push(
         `<div class="cdtl-event-icon" style="left:${x}%; color:${ev.color};"
               title="${ev.label}: ${ev.dt.slice(0,16).replace('T',' ')}">

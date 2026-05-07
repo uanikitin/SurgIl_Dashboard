@@ -969,14 +969,19 @@
         const stSrc = (d.stages || []).map(s => s.source || '?').join(',') || '—';
         const cdays = d.customer_data?.days_count || 0;
         const ours = d.our_data?.first_date ? '✓' : '—';
-        diag.textContent =
-          `БД: stages=${stCount} [${stSrc}] · events=${evCount} · ` +
+        const wnNorm = d.well_number || '?';
+        const wnRaw = d.well_number_raw || '?';
+        const wnInfo = (wnNorm === wnRaw) ? wnNorm : `${wnNorm} (raw: ${wnRaw})`;
+        const errs = d.errors || [];
+        let txt =
+          `well=${wnInfo} · stages=${stCount} [${stSrc}] · events=${evCount} · ` +
           `well_daily=${cdays}д · pressure_hourly=${ours}`;
-        diag.title = JSON.stringify({
-          stages: d.stages, events: d.events,
-          customer_data: d.customer_data, our_data: d.our_data,
-        }, null, 2);
-        if (stCount === 0 && evCount === 0) {
+        if (errs.length) {
+          txt += ` · ⚠ ошибок: ${errs.length}`;
+        }
+        diag.textContent = txt;
+        diag.title = JSON.stringify(d, null, 2);
+        if (errs.length || (stCount === 0 && evCount === 0)) {
           diag.style.color = '#dc2626';
         } else {
           diag.style.color = '#059669';

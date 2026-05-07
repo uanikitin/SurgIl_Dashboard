@@ -685,6 +685,21 @@ def api_timeline(
     if not well:
         raise HTTPException(404, "Скважина не найдена")
 
+    # Берём well.number через прямой SQL — не через ORM. ORM может вернуть
+    # Decimal('30') или 30.0; events.well/well_daily.well — VARCHAR '30'.
+    # str(Decimal('30')) даёт '30' но Numeric может давать '30.00' → не совпадёт.
+    wn_row = db.execute(text(
+        "SELECT number FROM wells WHERE id = :wid"
+    ), {"wid": well_id}).fetchone()
+    well_number_raw = wn_row[0] if wn_row else well.number
+    # Нормализация: '30.0' → '30', '30.00' → '30'
+    try:
+        wn_str = str(int(float(well_number_raw)))
+    except Exception:
+        wn_str = str(well_number_raw).strip()
+
+    errors: list[dict] = []
+
     # Диапазон well_daily (данные заказчика)
     customer = {"first_date": None, "last_date": None, "days_count": 0}
     try:
@@ -693,15 +708,16 @@ def api_timeline(
         row = db.execute(text("""
             SELECT MIN(date), MAX(date), COUNT(*)
             FROM well_daily WHERE well = :wn
-        """), {"wn": str(well.number)}).fetchone()
+        """), {"wn": wn_str}).fetchone()
         if row and row[0]:
             customer = {
                 "first_date": row[0].isoformat(),
                 "last_date": row[1].isoformat(),
                 "days_count": int(row[2] or 0),
             }
-    except Exception:
+    except Exception as e:
         log.exception("timeline: customer well_daily query failed")
+        errors.append({"step": "well_daily", "error": str(e)})
 
     # Диапазон pressure_hourly (наши датчики)
     our = {"first_date": None, "last_date": None}
@@ -719,21 +735,33 @@ def api_timeline(
                 "last_date":  (row[1] + KUNGRAD_OFFSET).date().isoformat()
                               if row[1] else None,
             }
-    except Exception:
+    except Exception as e:
         log.exception("timeline: pressure_hourly range failed")
+        errors.append({"step": "pressure_hourly", "error": str(e)})
 
-    # Этапы из well_status (все записи, не только последние)
+    # Этапы из well_status (все записи, не только последние).
+    # Пробуем сначала с AT TIME ZONE (если dt_start TIMESTAMPTZ), при ошибке
+    # fallback на простой SELECT (если поле уже timestamp without tz).
     stages: list[dict] = []
     try:
-        rows = db.execute(text("""
-            SELECT status,
-                   (dt_start AT TIME ZONE 'Asia/Tashkent')::timestamp,
-                   (dt_end   AT TIME ZONE 'Asia/Tashkent')::timestamp,
-                   note
-            FROM well_status
-            WHERE well_id = :wid
-            ORDER BY dt_start
-        """), {"wid": well_id}).fetchall()
+        try:
+            rows = db.execute(text("""
+                SELECT status,
+                       (dt_start AT TIME ZONE 'Asia/Tashkent')::timestamp,
+                       (dt_end   AT TIME ZONE 'Asia/Tashkent')::timestamp,
+                       note
+                FROM well_status
+                WHERE well_id = :wid
+                ORDER BY dt_start
+            """), {"wid": well_id}).fetchall()
+        except Exception as e_tz:
+            log.warning("timeline well_status tz cast failed, fallback: %s", e_tz)
+            rows = db.execute(text("""
+                SELECT status, dt_start, dt_end, note
+                FROM well_status
+                WHERE well_id = :wid
+                ORDER BY dt_start
+            """), {"wid": well_id}).fetchall()
         for r in rows:
             label = r[0]
             color = STATUS_BY_LABEL.get(label, {}).get("color") or "#6b7280"
@@ -745,21 +773,20 @@ def api_timeline(
                 "note":     r[3] or "",
                 "source":   "status",
             })
-    except Exception:
+    except Exception as e:
         log.exception("timeline: well_status query failed")
+        errors.append({"step": "well_status", "error": str(e)})
 
     # Ключевые события из events (для отображения как маркеры на шкале)
-    # Ровно одно событие каждого типа — самое раннее (для контекста начала работ).
     events: list[dict] = []
     equip_first = None
     reagent_first = None
     try:
-        wno = str(well.number)
         # Установка оборудования (первый equip)
         row = db.execute(text("""
             SELECT MIN(event_time) FROM events
             WHERE well = :wno AND event_type = 'equip'
-        """), {"wno": wno}).fetchone()
+        """), {"wno": wn_str}).fetchone()
         if row and row[0]:
             equip_first = row[0]
             events.append({
@@ -773,7 +800,7 @@ def api_timeline(
         row = db.execute(text("""
             SELECT MIN(event_time) FROM events
             WHERE well = :wno AND event_type = 'reagent'
-        """), {"wno": wno}).fetchone()
+        """), {"wno": wn_str}).fetchone()
         if row and row[0]:
             reagent_first = row[0]
             events.append({
@@ -783,8 +810,9 @@ def api_timeline(
                 "color": "#2e7d32",
                 "icon":  "💧",
             })
-    except Exception:
+    except Exception as e:
         log.exception("timeline: events query failed")
+        errors.append({"step": "events", "error": str(e)})
 
     # Виртуальные этапы из событий — если в well_status пусто.
     # Логика как в suggest_stages_from_events (упрощённая):
@@ -825,12 +853,14 @@ def api_timeline(
     return {
         "ok": True,
         "well_id": well_id,
-        "well_number": str(well.number),
+        "well_number": wn_str,
+        "well_number_raw": str(well_number_raw),
         "today": date.today().isoformat(),
         "customer_data": customer,
         "our_data": our,
         "stages": stages,
         "events": events,
+        "errors": errors,
     }
 
 

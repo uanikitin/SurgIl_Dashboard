@@ -1931,6 +1931,7 @@
   // ─────────────────────────── Monthly statistics tab ─────────────
   let monthlyChart = null;
   let lastMonthlyWellId = null;
+  let lastMonthlyMonths = null;  // кэш данных для перерисовки маркеров
 
   async function loadMonthlyStats(wellId) {
     if (lastMonthlyWellId === wellId) return;  // уже загружено
@@ -1948,13 +1949,25 @@
     if (months.length === 0) {
       tableWrap.innerHTML = '<div style="text-align:center; color:#888; padding:1rem;">Нет данных за последние 24 месяца.</div>';
       if (monthlyChart) { monthlyChart.destroy(); monthlyChart = null; }
+      lastMonthlyMonths = null;
       return;
     }
 
+    lastMonthlyMonths = months;
     renderMonthlyChart(months);
     renderMonthlyTable(months);
     renderMonthlyDescriptions(months);
   }
+
+  // Перерисовать маркеры этапов на месячном графике при изменении дат на форме
+  function refreshMonthlyStageMarkers() {
+    if (!lastMonthlyMonths || !monthlyChart) return;
+    renderMonthlyChart(lastMonthlyMonths);
+  }
+  ['obs-from', 'adapt-from', 'optimal-from'].forEach(id => {
+    const el = $(id);
+    if (el) el.addEventListener('change', refreshMonthlyStageMarkers);
+  });
 
   function renderMonthlyChart(months) {
     const labels = months.map(m => m.year_month);
@@ -1984,6 +1997,46 @@
         padding: 2,
       };
     });
+
+    // Per TZ §4.2 (gap fix): маркеры начала этапов на line-chart Q.
+    // Преобразуем obs_from / adapt_from / optimal_from из формы в индекс
+    // месяца на оси X (формат labels: "MM.YYYY", см. compute_monthly_stats).
+    const _ymKey = (dtStr) => {
+      if (!dtStr) return null;
+      // "YYYY-MM-DDTHH:MM" → "MM.YYYY"
+      const d = new Date(dtStr);
+      if (isNaN(d.getTime())) return null;
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      return `${mm}.${d.getFullYear()}`;
+    };
+    const stageMarkers = [
+      { id: 'obs',   field: 'obs-from',     color: '#1976d2', label: 'Наблюдение' },
+      { id: 'adapt', field: 'adapt-from',   color: '#f57c00', label: 'Адаптация'  },
+      { id: 'opt',   field: 'optimal-from', color: '#2e7d32', label: 'Оптимум'    },
+    ];
+    for (const sm of stageMarkers) {
+      const dtVal = $(sm.field)?.value;
+      const ym = _ymKey(dtVal);
+      if (!ym) continue;
+      const idx = labels.indexOf(ym);
+      if (idx < 0) continue;
+      trendAnnotations[`stage_${sm.id}`] = {
+        type: 'line',
+        xMin: idx, xMax: idx,
+        borderColor: sm.color,
+        borderWidth: 2,
+        borderDash: [6, 4],
+        label: {
+          content: sm.label,
+          display: true,
+          position: 'start',
+          backgroundColor: sm.color,
+          color: '#fff',
+          font: { size: 10, weight: 'bold' },
+          padding: { top: 2, bottom: 2, left: 4, right: 4 },
+        },
+      };
+    }
 
     monthlyChart = new Chart(ctx, {
       type: 'bar',

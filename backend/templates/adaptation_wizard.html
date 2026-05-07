@@ -1,0 +1,4219 @@
+{% extends "base.html" %}
+
+{% block title %}Сборка отчёта об адаптации{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<style>
+  /* предотвращаем горизонтальный скролл всей страницы */
+  html, body { overflow-x: hidden; }
+
+  .wz-page {
+    display: grid; grid-template-columns: 240px minmax(0, 1fr);
+    gap: 1rem; padding: 1rem;
+    min-height: calc(100vh - 130px);
+    max-width: 100%; box-sizing: border-box;
+  }
+  @media (max-width: 1100px) { .wz-page { grid-template-columns: minmax(0, 1fr); } }
+  /* min-width: 0 — критично, чтобы Plotly графики не раздували grid-item шире viewport */
+  .wz-stepper, .wz-main { min-width: 0; }
+
+  /* ─── Header bar ─── */
+  .wz-header {
+    grid-column: 1 / -1;
+    background: #fff; border: 1px solid #ddd; border-radius: 8px;
+    padding: 0.7rem 1rem;
+  }
+  .wz-header-top {
+    display: flex; align-items: center; gap: 1rem; margin-bottom: 0.6rem;
+  }
+  .wz-header h1 {
+    margin: 0; font-size: 1.05rem; font-weight: 500;
+  }
+  .wz-header .wz-well-pick {
+    margin-left: auto; display: flex; gap: 0.5rem; align-items: center;
+  }
+  .wz-header select {
+    padding: 0.35rem 0.6rem; border: 1px solid #ccc;
+    border-radius: 5px; font-size: 0.88rem; min-width: 200px;
+  }
+  .wz-back {
+    color: #555; text-decoration: none; font-size: 0.85rem;
+    padding: 0.3rem 0.6rem; border-radius: 4px;
+    border: 1px solid #ddd;
+  }
+  .wz-back:hover { background: #f5f5f5; }
+
+  /* ─── Overview cards (in header) ─── */
+  .wz-overview {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.6rem; margin-bottom: 0.6rem;
+  }
+  .wz-card {
+    background: #fafafa; border: 1px solid #e0e0e0;
+    border-radius: 6px; padding: 0.5rem 0.7rem;
+  }
+  .wz-card .wz-card-title {
+    font-size: 0.72rem; color: #666; text-transform: uppercase;
+    letter-spacing: 0.04em; margin-bottom: 0.3rem;
+  }
+  .wz-card .wz-card-body { font-size: 0.85rem; color: #1e293b; line-height: 1.4; }
+  .wz-card .wz-card-body b { color: #1565c0; }
+  .wz-card.wz-card-warn { background: #fff8e1; border-color: #ffd54f; }
+  .wz-card.wz-card-empty { background: #fafafa; color: #aaa; font-style: italic; }
+  .wz-card-row { display: flex; justify-content: space-between; gap: 0.4rem; }
+
+  /* ─── Chapter tiles ─── */
+  .wz-tiles {
+    display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 0.4rem; margin-bottom: 0.2rem;
+  }
+  @media (max-width: 1400px) { .wz-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  @media (max-width: 800px)  { .wz-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  .wz-tile {
+    background: #fff; border: 1px solid #ddd; border-radius: 5px;
+    padding: 0.4rem 0.5rem; cursor: pointer; transition: all 0.15s;
+    display: flex; flex-direction: column; gap: 0.15rem;
+  }
+  .wz-tile:hover { border-color: #1976D2; }
+  .wz-tile.done { background: #e8f5e9; border-color: #4caf50; }
+  .wz-tile.included { border-left: 4px solid #2e7d32; }
+  .wz-tile.excluded { opacity: 0.5; }
+  .wz-tile .tile-num { font-size: 0.7rem; color: #888; font-weight: 600; }
+  .wz-tile .tile-name { font-size: 0.78rem; color: #1e293b; font-weight: 500; }
+  .wz-tile .tile-status { font-size: 0.7rem; color: #666; }
+
+  /* ─── Stepper (left nav) ─── */
+  .wz-stepper {
+    background: #fff; border: 1px solid #ddd; border-radius: 8px;
+    padding: 0.6rem; height: fit-content;
+    position: sticky; top: 1rem;
+  }
+  .wz-step {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.55rem 0.7rem; border-radius: 6px;
+    cursor: pointer; font-size: 0.86rem;
+    color: #555; transition: background 0.12s;
+    margin-bottom: 0.2rem;
+  }
+  .wz-step:hover { background: #f5f5f5; }
+  .wz-step.active {
+    background: #e3f2fd; color: #1565c0; font-weight: 500;
+  }
+  .wz-step .num {
+    width: 24px; height: 24px; border-radius: 50%;
+    background: #f5f5f5; color: #666;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.78rem; font-weight: 600; flex-shrink: 0;
+  }
+  .wz-step.active .num { background: #1976D2; color: #fff; }
+  .wz-step.done .num { background: #4caf50; color: #fff; }
+  .wz-step.done .num::before { content: '✓'; }
+  .wz-step.done .num .num-text { display: none; }
+  .wz-step.warn .num { background: #ff9800; color: #fff; }
+  .wz-step .label { flex: 1; line-height: 1.2; }
+  .wz-step .sub { font-size: 0.72rem; color: #888; display: block; margin-top: 0.1rem; }
+
+  .wz-included-count {
+    margin-top: 0.5rem; padding: 0.5rem 0.7rem;
+    background: #f0f7ff; border: 1px solid #cfe5ff;
+    border-radius: 5px; font-size: 0.82rem; color: #1565c0;
+    display: flex; align-items: center; gap: 0.4rem;
+  }
+
+  /* ─── Main panel ─── */
+  .wz-main {
+    background: #fff; border: 1px solid #ddd; border-radius: 8px;
+    padding: 1.2rem;
+    overflow-x: hidden;
+  }
+  .wz-main > *, .wz-section, .wz-section > div { min-width: 0; }
+  /* широкие таблицы пусть скроллятся внутри своего контейнера */
+  .wz-table { display: table; }
+  .wz-step-title {
+    margin: 0 0 0.3rem; font-size: 1.2rem; color: #1565c0;
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+  .wz-step-title .step-num {
+    background: #1976D2; color: #fff;
+    width: 28px; height: 28px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 0.9rem;
+  }
+  .wz-step-hint {
+    color: #666; font-size: 0.88rem; margin-bottom: 1rem;
+  }
+
+  .wz-section {
+    border-top: 1px solid #eee;
+    padding: 0.8rem 0; margin-top: 0.8rem;
+  }
+  .wz-section:first-of-type { border-top: none; padding-top: 0; }
+  .wz-section h3 {
+    margin: 0 0 0.4rem; font-size: 0.95rem; color: #444;
+  }
+
+  .wz-field { margin-bottom: 0.6rem; }
+  .wz-field label {
+    display: block; font-size: 0.8rem; color: #666; margin-bottom: 0.2rem;
+  }
+  .wz-field input, .wz-field select, .wz-field textarea {
+    width: 100%; padding: 0.4rem 0.55rem; border: 1px solid #ccc;
+    border-radius: 5px; font-size: 0.88rem; box-sizing: border-box;
+    font-family: inherit;
+  }
+  .wz-field textarea { resize: vertical; min-height: 70px; }
+
+  .wz-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.6rem; }
+
+  .wz-include {
+    background: #f0f7ff; border: 1px dashed #cfe5ff;
+    padding: 0.6rem 0.8rem; border-radius: 5px; margin-top: 0.8rem;
+  }
+  .wz-include label {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-size: 0.9rem; color: #1565c0; cursor: pointer;
+  }
+  .wz-include input { width: auto; margin: 0; }
+
+  /* ─── Buttons ─── */
+  .wz-btn {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.5rem 1rem; border: none; border-radius: 5px;
+    font-size: 0.88rem; cursor: pointer; color: #fff;
+  }
+  .wz-btn-primary { background: #1976D2; }
+  .wz-btn-primary:hover { background: #0d47a1; }
+  .wz-btn-secondary { background: #757575; }
+  .wz-btn-success { background: #2e7d32; }
+  .wz-btn-success:hover { background: #1b5e20; }
+  .wz-btn-outline {
+    background: #fff; color: #1976D2; border: 1px solid #1976D2;
+  }
+  .wz-btn-outline:hover { background: #e3f2fd; }
+
+  /* кнопки «Назад / Далее» — sticky к нижней границе viewport, всегда видны */
+  .wz-nav-buttons {
+    margin-top: 1.5rem; display: flex; gap: 0.5rem;
+    padding: 0.7rem 0; border-top: 1px solid #eee;
+    position: sticky; bottom: 0;
+    background: #fff; z-index: 5;
+  }
+  .wz-nav-buttons .right { margin-left: auto; }
+
+  /* ─── Preview blocks ─── */
+  .wz-preview-card {
+    background: #fafafa; border: 1px solid #e0e0e0;
+    border-radius: 6px; padding: 0.8rem; margin: 0.6rem 0;
+  }
+  .wz-preview-stat {
+    display: inline-flex; gap: 0.4rem;
+    padding: 0.25rem 0.6rem; background: #fff;
+    border: 1px solid #ddd; border-radius: 4px;
+    font-size: 0.85rem; margin: 0.2rem 0.3rem 0.2rem 0;
+  }
+  .wz-preview-stat b { color: #1565c0; }
+
+  .wz-info {
+    background: #e8f5e9; border-left: 3px solid #2e7d32;
+    padding: 0.4rem 0.7rem; border-radius: 4px;
+    font-size: 0.82rem; margin: 0.4rem 0;
+  }
+  .wz-warn {
+    background: #fff8e1; border-left: 3px solid #f57f17;
+    padding: 0.4rem 0.7rem; border-radius: 4px;
+    font-size: 0.82rem; margin: 0.4rem 0;
+  }
+  .wz-error {
+    background: #ffebee; border-left: 3px solid #c62828;
+    padding: 0.4rem 0.7rem; border-radius: 4px;
+    font-size: 0.82rem; margin: 0.4rem 0;
+  }
+
+  .wz-placeholder {
+    color: #888; text-align: center; padding: 2rem;
+    background: #fafafa; border-radius: 6px; font-size: 0.9rem;
+  }
+
+  .wz-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+  .wz-table th, .wz-table td {
+    padding: 0.35rem 0.5rem; border-bottom: 1px solid #eee;
+    text-align: right;
+  }
+  .wz-table th:first-child, .wz-table td:first-child { text-align: left; }
+  .wz-table th { background: #f5f5f5; font-weight: 500; color: #555; }
+
+  .wz-pdf-iframe { width: 100%; height: 700px; border: 1px solid #ddd; border-radius: 6px; }
+  .wz-loading {
+    text-align: center; color: #666; padding: 2rem;
+    background: #fafafa; border-radius: 6px;
+  }
+  .wz-spinner {
+    width: 24px; height: 24px; border: 3px solid #eee;
+    border-top-color: #1976D2; border-radius: 50%;
+    animation: wz-spin 1s linear infinite;
+    display: inline-block; vertical-align: middle; margin-right: 0.5rem;
+  }
+  @keyframes wz-spin { to { transform: rotate(360deg); } }
+
+  /* ─── Period builder timeline (wizard step 2) ─── */
+  .tl2-builder { margin-bottom: 0.6rem; }
+  .tl2-mode-row {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-size: 0.84rem; color: #374151; margin-bottom: 0.4rem;
+    flex-wrap: wrap;
+  }
+  .tl2-mode-row b { color: #1565c0; }
+  .tl2-mode-row .tl2-period-display {
+    margin-left: auto; font-family: monospace; color: #555;
+    font-size: 0.78rem;
+  }
+  .tl2-scale {
+    position: relative; height: 86px; background: #fff;
+    border: 1px solid #d1d5db; border-radius: 4px;
+    margin-bottom: 0.55rem; cursor: crosshair;
+    user-select: none;
+  }
+  .tl2-bar {
+    position: absolute; height: 16px; border-radius: 3px;
+    pointer-events: none;
+  }
+  .tl2-bar-customer { top: 30px; background: #93c5fd; }
+  .tl2-bar-our      { top: 50px; background: #6ee7b7; }
+  .tl2-bar-label {
+    position: absolute; left: 6px; font-size: 0.66rem;
+    color: rgba(0,0,0,0.7); line-height: 16px; pointer-events: none;
+  }
+  .tl2-stage-marker {
+    position: absolute; top: 0; height: 26px; pointer-events: none;
+  }
+  .tl2-stage-line {
+    position: absolute; left: 0; top: 0; width: 2px; height: 86px;
+    background: currentColor; opacity: 0.55;
+  }
+  .tl2-stage-label {
+    position: absolute; top: -2px; left: 5px;
+    font-size: 0.66rem; font-weight: 600;
+    background: currentColor; color: #fff;
+    padding: 1px 5px; border-radius: 2px; white-space: nowrap;
+  }
+  .tl2-anchor {
+    position: absolute; top: 0; bottom: 0; width: 0; pointer-events: none;
+  }
+  .tl2-anchor-line {
+    position: absolute; top: 0; bottom: 0; left: -1px;
+    width: 2px; background: #dc2626;
+    box-shadow: 0 0 4px rgba(220,38,38,0.5);
+  }
+  .tl2-anchor-label {
+    position: absolute; bottom: -1px; left: 5px;
+    background: #dc2626; color: #fff;
+    font-size: 0.72rem; font-weight: 600;
+    padding: 2px 6px; border-radius: 2px;
+    white-space: nowrap; pointer-events: none;
+  }
+  .tl2-range {
+    position: absolute; top: 26px; height: 44px;
+    background: rgba(220,38,38,0.10);
+    border-left: 1px dashed rgba(220,38,38,0.4);
+    border-right: 1px dashed rgba(220,38,38,0.4);
+    pointer-events: none;
+  }
+  .tl2-axis {
+    position: absolute; bottom: 2px; left: 0; right: 0;
+    height: 14px; pointer-events: none;
+  }
+  .tl2-axis-tick {
+    position: absolute; top: 0; font-size: 0.62rem;
+    color: #6b7280; transform: translateX(-50%); white-space: nowrap;
+  }
+  .tl2-axis-tick::before {
+    content: ""; display: block; width: 1px; height: 4px;
+    background: #9ca3af; margin: 0 auto 1px;
+  }
+  .tl2-controls-row {
+    display: flex; align-items: center; gap: 0.35rem;
+    flex-wrap: wrap; font-size: 0.78rem;
+    margin-bottom: 0.35rem;
+  }
+  .tl2-controls-label { color: #374151; font-weight: 500; min-width: 7.5rem; }
+  .tl2-btn {
+    padding: 0.22rem 0.55rem; font-size: 0.76rem;
+    background: #fff; border: 1px solid #cbd5e1;
+    border-radius: 3px; cursor: pointer; color: #1f2937;
+  }
+  .tl2-btn:hover { background: #eff6ff; border-color: #93c5fd; }
+  .tl2-btn.active { background: #2563eb; color: #fff; border-color: #1d4ed8; }
+  .tl2-date-input {
+    padding: 0.22rem 0.45rem; font-size: 0.78rem;
+    border: 1px solid #cbd5e1; border-radius: 3px;
+    width: 8.5rem;
+  }
+  .tl2-divider { width: 1px; height: 22px; background: #d4d4d8; margin: 0 0.3rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="wz-page">
+
+  <!-- Header -->
+  <div class="wz-header">
+    <div class="wz-header-top">
+      <h1>📋 Сборка отчёта об адаптации</h1>
+      <div class="wz-well-pick">
+        <span style="font-size: 0.85rem; color: #666;">Скважина:</span>
+        <select id="wz-well-select">
+          <option value="">— выбрать —</option>
+        </select>
+        <a href="/adaptation-report" class="wz-back">← старая страница</a>
+      </div>
+    </div>
+
+    <!-- Overview cards: well info + stages + key events -->
+    <div class="wz-overview" id="wz-overview"></div>
+
+    <!-- Chapter tiles -->
+    <div class="wz-tiles" id="wz-tiles"></div>
+  </div>
+
+  <!-- Stepper -->
+  <div class="wz-stepper" id="wz-stepper">
+    <!-- generated by JS -->
+  </div>
+
+  <!-- Main content -->
+  <div class="wz-main" id="wz-main">
+    <div class="wz-placeholder">
+      Выберите скважину чтобы начать сборку отчёта.
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const custIsAdmin = {{ 'true' if is_admin else 'false' }};
+
+  // ═══ State ═══
+  const state = {
+    well: null,            // {id, number, name, horizon, choke_mm}
+    currentStep: 1,
+    steps: {
+      1: { title: 'Скважина', sub: 'описание объекта',
+           include: true,  status: 'todo', data: { work_start: '', desc: '' } },
+      2: { title: 'Заказчик (B1)', sub: 'исходные данные',
+           include: false, status: 'todo', data: { periods: [] } },
+      3: { title: 'Наблюдение (B2)', sub: 'наши данные до работ',
+           include: true,  status: 'todo', data: {} },
+      4: { title: 'Кросс-валидация', sub: 'наши ↔ заказчик',
+           include: false, status: 'todo', data: {} },
+      5: { title: 'Адаптация', sub: 'этап + оптимум R★',
+           include: true,  status: 'todo', data: {} },
+      6: { title: 'Сводное сравнение', sub: 'B1/B2/R/R★',
+           include: true,  status: 'todo', data: {} },
+      7: { title: 'Сборка отчёта', sub: 'предпросмотр + PDF',
+           include: true,  status: 'todo', data: {} },
+    },
+  };
+
+  // ═══ Stepper rendering ═══
+  function renderStepper() {
+    const box = $('wz-stepper');
+    let html = '';
+    const ids = Object.keys(state.steps).map(Number);
+    for (const i of ids) {
+      const s = state.steps[i];
+      const isActive = i === state.currentStep;
+      const cls = ['wz-step'];
+      if (isActive) cls.push('active');
+      if (s.status === 'done') cls.push('done');
+      if (s.status === 'warn') cls.push('warn');
+      const numText = s.status === 'done' ? '' : i;
+      html += `
+        <div class="${cls.join(' ')}" data-step="${i}">
+          <div class="num"><span class="num-text">${numText}</span></div>
+          <div class="label">
+            ${s.title}
+            <span class="sub">${s.sub}</span>
+          </div>
+        </div>
+      `;
+    }
+    const includedCount = Object.values(state.steps).filter(s => s.include).length;
+    html += `<div class="wz-included-count">📦 Включено в PDF: <b>${includedCount}</b> из 7</div>`;
+    box.innerHTML = html;
+    box.querySelectorAll('.wz-step').forEach(el => {
+      el.addEventListener('click', () => goToStep(parseInt(el.dataset.step)));
+    });
+  }
+
+  function goToStep(n) {
+    state.currentStep = n;
+    renderStepper();
+    renderStep(n);
+  }
+
+  // ═══ Steps content ═══
+  function renderStep(n) {
+    const main = $('wz-main');
+    if (!state.well) {
+      main.innerHTML = '<div class="wz-placeholder">Сначала выберите скважину сверху.</div>';
+      return;
+    }
+    const renderers = {
+      1: renderStep1,
+      2: renderStep2,
+      3: renderStep3,
+      4: renderStep4,
+      5: renderStep5,
+      6: renderStep6,
+      7: renderStep7,
+    };
+    const fn = renderers[n];
+    if (fn) fn(main);
+  }
+
+  function navButtons(n) {
+    const prev = n > 1 ? `<button class="wz-btn wz-btn-outline" onclick="goToStep(${n-1})">← Назад</button>` : '';
+    const next = n < 7 ? `<button class="wz-btn wz-btn-primary right" onclick="goToStep(${n+1})">Далее →</button>` : '';
+    return `<div class="wz-nav-buttons">${prev}${next}</div>`;
+  }
+
+  function includeBlock(n, label = 'Включить эту главу в PDF') {
+    const checked = state.steps[n].include ? 'checked' : '';
+    return `<div class="wz-include">
+      <label>
+        <input type="checkbox" id="wz-include-${n}" ${checked}>
+        ${label}
+      </label>
+    </div>`;
+  }
+
+  function bindIncludeBlock(n) {
+    const cb = $(`wz-include-${n}`);
+    if (!cb) return;
+    cb.addEventListener('change', () => {
+      state.steps[n].include = cb.checked;
+      renderStepper();
+      renderTiles();
+    });
+  }
+
+  // ═══ STEP 1: Описание скважины ═══
+  function renderStep1(main) {
+    const w = state.well;
+    const d = state.steps[1].data;
+
+    const m = state.metadata || {};
+    const ss = m.stages_status;
+    const se = m.stages_events;
+
+    // Доступные источники даты + их дата (без времени)
+    const sources = [
+      {
+        key: 'manometer',
+        label: 'Дата установки манометров',
+        date: se && se.obs_from ? se.obs_from.slice(0, 10) : null,
+      },
+      {
+        key: 'obs',
+        label: 'Начало этапа Наблюдения (БД)',
+        date: ss && ss.obs_from ? ss.obs_from.slice(0, 10) : null,
+      },
+      {
+        key: 'adapt',
+        label: 'Начало этапа Адаптации (БД)',
+        date: ss && ss.adapt_from ? ss.adapt_from.slice(0, 10) : null,
+      },
+      {
+        key: 'first_reagent',
+        label: 'Первый вброс реагента (события)',
+        date: se && se.adapt_from ? se.adapt_from.slice(0, 10) : null,
+      },
+      { key: 'manual', label: 'Указать вручную', date: null },
+    ];
+
+    // Дефолт: дата установки манометров (если есть). Иначе первый доступный источник, иначе manual.
+    if (!d.work_start_source) {
+      const manoSrc = sources.find(s => s.key === 'manometer' && s.date);
+      if (manoSrc) {
+        d.work_start_source = 'manometer';
+        if (!d.work_start) d.work_start = manoSrc.date;
+      } else {
+        const auto = sources.find(s => s.date);
+        if (auto) {
+          d.work_start_source = auto.key;
+          if (!d.work_start) d.work_start = auto.date;
+        } else {
+          d.work_start_source = 'manual';
+        }
+      }
+    }
+
+    let sourcesHtml = '<div style="display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.5rem;">';
+    for (const s of sources) {
+      const isActive = d.work_start_source === s.key;
+      const disabled = s.key !== 'manual' && !s.date;
+      sourcesHtml += `
+        <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.6rem;
+                      border: 1px solid ${isActive ? '#1976D2' : '#ddd'};
+                      background: ${isActive ? '#e3f2fd' : '#fff'};
+                      border-radius: 5px; cursor: ${disabled ? 'not-allowed' : 'pointer'};
+                      opacity: ${disabled ? 0.5 : 1}; font-size: 0.86rem;">
+          <input type="radio" name="wz1-src" value="${s.key}" ${isActive ? 'checked' : ''}
+                 ${disabled ? 'disabled' : ''} style="margin: 0;">
+          <span style="flex: 1;">${s.label}</span>
+          <span style="color: #555; font-weight: 500;">${s.date || (s.key === 'manual' ? 'своя дата →' : '— нет —')}</span>
+        </label>
+      `;
+    }
+    sourcesHtml += '</div>';
+
+    // ── Баннер с найденной датой ──────────────────────────────────
+    // Состояния:
+    //   • не утверждено + есть авто-источник → жёлтый, «Утвердить / Изменить»
+    //   • утверждено                          → зелёный «✓ Дата утверждена»
+    //   • manual                              → серая подсказка
+    const activeSrc = sources.find(s => s.key === d.work_start_source);
+    const fmtDate = (iso) => {
+      if (!iso) return '—';
+      const dt = new Date(iso); if (isNaN(dt.getTime())) return iso;
+      return dt.toLocaleDateString('ru-RU', {day:'2-digit', month:'long', year:'numeric'});
+    };
+    let bannerHtml = '';
+    if (d.work_start_source !== 'manual' && activeSrc && activeSrc.date) {
+      if (d.work_start_confirmed) {
+        bannerHtml = `
+          <div style="background:#e8f5e9; border-left:4px solid #2e7d32; padding:0.7rem 0.9rem; border-radius:5px; margin-bottom:0.6rem; display:flex; align-items:center; gap:0.7rem;">
+            <span style="font-size:1.3rem;">✓</span>
+            <div style="flex:1; font-size:0.9rem; line-height:1.45;">
+              <b style="color:#1b5e20;">Дата утверждена:</b>
+              <b style="font-size:1.05rem; color:#1b5e20;">${fmtDate(activeSrc.date)}</b>
+              <span style="color:#555;">— по событию «${activeSrc.label}»</span>
+            </div>
+            <button type="button" id="wz1-unconfirm" class="wz-btn wz-btn-outline" style="font-size:0.8rem; padding:0.25rem 0.6rem;">Изменить</button>
+          </div>
+        `;
+      } else {
+        bannerHtml = `
+          <div style="background:#fff3cd; border-left:4px solid #f57f17; padding:0.7rem 0.9rem; border-radius:5px; margin-bottom:0.6rem;">
+            <div style="display:flex; align-items:center; gap:0.7rem; flex-wrap:wrap;">
+              <span style="font-size:1.3rem;">📌</span>
+              <div style="flex:1; min-width:220px; font-size:0.9rem; line-height:1.45;">
+                <span style="color:#5d4037;">Найдена дата:</span>
+                <b style="font-size:1.1rem; color:#5d4037;">${fmtDate(activeSrc.date)}</b><br>
+                <span style="color:#5d4037; font-size:0.84rem;">по событию «<b>${activeSrc.label}</b>»</span>
+              </div>
+              <div style="display:flex; gap:0.4rem;">
+                <button type="button" id="wz1-confirm" class="wz-btn wz-btn-success" style="font-size:0.85rem; padding:0.4rem 0.9rem;">✓ Утвердить</button>
+                <button type="button" id="wz1-change" class="wz-btn wz-btn-outline" style="font-size:0.85rem; padding:0.4rem 0.9rem;">✎ Изменить</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+    } else if (d.work_start_source === 'manual' && d.work_start) {
+      bannerHtml = `
+        <div style="background:#e3f2fd; border-left:4px solid #1976d2; padding:0.55rem 0.9rem; border-radius:5px; margin-bottom:0.6rem; font-size:0.86rem; color:#0d47a1;">
+          ✎ <b>Дата задана вручную:</b> ${fmtDate(d.work_start)}
+        </div>
+      `;
+    } else {
+      bannerHtml = `
+        <div style="background:#fafafa; border-left:4px solid #9e9e9e; padding:0.55rem 0.9rem; border-radius:5px; margin-bottom:0.6rem; font-size:0.86rem; color:#555;">
+          ⚠ Авто-источник не найден — введите дату вручную.
+        </div>
+      `;
+    }
+
+    main.innerHTML = `
+      <h2 class="wz-step-title"><span class="step-num">1</span>Описание скважины</h2>
+      <div class="wz-step-hint">Базовые данные об объекте, дата начала работ, описание.</div>
+
+      <div class="wz-section">
+        <h3>Параметры скважины (из БД)</h3>
+        <div class="wz-preview-card">
+          <span class="wz-preview-stat">№ <b>${w.number}</b></span>
+          <span class="wz-preview-stat">${w.name || ''}</span>
+          <span class="wz-preview-stat">Горизонт: <b>${w.horizon || '—'}</b></span>
+          <span class="wz-preview-stat">Штуцер: <b>${w.choke_mm || '—'}</b> мм</span>
+        </div>
+      </div>
+
+      <div class="wz-section">
+        <h3>Дата начала работ</h3>
+        ${bannerHtml}
+        <details ${d.work_start_confirmed ? '' : 'open'} style="margin-bottom:0.4rem;">
+          <summary style="cursor:pointer; font-size:0.84rem; color:#1976D2; user-select:none;">
+            Все доступные источники даты
+          </summary>
+          <div style="font-size: 0.8rem; color: #666; margin: 0.4rem 0;">
+            Выберите источник — дата подставится в поле ниже.
+          </div>
+          ${sourcesHtml}
+        </details>
+        <div class="wz-field">
+          <label>Итоговая дата <span style="color:#888; font-weight:400; font-size:0.78rem;">(можно править вручную)</span></label>
+          <input type="date" id="wz-work-start" value="${d.work_start || ''}">
+        </div>
+      </div>
+
+      <div class="wz-section">
+        <h3>Описание / введение к отчёту</h3>
+        <textarea id="wz-desc" rows="4" placeholder="Можно оставить пустым — попадёт в раздел 1 PDF.">${d.desc || ''}</textarea>
+      </div>
+
+      ${includeBlock(1, 'Включить раздел «Описание скважины» в PDF')}
+      ${navButtons(1)}
+    `;
+
+    // Кнопки баннера
+    const btnConfirm = document.getElementById('wz1-confirm');
+    if (btnConfirm) {
+      btnConfirm.addEventListener('click', () => {
+        d.work_start_confirmed = true;
+        markStatus(1, 'done');
+        renderStep1(main);
+      });
+    }
+    const btnChange = document.getElementById('wz1-change');
+    if (btnChange) {
+      btnChange.addEventListener('click', () => {
+        d.work_start_source = 'manual';
+        d.work_start_confirmed = false;
+        renderStep1(main);
+        const inp = $('wz-work-start');
+        if (inp) { inp.focus(); try { inp.showPicker && inp.showPicker(); } catch (_) {} }
+      });
+    }
+    const btnUnconfirm = document.getElementById('wz1-unconfirm');
+    if (btnUnconfirm) {
+      btnUnconfirm.addEventListener('click', () => {
+        d.work_start_confirmed = false;
+        renderStep1(main);
+      });
+    }
+
+    // Обработчики radio
+    document.querySelectorAll('input[name="wz1-src"]').forEach(el => {
+      el.addEventListener('change', () => {
+        d.work_start_source = el.value;
+        d.work_start_confirmed = false;  // смена источника → требует нового подтверждения
+        const src = sources.find(s => s.key === el.value);
+        if (src && src.date) {
+          d.work_start = src.date;
+          $('wz-work-start').value = src.date;
+        }
+        markStatus(1, 'done');
+        // Перерисовать чтобы обновить визуал radio
+        renderStep1(main);
+      });
+    });
+
+    // Поле всегда редактируемое: правка вручную → переключаем источник в 'manual'
+    $('wz-work-start').addEventListener('change', e => {
+      d.work_start = e.target.value;
+      if (d.work_start_source !== 'manual') {
+        const src = sources.find(s => s.key === d.work_start_source);
+        if (!src || src.date !== e.target.value) {
+          d.work_start_source = 'manual';
+          d.work_start_confirmed = false;
+          renderStep1(main);
+          return;
+        }
+      }
+      markStatus(1, 'done');
+      // Перерисовать чтобы обновить баннер «manual»
+      renderStep1(main);
+    });
+    $('wz-desc').addEventListener('input', e => { d.desc = e.target.value; markStatus(1, 'done'); });
+    bindIncludeBlock(1);
+
+    markStatus(1, 'done');
+  }
+
+  // ═══ STEP 2: Заказчик (B1) — формат как на /customer-daily ═══
+  function renderStep2(main) {
+    const d = state.steps[2].data;
+    if (!d.periods) d.periods = [];
+    if (!d.from) d.from = null;
+    if (!d.to) d.to = null;
+    main.innerHTML = `
+      <h2 class="wz-step-title"><span class="step-num">2</span>Анализ исходных данных (B1, заказчик)</h2>
+
+      <div style="background: #fff3cd; border-left: 4px solid #f57f17; padding: 0.7rem 0.9rem; border-radius: 5px; margin-bottom: 1rem; font-size: 0.86rem; line-height: 1.5;">
+        <b>📌 Зачем эта глава:</b> показать заказчику историю работы скважины
+        <b>по его собственным суточным сводкам</b> ДО начала наших работ.
+        Это доказывает, что скважина деградировала / была стабильна / улучшалась
+        и подтверждает реальный эффект адаптации на фоне предыдущей динамики.
+        <br><br>
+        <b>Что добавлять в отчёт:</b> один или несколько периодов (например,
+        «3 мес. до начала работ», «месяц перед работами», «лучший месяц в прошлом»)
+        — каждый со своим описанием попадёт в PDF главу 2.
+      </div>
+
+      <div class="wz-step-hint">
+        Источник: <code>well_daily</code> (суточные сводки УзКорГаз). Графики давлений
+        и дебитов, учёт рабочего времени, помесячная агрегация, тренды, описания.
+      </div>
+
+      <div class="wz-section">
+        <h3>Параметры периода</h3>
+
+        <!-- ═══ Конструктор периода: шкала + якорь + до/после ═══ -->
+        <div class="tl2-builder">
+          <div class="tl2-mode-row">
+            Режим: <b id="tl2-mode-label">не выбран</b>
+            <span class="tl2-period-display" id="tl2-period-display"></span>
+          </div>
+          <div class="tl2-scale" id="tl2-scale"
+               title="Клик — поставить точку отсчёта"></div>
+          <!-- Якорь (точка отсчёта) -->
+          <div class="tl2-controls-row">
+            <span class="tl2-controls-label">Точка отсчёта:</span>
+            <button type="button" class="tl2-btn" data-tl2-anchor="customer-start"
+                    title="Первая дата в well_daily">Начало данных</button>
+            <button type="button" class="tl2-btn" data-tl2-anchor="obs-start"
+                    title="Дата начала этапа Наблюдения">Наблюдение</button>
+            <button type="button" class="tl2-btn" data-tl2-anchor="adapt-start"
+                    title="Дата начала этапа Адаптации">Адаптация</button>
+            <button type="button" class="tl2-btn" data-tl2-anchor="opt-start"
+                    title="Дата начала этапа Оптимизации">Оптимизация</button>
+            <button type="button" class="tl2-btn" data-tl2-anchor="today">Сегодня</button>
+            <span class="tl2-divider"></span>
+            <input type="date" class="tl2-date-input" id="tl2-anchor-input"
+                   title="Точная дата якоря">
+          </div>
+          <!-- До якоря -->
+          <div class="tl2-controls-row">
+            <span class="tl2-controls-label">До якоря:</span>
+            <button type="button" class="tl2-btn" data-tl2-before="3">−3 сут.</button>
+            <button type="button" class="tl2-btn" data-tl2-before="7">−1 нед.</button>
+            <button type="button" class="tl2-btn" data-tl2-before="30">−1 мес.</button>
+            <button type="button" class="tl2-btn" data-tl2-before="90">−3 мес.</button>
+            <button type="button" class="tl2-btn" data-tl2-before="all">До начала</button>
+            <span class="tl2-divider"></span>
+            <input type="date" class="tl2-date-input" id="tl2-before-input"
+                   title="Точная левая граница периода">
+          </div>
+          <!-- После якоря -->
+          <div class="tl2-controls-row">
+            <span class="tl2-controls-label">После якоря:</span>
+            <button type="button" class="tl2-btn" data-tl2-after="3">+3 сут.</button>
+            <button type="button" class="tl2-btn" data-tl2-after="7">+1 нед.</button>
+            <button type="button" class="tl2-btn" data-tl2-after="30">+1 мес.</button>
+            <button type="button" class="tl2-btn" data-tl2-after="90">+3 мес.</button>
+            <button type="button" class="tl2-btn" data-tl2-after="today">До сегодня</button>
+            <span class="tl2-divider"></span>
+            <input type="date" class="tl2-date-input" id="tl2-after-input"
+                   title="Точная правая граница периода">
+          </div>
+        </div>
+
+        <div class="wz-row">
+          <div class="wz-field"><label>С</label><input type="date" id="wz2-from"></div>
+          <div class="wz-field"><label>По</label><input type="date" id="wz2-to"></div>
+        </div>
+        <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.5rem;">
+          <button id="wz2-analyze" class="wz-btn wz-btn-primary" style="margin-left: auto;">Проанализировать</button>
+        </div>
+        <div style="display:flex; align-items:center; gap:1rem; padding:0.5rem 0.7rem; background:#f5f7fa; border:1px solid #d8dee5; border-radius:5px; font-size:0.84rem; flex-wrap:wrap;">
+          <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
+            <input type="checkbox" id="wz2-overlay-ours" style="margin:0;">
+            <b>Наши данные</b>
+            <span style="color:#666;">(почасовые P/ΔP/Q после масок)</span>
+          </label>
+          <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
+            <input type="checkbox" id="wz2-overlay-events" style="margin:0;">
+            <b>События</b>
+            <span style="color:#666;">(вбросы 💧 / продувки 🌀)</span>
+          </label>
+          <span id="wz2-overlay-status" style="color:#888; font-size:0.78rem; margin-left:auto;"></span>
+        </div>
+      </div>
+
+      <!-- 4 графика 2x2 как на /customer-daily -->
+      <div id="wz2-charts-block" style="display:none;">
+        <div class="wz-section">
+          <h3>Графики</h3>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.7rem;">
+            <div id="wz2-ch-pres" style="height:300px;"></div>
+            <div id="wz2-ch-static" style="height:300px;"></div>
+            <div id="wz2-ch-rates" style="height:300px;"></div>
+            <div id="wz2-ch-monthly" style="height:300px;"></div>
+          </div>
+          <div style="height:280px; margin-top:0.7rem;" id="wz2-ch-trends"></div>
+        </div>
+      </div>
+
+      <!-- Описательная статистика (без квартилей) -->
+      <div id="wz2-describe-block" style="display:none;">
+        <div class="wz-section">
+          <h3>Описательная статистика за период</h3>
+          <table class="wz-table" id="wz2-describe-table"></table>
+        </div>
+      </div>
+
+      <!-- Помесячная агрегация и тренды -->
+      <div id="wz2-monthly-block" style="display:none;">
+        <div class="wz-section">
+          <h3>Помесячная агрегация и тренды</h3>
+          <table class="wz-table" id="wz2-monthly-table"></table>
+          <h3 style="margin-top:0.8rem;">Описание по месяцам</h3>
+          <div id="wz2-monthly-desc"></div>
+        </div>
+      </div>
+
+      <div class="wz-section">
+        <h3>Периоды для отчёта</h3>
+        <div id="wz2-periods-list"></div>
+        <button id="wz2-add" class="wz-btn wz-btn-success" style="margin-top: 0.4rem;" disabled>
+          + Добавить текущий период в отчёт
+        </button>
+      </div>
+
+      ${includeBlock(2, 'Включить главу «Анализ исходных данных» в PDF')}
+      ${navButtons(2)}
+    `;
+    bindIncludeBlock(2);
+
+    // Восстанавливаем сохранённые поля периода (если были раньше)
+    if (d.from) $('wz2-from').value = d.from;
+    if (d.to) $('wz2-to').value = d.to;
+    if (!$('wz2-from').value) {
+      // Дефолт: попробуем умные пресеты на основе work_start_date или сегодняшней даты
+      const ws = state.steps[1] && state.steps[1].data && state.steps[1].data.work_start;
+      if (ws) {
+        const wd = new Date(ws); const ago = new Date(wd.getTime() - 90 * 86400000);
+        $('wz2-from').value = ago.toISOString().slice(0, 10);
+        $('wz2-to').value = wd.toISOString().slice(0, 10);
+      } else {
+        const today = new Date(); const ago = new Date(Date.now() - 90 * 86400000);
+        $('wz2-from').value = ago.toISOString().slice(0, 10);
+        $('wz2-to').value = today.toISOString().slice(0, 10);
+      }
+      d.from = $('wz2-from').value;
+      d.to = $('wz2-to').value;
+    }
+
+    $('wz2-from').addEventListener('change', e => { d.from = e.target.value; tl2SyncFromFields(); });
+    $('wz2-to').addEventListener('change', e => { d.to = e.target.value; tl2SyncFromFields(); });
+    $('wz2-analyze').addEventListener('click', wz2RunAnalysis);
+    $('wz2-add').addEventListener('click', wz2AddCurrent);
+    // Инициализируем конструктор периода (шкалу) для шага 2
+    tl2Init();
+    // Восстанавливаем состояние чекбоксов оверлея + обработчики.
+    // По умолчанию — оба выключены; при первом включении попросит "Проанализировать".
+    if (typeof d.overlayEvents === 'undefined') d.overlayEvents = !!d.overlayOurs;  // мигр.
+    $('wz2-overlay-ours').checked = !!d.overlayOurs;
+    $('wz2-overlay-events').checked = !!d.overlayEvents;
+    $('wz2-overlay-ours').addEventListener('change', wz2OnOverlayToggle);
+    $('wz2-overlay-events').addEventListener('change', wz2OnOverlayToggle);
+    wz2RenderPeriodsList();
+
+    // Восстанавливаем результат предыдущего анализа (если был)
+    if (d.lastResult) {
+      wz2CurrentAnalysis = d.lastResult;
+      const our = (d.overlayOurs || d.overlayEvents) ? d.lastOurResult : null;
+      wz2RenderPlotlyCharts(d.lastResult, our, {data: d.overlayOurs, events: d.overlayEvents});
+      wz2RenderDescribe(d.lastResult.describe || []);
+      wz2RenderMonthly(d.lastResult.monthly || [], d.lastResult.monthly_desc || []);
+      $('wz2-add').disabled = false;
+    }
+  }
+
+  // Переключение оверлеев. Каждый чекбокс независим, но оба используют один источник
+  // (`/api/adaptation-report/our-segment`) — грузим один раз при включении любого.
+  async function wz2OnOverlayToggle() {
+    const d = state.steps[2].data;
+    d.overlayOurs = $('wz2-overlay-ours').checked;
+    d.overlayEvents = $('wz2-overlay-events').checked;
+    if (!wz2CurrentAnalysis) return;  // Сначала надо проанализировать
+    if (d.overlayOurs || d.overlayEvents) {
+      await wz2LoadOurData();
+    }
+    const our = (d.overlayOurs || d.overlayEvents) ? d.lastOurResult : null;
+    wz2RenderPlotlyCharts(wz2CurrentAnalysis, our, {data: d.overlayOurs, events: d.overlayEvents});
+  }
+
+  // Загружает наши данные (после масок) + события за выбранный период,
+  // кеширует в state.steps[2].data.lastOurResult.
+  async function wz2LoadOurData() {
+    const d = state.steps[2].data;
+    const from = d.from, to = d.to;
+    if (!from || !to) return;
+    // Кеш: не перезагружаем тот же период
+    if (d.lastOurResult && d.lastOurResult._from === from && d.lastOurResult._to === to) return;
+    const status = $('wz2-overlay-status');
+    if (status) status.textContent = '⏳ Загружаю наши данные…';
+    try {
+      const r = await fetch(
+        `/api/adaptation-report/our-segment?well_id=${state.well.id}` +
+        `&date_from=${from}&date_to=${to}`
+      );
+      const data = await r.json();
+      if (!data.ok) {
+        if (status) status.textContent = '⚠ ' + (data.error || 'нет данных');
+        d.lastOurResult = null;
+        return;
+      }
+      data._from = from;
+      data._to = to;
+      d.lastOurResult = data;
+      const cd = data.chart_data || [];
+      const ev = data.events_for_chart || [];
+      if (status) status.textContent = `✓ ${cd.length} час., событий: ${ev.length}`;
+    } catch (e) {
+      if (status) status.textContent = '⚠ ' + e.message;
+      d.lastOurResult = null;
+    }
+  }
+
+  // Smart preset: 3 / 1 мес. до даты начала работ
+  window.wz2PresetBeforeWork = function(days) {
+    const ws = state.steps[1] && state.steps[1].data && state.steps[1].data.work_start;
+    const anchor = ws ? new Date(ws) : new Date();
+    const from = new Date(anchor.getTime() - days * 86400000);
+    const to = new Date(anchor.getTime() - 86400000);  // день перед work_start
+    $('wz2-from').value = from.toISOString().slice(0, 10);
+    $('wz2-to').value = to.toISOString().slice(0, 10);
+    state.steps[2].data.from = $('wz2-from').value;
+    state.steps[2].data.to = $('wz2-to').value;
+    if (typeof tl2SyncFromFields === 'function') tl2SyncFromFields();
+  };
+
+  window.wz2Preset = function(days) {
+    const today = new Date();
+    const from = days === 0 ? new Date('2024-01-01') : new Date(Date.now() - days * 86400000);
+    $('wz2-from').value = from.toISOString().slice(0, 10);
+    $('wz2-to').value = today.toISOString().slice(0, 10);
+    state.steps[2].data.from = $('wz2-from').value;
+    state.steps[2].data.to = $('wz2-to').value;
+    tl2SyncFromFields();
+  };
+
+  // ════════════════════════════════════════════════════════════════════
+  //   Конструктор периода (шкала + якорь + до/после) для шага 2 wizard'a
+  // ════════════════════════════════════════════════════════════════════
+  let tl2State = {
+    earliest: null, latest: null,
+    anchor: null, anchorLabel: '',
+    from: null, to: null,
+    data: null, suspendSync: false,
+  };
+  function _tl2Ymd(d) {
+    if (!d || isNaN(d.getTime())) return '';
+    return [d.getFullYear(), String(d.getMonth()+1).padStart(2,'0'),
+            String(d.getDate()).padStart(2,'0')].join('-');
+  }
+  function _tl2Parse(s) {
+    if (!s) return null;
+    const m = String(s).slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    return new Date(+m[1], +m[2] - 1, +m[3]);
+  }
+  function _tl2DayDiff(a, b) {
+    if (!a || !b) return 0;
+    return Math.round((b - a) / 86400000);
+  }
+  function _tl2AddDays(d, n) {
+    if (!d) return null;
+    const out = new Date(d);
+    out.setDate(out.getDate() + n);
+    return out;
+  }
+  function _tl2Pct(d) {
+    if (!d || !tl2State.earliest || !tl2State.latest) return 0;
+    const total = (tl2State.latest - tl2State.earliest) || 86400000;
+    return Math.max(0, Math.min(100, ((d - tl2State.earliest) / total) * 100));
+  }
+
+  async function tl2Init() {
+    if (!state.well || !state.well.id) return;
+    // Запрос timeline (тот же endpoint, что и в основной странице)
+    try {
+      const r = await fetch('/api/adaptation-report/timeline?well_id=' + state.well.id);
+      if (!r.ok) { console.warn('tl2 fetch failed', r.status); return; }
+      const d = await r.json();
+      tl2State.data = d;
+      // Левая граница: самая ранняя из доступных дат (с запасом 7 дней)
+      const cands = [];
+      if (d.customer_data?.first_date) cands.push(_tl2Parse(d.customer_data.first_date));
+      if (d.our_data?.first_date)      cands.push(_tl2Parse(d.our_data.first_date));
+      for (const s of (d.stages || [])) {
+        if (s.dt_start) cands.push(_tl2Parse(s.dt_start));
+      }
+      const today = _tl2Parse(d.today) || new Date();
+      tl2State.earliest = cands.length
+        ? _tl2AddDays(cands.reduce((a,b) => a < b ? a : b), -7)
+        : _tl2AddDays(today, -365);
+      tl2State.latest = today;
+      // Подцепить уже выставленные wz2-from / wz2-to
+      tl2State.from = _tl2Parse($('wz2-from').value);
+      tl2State.to   = _tl2Parse($('wz2-to').value);
+      tl2BindHandlers();
+      tl2Render();
+      tl2UpdateMode();
+    } catch (e) {
+      console.warn('tl2Init', e);
+    }
+  }
+
+  function tl2Render() {
+    const scale = $('tl2-scale');
+    if (!scale || !tl2State.earliest || !tl2State.latest) return;
+    const d = tl2State.data || {};
+    const parts = [];
+
+    // Бар данных заказчика
+    if (d.customer_data?.first_date && d.customer_data?.last_date) {
+      const a = _tl2Pct(_tl2Parse(d.customer_data.first_date));
+      const b = _tl2Pct(_tl2Parse(d.customer_data.last_date));
+      parts.push(
+        `<div class="tl2-bar tl2-bar-customer" style="left:${a}%; width:${Math.max(b-a, 0.3)}%;"
+              title="well_daily: ${d.customer_data.first_date} — ${d.customer_data.last_date} (${d.customer_data.days_count} дн.)"></div>` +
+        `<div class="tl2-bar-label" style="top:30px;">Заказчик</div>`
+      );
+    } else {
+      parts.push(`<div class="tl2-bar-label" style="top:30px; color:#9ca3af;">Заказчик: нет данных</div>`);
+    }
+    // Бар наших датчиков
+    if (d.our_data?.first_date && d.our_data?.last_date) {
+      const a = _tl2Pct(_tl2Parse(d.our_data.first_date));
+      const b = _tl2Pct(_tl2Parse(d.our_data.last_date));
+      parts.push(
+        `<div class="tl2-bar tl2-bar-our" style="left:${a}%; width:${Math.max(b-a, 0.3)}%;"
+              title="pressure_hourly: ${d.our_data.first_date} — ${d.our_data.last_date}"></div>` +
+        `<div class="tl2-bar-label" style="top:50px;">Датчики</div>`
+      );
+    } else {
+      parts.push(`<div class="tl2-bar-label" style="top:50px; color:#9ca3af;">Датчики: нет данных</div>`);
+    }
+
+    // Маркеры этапов
+    for (const s of (d.stages || [])) {
+      if (!s.dt_start) continue;
+      const x = _tl2Pct(_tl2Parse(s.dt_start));
+      const lbl = (s.label || '').slice(0, 12);
+      parts.push(
+        `<div class="tl2-stage-marker" style="left:${x}%; color:${s.color};"
+              title="${s.label}: ${s.dt_start.slice(0,10)}${s.dt_end ? ' → ' + s.dt_end.slice(0,10) : ''}">
+           <div class="tl2-stage-line"></div>
+           <div class="tl2-stage-label">${lbl}</div>
+         </div>`
+      );
+    }
+
+    // Range — выбранный период
+    if (tl2State.from && tl2State.to) {
+      const a = _tl2Pct(tl2State.from);
+      const b = _tl2Pct(tl2State.to);
+      parts.push(`<div class="tl2-range" style="left:${a}%; width:${Math.max(b-a, 0.3)}%;"></div>`);
+    }
+    // Якорь
+    if (tl2State.anchor) {
+      const x = _tl2Pct(tl2State.anchor);
+      parts.push(
+        `<div class="tl2-anchor" style="left:${x}%;">
+           <div class="tl2-anchor-line"></div>
+           <div class="tl2-anchor-label">▼ ${_tl2Ymd(tl2State.anchor)}</div>
+         </div>`
+      );
+    }
+
+    // Ось — метки месяцев
+    const totalDays = _tl2DayDiff(tl2State.earliest, tl2State.latest) || 1;
+    let step = 30;
+    if (totalDays > 730) step = 90;
+    else if (totalDays > 365) step = 60;
+    else if (totalDays > 120) step = 30;
+    else if (totalDays > 30)  step = 7;
+    else step = 1;
+    const axis = [];
+    for (let cur = new Date(tl2State.earliest); cur <= tl2State.latest; cur = _tl2AddDays(cur, step)) {
+      const x = _tl2Pct(cur);
+      const lbl = String(cur.getMonth()+1).padStart(2,'0') + '.' + String(cur.getFullYear()).slice(-2);
+      axis.push(`<div class="tl2-axis-tick" style="left:${x}%;">${lbl}</div>`);
+    }
+    parts.push(`<div class="tl2-axis">${axis.join('')}</div>`);
+
+    scale.innerHTML = parts.join('');
+  }
+
+  function tl2ResolveAnchor(key) {
+    const d = tl2State.data || {};
+    if (key === 'today') return _tl2Parse(d.today) || new Date();
+    if (key === 'customer-start') return _tl2Parse(d.customer_data?.first_date);
+    const map = {
+      'obs-start':   ['Наблюдение'],
+      'adapt-start': ['Адаптация'],
+      'opt-start':   ['Оптимизация', 'Оптимизация Optimization'],
+    };
+    const labels = map[key];
+    if (labels) {
+      for (const s of (d.stages || [])) {
+        if (labels.includes(s.label) && s.dt_start) return _tl2Parse(s.dt_start);
+      }
+    }
+    return null;
+  }
+
+  function tl2SetAnchor(date, sourceKey) {
+    if (!date) {
+      alert('Дата для этой точки отсчёта не задана.');
+      return;
+    }
+    tl2State.anchor = date;
+    tl2State.anchorLabel = sourceKey || 'manual';
+    $('tl2-anchor-input').value = _tl2Ymd(date);
+    document.querySelectorAll('.tl2-builder [data-tl2-anchor]').forEach(b => {
+      b.classList.toggle('active', b.dataset.tl2Anchor === sourceKey);
+    });
+    tl2Render();
+    tl2UpdateMode();
+  }
+
+  function tl2ApplyBefore(key) {
+    if (!tl2State.anchor) { alert('Сначала выберите точку отсчёта.'); return; }
+    let from;
+    if (key === 'all') from = new Date(tl2State.earliest);
+    else from = _tl2AddDays(tl2State.anchor, -parseInt(key, 10));
+    if (from < tl2State.earliest) from = new Date(tl2State.earliest);
+    tl2State.from = from;
+    if (!tl2State.to) tl2State.to = new Date(tl2State.anchor);
+    $('tl2-before-input').value = _tl2Ymd(from);
+    document.querySelectorAll('.tl2-builder [data-tl2-before]').forEach(b => {
+      b.classList.toggle('active', b.dataset.tl2Before === String(key));
+    });
+    tl2WriteToFields();
+    tl2Render();
+    tl2UpdateMode();
+  }
+
+  function tl2ApplyAfter(key) {
+    if (!tl2State.anchor) { alert('Сначала выберите точку отсчёта.'); return; }
+    let to;
+    if (key === 'today') to = new Date(tl2State.latest);
+    else to = _tl2AddDays(tl2State.anchor, parseInt(key, 10));
+    if (to > tl2State.latest) to = new Date(tl2State.latest);
+    tl2State.to = to;
+    if (!tl2State.from) tl2State.from = new Date(tl2State.anchor);
+    $('tl2-after-input').value = _tl2Ymd(to);
+    document.querySelectorAll('.tl2-builder [data-tl2-after]').forEach(b => {
+      b.classList.toggle('active', b.dataset.tl2After === String(key));
+    });
+    tl2WriteToFields();
+    tl2Render();
+    tl2UpdateMode();
+  }
+
+  function tl2WriteToFields() {
+    if (tl2State.suspendSync) return;
+    const from = tl2State.from ? _tl2Ymd(tl2State.from) : '';
+    const to   = tl2State.to   ? _tl2Ymd(tl2State.to)   : '';
+    if (from) $('wz2-from').value = from;
+    if (to)   $('wz2-to').value   = to;
+    if (state.steps[2]?.data) {
+      if (from) state.steps[2].data.from = from;
+      if (to)   state.steps[2].data.to   = to;
+    }
+  }
+  function tl2SyncFromFields() {
+    // Ручное редактирование wz2-from / wz2-to → отражаем на шкале
+    tl2State.suspendSync = true;
+    tl2State.from = _tl2Parse($('wz2-from').value);
+    tl2State.to   = _tl2Parse($('wz2-to').value);
+    tl2Render();
+    tl2UpdateMode();
+    tl2State.suspendSync = false;
+  }
+
+  function tl2UpdateMode() {
+    const lbl = $('tl2-mode-label');
+    const disp = $('tl2-period-display');
+    if (!lbl) return;
+    if (!tl2State.from || !tl2State.to) {
+      lbl.textContent = 'не выбран';
+      if (disp) disp.textContent = '';
+      return;
+    }
+    const days = _tl2DayDiff(tl2State.from, tl2State.to) + 1;
+    const labelMap = {
+      'today': 'Сегодня', 'customer-start': 'Начала данных',
+      'obs-start': 'Наблюдения', 'adapt-start': 'Адаптации',
+      'opt-start': 'Оптимизации', 'manual': 'клика по шкале',
+    };
+    let modeText;
+    if (tl2State.anchor) {
+      const before = _tl2DayDiff(tl2State.from, tl2State.anchor);
+      const after  = _tl2DayDiff(tl2State.anchor, tl2State.to);
+      const al = labelMap[tl2State.anchorLabel] || tl2State.anchorLabel || _tl2Ymd(tl2State.anchor);
+      modeText = `от «${al}» (${_tl2Ymd(tl2State.anchor)}): −${before} / +${after} сут.`;
+    } else {
+      modeText = 'произвольный диапазон';
+    }
+    lbl.textContent = modeText;
+    if (disp) {
+      disp.textContent = `${_tl2Ymd(tl2State.from)} → ${_tl2Ymd(tl2State.to)} · ${days} дн.`;
+    }
+  }
+
+  // Однократная привязка обработчиков (rebind при каждом renderStep2 ок —
+  // элементы каждый раз новые после innerHTML).
+  function tl2BindHandlers() {
+    document.querySelectorAll('.tl2-builder [data-tl2-anchor]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.tl2Anchor;
+        const d = tl2ResolveAnchor(key);
+        tl2SetAnchor(d, key);
+      });
+    });
+    document.querySelectorAll('.tl2-builder [data-tl2-before]').forEach(btn => {
+      btn.addEventListener('click', () => tl2ApplyBefore(btn.dataset.tl2Before));
+    });
+    document.querySelectorAll('.tl2-builder [data-tl2-after]').forEach(btn => {
+      btn.addEventListener('click', () => tl2ApplyAfter(btn.dataset.tl2After));
+    });
+    $('tl2-anchor-input')?.addEventListener('change', e => {
+      const d = _tl2Parse(e.target.value);
+      if (d) tl2SetAnchor(d, 'manual');
+    });
+    $('tl2-before-input')?.addEventListener('change', e => {
+      const d = _tl2Parse(e.target.value);
+      if (!d) return;
+      tl2State.from = d;
+      tl2WriteToFields(); tl2Render(); tl2UpdateMode();
+    });
+    $('tl2-after-input')?.addEventListener('change', e => {
+      const d = _tl2Parse(e.target.value);
+      if (!d) return;
+      tl2State.to = d;
+      tl2WriteToFields(); tl2Render(); tl2UpdateMode();
+    });
+    $('tl2-scale')?.addEventListener('click', ev => {
+      if (!tl2State.earliest || !tl2State.latest) return;
+      const rect = ev.currentTarget.getBoundingClientRect();
+      const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+      const ms = tl2State.earliest.getTime() + pct * (tl2State.latest - tl2State.earliest);
+      const d = new Date(ms); d.setHours(0, 0, 0, 0);
+      tl2SetAnchor(d, 'manual');
+    });
+  }
+
+  let wz2CurrentAnalysis = null;
+
+  // Plotly common config
+  const WZ2_PLOTLY_LAYOUT = {
+    margin: {l: 50, r: 30, t: 40, b: 50},
+    hovermode: 'x unified',
+    font: {size: 11},
+    legend: {orientation: 'h', y: -0.18},
+  };
+  const WZ2_PLOTLY_CONFIG = {displaylogo: false, responsive: true};
+
+  async function wz2RunAnalysis() {
+    const from = $('wz2-from').value, to = $('wz2-to').value;
+    if (!from || !to) { alert('Укажите период'); return; }
+    const wn = state.well.number;
+
+    // Один вызов — даёт всё (chart, describe, monthly, monthly_desc)
+    const r = await fetch(`/api/customer-daily/well/${encodeURIComponent(wn)}?date_from=${from}&date_to=${to}`);
+    const d = await r.json();
+    if (!d.ok || !d.rows) {
+      $('wz2-charts-block').style.display = 'none';
+      $('wz2-describe-block').style.display = 'none';
+      $('wz2-monthly-block').style.display = 'none';
+      alert('За период нет данных в well_daily.');
+      $('wz2-add').disabled = true;
+      return;
+    }
+
+    wz2CurrentAnalysis = d;
+    // Кешируем результат в state — чтобы переживал переключение шагов
+    const sd = state.steps[2].data;
+    sd.lastResult = d;
+    sd.from = from;
+    sd.to = to;
+    // Период сменился — старые наши данные больше не валидны
+    if (sd.lastOurResult && (sd.lastOurResult._from !== from || sd.lastOurResult._to !== to)) {
+      sd.lastOurResult = null;
+    }
+    if (sd.overlayOurs || sd.overlayEvents) await wz2LoadOurData();
+    const ourForCharts = (sd.overlayOurs || sd.overlayEvents) ? sd.lastOurResult : null;
+    wz2RenderPlotlyCharts(d, ourForCharts, {data: sd.overlayOurs, events: sd.overlayEvents});
+    wz2RenderDescribe(d.describe || []);
+    wz2RenderMonthly(d.monthly || [], d.monthly_desc || []);
+    $('wz2-add').disabled = false;
+    markStatus(2, 'done');
+  }
+
+  // Стили событий для оверлея на графиках заказчика
+  const WZ2_EVENT_STYLES = {
+    purge:   {line: 'rgba(156,39,176,0.55)', dash: 'dash',  width: 1.5, label: '🌀'},
+    reagent: {line: 'rgba(46,125,50,0.6)',   dash: 'dot',   width: 1.2, label: '💧'},
+    equip:   {line: 'rgba(2,136,209,0.5)',   dash: 'dot',   width: 1,   label: '🔧'},
+    other:   {line: 'rgba(117,117,117,0.4)', dash: 'solid', width: 0.8, label: '·'},
+  };
+  // Вертикальные линии событий на всю высоту графика
+  function wz2EventShapes(events) {
+    return (events || []).map(ev => {
+      const st = WZ2_EVENT_STYLES[ev.type] || WZ2_EVENT_STYLES.other;
+      return {
+        type:'line', xref:'x', yref:'paper',
+        x0: ev.t, x1: ev.t, y0: 0, y1: 1,
+        line:{color: st.line, width: st.width, dash: st.dash},
+      };
+    });
+  }
+  // Компактные эмодзи-метки сверху (без рамки/фона, чтобы не загромождать).
+  // Если событий слишком много (>40) — метки не показываем, только линии.
+  function wz2EventAnnotations(events) {
+    const evs = events || [];
+    if (evs.length > 40) return [];
+    return evs.map(ev => {
+      const st = WZ2_EVENT_STYLES[ev.type] || WZ2_EVENT_STYLES.other;
+      return {
+        x: ev.t, y: 1.0, xref:'x', yref:'paper',
+        text: st.label, showarrow: false,
+        font:{size: 11},
+        yanchor: 'bottom',
+      };
+    });
+  }
+
+  // ─── 4 графика 2x2 + график трендов ───
+  // ourData — опционально: наши почасовые данные с событиями.
+  // flags — {data: bool, events: bool} управляет независимо отображением трейсов и линий событий.
+  function wz2RenderPlotlyCharts(data, ourData, flags) {
+    $('wz2-charts-block').style.display = '';
+    const c = data.chart;
+    const showData   = !!(flags && flags.data);
+    const showEvents = !!(flags && flags.events);
+    const ourCd = (showData && ourData && ourData.ok && ourData.chart_data) ? ourData.chart_data : null;
+    const ourEv = (showEvents && ourData && ourData.ok) ? (ourData.events_for_chart || []) : [];
+    const ourTs = ourCd ? ourCd.map(p => p.t) : null;
+    const evShapes = wz2EventShapes(ourEv);
+    const evAnnots = wz2EventAnnotations(ourEv);
+
+    // 1) Давления (устье/затрубное/шлейф/статич) — наши P трубное/линейное накладываем как доп. трейсы
+    const presTraces = [
+      {x: c.dates, y: c.p_wellhead, name: 'Заказчик: устье',     mode:'lines+markers', marker:{size:4}, line:{width:1.4, color:'#1d4ed8'}},
+      {x: c.dates, y: c.p_annular,  name: 'Заказчик: затрубное', mode:'lines+markers', marker:{size:4}, line:{width:1.4}},
+      {x: c.dates, y: c.p_flowline, name: 'Заказчик: шлейф',     mode:'lines+markers', marker:{size:4}, line:{width:1.4, color:'#16a34a'}},
+      {x: c.dates, y: c.p_static,   name: 'Заказчик: статич.',   mode:'lines+markers', marker:{size:4}, line:{width:1.4}},
+    ];
+    if (ourCd) {
+      presTraces.push({x: ourTs, y: ourCd.map(p => p.p_tube), name:'Наши: P трубное (час)',
+        mode:'lines', line:{color:'#FB8C00', width:1.2}, opacity:0.85});
+      presTraces.push({x: ourTs, y: ourCd.map(p => p.p_line), name:'Наши: P линейное (час)',
+        mode:'lines', line:{color:'#E53935', width:1.2}, opacity:0.85});
+    }
+    Plotly.newPlot('wz2-ch-pres', presTraces, {
+      ...WZ2_PLOTLY_LAYOUT, title: 'Давления, кгс/см²',
+      shapes: evShapes,
+      annotations: evAnnots,
+    }, WZ2_PLOTLY_CONFIG);
+
+    // 2) ΔP — наша почасовая ΔP накладывается на ΔP заказчика
+    const dpTraces = [
+      {x: c.dates, y: c.dp, name: 'Заказчик: ΔP', mode:'lines+markers',
+       marker:{size:5, color:'#dc2626'}, line:{color:'#dc2626', width:1.6}},
+    ];
+    if (ourCd) {
+      dpTraces.push({x: ourTs, y: ourCd.map(p => p.dp), name:'Наши: ΔP (час)',
+        mode:'lines', line:{color:'#7c3aed', width:1.2}, opacity:0.85});
+    }
+    Plotly.newPlot('wz2-ch-static', dpTraces, {
+      ...WZ2_PLOTLY_LAYOUT, title: 'Перепад давления, кгс/см²',
+      shapes: [
+        {type:'line', xref:'paper', x0:0, x1:1, y0:0, y1:0,
+         line:{color:'#94a3b8', width:1, dash:'dot'}},
+        ...evShapes,
+      ],
+      annotations: evAnnots,
+    }, WZ2_PLOTLY_CONFIG);
+
+    // 3) Дебиты + простой — наш почасовой Q накладываем
+    const ratesTraces = [
+      {x: c.dates, y: c.q_gas_total,   name:'Заказчик: Q общий',
+       mode:'lines+markers', marker:{size:5, color:'#1d4ed8'},
+       line:{color:'#1d4ed8', width:1.5}, yaxis:'y'},
+      {x: c.dates, y: c.q_gas_working, name:'Заказчик: Q рабочий',
+       mode:'lines+markers', marker:{size:5, color:'#16a34a'},
+       line:{color:'#16a34a', width:1.5}, yaxis:'y'},
+      {x: c.dates, y: c.shutdown_min,  name:'Простой, мин',
+       type:'bar', marker:{color:'rgba(220,38,38,0.35)'}, yaxis:'y2'},
+    ];
+    if (ourCd) {
+      ratesTraces.push({x: ourTs, y: ourCd.map(p => p.q), name:'Наши: Q (час)',
+        mode:'lines', line:{color:'#FB8C00', width:1.2}, opacity:0.85, yaxis:'y'});
+    }
+    Plotly.newPlot('wz2-ch-rates', ratesTraces, {
+      ...WZ2_PLOTLY_LAYOUT, title: 'Дебиты и простой',
+      yaxis: {title: 'Q, тыс.м³/сут'},
+      yaxis2: {title: 'Простой, мин', overlaying: 'y', side: 'right',
+               showgrid: false, rangemode: 'tozero'},
+      barmode: 'overlay',
+      shapes: evShapes,
+      annotations: evAnnots,
+    }, WZ2_PLOTLY_CONFIG);
+
+    // 4) Помесячно: Q общий и рабочий
+    if (data.monthly && data.monthly.length) {
+      const m = data.monthly;
+      const x = m.map(r => r.month_label);
+      Plotly.newPlot('wz2-ch-monthly', [
+        {x, y: m.map(r => r.mean_q_total),     name:'Q общ. ср.',  type:'bar', marker:{color:'#1d4ed8'}},
+        {x, y: m.map(r => r.median_q_total),   name:'Q общ. мед.', type:'bar', marker:{color:'#93c5fd'}},
+        {x, y: m.map(r => r.mean_q_working),   name:'Q раб. ср.',  type:'bar', marker:{color:'#16a34a'}},
+        {x, y: m.map(r => r.median_q_working), name:'Q раб. мед.', type:'bar', marker:{color:'#86efac'}},
+      ], {...WZ2_PLOTLY_LAYOUT, title:'Помесячно: Q общий и рабочий',
+          barmode:'group', yaxis:{title:'Q, тыс.м³/сут'}}, WZ2_PLOTLY_CONFIG);
+
+      // 5) Тренды по месяцам (отдельно)
+      Plotly.newPlot('wz2-ch-trends', [
+        {x, y: m.map(r => r.trend_q_total),
+         name:'Тренд Q общ., /сут', type:'bar',
+         marker:{color: m.map(r => (r.trend_q_total === null || r.trend_q_total === undefined)
+                                    ? '#94a3b8'
+                                    : (r.trend_q_total >= 0 ? '#16a34a' : '#dc2626'))}},
+        {x, y: m.map(r => r.trend_dp),
+         name:'Тренд ΔP, /сут', type:'scatter', mode:'lines+markers',
+         line:{color:'#7c3aed', width:2}, marker:{size:8}, yaxis:'y2'},
+      ], {...WZ2_PLOTLY_LAYOUT, title:'Тренды по месяцам (slope линейной регрессии за день)',
+          yaxis: {title: 'Тренд Q, /сут', zeroline:true,
+                  zerolinecolor:'#94a3b8'},
+          yaxis2: {title: 'Тренд ΔP, /сут', overlaying: 'y', side: 'right',
+                   showgrid: false, zeroline: true, zerolinecolor:'#94a3b8'}},
+        WZ2_PLOTLY_CONFIG);
+    }
+  }
+
+  // ─── Описательная статистика (без квартилей q25/q75) ───
+  function wz2RenderDescribe(rows) {
+    if (!rows || !rows.length) {
+      $('wz2-describe-block').style.display = 'none';
+      return;
+    }
+    $('wz2-describe-block').style.display = '';
+    const tbl = $('wz2-describe-table');
+    tbl.innerHTML = '<thead><tr>' +
+      '<th>Параметр</th><th>N</th><th>Среднее</th><th>СКО</th>' +
+      '<th>Мин</th><th>Медиана</th><th>Макс</th>' +
+      '</tr></thead><tbody></tbody>';
+    const tb = tbl.querySelector('tbody');
+    for (const r of rows) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${r.label}</td>` +
+        `<td>${r.n}</td><td>${fmt(r.mean)}</td><td>${fmt(r.std)}</td>` +
+        `<td>${fmt(r.min)}</td><td>${fmt(r.median)}</td><td>${fmt(r.max)}</td>`;
+      tb.appendChild(tr);
+    }
+  }
+
+  // ─── Помесячная агрегация и тренды + описания по месяцам ───
+  function wz2RenderMonthly(months, monthlyDesc) {
+    if (!months || !months.length) {
+      $('wz2-monthly-block').style.display = 'none';
+      return;
+    }
+    $('wz2-monthly-block').style.display = '';
+    const tbl = $('wz2-monthly-table');
+    tbl.innerHTML = '<thead><tr>' +
+      '<th>Месяц</th><th>Дней</th>' +
+      '<th>Q общ. ср.</th><th>Q общ. мед.</th>' +
+      '<th>Q раб. ср.</th><th>Q раб. мед.</th>' +
+      '<th>ΔP ср.</th><th>ΔP мед.</th>' +
+      '<th>Тренд Q,/сут</th><th>Тренд ΔP,/сут</th>' +
+      '<th>P уст. ср.</th><th>Простой,мин/сут</th>' +
+      '</tr></thead><tbody></tbody>';
+    const tb = tbl.querySelector('tbody');
+    for (const r of months) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td><b>${r.month_label}</b></td><td>${r.days}</td>` +
+        `<td>${fmt(r.mean_q_total)}</td><td>${fmt(r.median_q_total)}</td>` +
+        `<td>${fmt(r.mean_q_working)}</td><td>${fmt(r.median_q_working)}</td>` +
+        `<td>${fmt(r.mean_dp)}</td><td>${fmt(r.median_dp)}</td>` +
+        `<td>${fmt(r.trend_q_total, 3)}</td><td>${fmt(r.trend_dp, 3)}</td>` +
+        `<td>${fmt(r.mean_p_wellhead)}</td><td>${fmt(r.mean_shutdown, 1)}</td>`;
+      tb.appendChild(tr);
+    }
+    // Описания
+    const desc = $('wz2-monthly-desc');
+    if (monthlyDesc && monthlyDesc.length) {
+      let html = '';
+      for (const md of monthlyDesc) {
+        html += `<div style="background:#f8f9fa; border-left:3px solid #1976D2;
+             padding:0.5rem 0.7rem; border-radius:3px; margin-bottom:0.5rem;
+             font-size:0.85rem;">
+          <b style="color:#1976D2;">${md.month_label || md.month}</b><br>
+          <span style="color:#444;">${md.text || md.description || ''}</span>
+        </div>`;
+      }
+      desc.innerHTML = html;
+    } else {
+      desc.innerHTML = '';
+    }
+  }
+
+  function wz2AddCurrent() {
+    if (!wz2CurrentAnalysis || !wz2CurrentAnalysis.days_count) return;
+    const desc = prompt('Описание этого периода для отчёта:', '') || '';
+    state.steps[2].data.periods.push({
+      period_from: $('wz2-from').value,
+      period_to: $('wz2-to').value,
+      description: desc,
+      snapshot: {
+        days_count: wz2CurrentAnalysis.days_count,
+        q_total_avg: wz2CurrentAnalysis.q_total_avg,
+        shutdown_min_total: wz2CurrentAnalysis.shutdown_min_total,
+      },
+    });
+    state.steps[2].include = true;
+    wz2RenderPeriodsList();
+    renderStepper();
+  }
+
+  function wz2RenderPeriodsList() {
+    const box = $('wz2-periods-list');
+    const periods = state.steps[2].data.periods || [];
+    if (!periods.length) {
+      box.innerHTML = '<div class="wz-placeholder" style="padding: 1rem;">Периоды не добавлены.</div>';
+      return;
+    }
+    let html = '<ol style="font-size:0.85rem; padding-left:1.4rem;">';
+    periods.forEach((p, i) => {
+      html += `<li style="margin-bottom:0.4rem;">
+        <b>${p.period_from} → ${p.period_to}</b>
+        (${p.snapshot.days_count} дн., Q ср. ${fmt(p.snapshot.q_total_avg)}, простой ${fmt(p.snapshot.shutdown_min_total, 0)} мин)
+        <button class="wz-btn wz-btn-outline" style="padding:0.1rem 0.4rem; font-size:0.75rem; margin-left:0.4rem;" onclick="wz2RemovePeriod(${i})">×</button>
+        ${p.description ? `<div style="font-style:italic; color:#666;">${p.description}</div>` : ''}
+      </li>`;
+    });
+    html += '</ol>';
+    box.innerHTML = html;
+  }
+  window.wz2RemovePeriod = function(i) {
+    state.steps[2].data.periods.splice(i, 1);
+    wz2RenderPeriodsList();
+  };
+
+  function fmt(v, d=2) {
+    if (v === null || v === undefined || isNaN(v)) return '—';
+    return Number(v).toFixed(d);
+  }
+  // ═══ STEP 3: Наблюдение (B2) — полный анализ ═══
+  function renderStep3(main) {
+    const d = state.steps[3].data;
+    if (!d.source) d.source = 'auto';
+
+    const m = state.metadata || {};
+    const ss = m.stages_status;
+    const se = m.stages_events;
+
+    // 3 источника (без избыточного 4-го)
+    const sources = [
+      {
+        key: 'status',
+        label: 'Из журнала статусов (well_status)',
+        from: ss && ss.obs_from ? ss.obs_from.slice(0, 16) : null,
+        to:   ss && ss.obs_to   ? ss.obs_to.slice(0, 16)   : null,
+      },
+      {
+        key: 'events',
+        label: 'От установки манометров до первого вброса',
+        from: se && se.obs_from ? se.obs_from.slice(0, 16) : null,
+        to:   se && se.adapt_from ? se.adapt_from.slice(0, 16) : null,
+      },
+      { key: 'manual', label: 'Указать вручную', from: null, to: null },
+    ];
+
+    let srcHtml = '<div style="display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.5rem;">';
+    for (const s of sources) {
+      const isActive = d.source === s.key;
+      const disabled = s.key !== 'manual' && !s.to;
+      const dates = (s.from || s.to)
+        ? `<span style="color:#555; font-weight:500;">${s.from || '—'} → ${s.to || '—'}</span>`
+        : (s.key === 'manual' ? '<span style="color:#555;">свои даты →</span>' : '<span style="color:#888;">— нет —</span>');
+      srcHtml += `
+        <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.6rem;
+                      border: 1px solid ${isActive ? '#1976D2' : '#ddd'};
+                      background: ${isActive ? '#e3f2fd' : '#fff'};
+                      border-radius: 5px; cursor: ${disabled ? 'not-allowed' : 'pointer'};
+                      opacity: ${disabled ? 0.5 : 1}; font-size: 0.86rem;">
+          <input type="radio" name="wz3-src" value="${s.key}" ${isActive ? 'checked' : ''}
+                 ${disabled ? 'disabled' : ''} style="margin: 0;">
+          <span style="flex: 1;">${s.label}</span>
+          ${dates}
+        </label>
+      `;
+    }
+    srcHtml += '</div>';
+
+    main.innerHTML = `
+      <h2 class="wz-step-title"><span class="step-num">3</span>Этап наблюдения (B2, наши данные)</h2>
+
+      <div style="background: #fff3cd; border-left: 4px solid #f57f17; padding: 0.7rem 0.9rem; border-radius: 5px; margin-bottom: 1rem; font-size: 0.86rem; line-height: 1.5;">
+        <b>📌 Зачем эта глава:</b> на наших датчиках (минутная/часовая дискретность,
+        точнее данных заказчика) фиксируем <b>базовые параметры</b> до начала работ.
+        Можно <b>менять длительность периода</b> и видеть как меняются базовые значения
+        (Q, ΔP, КИВ). Когда нашли «правильное» окно — нажмите «Зафиксировать как baseline B2».
+        <br><br>
+        <b>Окончание наблюдения = начало адаптации</b> — автоматически прокидывается в шаг 5.
+      </div>
+
+      <div class="wz-section">
+        <h3>Источник дат этапа</h3>
+        ${srcHtml}
+        <div class="wz-row">
+          <div class="wz-field">
+            <label>Начало</label>
+            <input type="datetime-local" id="wz3-from" value="${d.from || ''}"
+                   ${d.source !== 'manual' ? 'readonly style="background:#f5f5f5;"' : ''}>
+          </div>
+          <div class="wz-field">
+            <label>Окончание <span style="color:#1976D2; font-size:0.78rem;">(= начало адаптации)</span></label>
+            <input type="datetime-local" id="wz3-to" value="${d.to || ''}"
+                   ${d.source !== 'manual' ? 'readonly style="background:#f5f5f5;"' : ''}>
+          </div>
+        </div>
+        <div id="wz3-duration-info" style="font-size:0.82rem; color:#666; margin-bottom:0.4rem;"></div>
+        <button id="wz3-analyze" class="wz-btn wz-btn-primary">Проанализировать</button>
+        <span style="font-size:0.78rem; color:#888; margin-left:0.5rem;">
+          (или Ctrl+Enter в полях даты)
+        </span>
+      </div>
+
+      <!-- Базовые параметры (B2) — большие цифры -->
+      <div id="wz3-baseline-card"></div>
+
+      <!-- Тренды -->
+      <div id="wz3-trends"></div>
+
+      <!-- Полные графики -->
+      <div id="wz3-charts-block" style="display:none;">
+        <div class="wz-section">
+          <h3>Графики этапа</h3>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.7rem;">
+            <div id="wz3-ch-pres" style="height:280px;"></div>
+            <div id="wz3-ch-dp" style="height:280px;"></div>
+            <div id="wz3-ch-flow" style="height:280px;"></div>
+            <div id="wz3-ch-down" style="height:280px;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Сохранение baseline B2 -->
+      <div id="wz3-save-baseline" style="display:none;"></div>
+
+      <div class="wz-section">
+        <h3>Описание этапа (для PDF)</h3>
+        <textarea id="wz3-desc" rows="3" placeholder="Что наблюдали, особенности скважины, замечания...">${d.description || ''}</textarea>
+      </div>
+
+      ${includeBlock(3, 'Включить раздел «Этап наблюдения» в PDF')}
+      ${navButtons(3)}
+    `;
+    bindIncludeBlock(3);
+
+    // Применяем источник по умолчанию
+    if (!d.from && !d.to) {
+      const auto = sources.find(s => s.from && s.to);
+      if (auto) {
+        d.source = auto.key;
+        d.from = auto.from;
+        d.to = auto.to;
+        $('wz3-from').value = auto.from;
+        $('wz3-to').value = auto.to;
+      }
+    }
+
+    // Восстановить кешированный анализ
+    if (d.lastResult) {
+      wz3RenderAnalysis(d.lastResult, d.previousBaseline);
+    }
+    wz3UpdateDuration();
+
+    document.querySelectorAll('input[name="wz3-src"]').forEach(el => {
+      el.addEventListener('change', () => {
+        d.source = el.value;
+        const src = sources.find(s => s.key === el.value);
+        if (src) {
+          if (src.from) { d.from = src.from; $('wz3-from').value = src.from; }
+          if (src.to)   { d.to   = src.to;   $('wz3-to').value   = src.to; }
+        }
+        const ro = el.value !== 'manual';
+        $('wz3-from').readOnly = ro;
+        $('wz3-to').readOnly = ro;
+        $('wz3-from').style.background = ro ? '#f5f5f5' : '';
+        $('wz3-to').style.background = ro ? '#f5f5f5' : '';
+        wz3SyncToStep5();
+        wz3UpdateDuration();
+        wz3MarkStale();
+        // Авто-пересчёт при смене источника
+        wz3DebouncedAnalyze();
+      });
+    });
+
+    $('wz3-from').addEventListener('change', e => {
+      d.from = e.target.value;
+      wz3UpdateDuration();
+      wz3MarkStale();
+      wz3DebouncedAnalyze();
+    });
+    $('wz3-to').addEventListener('change', e => {
+      d.to = e.target.value;
+      wz3SyncToStep5();
+      wz3UpdateDuration();
+      wz3MarkStale();
+      wz3DebouncedAnalyze();
+    });
+    $('wz3-analyze').addEventListener('click', wz3RunAnalysis);
+    $('wz3-desc').addEventListener('input', e => { d.description = e.target.value; });
+
+    // Ctrl+Enter в полях даты → анализ
+    ['wz3-from','wz3-to'].forEach(id => {
+      $(id).addEventListener('keydown', e => {
+        if (e.ctrlKey && e.key === 'Enter') wz3RunAnalysis();
+      });
+    });
+  }
+
+  // Помечаем кэш устаревшим (визуально)
+  function wz3MarkStale() {
+    const card = $('wz3-baseline-card');
+    if (!card || !card.innerHTML) return;
+    // Полупрозрачный + баннер
+    card.style.opacity = '0.5';
+    let banner = $('wz3-stale-banner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'wz3-stale-banner';
+      banner.style.cssText = 'background:#fff3cd; border-left:3px solid #f57f17; padding:0.5rem 0.7rem; border-radius:4px; font-size:0.85rem; color:#5d4037; margin:0.6rem 0;';
+      banner.innerHTML = '⏳ Результаты устарели — пересчёт...';
+      card.parentNode.insertBefore(banner, card);
+    }
+  }
+
+  function wz3ClearStale() {
+    const card = $('wz3-baseline-card');
+    if (card) card.style.opacity = '';
+    const banner = $('wz3-stale-banner');
+    if (banner) banner.remove();
+  }
+
+  // Дебаунс для авто-пересчёта
+  let _wz3AnalyzeTimer = null;
+  function wz3DebouncedAnalyze(delay = 500) {
+    clearTimeout(_wz3AnalyzeTimer);
+    _wz3AnalyzeTimer = setTimeout(() => {
+      const f = $('wz3-from') && $('wz3-from').value;
+      const t = $('wz3-to') && $('wz3-to').value;
+      if (!f || !t) return;
+      if (new Date(t).getTime() <= new Date(f).getTime()) return;
+      wz3RunAnalysis();
+    }, delay);
+  }
+
+  function wz3UpdateDuration() {
+    const f = $('wz3-from') && $('wz3-from').value;
+    const t = $('wz3-to') && $('wz3-to').value;
+    if (!f || !t) { if ($('wz3-duration-info')) $('wz3-duration-info').textContent = ''; return; }
+    const ms = new Date(t).getTime() - new Date(f).getTime();
+    if (ms <= 0) {
+      $('wz3-duration-info').innerHTML = '<span style="color:#c62828;">Окончание раньше начала.</span>';
+      return;
+    }
+    const hours = Math.round(ms / 3600000 * 10) / 10;
+    const days = Math.floor(hours / 24);
+    const remH = Math.round(hours - days * 24);
+    const dur = days > 0 ? (remH > 0 ? `${days} сут. ${remH} ч` : `${days} сут.`) : `${hours} ч`;
+    $('wz3-duration-info').innerHTML = `<b>Длительность периода:</b> ${dur}`;
+  }
+
+  // Автосинхронизация: end of observation → start of adaptation
+  function wz3SyncToStep5() {
+    const obsEnd = state.steps[3].data.to;
+    if (!obsEnd) return;
+    state.steps[5].data.from = obsEnd;
+    // Если есть длительность — пересчитать конец
+    const days = state.steps[5].data.duration_days || 10;
+    if (state.steps[5].data.duration_source !== 'status' && state.steps[5].data.duration_source !== 'custom_to') {
+      const dt = new Date(obsEnd); dt.setDate(dt.getDate() + days);
+      const now = new Date(); const capped = dt > now ? now : dt;
+      const pad = (n) => String(n).padStart(2, '0');
+      state.steps[5].data.to = `${capped.getFullYear()}-${pad(capped.getMonth()+1)}-${pad(capped.getDate())}T${pad(capped.getHours())}:${pad(capped.getMinutes())}`;
+    }
+    renderTiles();
+  }
+
+  async function wz3RunAnalysis() {
+    const f = $('wz3-from').value, t = $('wz3-to').value;
+    if (!f || !t) { alert('Укажите даты'); return; }
+    if (new Date(t).getTime() <= new Date(f).getTime()) {
+      alert('Окончание раньше или равно началу.'); return;
+    }
+    const d = state.steps[3].data;
+    const previousBaseline = d.lastResult ? d.lastResult.observation : null;
+    d.from = f; d.to = t;
+
+    $('wz3-baseline-card').innerHTML = '<div class="wz-loading"><div class="wz-spinner"></div>Анализ...</div>';
+    $('wz3-trends').innerHTML = '';
+    $('wz3-charts-block').style.display = 'none';
+    $('wz3-save-baseline').style.display = 'none';
+
+    // dummy adapt-период: 1 час после окончания наблюдения (для прохождения валидации)
+    const adaptFrom = t;
+    const adaptToDt = new Date(t); adaptToDt.setHours(adaptToDt.getHours() + 1);
+    const pad = (n) => String(n).padStart(2, '0');
+    const adaptTo = `${adaptToDt.getFullYear()}-${pad(adaptToDt.getMonth()+1)}-${pad(adaptToDt.getDate())}T${pad(adaptToDt.getHours())}:${pad(adaptToDt.getMinutes())}`;
+
+    const body = {
+      well_id: state.well.id,
+      obs_from: f, obs_to: t,
+      adapt_from: adaptFrom, adapt_to: adaptTo,
+      with_charts: false, with_reagent: false,
+      optimal_mode: 'off',
+    };
+    try {
+      const r = await fetch('/api/adaptation-report/compute', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+      const data = await r.json();
+      if (!data.ok) {
+        $('wz3-baseline-card').innerHTML = `<div class="wz-error">${data.error || 'Ошибка'}</div>`;
+        return;
+      }
+      // Кешируем
+      d.lastResult = data;
+      d.previousBaseline = previousBaseline;
+      d.stats = data.observation;
+      wz3ClearStale();
+      wz3RenderAnalysis(data, previousBaseline);
+      markStatus(3, 'done');
+    } catch (e) {
+      $('wz3-baseline-card').innerHTML = `<div class="wz-error">${e.message}</div>`;
+    }
+  }
+
+  function wz3RenderAnalysis(data, previousBaseline) {
+    const obs = data.observation || {};
+    wz3RenderBaselineCard(obs, previousBaseline);
+    wz3RenderTrends(obs);
+    wz3RenderCharts(obs);
+    wz3RenderSaveBaseline();
+  }
+
+  // ────────────────────────────────────────────────────────────────
+  // Единая функция расчёта B2-метрик (используется и для показа, и для save)
+  // ────────────────────────────────────────────────────────────────
+  function wz3ComputeBaselineStats(obs) {
+    const d = state.steps[3].data;
+    const ann = d.annotations || [];
+    const cd = obs.chart_data || [];
+    const isExcluded = (t) => {
+      const ts = new Date(t).getTime();
+      return ann.some(a => {
+        const a1 = new Date(a.from).getTime(), a2 = new Date(a.to).getTime();
+        return ts >= a1 && ts <= a2;
+      });
+    };
+    const filtered = ann.length ? cd.filter(c => !isExcluded(c.t)) : cd;
+
+    const arr = key => filtered.map(c => c[key]).filter(v => v !== null && !isNaN(v));
+    const mean = a => a.length ? a.reduce((x,y)=>x+y,0)/a.length : null;
+    const median = a => {
+      if (!a.length) return null;
+      const s = [...a].sort((x,y)=>x-y); const n = s.length;
+      return n % 2 ? s[(n-1)/2] : (s[n/2-1] + s[n/2]) / 2;
+    };
+
+    const qArr = arr('q'), dpArr = arr('dp'),
+          ptArr = arr('p_tube'), plArr = arr('p_line');
+    const qWorking = qArr.filter(v => v > 0);
+
+    // Рабочие/простой по отфильтрованным точкам
+    const workingPoints = filtered.filter(c =>
+      c.p_tube !== null && c.p_line !== null && c.dp !== null && c.dp > 0.1
+    ).length;
+    const downtimePoints = filtered.length - workingPoints;
+    // Плюс часы исключённые аннотациями kind='downtime' и 'purge'
+    const annDowntimeHours = ann
+      .filter(a => a.kind === 'downtime' || a.kind === 'purge')
+      .reduce((s, a) => s + (new Date(a.to).getTime() - new Date(a.from).getTime()) / 3600000, 0);
+    const downtimeTotalHours = downtimePoints + Math.round(annDowntimeHours);
+
+    const evPurges = (obs.events_for_chart || []).filter(e => e.type === 'purge').length;
+    const manualPurges = ann.filter(a => a.kind === 'purge').length;
+    const totalPurges = evPurges + manualPurges;
+
+    const evReagents = (obs.events_for_chart || []).filter(e => e.type === 'reagent').length;
+
+    const totalHours = filtered.length;
+    const utilization = totalHours > 0 ? (workingPoints / totalHours * 100) : null;
+
+    return {
+      // Дебит
+      q_total_mean: mean(qArr),
+      q_total_median: median(qArr),
+      q_working_mean: mean(qWorking),
+      q_working_median: median(qWorking),
+      // Давления
+      p_tube_mean: mean(ptArr),
+      p_tube_median: median(ptArr),
+      p_line_mean: mean(plArr),
+      p_line_median: median(plArr),
+      dp_mean: mean(dpArr),
+      dp_median: median(dpArr),
+      // Время
+      hours_total: totalHours,
+      working_hours: workingPoints,
+      downtime_hours: downtimeTotalHours,
+      utilization_pct: utilization,
+      duration_days: Math.max(1, Math.round(totalHours / 24)),
+      duration_label: obs.duration_label,
+      // События
+      purge_count_events: evPurges,
+      purge_count_manual: manualPurges,
+      purge_count_total: totalPurges,
+      reagent_count: evReagents,
+      // Метаданные
+      excluded_hours: cd.length - filtered.length,
+      excluded_pct: cd.length ? (cd.length - filtered.length) / cd.length * 100 : 0,
+    };
+  }
+
+  function wz3RenderBaselineCard(obs, prev) {
+    const s = wz3ComputeBaselineStats(obs);
+    state.steps[3].data._currentStats = s;  // для save и для других шагов
+
+    const val = (v, unit) => {
+      if (v === null || v === undefined || isNaN(v)) return '—';
+      return `<b style="font-size:1.2rem; color:#1565c0;">${fmt(v)}</b>${unit ? ` <span style="color:#666; font-size:0.78rem;">${unit}</span>` : ''}`;
+    };
+
+    // Статус утверждения
+    const approved = state.steps[3].data.approvedStats;
+    let approvedBanner;
+    if (approved) {
+      const ok = wz3StatsMatchApproved(s, approved);
+      approvedBanner = ok
+        ? '<div style="background:#e8f5e9; border-left:3px solid #2e7d32; padding:0.4rem 0.7rem; border-radius:4px; font-size:0.83rem; color:#1b5e20; margin-bottom:0.5rem;">✓ <b>Baseline B2 утверждён</b> (id ' + approved.id + ', ' + (approved.savedAt || '').slice(0, 10) + '). Эти значения используются в шагах 4 (валидация) и 6 (сравнение).</div>'
+        : '<div style="background:#fff3cd; border-left:3px solid #f57f17; padding:0.4rem 0.7rem; border-radius:4px; font-size:0.83rem; color:#5d4037; margin-bottom:0.5rem;">⚠ Текущие значения отличаются от <b>утверждённого baseline B2</b> (id ' + approved.id + '). Чтобы применить новые — пересохраните.</div>';
+    } else {
+      approvedBanner = '<div style="background:#fff3cd; border-left:3px solid #f57f17; padding:0.4rem 0.7rem; border-radius:4px; font-size:0.83rem; color:#5d4037; margin-bottom:0.5rem;">⚠ Baseline B2 ещё не утверждён. Нажмите «✓ Утвердить» в самом низу — текущие значения попадут в БД и будут использоваться для сравнения.</div>';
+    }
+
+    $('wz3-baseline-card').innerHTML = `
+      <div class="wz-section">
+        <h3>Базовые параметры B2 (по нашим датчикам) — это будет записано в БД</h3>
+        ${approvedBanner}
+
+        <h4 style="margin:0.4rem 0 0.3rem; color:#555;">Дебит Q (тыс.м³/сут)</h4>
+        <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:0.5rem;">
+          <div class="wz-card"><div class="wz-card-title">Q общий: среднее</div><div class="wz-card-body">${val(s.q_total_mean)}</div></div>
+          <div class="wz-card"><div class="wz-card-title">Q общий: медиана</div><div class="wz-card-body">${val(s.q_total_median)}</div></div>
+          <div class="wz-card"><div class="wz-card-title">Q рабочий: среднее</div><div class="wz-card-body">${val(s.q_working_mean)}</div></div>
+          <div class="wz-card"><div class="wz-card-title">Q рабочий: медиана</div><div class="wz-card-body">${val(s.q_working_median)}</div></div>
+        </div>
+
+        <h4 style="margin:0.6rem 0 0.3rem; color:#555;">Давления (кгс/см²)</h4>
+        <div style="display:grid; grid-template-columns:repeat(6, 1fr); gap:0.5rem;">
+          <div class="wz-card"><div class="wz-card-title">P тр: ср.</div><div class="wz-card-body">${val(s.p_tube_mean)}</div></div>
+          <div class="wz-card"><div class="wz-card-title">P тр: мед.</div><div class="wz-card-body">${val(s.p_tube_median)}</div></div>
+          <div class="wz-card"><div class="wz-card-title">P лин: ср.</div><div class="wz-card-body">${val(s.p_line_mean)}</div></div>
+          <div class="wz-card"><div class="wz-card-title">P лин: мед.</div><div class="wz-card-body">${val(s.p_line_median)}</div></div>
+          <div class="wz-card"><div class="wz-card-title">ΔP: ср.</div><div class="wz-card-body">${val(s.dp_mean)}</div></div>
+          <div class="wz-card"><div class="wz-card-title">ΔP: мед.</div><div class="wz-card-body">${val(s.dp_median)}</div></div>
+        </div>
+
+        <h4 style="margin:0.6rem 0 0.3rem; color:#555;">Учёт времени и событий</h4>
+        <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:0.5rem;">
+          <div class="wz-card"><div class="wz-card-title">КИВ</div><div class="wz-card-body">${val(s.utilization_pct, '%')}</div></div>
+          <div class="wz-card"><div class="wz-card-title">Рабочих часов</div><div class="wz-card-body"><b style="font-size:1.2rem; color:#1565c0;">${s.working_hours}</b> <span style="color:#666; font-size:0.78rem;">из ${s.hours_total}</span></div></div>
+          <div class="wz-card"><div class="wz-card-title">Простой</div><div class="wz-card-body"><b style="font-size:1.2rem; color:#1565c0;">${s.downtime_hours}</b> <span style="color:#666; font-size:0.78rem;">часов</span></div></div>
+          <div class="wz-card"><div class="wz-card-title">Продувок</div><div class="wz-card-body"><b style="font-size:1.2rem; color:#1565c0;">${s.purge_count_total}</b> <span style="color:#666; font-size:0.78rem;">из БД ${s.purge_count_events} + руч. ${s.purge_count_manual}</span></div></div>
+          <div class="wz-card"><div class="wz-card-title">Длительность</div><div class="wz-card-body"><b style="font-size:1.0rem; color:#1565c0;">${obs.duration_label || s.duration_days + ' сут.'}</b></div></div>
+        </div>
+
+        ${prev ? wz3RenderImpact(obs, prev) : ''}
+      </div>
+    `;
+  }
+
+  // Сравнение текущей статистики с утверждённой (с допуском)
+  function wz3StatsMatchApproved(cur, app) {
+    const eps = 0.005;  // допуск 0.5%
+    const fields = ['q_total_mean','q_total_median','dp_mean','dp_median','p_tube_median','p_line_median'];
+    for (const k of fields) {
+      const a = cur[k], b = app[k];
+      if (a === null && b === null) continue;
+      if (a === null || b === null) return false;
+      const denom = Math.max(Math.abs(a), Math.abs(b), 1e-6);
+      if (Math.abs(a - b) / denom > eps) return false;
+    }
+    return true;
+  }
+
+  // Нейтральный комментарий о влиянии последнего изменения (без зелёных/красных дельт)
+  function wz3RenderImpact(obs, prev) {
+    const fields = [
+      ['Q мед',  'flow_median',    'тыс.м³/сут'],
+      ['Q ср',   'flow_avg',       'тыс.м³/сут'],
+      ['ΔP мед', 'dp_median',      'кгс/см²'],
+      ['КИВ',    'utilization_pct','%'],
+    ];
+    const parts = [];
+    for (const [name, key, unit] of fields) {
+      const cur = obs[key], p = prev[key];
+      if (cur === null || cur === undefined || p === null || p === undefined) continue;
+      const delta = cur - p;
+      if (Math.abs(delta) < 0.001) continue;
+      const pct = Math.abs(p) > 1e-6 ? (delta / Math.abs(p) * 100) : null;
+      const pctTxt = pct !== null ? ` (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%)` : '';
+      parts.push(`${name}: ${delta >= 0 ? '+' : ''}${delta.toFixed(2)} ${unit}${pctTxt}`);
+    }
+    if (!parts.length) return '';
+    return `
+      <div style="background:#f5f5f5; border-left:3px solid #9e9e9e; padding:0.4rem 0.7rem; border-radius:4px; font-size:0.8rem; color:#555; margin-top:0.5rem;">
+        ↺ <b>Изменение от прошлого расчёта:</b> ${parts.join(' · ')}
+        <br><span style="color:#888; font-size:0.74rem;">
+          Это разница «было vs стало» при последнем пересчёте — НЕ тренд внутри периода.
+          Реальную динамику (направление вверх/вниз внутри окна) показывают карточки «Тренды за период» ниже.
+        </span>
+      </div>
+    `;
+  }
+
+  function wz3RenderTrends(obs) {
+    const trArr = [
+      ['P трубное',  obs.p_tube_trend,  'кгс/см²'],
+      ['P линейное', obs.p_line_trend,  'кгс/см²'],
+      ['ΔP',         obs.dp_trend,      'кгс/см²'],
+      ['Q дебит',    obs.q_trend,       'тыс.м³/сут'],
+    ];
+    let html = '<div class="wz-section"><h3>Тренды за период</h3>' +
+      '<div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:0.6rem;">';
+    for (const [name, tr, unit] of trArr) {
+      if (!tr) {
+        html += `<div class="wz-card wz-card-empty"><div class="wz-card-title">${name}</div><div class="wz-card-body">данных мало</div></div>`;
+        continue;
+      }
+      const slope = tr.slope_per_day || 0;
+      const r2 = tr.r_squared || 0;
+      let icon = '→', color = '#666';
+      if (tr.direction === 'up' && Math.abs(slope) > 0.01) { icon = '↑'; color = '#2e7d32'; }
+      else if (tr.direction === 'down' && Math.abs(slope) > 0.01) { icon = '↓'; color = '#c62828'; }
+      html += `<div class="wz-card">
+        <div class="wz-card-title">${name}</div>
+        <div class="wz-card-body" style="display:flex; align-items:center; gap:0.4rem;">
+          <span style="font-size:1.6rem; color:${color};">${icon}</span>
+          <div>
+            <b>${fmt(slope, 3)}</b> <span style="color:#666; font-size:0.78rem;">${unit}/сут</span><br>
+            <span style="color:#888; font-size:0.75rem;">R²=${fmt(r2, 2)}</span>
+          </div>
+        </div>
+      </div>`;
+    }
+    html += '</div></div>';
+    $('wz3-trends').innerHTML = html;
+  }
+
+  // Линейная регрессия: возвращает [start_y, end_y] по edge x — для отрисовки
+  function wz3LinTrendLine(xs, ys) {
+    const valid = [];
+    for (let i = 0; i < xs.length; i++) {
+      if (ys[i] !== null && ys[i] !== undefined && !isNaN(ys[i])) {
+        valid.push([new Date(xs[i]).getTime() / 86400000, ys[i]]);
+      }
+    }
+    if (valid.length < 3) return null;
+    const xMin = valid[0][0], xMax = valid[valid.length - 1][0];
+    const xs2 = valid.map(p => p[0] - xMin);
+    const ys2 = valid.map(p => p[1]);
+    const n = xs2.length;
+    const sx = xs2.reduce((a, b) => a + b, 0);
+    const sy = ys2.reduce((a, b) => a + b, 0);
+    const sxy = xs2.reduce((a, _, i) => a + xs2[i] * ys2[i], 0);
+    const sx2 = xs2.reduce((a, b) => a + b * b, 0);
+    const slope = (n * sxy - sx * sy) / (n * sx2 - sx * sx);
+    const intercept = (sy - slope * sx) / n;
+    const slopePerDay = slope;  // already per day
+    return {
+      x: [xs[xs.findIndex(t => t === xs.find(t => new Date(t).getTime() / 86400000 === xMin))],
+          xs[xs.length - 1]],
+      y: [intercept, intercept + slope * (xMax - xMin)],
+      slope_per_day: slopePerDay,
+    };
+  }
+
+  // Стили для разных типов событий
+  const WZ3_EVENT_STYLES = {
+    purge:   {line: 'rgba(156,39,176,0.65)', dash: 'dash',  width: 2,   label: '🌀'},
+    reagent: {line: 'rgba(46,125,50,0.7)',   dash: 'dot',   width: 1.5, label: '💧'},
+    equip:   {line: 'rgba(2,136,209,0.55)',  dash: 'dot',   width: 1,   label: '🔧'},
+    other:   {line: 'rgba(117,117,117,0.45)',dash: 'solid', width: 0.8, label: '·'},
+  };
+
+  // shapes: события из БД (вертикальные линии всех типов) + ручные аннотации (заливка)
+  function wz3BuildShapes(annotations, eventMarkers) {
+    const shapes = [];
+    // События из БД — вертикальные линии разных стилей
+    for (const ev of (eventMarkers || [])) {
+      const st = WZ3_EVENT_STYLES[ev.type] || WZ3_EVENT_STYLES.other;
+      shapes.push({
+        type: 'line', xref: 'x', yref: 'paper',
+        x0: ev.t, x1: ev.t, y0: 0, y1: 1,
+        line: {color: st.line, width: st.width, dash: st.dash},
+      });
+    }
+    // Ручные аннотации — закрашенные прямоугольники
+    for (const a of annotations) {
+      const color = a.kind === 'purge'    ? 'rgba(156,39,176,0.22)'
+                 : a.kind === 'downtime' ? 'rgba(220,38,38,0.22)'
+                 : 'rgba(102,102,102,0.20)';
+      const border = a.kind === 'purge'    ? 'rgba(156,39,176,0.7)'
+                  : a.kind === 'downtime' ? 'rgba(220,38,38,0.7)'
+                  : 'rgba(102,102,102,0.5)';
+      shapes.push({
+        type: 'rect', xref: 'x', yref: 'paper',
+        x0: a.from, x1: a.to, y0: 0, y1: 1,
+        fillcolor: color, line: {color: border, width: 1},
+      });
+    }
+    return shapes;
+  }
+
+  // Toggle-кнопки для скрытия/показа кривых
+  function wz3RenderToggles() {
+    const block = $('wz3-charts-block');
+    if (!block) return;
+    let box = $('wz3-toggles');
+    if (box) return;  // уже отрисовано
+    const d = state.steps[3].data;
+    if (!d.viz) d.viz = {p_tube: true, p_line: true, dp: true, q: true,
+                         show_mean: true, show_median: true, show_fill: true,
+                         show_downtime: true, show_trend: true};
+    box = document.createElement('div');
+    box.id = 'wz3-toggles';
+    box.style.cssText = 'background:#f5f5f5; padding:0.5rem 0.7rem; border-radius:5px; margin:0.4rem 0; display:flex; gap:0.6rem; flex-wrap:wrap; font-size:0.82rem;';
+    const opts = [
+      ['p_tube', 'P тр'], ['p_line', 'P лин'], ['dp', 'ΔP'], ['q', 'Q'],
+      ['show_trend', 'тренд'], ['show_mean', 'среднее'], ['show_median', 'медиана'],
+      ['show_fill', 'заливка ср↔мед'], ['show_downtime', 'простой (фон)'],
+    ];
+    box.innerHTML = '<b>Показать:</b> ' + opts.map(([key, label]) =>
+      `<label style="cursor:pointer;"><input type="checkbox" data-viz="${key}" ${d.viz[key] ? 'checked' : ''} style="margin-right:0.2rem;">${label}</label>`
+    ).join('');
+
+    // Вставляем перед grid с графиками
+    const grid = block.querySelector('.wz-section');
+    if (grid) {
+      const h3 = grid.querySelector('h3');
+      if (h3) h3.after(box);
+    }
+
+    box.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        d.viz[cb.dataset.viz] = cb.checked;
+        if (d.lastResult) wz3RenderCharts(d.lastResult.observation);
+      });
+    });
+  }
+
+  // Plotly annotations (значки сверху) для всех типов событий из БД
+  function wz3BuildEventAnnotations(eventMarkers) {
+    const out = [];
+    for (const ev of (eventMarkers || [])) {
+      const st = WZ3_EVENT_STYLES[ev.type] || WZ3_EVENT_STYLES.other;
+      out.push({
+        x: ev.t, y: 1.02, xref: 'x', yref: 'paper',
+        text: st.label, showarrow: false,
+        font: {size: 12, color: st.line},
+        bgcolor: 'rgba(255,255,255,0.7)',
+      });
+    }
+    return out;
+  }
+
+  function wz3RenderCharts(obs) {
+    if (!obs.chart_data || !obs.chart_data.length) {
+      $('wz3-charts-block').style.display = 'none';
+      return;
+    }
+    $('wz3-charts-block').style.display = '';
+
+    // Вставим toggles перед графиками (один раз)
+    wz3RenderToggles();
+
+    const d = state.steps[3].data;
+    if (!d.viz) d.viz = {p_tube: true, p_line: true, dp: true, q: true,
+                         show_mean: true, show_median: true, show_fill: true,
+                         show_downtime: true, show_trend: true};
+    const v = d.viz;
+    const cd = obs.chart_data;
+    const annotations = d.annotations || [];
+    const events = obs.events_for_chart || [];
+
+    // Фильтруем точки (исключаем те, что в exclude/purge/downtime)
+    const isExcluded = (t) => {
+      const ts = new Date(t).getTime();
+      return annotations.some(a => {
+        const a1 = new Date(a.from).getTime(), a2 = new Date(a.to).getTime();
+        return ts >= a1 && ts <= a2;
+      });
+    };
+
+    const dates = cd.map(c => c.t);
+    const pt = cd.map(c => isExcluded(c.t) ? null : c.p_tube);
+    const pl = cd.map(c => isExcluded(c.t) ? null : c.p_line);
+    const dp = cd.map(c => isExcluded(c.t) ? null : c.dp);
+    const q  = cd.map(c => isExcluded(c.t) ? null : c.q);
+
+    // Простой = час с ΔP <= 0.1 (или null) → находим непрерывные интервалы
+    const downtimeRanges = [];
+    let curStart = null;
+    for (const c of cd) {
+      const isDown = (c.p_tube === null || c.p_line === null
+                      || (c.dp !== null && c.dp <= 0.1));
+      if (isDown && curStart === null) curStart = c.t;
+      else if (!isDown && curStart !== null) {
+        downtimeRanges.push([curStart, c.t]);
+        curStart = null;
+      }
+    }
+    if (curStart !== null) downtimeRanges.push([curStart, cd[cd.length - 1].t]);
+
+    // Доп shapes для простоев (если включено)
+    const dtShapes = v.show_downtime ? downtimeRanges.map(([from, to]) => ({
+      type: 'rect', xref: 'x', yref: 'paper',
+      x0: from, x1: to, y0: 0, y1: 1,
+      fillcolor: 'rgba(220,38,38,0.10)', line: {width: 0},
+    })) : [];
+
+    const shapes = wz3BuildShapes(annotations, events).concat(dtShapes);
+    const evAnn = wz3BuildEventAnnotations(events);
+
+    // Helpers: mean / median по фильтрованным
+    const arrValid = arr => arr.filter(x => x !== null && !isNaN(x));
+    const meanA = arr => { const v = arrValid(arr); return v.length ? v.reduce((a,b)=>a+b,0)/v.length : null; };
+    const medA = arr => {
+      const v = arrValid(arr).slice().sort((a,b)=>a-b);
+      if (!v.length) return null; const n = v.length;
+      return n % 2 ? v[(n-1)/2] : (v[n/2-1] + v[n/2]) / 2;
+    };
+    const dpMean = meanA(dp), dpMed = medA(dp);
+    const qMean  = meanA(q),  qMed  = medA(q);
+
+    // Тренды по фильтрованным
+    const trDp = wz3LinTrendLine(dates, dp);
+    const trQ  = wz3LinTrendLine(dates, q);
+
+    // helper: горизонтальные shape-линии для mean/median + fill между ними
+    const buildHLines = (mean, median, colorMean, colorMed) => {
+      const arr = [];
+      const min = Math.min(mean, median), max = Math.max(mean, median);
+      if (v.show_fill && mean !== null && median !== null && Math.abs(mean - median) > 1e-6) {
+        arr.push({
+          type: 'rect', xref: 'paper', yref: 'y',
+          x0: 0, x1: 1, y0: min, y1: max,
+          fillcolor: 'rgba(255,193,7,0.12)', line: {width: 0},
+        });
+      }
+      if (v.show_mean && mean !== null) {
+        arr.push({
+          type: 'line', xref: 'paper', yref: 'y',
+          x0: 0, x1: 1, y0: mean, y1: mean,
+          line: {color: colorMean, width: 1.5, dash: 'dot'},
+        });
+      }
+      if (v.show_median && median !== null) {
+        arr.push({
+          type: 'line', xref: 'paper', yref: 'y',
+          x0: 0, x1: 1, y0: median, y1: median,
+          line: {color: colorMed, width: 1.5, dash: 'dashdot'},
+        });
+      }
+      return arr;
+    };
+
+    // ─── 1) Давления + события
+    const presTraces = [];
+    if (v.p_tube) presTraces.push(
+      {x: dates, y: pt, name: 'P трубное', mode: 'lines',
+       line: {color: '#1f77b4', width: 1.4}, connectgaps: false});
+    if (v.p_line) presTraces.push(
+      {x: dates, y: pl, name: 'P линейное', mode: 'lines',
+       line: {color: '#d62728', width: 1.4}, connectgaps: false});
+    Plotly.newPlot('wz3-ch-pres', presTraces,
+      {...WZ2_PLOTLY_LAYOUT, title: 'Давления (наши датчики)',
+       yaxis:{title:'кгс/см²'}, shapes, annotations: evAnn,
+       dragmode: 'select', selectdirection: 'h'},
+      {...WZ2_PLOTLY_CONFIG, modeBarButtonsToAdd: ['select2d']});
+    wz3WirePlotlySelect('wz3-ch-pres');
+
+    // ─── 2) ΔP + тренд + mean/median + fill + downtime
+    const dpTraces = [];
+    if (v.dp) dpTraces.push(
+      {x: dates, y: dp, name: 'ΔP', mode: 'lines',
+       line: {color: '#ef6c00', width: 1.6}, fill:'tozeroy',
+       fillcolor:'rgba(239,108,0,0.1)', connectgaps: false});
+    if (v.show_trend && trDp) {
+      dpTraces.push({
+        x: trDp.x, y: trDp.y,
+        name: `Тренд ${(trDp.slope_per_day || 0) >= 0 ? '↑' : '↓'} ${(trDp.slope_per_day || 0).toFixed(3)}/сут`,
+        mode: 'lines', line: {color: '#000', width: 1.5, dash: 'dash'},
+      });
+    }
+    // Mean/median legend traces (точки вне видимой зоны)
+    if (v.show_mean && dpMean !== null) dpTraces.push({
+      x: [dates[0]], y: [dpMean], name: `Среднее ΔP=${fmt(dpMean)}`,
+      mode: 'markers', marker: {color: '#0d47a1', size: 8, symbol: 'line-ew', line: {width: 2, dash: 'dot'}},
+      showlegend: true,
+    });
+    if (v.show_median && dpMed !== null) dpTraces.push({
+      x: [dates[0]], y: [dpMed], name: `Медиана ΔP=${fmt(dpMed)}`,
+      mode: 'markers', marker: {color: '#1565c0', size: 8, symbol: 'line-ew', line: {width: 2, dash: 'dashdot'}},
+      showlegend: true,
+    });
+
+    const dpShapes = shapes.concat(buildHLines(dpMean, dpMed, '#0d47a1', '#1565c0'));
+    Plotly.newPlot('wz3-ch-dp', dpTraces,
+      {...WZ2_PLOTLY_LAYOUT, title: 'Перепад ΔP — тренд, среднее, медиана',
+       yaxis:{title:'кгс/см²'}, shapes: dpShapes, annotations: evAnn,
+       dragmode: 'select', selectdirection: 'h'},
+      {...WZ2_PLOTLY_CONFIG, modeBarButtonsToAdd: ['select2d']});
+    wz3WirePlotlySelect('wz3-ch-dp');
+
+    // ─── 3) Q + тренд + mean/median + fill + downtime
+    const qTraces = [];
+    if (v.q) qTraces.push(
+      {x: dates, y: q, name: 'Q', mode: 'lines',
+       line: {color: '#2e7d32', width: 1.6}, connectgaps: false});
+    if (v.show_trend && trQ) {
+      qTraces.push({
+        x: trQ.x, y: trQ.y,
+        name: `Тренд ${(trQ.slope_per_day || 0) >= 0 ? '↑' : '↓'} ${(trQ.slope_per_day || 0).toFixed(3)}/сут`,
+        mode: 'lines', line: {color: '#000', width: 1.5, dash: 'dash'},
+      });
+    }
+    if (v.show_mean && qMean !== null) qTraces.push({
+      x: [dates[0]], y: [qMean], name: `Среднее Q=${fmt(qMean)}`,
+      mode: 'markers', marker: {color: '#0d47a1', size: 8, symbol: 'line-ew', line: {width: 2, dash: 'dot'}},
+      showlegend: true,
+    });
+    if (v.show_median && qMed !== null) qTraces.push({
+      x: [dates[0]], y: [qMed], name: `Медиана Q=${fmt(qMed)}`,
+      mode: 'markers', marker: {color: '#1565c0', size: 8, symbol: 'line-ew', line: {width: 2, dash: 'dashdot'}},
+      showlegend: true,
+    });
+    const qShapes = shapes.concat(buildHLines(qMean, qMed, '#0d47a1', '#1565c0'));
+    Plotly.newPlot('wz3-ch-flow', qTraces,
+      {...WZ2_PLOTLY_LAYOUT, title: 'Дебит Q(t) — тренд, среднее, медиана',
+       yaxis:{title:'тыс.м³/сут'}, shapes: qShapes, annotations: evAnn,
+       dragmode: 'select', selectdirection: 'h'},
+      {...WZ2_PLOTLY_CONFIG, modeBarButtonsToAdd: ['select2d']});
+    wz3WirePlotlySelect('wz3-ch-flow');
+
+    // ─── 4) Учёт рабочего времени по дням
+    const byDay = {};
+    for (const c of cd) {
+      const day = c.t.slice(0, 10);
+      if (!byDay[day]) byDay[day] = {total: 0, down: 0};
+      byDay[day].total += 1;
+      const ex = isExcluded(c.t);
+      const isDown = ex || (c.p_tube === null || c.p_line === null || (c.dp !== null && c.dp <= 0.1));
+      if (isDown) byDay[day].down += 1;
+    }
+    const dayLabels = Object.keys(byDay).sort();
+    const downHours = dayLabels.map(d => byDay[d].down);
+    const workHours = dayLabels.map(d => byDay[d].total - byDay[d].down);
+
+    // Подсчёт событий по дням (для подписей сверху столбцов)
+    const evCountByDay = {};
+    for (const ev of events) {
+      const day = ev.t.slice(0, 10);
+      if (!evCountByDay[day]) evCountByDay[day] = {};
+      evCountByDay[day][ev.type] = (evCountByDay[day][ev.type] || 0) + 1;
+    }
+    const dayEvAnn = [];
+    for (const day of dayLabels) {
+      const counts = evCountByDay[day];
+      if (!counts) continue;
+      const labels = Object.entries(counts).map(([t, n]) =>
+        `${(WZ3_EVENT_STYLES[t] || WZ3_EVENT_STYLES.other).label}${n}`
+      ).join(' ');
+      dayEvAnn.push({
+        x: day, y: 1.04, xref: 'x', yref: 'paper',
+        text: labels, showarrow: false,
+        font: {size: 10}, bgcolor: 'rgba(255,255,255,0.7)',
+      });
+    }
+
+    Plotly.newPlot('wz3-ch-down', [
+      {x: dayLabels, y: workHours, name: 'Рабочих ч/сут', type:'bar', marker:{color:'#16a34a'}},
+      {x: dayLabels, y: downHours, name: 'Простой ч/сут', type:'bar', marker:{color:'#dc2626'}},
+    ], {...WZ2_PLOTLY_LAYOUT, title: 'Учёт рабочего времени по дням',
+        yaxis:{title:'часов'}, barmode:'stack', annotations: dayEvAnn}, WZ2_PLOTLY_CONFIG);
+
+    // Список аннотаций
+    wz3RenderAnnotationsList();
+    // Обновлённая статистика (с учётом исключений)
+    wz3RenderRecomputedStats(obs);
+  }
+
+  // Слушатель выделения на Plotly chart
+  function wz3WirePlotlySelect(divId) {
+    const div = $(divId);
+    if (!div) return;
+    div.removeAllListeners && div.removeAllListeners('plotly_selected');
+    div.on('plotly_selected', (evt) => {
+      if (!evt || !evt.range || !evt.range.x) return;
+      const [from, to] = evt.range.x;
+      wz3ShowAnnotateMenu(from, to);
+    });
+  }
+
+  function wz3ShowAnnotateMenu(from, to) {
+    // Простое модальное меню
+    const menu = document.createElement('div');
+    menu.style.cssText = `position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+      background:#fff; border:1px solid #ddd; border-radius:8px; padding:1rem;
+      box-shadow:0 6px 24px rgba(0,0,0,0.2); z-index:10000; min-width:320px;`;
+    menu.innerHTML = `
+      <h3 style="margin:0 0 0.5rem; font-size:1rem;">Что это за интервал?</h3>
+      <div style="font-size:0.82rem; color:#666; margin-bottom:0.6rem;">
+        ${fmtDt(typeof from === 'string' ? from : from.toString())} → ${fmtDt(typeof to === 'string' ? to : to.toString())}
+      </div>
+      <div style="display:flex; flex-direction:column; gap:0.4rem;">
+        <button class="wz-btn" style="background:#9c27b0; color:#fff;" data-kind="purge">🌀 Продувка (исключить из стат.)</button>
+        <button class="wz-btn" style="background:#dc2626; color:#fff;" data-kind="downtime">⏸ Простой (исключить из стат.)</button>
+        <button class="wz-btn" style="background:#666; color:#fff;" data-kind="exclude">✂ Просто исключить (выброс/шум)</button>
+        <button class="wz-btn wz-btn-outline" data-kind="cancel">Отмена</button>
+      </div>
+    `;
+    document.body.appendChild(menu);
+    menu.querySelectorAll('button').forEach(b => {
+      b.addEventListener('click', () => {
+        const kind = b.dataset.kind;
+        if (kind !== 'cancel') {
+          const d = state.steps[3].data;
+          if (!d.annotations) d.annotations = [];
+          d.annotations.push({
+            id: 'm' + Date.now(),
+            from: typeof from === 'string' ? from : new Date(from).toISOString().slice(0, 19),
+            to:   typeof to   === 'string' ? to   : new Date(to).toISOString().slice(0, 19),
+            kind,
+          });
+          // Перерисовываем графики
+          if (d.lastResult) wz3RenderCharts(d.lastResult.observation);
+        }
+        menu.remove();
+      });
+    });
+  }
+
+  function wz3RenderAnnotationsList() {
+    let box = document.getElementById('wz3-annotations-box');
+    if (!box) {
+      // Вставим под графиками (внутри charts-block)
+      const chartsBlock = $('wz3-charts-block');
+      if (!chartsBlock) return;
+      const div = document.createElement('div');
+      div.id = 'wz3-annotations-box';
+      div.className = 'wz-section';
+      chartsBlock.appendChild(div);
+      box = div;
+    }
+    const ann = state.steps[3].data.annotations || [];
+    const allEvents = state.steps[3].data.lastResult
+      ? (state.steps[3].data.lastResult.observation.events_for_chart || [])
+      : [];
+
+    const typeLabels = {
+      purge:   '🌀 Продувка',
+      reagent: '💧 Вброс реагента',
+      equip:   '🔧 Оборудование',
+      other:   '· Прочее',
+    };
+
+    let html = `<h3>События и идентифицированные интервалы</h3>
+      <div style="font-size:0.78rem; color:#666; margin-bottom:0.4rem;">
+        Сверху графиков — иконки событий из БД (🌀 продувки, 💧 реагент, 🔧 оборудование, · прочее).
+        Чтобы добавить ручную аннотацию — выделите область на графике (инструмент 📦 в menubar Plotly).
+      </div>`;
+
+    if (allEvents.length === 0 && ann.length === 0) {
+      html += '<div class="wz-placeholder" style="padding:0.8rem; font-size:0.85rem;">Событий из БД и ручных аннотаций нет.</div>';
+      box.innerHTML = html;
+      return;
+    }
+
+    html += '<table class="wz-table"><thead><tr><th>Тип</th><th>Источник</th><th>Начало</th><th>Окончание</th><th>Действия</th></tr></thead><tbody>';
+    // События из БД (все типы)
+    for (const ev of allEvents) {
+      html += `<tr>
+        <td>${typeLabels[ev.type] || ev.type}</td>
+        <td><span style="color:#888;">из БД</span></td>
+        <td>${fmtDt(ev.t)}</td>
+        <td>—</td>
+        <td><span style="color:#888; font-size:0.78rem;">только просмотр</span></td>
+      </tr>`;
+    }
+    // Ручные аннотации
+    for (const a of ann) {
+      const label = a.kind === 'purge' ? '🌀 Продувка (ручная)'
+                 : a.kind === 'downtime' ? '⏸ Простой (ручной)'
+                 : '✂ Исключено';
+      html += `<tr>
+        <td>${label}</td>
+        <td><span style="color:#1976D2;">вручную</span></td>
+        <td>${fmtDt(a.from)}</td><td>${fmtDt(a.to)}</td>
+        <td><button class="wz-btn wz-btn-outline" style="padding:0.1rem 0.4rem; font-size:0.75rem;" onclick="wz3DeleteAnnotation('${a.id}')">× удалить</button></td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    box.innerHTML = html;
+  }
+
+  window.wz3DeleteAnnotation = function(id) {
+    const d = state.steps[3].data;
+    d.annotations = (d.annotations || []).filter(a => a.id !== id);
+    if (d.lastResult) wz3RenderCharts(d.lastResult.observation);
+  };
+
+  // Пересчёт статистики с учётом исключённых интервалов
+  function wz3RenderRecomputedStats(obs) {
+    const d = state.steps[3].data;
+    const ann = d.annotations || [];
+    if (!ann.length) {
+      // Нет исключений — показываем оригинал
+      wz3RenderBaselineCard(obs, d.previousBaseline);
+      return;
+    }
+    const cd = obs.chart_data || [];
+    const isExcluded = (t) => {
+      const ts = new Date(t).getTime();
+      return ann.some(a => {
+        const a1 = new Date(a.from).getTime(), a2 = new Date(a.to).getTime();
+        return ts >= a1 && ts <= a2;
+      });
+    };
+    const filtered = cd.filter(c => !isExcluded(c.t));
+    const validQ = filtered.map(c => c.q).filter(v => v !== null && v !== undefined);
+    const validDp = filtered.map(c => c.dp).filter(v => v !== null && v !== undefined);
+    const validPt = filtered.map(c => c.p_tube).filter(v => v !== null && v !== undefined);
+    const validPl = filtered.map(c => c.p_line).filter(v => v !== null && v !== undefined);
+
+    const median = (arr) => {
+      if (!arr.length) return null;
+      const s = [...arr].sort((a, b) => a - b); const n = s.length;
+      return n % 2 ? s[(n-1)/2] : (s[n/2-1] + s[n/2]) / 2;
+    };
+    const mean = (arr) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
+
+    // Подсчёт продувок (manual purges + events purges, не дублируя)
+    const manualPurges = ann.filter(a => a.kind === 'purge').length;
+    const manualDowntime = ann.filter(a => a.kind === 'downtime').length;
+    const eventsPurges = (obs.events_for_chart || []).filter(e => e.type === 'purge').length;
+
+    const recomputed = {
+      ...obs,
+      flow_median:    median(validQ),
+      flow_avg:       mean(validQ),
+      dp_median:      median(validDp),
+      p_tube_median:  median(validPt),
+      p_line_median:  median(validPl),
+      hours_with_data: filtered.length,
+      working_hours:   validQ.length,  // приближённо: где есть Q > 0 неявно
+      purge_count:     eventsPurges + manualPurges,
+      downtime_hours:  (cd.length - filtered.length) + (obs.downtime_hours || 0),
+    };
+
+    wz3RenderBaselineCard(recomputed, d.previousBaseline);
+
+    // Сообщение об исключениях
+    const block = $('wz3-baseline-card');
+    if (block) {
+      const note = document.createElement('div');
+      note.style.cssText = 'background:#fffbf0; border-left:3px solid #ff9800; padding:0.4rem 0.7rem; border-radius:4px; font-size:0.82rem; margin-top:0.5rem;';
+      const exH = cd.length - filtered.length;
+      note.innerHTML = `⚠ Исключено <b>${exH}</b> часов из ${cd.length} (${(exH / cd.length * 100).toFixed(1)}%) согласно вашим аннотациям. Цифры выше — пересчитаны без них.`;
+      block.querySelector('.wz-section').appendChild(note);
+    }
+  }
+
+  // Автогенерация текста описания на основе текущей статистики и аннотаций
+  function wz3GenerateDescription() {
+    const d = state.steps[3].data;
+    const obs = d.lastResult && d.lastResult.observation;
+    if (!obs) return '';
+    const ann = d.annotations || [];
+    const events = (obs.events_for_chart || []).filter(e => e.type === 'purge');
+    const manualPurges = ann.filter(a => a.kind === 'purge').length;
+    const manualDowntime = ann.filter(a => a.kind === 'downtime').length;
+    const manualExclude = ann.filter(a => a.kind === 'exclude').length;
+
+    const parts = [];
+    parts.push(`Этап наблюдения по нашим датчикам с ${fmtDt(d.from)} по ${fmtDt(d.to)} (${obs.duration_label || obs.duration_days + ' сут.'}).`);
+
+    parts.push(`Базовые параметры: Q медиана ${fmt(obs.flow_median)} тыс.м³/сут, ΔP медиана ${fmt(obs.dp_median)} кгс/см², КИВ ${fmt(obs.utilization_pct, 1)}%, рабочих часов ${obs.working_hours} из ${obs.hours_with_data}.`);
+
+    // Тренды
+    const trArr = [
+      ['Q', obs.q_trend, 'тыс.м³/сут'],
+      ['ΔP', obs.dp_trend, 'кгс/см²'],
+    ];
+    const trWords = [];
+    for (const [name, tr, unit] of trArr) {
+      if (!tr) continue;
+      const slope = tr.slope_per_day || 0;
+      if (Math.abs(slope) < 0.01) continue;
+      const word = tr.direction === 'up' ? 'рост' : tr.direction === 'down' ? 'снижение' : 'стабильно';
+      trWords.push(`${name}: ${word} ${slope >= 0 ? '+' : ''}${slope.toFixed(3)} ${unit}/сут`);
+    }
+    if (trWords.length) {
+      parts.push(`Динамика: ${trWords.join('; ')}.`);
+    } else {
+      parts.push('Параметры за период менялись незначительно — режим стабильный.');
+    }
+
+    // Продувки и аннотации
+    const allPurges = events.length + manualPurges;
+    if (allPurges > 0) {
+      parts.push(`Зафиксировано ${allPurges} продувок (${events.length} из журнала событий, ${manualPurges} ручных).`);
+    }
+    if (manualDowntime > 0) {
+      parts.push(`Ручных меток простоя: ${manualDowntime}.`);
+    }
+    if (manualExclude > 0) {
+      parts.push(`Из расчёта исключено ${manualExclude} интервалов выбросов/шума.`);
+    }
+    return parts.join(' ');
+  }
+
+  function wz3RenderSaveBaseline() {
+    const box = $('wz3-save-baseline');
+    box.style.display = '';
+    const obs = state.steps[3].data.lastResult ? state.steps[3].data.lastResult.observation : null;
+    if (!obs) { box.innerHTML = ''; return; }
+
+    // Регенерируем описание если ещё не было задано (или если поле пустое)
+    const d = state.steps[3].data;
+    const autoDesc = wz3GenerateDescription();
+    if (!d.description || d.description === d._lastAutoDesc) {
+      d.description = autoDesc;
+      d._lastAutoDesc = autoDesc;
+      const ta = $('wz3-desc');
+      if (ta) ta.value = autoDesc;
+    }
+
+    if (!custIsAdmin) {
+      box.innerHTML = '<div class="wz-warn">«Утвердить» доступно только администратору.</div>';
+      return;
+    }
+    box.innerHTML = `
+      <div class="wz-section" style="background:#e8f5e9; padding:1rem; border-radius:6px; border:1px solid #4caf50;">
+        <h3 style="margin:0 0 0.4rem;">📌 Утвердить базовые параметры B2</h3>
+        <div style="font-size:0.85rem; color:#444; margin-bottom:0.5rem;">
+          Запишет текущие значения как <b>baseline B2 (источник «observation»)</b>:
+          <br>Q мед = <b>${fmt(obs.flow_median)}</b> · Q ср = <b>${fmt(obs.flow_avg)}</b>
+          · ΔP мед = <b>${fmt(obs.dp_median)}</b> · КИВ = <b>${fmt(obs.utilization_pct, 1)}%</b>
+          · Продувок = <b>${(state.steps[3].data.annotations || []).filter(a=>a.kind==='purge').length + (obs.events_for_chart || []).filter(e=>e.type==='purge').length}</b>
+          · Длит. = <b>${obs.duration_label || obs.duration_days + ' сут.'}</b>
+        </div>
+        <button id="wz3-save-bl-btn" class="wz-btn wz-btn-success">✓ Утвердить и сохранить</button>
+      </div>
+    `;
+    $('wz3-save-bl-btn').addEventListener('click', wz3SaveBaseline);
+  }
+
+  async function wz3SaveBaseline() {
+    const d = state.steps[3].data;
+    const obs = d.lastResult ? d.lastResult.observation : null;
+    if (!obs) { alert('Нет данных анализа.'); return; }
+
+    // Используем тот же расчёт что и для карточки — гарантия совпадения
+    const s = wz3ComputeBaselineStats(obs);
+
+    // Маппим в формат customer_baseline (q_total_avg/q_working_avg, p_wellhead_*, p_flowline_*)
+    const stats = {
+      days_count: s.duration_days,
+      q_total_avg: s.q_total_mean,
+      q_total_median: s.q_total_median,
+      q_working_avg: s.q_working_mean,
+      q_working_median: s.q_working_median,
+      p_wellhead_avg: s.p_tube_mean,
+      p_wellhead_median: s.p_tube_median,
+      p_flowline_avg: s.p_line_mean,
+      p_flowline_median: s.p_line_median,
+      dp_avg: s.dp_mean,
+      dp_median: s.dp_median,
+      shutdown_min_total: s.downtime_hours * 60,
+      shutdown_min_avg: null,
+      shutdown_days_count: null,
+    };
+
+    const defaultName = `B2 Наблюдение ${d.from.slice(0, 10)} — ${d.to.slice(0, 10)}`;
+    const name = prompt('Название baseline B2:', defaultName);
+    if (!name) return;
+    const notes = prompt('Заметки (опционально):') || '';
+    const fromDate = d.from.slice(0, 10);
+    const toDate = d.to.slice(0, 10);
+
+    const r = await fetch('/api/adaptation-report/baselines', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        well_id: state.well.id,
+        name, source: 'observation',
+        period_from: fromDate, period_to: toDate,
+        notes, precomputed_stats: stats,
+      }),
+    });
+    const res = await r.json();
+    if (res.ok) {
+      // Сохраняем утверждённый baseline в state — для отображения статуса и сравнений
+      d.approvedStats = {
+        ...s,
+        id: res.baseline.id,
+        savedAt: new Date().toISOString(),
+        baseline: res.baseline,
+      };
+      // Перерисуем карточку — теперь покажет «✓ утверждён»
+      wz3RenderBaselineCard(obs, d.previousBaseline);
+      wz3RenderSaveBaseline();
+      alert(`✓ Baseline B2 утверждён и сохранён в БД.
+
+Q мед=${fmt(s.q_total_median)} · Q ср=${fmt(s.q_total_mean)}
+ΔP мед=${fmt(s.dp_median)} · ΔP ср=${fmt(s.dp_mean)}
+P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
+Продувок: ${s.purge_count_total} · простой: ${s.downtime_hours} ч · КИВ: ${fmt(s.utilization_pct, 1)}%
+
+Эти значения используются в шагах 4 (валидация) и 6 (сравнение). На графиках они НЕ изменятся.`);
+    } else {
+      alert(res.detail || 'Ошибка сохранения');
+    }
+  }
+
+  // Загрузить существующий baseline B2 при заходе на шаг 3
+  async function wz3LoadExistingBaseline() {
+    if (!state.well || !state.well.id) return;
+    try {
+      const r = await fetch(`/api/adaptation-report/baselines?well_id=${state.well.id}`);
+      const data = await r.json();
+      const baselines = data.baselines || [];
+      // Берём последний baseline источника 'observation'
+      const obsBaselines = baselines.filter(b => b.source === 'observation');
+      if (obsBaselines.length > 0) {
+        const latest = obsBaselines[0];  // отсортированы по pinned/created_at desc
+        // Маппим обратно в формат _currentStats
+        state.steps[3].data.approvedStats = {
+          q_total_mean: latest.q_total_avg,
+          q_total_median: latest.q_total_median,
+          q_working_mean: latest.q_working_avg,
+          q_working_median: latest.q_working_median,
+          p_tube_mean: latest.p_wellhead_avg,
+          p_tube_median: latest.p_wellhead_median,
+          p_line_mean: latest.p_flowline_avg,
+          p_line_median: latest.p_flowline_median,
+          dp_mean: latest.dp_avg,
+          dp_median: latest.dp_median,
+          downtime_hours: Math.round((latest.shutdown_min_total || 0) / 60),
+          id: latest.id,
+          savedAt: latest.created_at,
+          baseline: latest,
+        };
+      }
+    } catch (e) {}
+  }
+  // ═══ STEP 4: Кросс-валидация ═══
+  function renderStep4(main) {
+    const d = state.steps[4].data;
+    if (!d.picker) d.picker = {anchorDate: null, days: 14, direction: 'back'};
+    if (!d.candidates) d.candidates = [];
+
+    main.innerHTML = `
+      <h2 class="wz-step-title"><span class="step-num">4</span>Кросс-валидация B1 ↔ B2</h2>
+
+      <div style="background: #fff3cd; border-left: 4px solid #f57f17; padding: 0.7rem 0.9rem; border-radius: 5px; margin-bottom: 1rem; font-size: 0.86rem; line-height: 1.5;">
+        <b>📌 Зачем:</b> убедиться что наши данные и данные заказчика согласуются.
+        Если на период наблюдения <b>есть данные заказчика</b> — накладываем (Часть 1).
+        Если нет, или период наблюдения слишком короткий — выбираем <b>отдельный
+        базовый период по данным заказчика</b> (Часть 2).
+      </div>
+
+      <!-- Часть 1: B2 + auto overlay (если есть пересечение) -->
+      <div id="wz4-section-overlap"></div>
+
+      <!-- Часть 2: Базовый период по данным заказчика (если хотим/нужно) -->
+      <div id="wz4-section-baseline"></div>
+
+      <div class="wz-section">
+        <h3>Описание главы (для PDF)</h3>
+        <textarea id="wz4-desc" rows="3" placeholder="Можно оставить пустым — попадёт в раздел 4 PDF.">${d.description || ''}</textarea>
+      </div>
+
+      ${includeBlock(4, 'Включить раздел «Кросс-валидация» в PDF')}
+      ${navButtons(4)}
+    `;
+    bindIncludeBlock(4);
+    $('wz4-desc').addEventListener('input', e => { d.description = e.target.value; });
+    wz4RenderOverlapSection();
+    wz4RenderBaselineSection();
+  }
+
+  // ─── Часть 1: B2 vs Заказчик на пересечении ───
+  async function wz4RenderOverlapSection() {
+    const box = $('wz4-section-overlap');
+    const obs = state.steps[3].data.lastResult ? state.steps[3].data.lastResult.observation : null;
+    if (!obs || !obs.chart_data) {
+      box.innerHTML = `<div class="wz-warn">Сначала пройдите шаг 3 (Этап наблюдения) — без B2 данных нечего сравнивать.</div>`;
+      return;
+    }
+    const wn = state.well.number;
+    const dFrom = obs.chart_data[0].t.slice(0, 10);
+    const dTo = obs.chart_data[obs.chart_data.length - 1].t.slice(0, 10);
+
+    box.innerHTML = `<div class="wz-section">
+      <h3>Часть 1. Наложение на период этапа наблюдения (B2)</h3>
+      <div style="font-size:0.82rem; color:#666; margin-bottom:0.4rem;">
+        Период этапа B2: <b>${dFrom}</b> → <b>${dTo}</b>. Сравниваем с данными заказчика на этот же диапазон.
+      </div>
+      <div id="wz4-overlap-status"></div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.6rem;">
+        <div id="wz4-overlap-q" style="height:280px;"></div>
+        <div id="wz4-overlap-dp" style="height:280px;"></div>
+      </div>
+      <div id="wz4-overlap-stats" style="margin-top:0.6rem;"></div>
+      <div id="wz4-overlap-table" style="margin-top:0.8rem;"></div>
+    </div>`;
+
+    let custData = null;
+    try {
+      const r = await fetch(`/api/customer-daily/well/${encodeURIComponent(wn)}?date_from=${dFrom}&date_to=${dTo}`);
+      custData = await r.json();
+    } catch (e) {}
+
+    const b2Dates = obs.chart_data.map(c => c.t);
+    const b2Q = obs.chart_data.map(c => c.q);
+    const b2Dp = obs.chart_data.map(c => c.dp);
+
+    const qTraces = [{x: b2Dates, y: b2Q, name:'B2 Q (наши, час)', mode:'lines', line:{color:'#16a34a',width:1.5}}];
+    const dpTraces = [{x: b2Dates, y: b2Dp, name:'B2 ΔP (наши, час)', mode:'lines', line:{color:'#ef6c00',width:1.5}}];
+
+    if (custData && custData.ok && custData.rows > 0 && custData.chart) {
+      const cd = custData.chart;
+      qTraces.push({x: cd.dates, y: cd.q_gas_working, name:'Заказчик Q раб (день)', mode:'lines+markers', line:{color:'#1d4ed8',width:1.5,dash:'dot'}, marker:{size:6}});
+      qTraces.push({x: cd.dates, y: cd.q_gas_total, name:'Заказчик Q общ (день)', mode:'lines+markers', line:{color:'#7c3aed',width:1.5,dash:'dot'}, marker:{size:6}});
+      dpTraces.push({x: cd.dates, y: cd.dp, name:'Заказчик ΔP (день)', mode:'lines+markers', line:{color:'#dc2626',width:1.5,dash:'dot'}, marker:{size:6}});
+
+      // Подробная посуточная таблица сравнения
+      wz4RenderDailyComparisonTable(obs.chart_data, cd);
+
+      // Сводная стат
+      const meanQ = arr => { const v = arr.filter(x => x !== null && !isNaN(x)); return v.length ? v.reduce((a,b)=>a+b,0)/v.length : null; };
+      const b2QMean = meanQ(b2Q);
+      const cuQMean = meanQ(cd.q_gas_working);
+      const b2DpMean = meanQ(b2Dp);
+      const cuDpMean = meanQ(cd.dp);
+      const dQ = (b2QMean !== null && cuQMean !== null) ? (b2QMean - cuQMean) : null;
+      const dDp = (b2DpMean !== null && cuDpMean !== null) ? (b2DpMean - cuDpMean) : null;
+
+      const fmtDelta = (v, base) => v === null ? '—'
+        : `${v >= 0 ? '+' : ''}${v.toFixed(2)} (${base ? (v / Math.abs(base) * 100).toFixed(1) + '%' : '—'})`;
+
+      $('wz4-overlap-stats').innerHTML = `
+        <div class="wz-preview-card">
+          <span class="wz-preview-stat">B2 Q ср: <b>${fmt(b2QMean)}</b></span>
+          <span class="wz-preview-stat">Заказчик Q ср: <b>${fmt(cuQMean)}</b></span>
+          <span class="wz-preview-stat">Δ Q: <b>${fmtDelta(dQ, cuQMean)}</b></span>
+          <span class="wz-preview-stat">B2 ΔP ср: <b>${fmt(b2DpMean)}</b></span>
+          <span class="wz-preview-stat">Заказчик ΔP ср: <b>${fmt(cuDpMean)}</b></span>
+          <span class="wz-preview-stat">Δ ΔP: <b>${fmtDelta(dDp, cuDpMean)}</b></span>
+        </div>
+        <div class="wz-info" style="margin-top:0.4rem;">
+          ${dQ !== null && cuQMean && Math.abs(dQ / cuQMean * 100) < 10
+            ? '✓ Расхождение менее 10% — данные согласуются.'
+            : '⚠ Существенное расхождение между источниками.'}
+        </div>
+      `;
+      $('wz4-overlap-status').innerHTML = `<div class="wz-info">✓ Найдено ${cd.dates.length} дней данных заказчика в этом периоде. Подробное сравнение ниже.</div>`;
+    } else {
+      $('wz4-overlap-status').innerHTML = `<div class="wz-warn">⚠ За период наблюдения нет данных заказчика в well_daily. Используйте Часть 2 ниже — выберите отдельный базовый период.</div>`;
+      $('wz4-overlap-stats').innerHTML = '';
+      $('wz4-overlap-table').innerHTML = '';
+    }
+
+    Plotly.newPlot('wz4-overlap-q', qTraces,
+      {...WZ2_PLOTLY_LAYOUT, title:'Q: наши (час) ↔ заказчик (день)', yaxis:{title:'тыс.м³/сут'}}, WZ2_PLOTLY_CONFIG);
+    Plotly.newPlot('wz4-overlap-dp', dpTraces,
+      {...WZ2_PLOTLY_LAYOUT, title:'ΔP: наши (час) ↔ заказчик (день)', yaxis:{title:'кгс/см²'}}, WZ2_PLOTLY_CONFIG);
+  }
+
+  // Посуточная таблица: B2 (агрегировано до дня) vs Заказчик
+  function wz4RenderDailyComparisonTable(b2hourly, custChart) {
+    // Агрегируем B2 по дням
+    const byDay = {};
+    for (const c of b2hourly) {
+      const day = c.t.slice(0, 10);
+      if (!byDay[day]) byDay[day] = {q: [], dp: [], pt: [], pl: []};
+      if (c.q  !== null && !isNaN(c.q))  byDay[day].q.push(c.q);
+      if (c.dp !== null && !isNaN(c.dp)) byDay[day].dp.push(c.dp);
+      if (c.p_tube !== null) byDay[day].pt.push(c.p_tube);
+      if (c.p_line !== null) byDay[day].pl.push(c.p_line);
+    }
+    const agg = (arr, fn) => arr.length ? fn(arr) : null;
+    const mean = arr => arr.reduce((a,b)=>a+b,0) / arr.length;
+
+    // Customer dictionary by date
+    const cust = {};
+    for (let i = 0; i < custChart.dates.length; i++) {
+      cust[custChart.dates[i]] = {
+        q_total: custChart.q_gas_total[i],
+        q_work: custChart.q_gas_working[i],
+        p_well: custChart.p_wellhead[i],
+        p_line: custChart.p_flowline[i],
+        dp: custChart.dp[i],
+        sd: custChart.shutdown_min[i],
+      };
+    }
+
+    const allDays = [...new Set([...Object.keys(byDay), ...Object.keys(cust)])].sort();
+
+    let html = '<h4 style="margin:0 0 0.4rem;">Посуточное сравнение (B2 → агрегация по дням ↔ Заказчик)</h4>';
+    html += `<div style="font-size:0.78rem; color:#666; margin-bottom:0.3rem;">
+      Сравниваем эквивалентные суточные значения. B2-часовые данные агрегированы как среднее за сутки.
+    </div>`;
+    html += '<table class="wz-table"><thead><tr>' +
+      '<th>День</th>' +
+      '<th colspan="2" style="text-align:center;">Q раб</th>' +
+      '<th>Δ</th>' +
+      '<th colspan="2" style="text-align:center;">ΔP</th>' +
+      '<th>Δ</th>' +
+      '<th>Простой</th>' +
+      '</tr><tr style="font-size:0.72rem; color:#888;">' +
+      '<th></th>' +
+      '<th>B2 (день)</th><th>Заказчик</th><th></th>' +
+      '<th>B2 (день)</th><th>Заказчик</th><th></th>' +
+      '<th>заказчик, мин</th>' +
+      '</tr></thead><tbody>';
+    for (const d of allDays) {
+      const b = byDay[d];
+      const c = cust[d];
+      const b2Q = b ? agg(b.q, mean) : null;
+      const cuQ = c ? c.q_work : null;
+      const dQ = (b2Q !== null && cuQ !== null) ? b2Q - cuQ : null;
+      const b2Dp = b ? agg(b.dp, mean) : null;
+      const cuDp = c ? c.dp : null;
+      const dDp = (b2Dp !== null && cuDp !== null) ? b2Dp - cuDp : null;
+      const dCls = dQ === null ? '' : (Math.abs(dQ) < 0.01 ? '' : (dQ > 0 ? 'delta-pos' : 'delta-neg'));
+      const dpCls = dDp === null ? '' : (Math.abs(dDp) < 0.01 ? '' : (dDp > 0 ? 'delta-pos' : 'delta-neg'));
+      html += `<tr>
+        <td>${d}</td>
+        <td>${fmt(b2Q)}</td><td>${fmt(cuQ)}</td>
+        <td class="${dCls}">${dQ === null ? '—' : (dQ >= 0 ? '+' : '') + dQ.toFixed(2)}</td>
+        <td>${fmt(b2Dp)}</td><td>${fmt(cuDp)}</td>
+        <td class="${dpCls}">${dDp === null ? '—' : (dDp >= 0 ? '+' : '') + dDp.toFixed(2)}</td>
+        <td>${c && c.sd ? c.sd : '—'}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    $('wz4-overlap-table').innerHTML = html;
+  }
+
+  // ─── Часть 2: Базовый период по данным заказчика ─────────────
+  // Поток:
+  //   1) Грузим всю историю well_daily по скважине (обзорный график Q + ΔP).
+  //   2) Клик по точке на обзоре ставит «якорь». Длительность + направление
+  //      → диапазон кандидата.
+  //   3) Кнопка «+ Добавить кандидата» добавляет его в список.
+  //   4) Для каждого кандидата: подгружаются НАШИ данные после масок за тот же
+  //      период; рисуется наложение «заказчик ↔ наши» + таблица сравнения.
+  //   5) Кнопка «✓ Утвердить B1» пишет выбранный кандидат как baseline в БД.
+
+  async function wz4RenderBaselineSection() {
+    const box = $('wz4-section-baseline');
+    box.innerHTML = `<div class="wz-section" style="background:#fafafa;">
+      <h3>Часть 2. Базовый период по данным заказчика</h3>
+      <div style="font-size:0.82rem; color:#666; margin-bottom:0.6rem;">
+        Кликните по точке на обзорном графике — это «якорь».
+        Затем выберите длительность и направление, добавьте кандидата.
+        Для каждого кандидата покажем наложение наших данных за тот же период
+        (после масок) и числовое сравнение.
+      </div>
+
+      <div id="wz4-overview-loading" style="font-size:0.85rem; color:#888;">⏳ Загружаю данные заказчика…</div>
+      <div id="wz4-overview-q" style="height:220px; display:none;"></div>
+      <div id="wz4-overview-dp" style="height:200px; display:none; margin-top:0.4rem;"></div>
+
+      <div id="wz4-anchor-controls" style="display:none; margin-top:0.6rem; padding:0.6rem; background:#fff; border:1px solid #e0e0e0; border-radius:5px;">
+        <div style="font-size:0.85rem; margin-bottom:0.5rem;">
+          Якорь: <b id="wz4-anchor-label" style="color:#1976d2;">—</b>
+          <span style="color:#888; margin-left:0.5rem;">(кликните по точке на графике, чтобы изменить)</span>
+        </div>
+        <div style="display:flex; gap:0.4rem; flex-wrap:wrap; align-items:center;">
+          <span>Длительность:</span>
+          <button class="wz-btn wz-btn-outline wz-cand-days-btn" data-days="1">1 сут.</button>
+          <button class="wz-btn wz-btn-outline wz-cand-days-btn" data-days="3">3 сут.</button>
+          <button class="wz-btn wz-btn-outline wz-cand-days-btn" data-days="7">1 нед.</button>
+          <button class="wz-btn wz-btn-outline wz-cand-days-btn" data-days="14">2 нед.</button>
+          <button class="wz-btn wz-btn-outline wz-cand-days-btn" data-days="30">1 мес.</button>
+          <input type="number" id="wz4-cand-days" min="1" max="365" value="14" style="width:5rem;"> сут.
+          <span style="margin-left:0.6rem;">от якоря:</span>
+          <select id="wz4-cand-dir">
+            <option value="back">← назад</option>
+            <option value="forward">вперёд →</option>
+            <option value="around">↔ вокруг</option>
+          </select>
+          <span id="wz4-cand-range" style="margin-left:0.6rem; font-size:0.82rem; color:#666;"></span>
+          <button class="wz-btn wz-btn-primary" id="wz4-add-cand-btn" style="margin-left:auto;">＋ Добавить кандидата</button>
+        </div>
+      </div>
+
+      <div id="wz4-cand-list" style="margin-top:1rem;"></div>
+    </div>`;
+
+    // Загружаем всю историю заказчика
+    state.steps[4].data.customerOverview = null;
+    try {
+      const wn = state.well.number;
+      const r = await fetch(`/api/customer-daily/well/${encodeURIComponent(wn)}`);
+      const data = await r.json();
+      if (!data.ok || !data.chart || !(data.chart.dates || []).length) {
+        $('wz4-overview-loading').innerHTML = '<span style="color:#c62828;">⚠ По этой скважине нет данных в well_daily.</span>';
+        wz4RenderCandidateList();
+        return;
+      }
+      state.steps[4].data.customerOverview = data.chart;
+      state.steps[4].data.customerDateMin = data.date_min;
+      state.steps[4].data.customerDateMax = data.date_max;
+      $('wz4-overview-loading').style.display = 'none';
+      $('wz4-overview-q').style.display = '';
+      $('wz4-overview-dp').style.display = '';
+      $('wz4-anchor-controls').style.display = '';
+      wz4DrawOverview();
+      wz4BindAnchorControls();
+      wz4RenderCandidateList();
+    } catch (e) {
+      $('wz4-overview-loading').innerHTML = `<span style="color:#c62828;">Ошибка загрузки: ${e.message}</span>`;
+    }
+  }
+
+  function wz4DrawOverview() {
+    const cd = state.steps[4].data.customerOverview;
+    if (!cd || !window.Plotly) return;
+    const baseLayout = (title, ytitle) => ({
+      title: {text: title, font: {size: 13}, x: 0.01, xanchor: 'left'},
+      margin: {l: 50, r: 15, t: 28, b: 26},
+      hovermode: 'x unified',
+      xaxis: {type: 'date', tickfont: {size: 10}},
+      yaxis: {title: {text: ytitle, font: {size: 10}}, tickfont: {size: 10}, zeroline: false},
+      showlegend: false,
+    });
+    const traceQ = {
+      x: cd.dates, y: cd.q_gas_working,
+      mode: 'lines+markers',
+      line: {color: '#1976D2', width: 2},
+      marker: {size: 5, color: '#1976D2'},
+      name: 'Q раб',
+      hovertemplate: '%{x}: %{y:.2f} тыс.м³/сут<extra></extra>',
+    };
+    const traceDp = {
+      x: cd.dates, y: cd.dp,
+      mode: 'lines+markers',
+      line: {color: '#9c27b0', width: 2},
+      marker: {size: 5, color: '#9c27b0'},
+      name: 'ΔP',
+      hovertemplate: '%{x}: %{y:.2f} кгс/см²<extra></extra>',
+    };
+    const cfg = {responsive: true, displayModeBar: false};
+    Plotly.newPlot('wz4-overview-q',  [traceQ],  baseLayout('Q рабочий, тыс.м³/сут', 'Q раб'),  cfg);
+    Plotly.newPlot('wz4-overview-dp', [traceDp], baseLayout('ΔP, кгс/см²',           'ΔP'),     cfg);
+    const onClick = (ev) => {
+      if (!ev.points || !ev.points.length) return;
+      wz4SetAnchor(ev.points[0].x);
+    };
+    $('wz4-overview-q').on('plotly_click', onClick);
+    $('wz4-overview-dp').on('plotly_click', onClick);
+    // Если якорь уже был — отрисуем shape
+    if (state.steps[4].data.picker.anchorDate) {
+      wz4DrawAnchorShape();
+    }
+  }
+
+  function wz4SetAnchor(dateStr) {
+    // Plotly возвращает дату как 'YYYY-MM-DD' или ISO; нормализуем к YYYY-MM-DD
+    const d = String(dateStr).slice(0, 10);
+    state.steps[4].data.picker.anchorDate = d;
+    $('wz4-anchor-label').textContent = d;
+    wz4UpdateRangeLabel();
+    wz4DrawAnchorShape();
+  }
+
+  function wz4DrawAnchorShape() {
+    const p = state.steps[4].data.picker;
+    if (!p.anchorDate) return;
+    const range = wz4ComputeCandRange();
+    const shapes = [];
+    if (range) {
+      shapes.push({
+        type: 'rect', xref: 'x', yref: 'paper',
+        x0: range.from, x1: range.to, y0: 0, y1: 1,
+        fillcolor: 'rgba(76, 175, 80, 0.15)',
+        line: {width: 0},
+      });
+    }
+    shapes.push({
+      type: 'line', xref: 'x', yref: 'paper',
+      x0: p.anchorDate, x1: p.anchorDate, y0: 0, y1: 1,
+      line: {color: '#e53935', width: 2, dash: 'dash'},
+    });
+    if (window.Plotly) {
+      Plotly.relayout('wz4-overview-q',  {shapes});
+      Plotly.relayout('wz4-overview-dp', {shapes});
+    }
+  }
+
+  function wz4BindAnchorControls() {
+    document.querySelectorAll('.wz-cand-days-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const v = parseInt(btn.dataset.days);
+        state.steps[4].data.picker.days = v;
+        $('wz4-cand-days').value = v;
+        wz4UpdateRangeLabel();
+        wz4DrawAnchorShape();
+      });
+    });
+    $('wz4-cand-days').addEventListener('input', e => {
+      state.steps[4].data.picker.days = parseInt(e.target.value) || 14;
+      wz4UpdateRangeLabel();
+      wz4DrawAnchorShape();
+    });
+    $('wz4-cand-dir').addEventListener('change', e => {
+      state.steps[4].data.picker.direction = e.target.value;
+      wz4UpdateRangeLabel();
+      wz4DrawAnchorShape();
+    });
+    $('wz4-add-cand-btn').addEventListener('click', wz4AddCandidate);
+    wz4UpdateRangeLabel();
+  }
+
+  function wz4ComputeCandRange() {
+    const p = state.steps[4].data.picker;
+    if (!p.anchorDate) return null;
+    const a = new Date(p.anchorDate + 'T00:00:00');
+    const ms = 86400000;
+    let from, to;
+    if (p.direction === 'back') {
+      to = a;
+      from = new Date(a.getTime() - (p.days - 1) * ms);
+    } else if (p.direction === 'forward') {
+      from = a;
+      to = new Date(a.getTime() + (p.days - 1) * ms);
+    } else {  // around
+      const half = Math.floor(p.days / 2);
+      from = new Date(a.getTime() - half * ms);
+      to = new Date(a.getTime() + (p.days - half - 1) * ms);
+    }
+    return {from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10)};
+  }
+
+  function wz4UpdateRangeLabel() {
+    const r = wz4ComputeCandRange();
+    const el = $('wz4-cand-range');
+    if (!el) return;
+    el.textContent = r ? `→ ${r.from} … ${r.to}` : '';
+  }
+
+  async function wz4AddCandidate() {
+    const range = wz4ComputeCandRange();
+    if (!range) { alert('Сначала выберите якорь — кликните по точке на графике.'); return; }
+    const cd = state.steps[4].data.customerOverview;
+    if (!cd) return;
+    // Срез по датам внутри обзора
+    const idxs = [];
+    for (let i = 0; i < cd.dates.length; i++) {
+      if (cd.dates[i] >= range.from && cd.dates[i] <= range.to) idxs.push(i);
+    }
+    if (!idxs.length) {
+      alert('В выбранном диапазоне нет данных заказчика.');
+      return;
+    }
+    const slice = (arr) => idxs.map(i => arr[i]);
+    const cust = {
+      dates: slice(cd.dates),
+      q_gas_working: slice(cd.q_gas_working),
+      q_gas_total:   slice(cd.q_gas_total),
+      p_wellhead:    slice(cd.p_wellhead),
+      p_flowline:    slice(cd.p_flowline),
+      dp:            slice(cd.dp),
+      shutdown_min:  slice(cd.shutdown_min),
+    };
+    const id = 'c' + Date.now();
+    const cand = {
+      id, from: range.from, to: range.to, days: idxs.length,
+      anchor: state.steps[4].data.picker.anchorDate,
+      direction: state.steps[4].data.picker.direction,
+      cust,
+      our: null,        // подгрузим ниже
+      ourLoading: true,
+    };
+    state.steps[4].data.candidates.push(cand);
+    wz4RenderCandidateList();
+    // Параллельно грузим наши данные
+    try {
+      const r = await fetch(
+        `/api/adaptation-report/our-segment?well_id=${state.well.id}` +
+        `&date_from=${cand.from}&date_to=${cand.to}`
+      );
+      const data = await r.json();
+      cand.our = data;
+    } catch (e) {
+      cand.our = {ok: false, error: e.message};
+    }
+    cand.ourLoading = false;
+    wz4RenderCandidateList();
+  }
+
+  window.wz4RemoveCandidate = function(id) {
+    state.steps[4].data.candidates = (state.steps[4].data.candidates || []).filter(c => c.id !== id);
+    wz4RenderCandidateList();
+  };
+
+  function wz4CustStats(cust) {
+    const meanA = arr => { const v = arr.filter(x => x !== null && !isNaN(x)); return v.length ? v.reduce((a,b)=>a+b,0)/v.length : null; };
+    const medA = arr => {
+      const v = arr.filter(x => x !== null && !isNaN(x)).slice().sort((a,b)=>a-b);
+      if (!v.length) return null; const n = v.length;
+      return n % 2 ? v[(n-1)/2] : (v[n/2-1] + v[n/2]) / 2;
+    };
+    const sd = (cust.shutdown_min || []).filter(x => x);
+    return {
+      q_work_mean:   meanA(cust.q_gas_working),
+      q_work_median: medA(cust.q_gas_working),
+      q_total_mean:  meanA(cust.q_gas_total),
+      q_total_median: medA(cust.q_gas_total),
+      p_wh_mean:     meanA(cust.p_wellhead),
+      p_wh_median:   medA(cust.p_wellhead),
+      p_fl_mean:     meanA(cust.p_flowline),
+      p_fl_median:   medA(cust.p_flowline),
+      dp_mean:       meanA(cust.dp),
+      dp_median:     medA(cust.dp),
+      shutdown_min_total:  sd.reduce((a,b) => a+b, 0),
+      shutdown_days_count: sd.length,
+    };
+  }
+
+  function wz4DeltaPct(a, b) {
+    if (a === null || a === undefined || b === null || b === undefined) return null;
+    if (Math.abs(a) < 1e-9) return null;
+    return (b - a) / a * 100;
+  }
+
+  function wz4RenderCandidateList() {
+    const box = $('wz4-cand-list');
+    if (!box) return;
+    const cands = state.steps[4].data.candidates || [];
+    const approved = state.steps[4].data.approvedB1;
+
+    let html = '';
+    if (approved) {
+      html += `<div style="background:#e8f5e9; border-left:4px solid #2e7d32; padding:0.5rem 0.7rem; border-radius:5px; margin-bottom:0.6rem; font-size:0.86rem;">
+        ✓ <b>Утверждён baseline B1</b> «${approved.name}» (id ${approved.id}, ${approved.period_from} → ${approved.period_to}).
+        Q ср=${fmt(approved.q_working_avg)}, ΔP мед=${fmt(approved.dp_median)}, простой ${approved.shutdown_min_total || 0} мин.
+        Эти значения используются в шаге 6.
+      </div>`;
+    }
+    if (!cands.length) {
+      html += '<div class="wz-placeholder" style="margin-top:0.4rem;">Кандидатов пока нет. Кликните якорь на обзорном графике и нажмите «＋ Добавить кандидата».</div>';
+      box.innerHTML = html;
+      return;
+    }
+
+    cands.forEach((c, i) => {
+      const cs = wz4CustStats(c.cust);
+      html += `<div style="border:1px solid #d0d0d0; border-radius:6px; padding:0.7rem; margin-top:0.6rem; background:#fff;">
+        <div style="display:flex; align-items:center; gap:0.6rem; margin-bottom:0.4rem;">
+          <b style="font-size:0.95rem;">#${i+1} · ${c.from} → ${c.to} (${c.days} сут.)</b>
+          <span style="color:#888; font-size:0.8rem;">якорь ${c.anchor}, ${c.direction}</span>
+          <button class="wz-btn wz-btn-outline" style="margin-left:auto; padding:0.2rem 0.5rem; font-size:0.78rem;" onclick="wz4RemoveCandidate('${c.id}')">× удалить</button>
+          ${custIsAdmin ? `<button class="wz-btn wz-btn-success" style="padding:0.25rem 0.6rem; font-size:0.82rem;" onclick="wz4ApproveB1('${c.id}')">✓ Утвердить как B1</button>` : ''}
+        </div>
+        <div id="wz4-cand-chart-q-${c.id}" style="height:220px;"></div>
+        <div id="wz4-cand-chart-dp-${c.id}" style="height:200px; margin-top:0.3rem;"></div>
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:0.3rem; margin-top:0.5rem;">
+          <div id="wz4-cand-bar-qmed-${c.id}"  style="height:170px; min-width:0;"></div>
+          <div id="wz4-cand-bar-qavg-${c.id}"  style="height:170px; min-width:0;"></div>
+          <div id="wz4-cand-bar-dpmed-${c.id}" style="height:170px; min-width:0;"></div>
+          <div id="wz4-cand-bar-pwh-${c.id}"   style="height:170px; min-width:0;"></div>
+          <div id="wz4-cand-bar-pfl-${c.id}"   style="height:170px; min-width:0;"></div>
+        </div>
+        <div id="wz4-cand-table-${c.id}" style="margin-top:0.4rem;"></div>
+      </div>`;
+    });
+    box.innerHTML = html;
+    cands.forEach(c => wz4DrawCandidate(c));
+  }
+
+  function wz4DrawCandidate(c) {
+    if (!window.Plotly) return;
+    const cust = c.cust;
+    const our  = c.our;
+
+    // Перевод абс. дат в «сутки от начала периода» (общая шкала для обоих рядов)
+    const fromMs = new Date(c.from + 'T00:00:00').getTime();
+    const dayOf = (iso) => (new Date(iso).getTime() - fromMs) / 86400000;
+    const custDays = cust.dates.map(d => dayOf(d + 'T00:00:00'));
+
+    const custQ = {
+      x: custDays, y: cust.q_gas_working, customdata: cust.dates,
+      mode: 'lines+markers', name: 'Заказчик',
+      line: {color: '#1976D2', width: 2}, marker: {size: 7, symbol: 'circle'},
+      hovertemplate: '<b>Заказчик</b><br>сутки %{x:.0f} (%{customdata}): %{y:.2f}<extra></extra>',
+    };
+    const custDp = {
+      x: custDays, y: cust.dp, customdata: cust.dates,
+      mode: 'lines+markers', name: 'Заказчик',
+      line: {color: '#9c27b0', width: 2}, marker: {size: 7, symbol: 'circle'},
+      hovertemplate: '<b>Заказчик</b><br>сутки %{x:.0f} (%{customdata}): %{y:.2f}<extra></extra>',
+    };
+
+    const tracesQ = [custQ];
+    const tracesDp = [custDp];
+    if (our && our.ok && our.chart_data && our.chart_data.length) {
+      const ourDays = our.chart_data.map(p => dayOf(p.t));
+      const ourTs   = our.chart_data.map(p => p.t.replace('T', ' '));
+      tracesQ.push({
+        x: ourDays, y: our.chart_data.map(p => p.q), customdata: ourTs,
+        mode: 'lines', name: 'Наши (после масок)',
+        line: {color: '#FB8C00', width: 1.5}, opacity: 0.9,
+        hovertemplate: '<b>Наши</b><br>сутки %{x:.2f} (%{customdata}): %{y:.2f}<extra></extra>',
+      });
+      tracesDp.push({
+        x: ourDays, y: our.chart_data.map(p => p.dp), customdata: ourTs,
+        mode: 'lines', name: 'Наши (после масок)',
+        line: {color: '#E53935', width: 1.5}, opacity: 0.9,
+        hovertemplate: '<b>Наши</b><br>сутки %{x:.2f} (%{customdata}): %{y:.2f}<extra></extra>',
+      });
+    }
+
+    const layout = (title, ytitle) => ({
+      title: {text: title, font: {size: 12}, x: 0.01, xanchor: 'left'},
+      margin: {l: 48, r: 12, t: 26, b: 36},
+      hovermode: 'x unified',
+      xaxis: {
+        title: {text: 'Сутки от начала периода', font: {size: 10}},
+        tickfont: {size: 10}, dtick: 1, zeroline: false,
+        range: [-0.3, c.days - 0.7],
+      },
+      yaxis: {title: {text: ytitle, font: {size: 10}}, tickfont: {size: 10}, zeroline: false},
+      legend: {orientation: 'h', y: 1.18, x: 0, font: {size: 10}},
+    });
+    const cfg = {responsive: true, displayModeBar: false};
+    Plotly.newPlot(`wz4-cand-chart-q-${c.id}`,  tracesQ,  layout('Q рабочий — заказчик ↔ наши (общая шкала: сутки)', 'Q раб'), cfg);
+    Plotly.newPlot(`wz4-cand-chart-dp-${c.id}`, tracesDp, layout('ΔP — заказчик ↔ наши (общая шкала: сутки)',        'ΔP'),    cfg);
+
+    // Бар-чарты сравнения параметров (5 мини-графиков в ряд)
+    const csForBars = wz4CustStats(cust);
+    const ourSForBars = (our && our.ok && our.stats) ? our.stats : null;
+    wz4DrawCompareBars(c, csForBars, ourSForBars);
+
+    // Таблица сравнения
+    const cs = wz4CustStats(cust);
+    const ourS = (our && our.ok && our.stats) ? our.stats : null;
+    const tbox = $(`wz4-cand-table-${c.id}`);
+    const row = (label, custVal, ourVal, fmt2 = 2) => {
+      const dpct = wz4DeltaPct(custVal, ourVal);
+      const cls = dpct === null ? '' : (Math.abs(dpct) < 5 ? 'delta-pos' : (Math.abs(dpct) > 15 ? 'delta-neg' : ''));
+      return `<tr>
+        <td>${label}</td>
+        <td>${custVal === null || custVal === undefined ? '—' : custVal.toFixed(fmt2)}</td>
+        <td>${ourVal === null || ourVal === undefined ? (c.ourLoading ? '⏳' : '—') : ourVal.toFixed(fmt2)}</td>
+        <td class="${cls}">${dpct === null ? '—' : (dpct >= 0 ? '+' : '') + dpct.toFixed(1) + '%'}</td>
+      </tr>`;
+    };
+    let thtml = `<table class="wz-table" style="font-size:0.82rem;"><thead><tr>
+      <th>Параметр</th><th>Заказчик</th><th>Наши</th><th>Δ% (наши↔заказчик)</th>
+    </tr></thead><tbody>`;
+    thtml += row('Q раб, мед, тыс.м³/сут', cs.q_work_median, ourS ? ourS.flow_median : null);
+    thtml += row('Q раб, ср, тыс.м³/сут',  cs.q_work_mean,   ourS ? ourS.flow_avg : null);
+    thtml += row('ΔP, мед, кгс/см²',       cs.dp_median,     ourS ? ourS.dp_median : null);
+    thtml += row('P устье, мед, кгс/см²',  cs.p_wh_median,   ourS ? ourS.p_tube_median : null);
+    thtml += row('P шлейф, мед, кгс/см²',  cs.p_fl_median,   ourS ? ourS.p_line_median : null);
+    if (ourS) {
+      thtml += `<tr><td>КИВ (наши)</td><td>—</td><td>${ourS.utilization_pct === null ? '—' : ourS.utilization_pct.toFixed(1) + '%'}</td><td>—</td></tr>`;
+      thtml += `<tr><td>Простой, ч (наши)</td><td>—</td><td>${ourS.downtime_hours || 0}</td><td>—</td></tr>`;
+    }
+    thtml += `<tr><td>Простой, мин (заказчик)</td><td>${cs.shutdown_min_total}</td><td>—</td><td>—</td></tr>`;
+    thtml += '</tbody></table>';
+    if (c.ourLoading) {
+      thtml = '<div style="font-size:0.82rem; color:#888; margin-bottom:0.3rem;">⏳ Загружаем наши данные за этот период…</div>' + thtml;
+    } else if (!our || !our.ok) {
+      thtml = `<div style="font-size:0.82rem; color:#c62828; margin-bottom:0.3rem;">⚠ Не удалось загрузить наши данные за этот период${our && our.error ? ': ' + our.error : ''}.</div>` + thtml;
+    }
+    tbox.innerHTML = thtml;
+  }
+
+  // 5 мини-bar'ов «Заказчик vs Наши» по ключевым параметрам.
+  // Каждый со своей шкалой Y (значения сильно разные: Q≈10, ΔP≈1, P≈16).
+  function wz4DrawCompareBars(c, cs, ourS) {
+    if (!window.Plotly) return;
+    const params = [
+      {key: 'qmed',  label: 'Q раб мед',   unit: 'тыс.м³/сут', cust: cs.q_work_median, our: ourS ? ourS.flow_median   : null},
+      {key: 'qavg',  label: 'Q раб ср',    unit: 'тыс.м³/сут', cust: cs.q_work_mean,   our: ourS ? ourS.flow_avg      : null},
+      {key: 'dpmed', label: 'ΔP мед',      unit: 'кгс/см²',    cust: cs.dp_median,     our: ourS ? ourS.dp_median     : null},
+      {key: 'pwh',   label: 'P уст мед',   unit: 'кгс/см²',    cust: cs.p_wh_median,   our: ourS ? ourS.p_tube_median : null},
+      {key: 'pfl',   label: 'P шлейф мед', unit: 'кгс/см²',    cust: cs.p_fl_median,   our: ourS ? ourS.p_line_median : null},
+    ];
+    params.forEach(p => {
+      const id = `wz4-cand-bar-${p.key}-${c.id}`;
+      const el = document.getElementById(id);
+      if (!el) return;
+      const ourVal = (p.our === null || p.our === undefined) ? null : p.our;
+      const custVal = (p.cust === null || p.cust === undefined) ? null : p.cust;
+      const dpct = wz4DeltaPct(custVal, ourVal);
+      const titleSuffix = dpct === null ? '' : ` (Δ ${dpct >= 0 ? '+' : ''}${dpct.toFixed(1)}%)`;
+      const titleColor = dpct === null ? '#666' : (Math.abs(dpct) < 5 ? '#2e7d32' : (Math.abs(dpct) > 15 ? '#c62828' : '#666'));
+      const fmt2 = v => v === null ? '—' : v.toFixed(2);
+      const trace = {
+        type: 'bar',
+        x: ['Заказчик', 'Наши'],
+        y: [custVal, ourVal],
+        marker: {color: ['#1976D2', '#FB8C00']},
+        text: [fmt2(custVal), fmt2(ourVal)],
+        textposition: 'outside',
+        textfont: {size: 11},
+        cliponaxis: false,
+        hovertemplate: '%{x}: %{y:.3f}<extra></extra>',
+      };
+      const vals = [custVal, ourVal].filter(v => v !== null);
+      const ymax = vals.length ? Math.max(...vals) * 1.25 + 0.001 : 1;
+      const layout = {
+        title: {
+          text: `<b>${p.label}</b><br><span style="font-size:9px; color:${titleColor};">${p.unit}${titleSuffix}</span>`,
+          font: {size: 10}, x: 0.5, xanchor: 'center', y: 0.95,
+        },
+        margin: {l: 36, r: 8, t: 36, b: 22},
+        yaxis: {tickfont: {size: 9}, range: [0, ymax], zeroline: true},
+        xaxis: {tickfont: {size: 10}},
+        showlegend: false,
+        bargap: 0.4,
+      };
+      Plotly.newPlot(id, [trace], layout, {responsive: true, displayModeBar: false});
+    });
+  }
+
+  window.wz4ApproveB1 = async function(id) {
+    const cand = (state.steps[4].data.candidates || []).find(c => c.id === id);
+    if (!cand) return;
+    const defaultName = `B1 Заказчик ${cand.from} — ${cand.to}`;
+    const name = prompt('Название baseline B1:', defaultName);
+    if (!name) return;
+    const notes = prompt('Заметки (опционально):') || '';
+
+    if (state.steps[4].data.approvedB1) {
+      if (!confirm(`Уже существует утверждённый B1 «${state.steps[4].data.approvedB1.name}». Перезаписать?`)) return;
+      try {
+        await fetch(`/api/adaptation-report/baselines/${state.steps[4].data.approvedB1.id}`, {method: 'DELETE'});
+      } catch (e) {}
+    }
+    const cs = wz4CustStats(cand.cust);
+    const stats = {
+      days_count: cand.days,
+      q_total_avg: cs.q_total_mean, q_total_median: cs.q_total_median,
+      q_working_avg: cs.q_work_mean, q_working_median: cs.q_work_median,
+      p_wellhead_avg: cs.p_wh_mean, p_wellhead_median: cs.p_wh_median,
+      p_flowline_avg: cs.p_fl_mean, p_flowline_median: cs.p_fl_median,
+      dp_avg: cs.dp_mean, dp_median: cs.dp_median,
+      shutdown_min_total: cs.shutdown_min_total,
+      shutdown_min_avg: null, shutdown_days_count: cs.shutdown_days_count,
+    };
+    const r = await fetch('/api/adaptation-report/baselines', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        well_id: state.well.id, name,
+        source: 'customer',
+        period_from: cand.from, period_to: cand.to,
+        notes, precomputed_stats: stats,
+      }),
+    });
+    const res = await r.json();
+    if (res.ok) {
+      state.steps[4].data.approvedB1 = res.baseline;
+      wz4RenderCandidateList();
+      alert(`✓ Baseline B1 утверждён.\nQ ср=${fmt(cs.q_work_mean)}, ΔP мед=${fmt(cs.dp_median)}, простой ${cs.shutdown_min_total} мин.`);
+    } else {
+      alert(res.detail || 'Ошибка сохранения');
+    }
+  };
+
+  // Загружаем уже утверждённый B1 при выборе скважины (дёргается из обработчика wells)
+  async function wz4LoadExistingB1() {
+    if (!state.well || !state.well.id) return;
+    try {
+      const r = await fetch(`/api/adaptation-report/baselines?well_id=${state.well.id}`);
+      const data = await r.json();
+      const b1 = (data.baselines || []).filter(b => b.source === 'customer');
+      if (b1.length > 0) state.steps[4].data.approvedB1 = b1[0];
+    } catch (e) {}
+  }
+
+  // ═══ STEP 5: Адаптация — селектор источника длительности ═══
+  function renderStep5(main) {
+    const d = state.steps[5].data;
+    if (!d.duration_source) d.duration_source = 'days_10';
+    if (d.duration_days === undefined) d.duration_days = 10;
+    if (!d.optimal_window_days) d.optimal_window_days = 3;
+
+    const m = state.metadata || {};
+    const ss = m.stages_status;
+
+    // Начало адаптации = окончание наблюдения (если оно задано)
+    const obsEnd = state.steps[3].data.to;
+    if (obsEnd && !d.from) d.from = obsEnd;
+
+    // Источники длительности
+    const dbAdaptTo = ss && ss.adapt_to ? ss.adapt_to.slice(0, 16) : null;
+    const sources = [
+      {
+        key: 'status',
+        label: 'Из журнала статусов (well_status)',
+        info: dbAdaptTo ? `до ${dbAdaptTo}` : '— нет —',
+        disabled: !dbAdaptTo,
+      },
+      {
+        key: 'days_10',
+        label: '10 суток от начала (по умолчанию)',
+        info: 'фиксированная длительность',
+        disabled: false,
+      },
+      {
+        key: 'custom_days',
+        label: 'Указать N суток',
+        info: 'своё число суток →',
+        disabled: false,
+      },
+      {
+        key: 'custom_to',
+        label: 'Указать дату окончания',
+        info: 'своя дата →',
+        disabled: false,
+      },
+    ];
+
+    let srcHtml = '<div style="display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.5rem;">';
+    for (const s of sources) {
+      const isActive = d.duration_source === s.key;
+      srcHtml += `
+        <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.6rem;
+                      border: 1px solid ${isActive ? '#1976D2' : '#ddd'};
+                      background: ${isActive ? '#e3f2fd' : '#fff'};
+                      border-radius: 5px; cursor: ${s.disabled ? 'not-allowed' : 'pointer'};
+                      opacity: ${s.disabled ? 0.5 : 1}; font-size: 0.86rem;">
+          <input type="radio" name="wz5-src" value="${s.key}" ${isActive ? 'checked' : ''}
+                 ${s.disabled ? 'disabled' : ''} style="margin: 0;">
+          <span style="flex: 1;">${s.label}</span>
+          <span style="color:#555; font-size:0.78rem;">${s.info}</span>
+        </label>
+      `;
+    }
+    srcHtml += '</div>';
+
+    main.innerHTML = `
+      <h2 class="wz-step-title"><span class="step-num">5</span>Этап адаптации + оптимум R★</h2>
+      <div class="wz-step-hint">
+        <b>Начало адаптации = окончание наблюдения</b> (из шага 3).
+        Длительность задаётся одним из источников ниже.
+        От этого зависит весь анализ — статистика, тренды, эффективность реагентов и оптимум R★.
+      </div>
+
+      <div class="wz-section">
+        <h3>Источник длительности</h3>
+        ${srcHtml}
+        ${d.duration_source === 'custom_days' ? `
+          <div class="wz-field">
+            <label>Число суток</label>
+            <input type="number" id="wz5-days-input" min="1" max="60" value="${d.duration_days}"
+                   style="width: 6rem;">
+          </div>
+        ` : ''}
+        <div class="wz-row">
+          <div class="wz-field">
+            <label>Начало <span style="color:#1976D2; font-size:0.78rem;">(= конец наблюдения)</span></label>
+            <input type="datetime-local" id="wz5-from" value="${d.from || ''}" readonly style="background:#f5f5f5;">
+          </div>
+          <div class="wz-field">
+            <label>Окончание</label>
+            <input type="datetime-local" id="wz5-to" value="${d.to || ''}"
+                   ${d.duration_source !== 'custom_to' ? 'readonly style="background:#f5f5f5;"' : ''}>
+          </div>
+        </div>
+      </div>
+
+      <div class="wz-section">
+        <h3>Оптимум R★</h3>
+        <div class="wz-field">
+          <label>Ширина окна (сут.)</label>
+          <input type="number" id="wz5-opt-days" min="1" max="10" value="${d.optimal_window_days}" style="width: 5rem;">
+        </div>
+        <button id="wz5-analyze" class="wz-btn wz-btn-primary">Проанализировать адаптацию + R★</button>
+      </div>
+
+      <div id="wz5-result"></div>
+
+      <div class="wz-section">
+        <h3>Описание этапа (для PDF)</h3>
+        <textarea id="wz5-desc" rows="3" placeholder="Какие реагенты применяли, что наблюдали...">${d.description || ''}</textarea>
+      </div>
+
+      ${includeBlock(5, 'Включить раздел «Этап адаптации» в PDF')}
+      ${navButtons(5)}
+    `;
+    bindIncludeBlock(5);
+
+    // Применяем источник
+    wz5ApplySource();
+
+    document.querySelectorAll('input[name="wz5-src"]').forEach(el => {
+      el.addEventListener('change', () => {
+        d.duration_source = el.value;
+        wz5ApplySource();
+        renderStep5(main);
+      });
+    });
+    if ($('wz5-days-input')) {
+      $('wz5-days-input').addEventListener('input', e => {
+        d.duration_days = parseInt(e.target.value) || 10;
+        wz5ApplySource();
+      });
+    }
+    $('wz5-to').addEventListener('change', e => {
+      if (d.duration_source === 'custom_to') d.to = e.target.value;
+    });
+    $('wz5-analyze').addEventListener('click', wz5RunAnalysis);
+    $('wz5-desc').addEventListener('input', e => { d.description = e.target.value; });
+  }
+
+  function wz5ApplySource() {
+    const d = state.steps[5].data;
+    const m = state.metadata || {};
+    const ss = m.stages_status;
+    const f = d.from || (state.steps[3].data.to);
+    if (!f) return;
+    if (!d.from) d.from = f;
+    const fInp = $('wz5-from'); if (fInp) fInp.value = d.from;
+
+    const pad = (n) => String(n).padStart(2, '0');
+    const fmtDt2 = (dt) => `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+
+    let to = null;
+    if (d.duration_source === 'status' && ss && ss.adapt_to) {
+      to = ss.adapt_to.slice(0, 16);
+    } else if (d.duration_source === 'days_10') {
+      const dt = new Date(d.from); dt.setDate(dt.getDate() + 10);
+      const now = new Date(); to = fmtDt2(dt > now ? now : dt);
+    } else if (d.duration_source === 'custom_days') {
+      const days = d.duration_days || 10;
+      const dt = new Date(d.from); dt.setDate(dt.getDate() + days);
+      const now = new Date(); to = fmtDt2(dt > now ? now : dt);
+    } else if (d.duration_source === 'custom_to') {
+      to = d.to || null;  // сохранить ручной ввод
+    }
+    if (to !== null) {
+      d.to = to;
+      const tInp = $('wz5-to'); if (tInp) tInp.value = to;
+    }
+    renderTiles();
+  }
+
+  async function wz5RunAnalysis() {
+    const f = $('wz5-from').value, t = $('wz5-to').value;
+    if (!f || !t) { alert('Укажите даты'); return; }
+    const optDays = parseInt($('wz5-opt-days').value) || 3;
+    const d = state.steps[5].data;
+    d.from = f; d.to = t; d.optimal_window_days = optDays;
+
+    const obsFrom = state.steps[3].data.from || f;
+    const obsTo = state.steps[3].data.to || f;
+
+    const box = $('wz5-result');
+    box.innerHTML = '<div class="wz-loading"><div class="wz-spinner"></div>Анализ адаптации + поиск R★...</div>';
+
+    const body = {
+      well_id: state.well.id,
+      obs_from: obsFrom, obs_to: obsTo,
+      adapt_from: f, adapt_to: t,
+      with_charts: false, with_reagent: true,
+      optimal_mode: 'auto',
+      optimal_window_days: optDays,
+    };
+    const r = await fetch('/api/adaptation-report/compute', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (!data.ok) {
+      box.innerHTML = `<div class="wz-error">${data.error || 'Ошибка'}</div>`;
+      return;
+    }
+    const a = data.adaptation || {};
+    const o = data.optimal_regime;
+    const re = data.reagent_effectiveness || {};
+    const cands = data.optimal_candidates || [];
+
+    let html = `
+      <div class="wz-preview-card">
+        <h4 style="margin: 0 0 0.4rem; color: #555;">Этап адаптации (весь период)</h4>
+        <span class="wz-preview-stat">Длит: <b>${a.duration_label || a.duration_days + ' сут.'}</b></span>
+        <span class="wz-preview-stat">Q мед: <b>${fmt(a.flow_median)}</b></span>
+        <span class="wz-preview-stat">Q ср: <b>${fmt(a.flow_avg)}</b></span>
+        <span class="wz-preview-stat">Q max: <b>${fmt(a.q_max)}</b></span>
+        <span class="wz-preview-stat">ΔP мед: <b>${fmt(a.dp_median)}</b></span>
+        <span class="wz-preview-stat">Вбросов: <b>${a.reagent_count}</b></span>
+        <span class="wz-preview-stat">Продувок: <b>${a.purge_count}</b></span>
+      </div>
+    `;
+    if (o) {
+      html += `
+        <div class="wz-preview-card" style="background: #e8f5e9;">
+          <h4 style="margin: 0 0 0.4rem; color: #2e7d32;">⭐ Оптимальный режим R★</h4>
+          <span class="wz-preview-stat">${o.date_from} → ${o.date_to}</span>
+          <span class="wz-preview-stat">Длит: <b>${o.duration_label || o.duration_days + ' сут.'}</b></span>
+          <span class="wz-preview-stat">Q мед: <b style="color:#2e7d32;">${fmt(o.flow_median)}</b></span>
+          <span class="wz-preview-stat">Q ср: <b>${fmt(o.flow_avg)}</b></span>
+          ${o.score !== undefined ? `<span class="wz-preview-stat">Score: <b>${fmt(o.score, 2)}</b></span>` : ''}
+        </div>
+      `;
+    }
+    if (cands.length > 0) {
+      html += `<div style="font-size: 0.82rem; color: #666; margin-top: 0.4rem;">Top-3 кандидата:`;
+      cands.forEach((c, i) => {
+        html += ` <span style="display: inline-block; padding: 0.1rem 0.4rem; background: #f0f7ff; border-radius: 3px; margin: 0.1rem;">#${i+1} Q=${fmt(c.q_median)}</span>`;
+      });
+      html += `</div>`;
+    }
+    if (re && re.best_reagent) {
+      html += `<div class="wz-info">
+        🧪 Лучший реагент: <b>${re.best_reagent.reagent}</b>, уровень ${re.best_reagent.level} (${re.best_reagent.level_name})
+      </div>`;
+    }
+    box.innerHTML = html;
+    state.steps[5].data.stats = a;
+    state.steps[5].data.optimal = o;
+    state.steps[5].data.reagent = re;
+    markStatus(5, 'done');
+  }
+  // ═══ STEP 6: Сводное сравнение ═══
+  function renderStep6(main) {
+    main.innerHTML = `
+      <h2 class="wz-step-title"><span class="step-num">6</span>Сводное сравнение B1 / B2 / R / R★</h2>
+      <div class="wz-step-hint">
+        Главная таблица отчёта — все четыре среза рядом, дельты и %.
+        Заполняется автоматически из шагов 2, 3 и 5.
+      </div>
+
+      <div id="wz6-table"></div>
+
+      <div class="wz-section">
+        <h3>Описание / выводы (для PDF)</h3>
+        <textarea id="wz6-desc" rows="4" placeholder="Можно оставить пусто — попадут только автовыводы.">${state.steps[6].data.description || ''}</textarea>
+      </div>
+
+      ${includeBlock(6, 'Включить раздел «Сводное сравнение» в PDF')}
+      ${navButtons(6)}
+    `;
+    bindIncludeBlock(6);
+    $('wz6-desc').addEventListener('input', e => { state.steps[6].data.description = e.target.value; });
+    wz6BuildTable();
+  }
+
+  function wz6BuildTable() {
+    const obs = state.steps[3].data.stats;
+    const adapt = state.steps[5].data.stats;
+    const opt = state.steps[5].data.optimal;
+    const b1Periods = state.steps[2].data.periods || [];
+    const b1 = b1Periods.length > 0 ? b1Periods[b1Periods.length - 1].snapshot : null;
+
+    if (!obs && !adapt && !b1) {
+      $('wz6-table').innerHTML = '<div class="wz-warn">Сначала пройдите шаги 2, 3 и 5 (нет данных для сравнения).</div>';
+      markStatus(6, 'warn');
+      return;
+    }
+
+    // Метрики для сравнения (имена ключей одинаковые в обоих источниках где возможно)
+    const rows = [
+      ['Q мед, тыс.м³/сут',
+        b1 && b1.q_total_avg !== undefined ? '—' : null,  // B1 даёт avg чаще, не median
+        obs?.flow_median, adapt?.flow_median, opt?.flow_median],
+      ['Q ср, тыс.м³/сут', b1?.q_total_avg, obs?.flow_avg, adapt?.flow_avg, opt?.flow_avg],
+      ['Q max, тыс.м³/сут', null, obs?.q_max, adapt?.q_max, opt?.q_max],
+      ['ΔP мед, кгс/см²', null, obs?.dp_median, adapt?.dp_median, opt?.dp_median],
+      ['Длит., сут.', b1?.days_count, obs?.duration_days, adapt?.duration_days, opt?.duration_days],
+    ];
+
+    const cls = (cur, base) => {
+      if (cur === null || base === null || cur === undefined || base === undefined) return '';
+      return cur > base ? 'delta-pos' : (cur < base ? 'delta-neg' : '');
+    };
+    const dlt = (cur, base) => {
+      if (cur === null || base === null || cur === undefined || base === undefined) return '—';
+      const d = cur - base;
+      return (d >= 0 ? '+' : '') + d.toFixed(2);
+    };
+    const dpct = (cur, base) => {
+      if (cur === null || base === null || cur === undefined || base === undefined || base === 0) return '—';
+      const p = (cur - base) / Math.abs(base) * 100;
+      return (p >= 0 ? '+' : '') + p.toFixed(1) + '%';
+    };
+
+    let html = `<table class="wz-table"><thead><tr>
+      <th>Показатель</th>
+      <th>B1<br><span style="font-weight:400; color:#888;">заказчик</span></th>
+      <th>B2<br><span style="font-weight:400; color:#888;">наблюдение</span></th>
+      <th>R<br><span style="font-weight:400; color:#888;">адаптация</span></th>
+      <th style="background:#e8f5e9;">R★<br><span style="font-weight:400; color:#888;">оптимум</span></th>
+      <th style="background:#fffbf0;">Δ R★ vs B2</th>
+      <th style="background:#fffbf0;">Δ R★ vs B1</th>
+    </tr></thead><tbody>`;
+
+    for (const r of rows) {
+      const [label, b1v, b2v, rv, rsv] = r;
+      html += `<tr>
+        <td>${label}</td>
+        <td>${b1v !== null && b1v !== undefined ? fmt(b1v) : '—'}</td>
+        <td>${b2v !== null && b2v !== undefined ? fmt(b2v) : '—'}</td>
+        <td>${rv !== null && rv !== undefined ? fmt(rv) : '—'}</td>
+        <td style="background:#f1f8e9;">${rsv !== null && rsv !== undefined ? fmt(rsv) : '—'}</td>
+        <td class="${cls(rsv, b2v)}" style="background:#fffbf0;">${dlt(rsv, b2v)} (${dpct(rsv, b2v)})</td>
+        <td class="${cls(rsv, b1v)}" style="background:#fffbf0;">${dlt(rsv, b1v)} (${dpct(rsv, b1v)})</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+
+    // Автовыводы
+    let conclusions = '<h4 style="margin:0.8rem 0 0.3rem;">Автовыводы</h4><ul style="font-size:0.85rem; padding-left:1.4rem;">';
+    if (opt && obs && opt.flow_median && obs.flow_median) {
+      const d = opt.flow_median - obs.flow_median;
+      const p = d / obs.flow_median * 100;
+      const verb = p > 5 ? 'вырос' : p < -5 ? 'снизился' : 'стабилен';
+      conclusions += `<li>Дебит на оптимальном режиме R★ <b>${verb}</b> на ${d.toFixed(2)} тыс.м³/сут (${p >= 0 ? '+' : ''}${p.toFixed(1)}%) относительно нашего наблюдения (B2).</li>`;
+    }
+    if (opt && b1 && opt.flow_median && b1.q_total_avg) {
+      const d = opt.flow_median - b1.q_total_avg;
+      const p = d / b1.q_total_avg * 100;
+      conclusions += `<li>В сравнении с данными заказчика (B1): ${d >= 0 ? '+' : ''}${d.toFixed(2)} тыс.м³/сут (${p >= 0 ? '+' : ''}${p.toFixed(1)}%).</li>`;
+      // Ожидаемая доп. добыча
+      if (d > 0) {
+        const month = d * 30;
+        conclusions += `<li>При сохранении режима R★ ожидаемая доп. добыча: <b>+${month.toFixed(1)} тыс.м³</b> за 30 сут.</li>`;
+      }
+    }
+    conclusions += '</ul>';
+
+    $('wz6-table').innerHTML = html + conclusions;
+    markStatus(6, 'done');
+  }
+
+  // ═══ STEP 7: Сборка ═══
+  function renderStep7(main) {
+    const included = [];
+    Object.entries(state.steps).forEach(([n, s]) => {
+      if (n === '7') return;
+      if (s.include) included.push({n, title: s.title});
+    });
+
+    let listHtml;
+    if (included.length === 0) {
+      listHtml = `<div class="wz-warn">Не выбрано ни одной главы. Включите минимум одну.</div>`;
+    } else {
+      listHtml = '<ol style="font-size: 0.88rem; padding-left: 1.4rem;">';
+      for (const it of included) listHtml += `<li>${it.title}</li>`;
+      listHtml += '</ol>';
+    }
+
+    main.innerHTML = `
+      <h2 class="wz-step-title"><span class="step-num">7</span>Сборка отчёта</h2>
+      <div class="wz-step-hint">Проверка состава и финальная генерация PDF.</div>
+
+      <div class="wz-section">
+        <h3>В отчёт попадут разделы:</h3>
+        ${listHtml}
+      </div>
+
+      <div class="wz-section">
+        <button id="wz-generate" class="wz-btn wz-btn-success" ${included.length === 0 ? 'disabled' : ''}>
+          📄 Сформировать PDF
+        </button>
+      </div>
+
+      <div class="wz-section">
+        <h3>Предпросмотр</h3>
+        <div id="wz-pdf-preview">
+          <div class="wz-placeholder">Нажмите «Сформировать PDF».</div>
+        </div>
+      </div>
+
+      ${navButtons(7)}
+    `;
+    const btn = $('wz-generate');
+    if (btn) btn.addEventListener('click', generatePdf);
+  }
+
+  // ═══ Generate PDF ═══
+  async function generatePdf() {
+    const box = $('wz-pdf-preview');
+    box.innerHTML = '<div class="wz-loading"><div class="wz-spinner"></div>Генерация PDF...</div>';
+
+    // Если шаги 3 или 5 не пройдены — пробуем автодетект
+    let obsFrom = state.steps[3].data.from;
+    let obsTo = state.steps[3].data.to;
+    let adaptFrom = state.steps[5].data.from;
+    let adaptTo = state.steps[5].data.to;
+
+    if (!obsFrom || !obsTo || !adaptFrom || !adaptTo) {
+      try {
+        const stageData = await fetch(`/api/adaptation-report/stage-data?well_id=${state.well.id}`)
+          .then(r => r.json());
+        if (stageData.ok) {
+          if (!obsFrom) obsFrom = stageData.observation.date_from;
+          if (!obsTo) obsTo = stageData.observation.date_to;
+          if (!adaptFrom) adaptFrom = stageData.adaptation.date_from;
+          if (!adaptTo) adaptTo = stageData.adaptation.date_to;
+        }
+      } catch (e) {}
+    }
+    if (!obsFrom || !adaptFrom) {
+      box.innerHTML = '<div class="wz-error">Не удалось определить даты этапов. Заполните шаги 3 и 5.</div>';
+      return;
+    }
+
+    const optD = parseInt(state.steps[5].data.optimal_window_days) || 3;
+    const customerPeriods = (state.steps[2].data.periods || []).map(p => ({
+      period_from: p.period_from, period_to: p.period_to,
+      description: p.description || '',
+    }));
+
+    const body = {
+      well_id: state.well.id,
+      obs_from: obsFrom, obs_to: obsTo,
+      adapt_from: adaptFrom, adapt_to: adaptTo,
+      obs_description: state.steps[3].data.description || null,
+      adapt_description: state.steps[5].data.description || null,
+      with_charts: true, with_reagent: state.steps[5].include,
+      optimal_mode: 'auto', optimal_window_days: optD,
+      include_customer_chapter: state.steps[2].include && customerPeriods.length > 0,
+      customer_periods: customerPeriods,
+    };
+
+    try {
+      const r = await fetch('/api/adaptation-report/preview-pdf', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        box.innerHTML = `<div class="wz-error">Ошибка: ${err.detail || r.status}</div>`;
+        return;
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      box.innerHTML = `<iframe class="wz-pdf-iframe" src="${url}"></iframe>`;
+    } catch (e) {
+      box.innerHTML = `<div class="wz-error">${e.message}</div>`;
+    }
+  }
+
+  function markStatus(n, status) {
+    state.steps[n].status = status;
+    renderStepper();
+    renderTiles();
+  }
+
+  // ═══ Wells loader ═══
+  async function loadWells() {
+    const r = await fetch('/api/adaptation-report/wells');
+    const d = await r.json();
+    const sel = $('wz-well-select');
+    for (const w of d.wells) {
+      const opt = document.createElement('option');
+      opt.value = w.id;
+      opt.textContent = `Скв ${w.number}` + (w.name && w.name !== `Скв ${w.number}` ? ` — ${w.name}` : '');
+      opt.dataset.well = JSON.stringify(w);
+      sel.appendChild(opt);
+    }
+  }
+
+  $('wz-well-select').addEventListener('change', async (e) => {
+    const id = parseInt(e.target.value);
+    if (!id) {
+      state.well = null;
+      state.metadata = null;
+      $('wz-main').innerHTML = '<div class="wz-placeholder">Выберите скважину чтобы начать.</div>';
+      $('wz-overview').innerHTML = '';
+      $('wz-tiles').innerHTML = '';
+      return;
+    }
+    // reset state
+    Object.values(state.steps).forEach(s => { s.status = 'todo'; s.data = {}; });
+    // НЕ ставим work_start_source принудительно — пусть renderStep1 авто-определит по метаданным
+    state.steps[1].data = { work_start: '', desc: '' };
+    state.steps[2].data = { periods: [] };
+    state.steps[5].data = { window_days: 10, optimal_window_days: 3 };
+
+    await loadWellMetadata(id);
+    await wz3LoadExistingBaseline();  // подтягиваем утверждённый B2 если есть
+    await wz4LoadExistingB1();        // подтягиваем утверждённый B1 (заказчика) если есть
+    renderOverview();
+    renderTiles();
+    renderStepper();
+    renderStep(state.currentStep);
+  });
+
+  async function loadWellMetadata(wellId) {
+    const r = await fetch(`/api/adaptation-report/stage-data?well_id=${wellId}`);
+    const d = await r.json();
+    state.well = d.well || { id: wellId, number: '?', name: '', horizon: '', choke_mm: null };
+    state.well.id = wellId;
+    state.metadata = {
+      stages_status: d.stages_from_status,    // {obs_from, obs_to, adapt_from, adapt_to}
+      stages_events: d.stages_from_events,    // {obs_from, obs_to, adapt_from, adapt_to, rationale}
+      observation: d.observation,             // если расчёт прошёл
+      adaptation: d.adaptation,
+      source_used: d.source_used,
+    };
+  }
+
+  function fmtDt(s) {
+    if (!s) return '—';
+    return s.slice(0, 16).replace('T', ' ');
+  }
+  function fmtD(s) {
+    if (!s) return '—';
+    return s.slice(0, 10);
+  }
+
+  function renderOverview() {
+    const box = $('wz-overview');
+    if (!state.well) { box.innerHTML = ''; return; }
+    const w = state.well;
+    const m = state.metadata || {};
+    const ss = m.stages_status;
+    const se = m.stages_events;
+
+    let cards = '';
+
+    // Скважина
+    cards += `<div class="wz-card">
+      <div class="wz-card-title">Скважина</div>
+      <div class="wz-card-body">
+        <b>№${w.number}</b> · ${w.name || '—'}<br>
+        Горизонт: ${w.horizon || '—'} · Штуцер: <b>${w.choke_mm || '—'}</b> мм
+      </div>
+    </div>`;
+
+    // Этап Наблюдения (из well_status)
+    if (ss && ss.obs_from) {
+      cards += `<div class="wz-card">
+        <div class="wz-card-title">Этап «Наблюдение» (БД)</div>
+        <div class="wz-card-body">
+          ${fmtDt(ss.obs_from)}<br>→ ${fmtDt(ss.obs_to)}
+        </div>
+      </div>`;
+    } else {
+      cards += `<div class="wz-card wz-card-warn">
+        <div class="wz-card-title">Этап «Наблюдение» (БД)</div>
+        <div class="wz-card-body">не задан в журнале статусов</div>
+      </div>`;
+    }
+
+    // Этап Адаптации (из well_status)
+    if (ss && ss.adapt_from) {
+      cards += `<div class="wz-card">
+        <div class="wz-card-title">Этап «Адаптация» (БД)</div>
+        <div class="wz-card-body">
+          ${fmtDt(ss.adapt_from)}<br>→ ${fmtDt(ss.adapt_to)}
+        </div>
+      </div>`;
+    } else {
+      cards += `<div class="wz-card wz-card-warn">
+        <div class="wz-card-title">Этап «Адаптация» (БД)</div>
+        <div class="wz-card-body">не задан в журнале статусов</div>
+      </div>`;
+    }
+
+    // Ключевые события
+    if (se) {
+      const equipDate = se.obs_from;        // первое equip-событие
+      const reagentDate = se.adapt_from;    // первый вброс реагента
+      cards += `<div class="wz-card">
+        <div class="wz-card-title">Ключевые события</div>
+        <div class="wz-card-body">
+          🔧 Уст. оборудования: <b>${fmtDt(equipDate)}</b><br>
+          💧 Первый вброс: <b>${fmtDt(reagentDate)}</b>
+        </div>
+      </div>`;
+    }
+
+    box.innerHTML = cards;
+  }
+
+  function renderTiles() {
+    const box = $('wz-tiles');
+    if (!state.well) { box.innerHTML = ''; return; }
+    const titles = [
+      [1, 'Скважина'],
+      [2, 'B1: Заказчик'],
+      [3, 'B2: Наблюдение'],
+      [4, 'Кросс-валидация'],
+      [5, 'R/R★ Адаптация'],
+      [6, 'Сравнение'],
+      [7, 'Сборка'],
+    ];
+    let html = '';
+    for (const [n, name] of titles) {
+      const s = state.steps[n];
+      const cls = ['wz-tile'];
+      if (s.status === 'done') cls.push('done');
+      cls.push(s.include ? 'included' : 'excluded');
+      let status = '';
+      if (n === 2) {
+        const cnt = (s.data.periods || []).length;
+        status = cnt > 0 ? `${cnt} период(а/ов)` : 'не задан';
+      } else if (n === 3) {
+        status = s.data.from ? `${fmtDt(s.data.from)}` : 'не задан';
+      } else if (n === 5) {
+        status = s.data.from ? `${fmtDt(s.data.from)}` : 'не задан';
+      } else {
+        status = s.status === 'done' ? '✓ готово' : 'не настроено';
+      }
+      html += `
+        <div class="${cls.join(' ')}" onclick="goToStep(${n})">
+          <div class="tile-num">Шаг ${n}</div>
+          <div class="tile-name">${name}</div>
+          <div class="tile-status">${status}</div>
+        </div>
+      `;
+    }
+    box.innerHTML = html;
+  }
+
+  // ═══ Init ═══
+  renderStepper();
+  loadWells();
+
+  // URL pre-select
+  const urlWell = new URL(location.href).searchParams.get('well_id');
+  if (urlWell) {
+    setTimeout(() => {
+      const sel = $('wz-well-select');
+      sel.value = urlWell;
+      sel.dispatchEvent(new Event('change'));
+    }, 200);
+  }
+</script>
+{% endblock %}

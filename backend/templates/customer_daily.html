@@ -391,7 +391,13 @@
 
   <!-- ═══ 4. Период анализа ═══ -->
   <div class="cd-section" id="cd-period-section" style="display:none;">
-    <h2>4. Период анализа</h2>
+    <h2>
+      4. Период анализа
+      <span id="cd-attached-counter"
+            style="font-size:0.7em; font-weight:500; color:#10b981;
+                   background:#d1fae5; padding:2px 9px; border-radius:999px;
+                   margin-left:8px;"></span>
+    </h2>
 
     <!-- ─── Временная шкала с этапами ─── -->
     <div class="cdtl-wrap" id="cdtl-wrap">
@@ -426,7 +432,12 @@
     <div class="cd-row">
       <label>С:</label> <input type="date" id="cd-date-from">
       <label>по:</label> <input type="date" id="cd-date-to">
-      <button class="cd-btn cd-btn-primary" id="cd-analyse-btn">Показать аналитику</button>
+      <button class="cd-btn cd-btn-primary" id="cd-analyse-btn">▶ Показать аналитику</button>
+      <button class="cd-btn cd-btn-success" id="cd-attach-quick-btn"
+              title="Прикрепить выбранный период к отчёту с дефолтным комментарием. Можно потом отредактировать в списке внизу."
+              style="display:none;">➕ Прикрепить к отчёту</button>
+      <span id="cd-attach-quick-status"
+            style="font-size:0.82rem; color:#10b981;"></span>
     </div>
     <details class="cd-collapsible" style="margin-top:8px;">
       <summary>Старый быстрый выбор пресетами</summary>
@@ -771,7 +782,9 @@
         $('cd-baseline-section').style.display = '';
       }
 
-      // 2) Загружаем прикреплённые блоки (если well_id известен)
+      // 2) Загружаем прикреплённые блоки (если well_id известен).
+      // Список «Прикреплено к отчёту» показываем ВСЕГДА когда скважина
+      // выбрана — даже пустой, чтобы пользователь видел статус накопления.
       if (currentWellId) {
         await refreshAttachedBlocks();
         $('cd-attached-section').style.display = '';
@@ -1151,7 +1164,12 @@
       renderDescribe(lastWellData.describe);
       renderMonthly(lastWellData.monthly, lastWellData.monthly_desc);
       // Открываем секцию «Добавить в отчёт» (если well_id известен)
-      if (currentWellId) $('cd-period-save-section').style.display = '';
+      // и показываем «быструю» кнопку рядом с «Показать аналитику».
+      if (currentWellId) {
+        $('cd-period-save-section').style.display = '';
+        const qb = $('cd-attach-quick-btn');
+        if (qb) qb.style.display = '';
+      }
 
       // Если включено сравнение — подгружаем наши данные и накладываем
       if ($('cd-compare-toggle').checked) await loadAndOverlayOurData();
@@ -1706,6 +1724,23 @@
     cnt.textContent = blocks.length
       ? `(${inReport} в отчёт из ${blocks.length})`
       : '(пока пусто)';
+    // Дублируем счётчик в шапку блока 4 — чтобы видно было всегда
+    const counter = $('cd-attached-counter');
+    if (counter) {
+      if (blocks.length) {
+        counter.textContent = `прикреплено: ${inReport} из ${blocks.length}`;
+        counter.style.display = '';
+      } else {
+        counter.textContent = 'прикреплено: 0';
+        counter.style.background = '#f3f4f6';
+        counter.style.color = '#6b7280';
+        counter.style.display = '';
+      }
+      if (blocks.length) {
+        counter.style.background = '#d1fae5';
+        counter.style.color = '#10b981';
+      }
+    }
     clearChildren(list);
     if (!blocks.length) {
       const empty = document.createElement('div');
@@ -1894,6 +1929,46 @@
       $('cd-period-save-status').textContent = '✓ Добавлено в отчёт';
       setTimeout(() => $('cd-period-save-status').textContent = '', 3000);
       refreshAttachedBlocks();
+    }
+  });
+
+  // Быстрое прикрепление одной кнопкой (рядом с «Показать аналитику»):
+  // сохранить с дефолтным комментарием → сбросить выбор шкалы для следующего
+  // периода → проскроллить наверх к шкале.
+  $('cd-attach-quick-btn')?.addEventListener('click', async () => {
+    if (!lastWellData || !lastWellData.rows) {
+      alert('Сначала нажмите «Показать аналитику».');
+      return;
+    }
+    const well = $('cd-well-select').value;
+    const f = $('cd-date-from').value, t = $('cd-date-to').value;
+    const params = {date_from: f, date_to: t, well_number: well};
+    const title = `Анализ периода ${f} … ${t} (скв. ${well})`;
+    const status = $('cd-attach-quick-status');
+    if (status) status.textContent = '⏳ Сохраняю…';
+    const block = await createBlock('period_analysis', title, params, '');
+    if (block) {
+      if (status) status.textContent = '✓ Прикреплено';
+      await refreshAttachedBlocks();
+      // Сбрасываем выбор на шкале — пользователь готов выбрать следующий период
+      if (typeof cdtlState === 'object') {
+        cdtlState.from = null; cdtlState.to = null;
+        if (typeof cdtlRender === 'function') cdtlRender();
+        if (typeof cdtlUpdateMode === 'function') cdtlUpdateMode();
+      }
+      // Прячем кнопку до следующего «Показать аналитику»
+      $('cd-attach-quick-btn').style.display = 'none';
+      // Скрываем графики предыдущего анализа — они больше не для этого выбора
+      $('cd-charts-section').style.display = 'none';
+      $('cd-describe-section').style.display = 'none';
+      $('cd-monthly-section').style.display = 'none';
+      $('cd-period-save-section').style.display = 'none';
+      // Скроллим к шкале
+      const scaleEl = $('cdtl-scroll') || $('cd-period-section');
+      if (scaleEl) scaleEl.scrollIntoView({behavior: 'smooth', block: 'start'});
+      setTimeout(() => { if (status) status.textContent = ''; }, 4000);
+    } else {
+      if (status) status.textContent = '✗ Ошибка сохранения';
     }
   });
 

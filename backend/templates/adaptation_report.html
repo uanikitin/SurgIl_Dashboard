@@ -1114,13 +1114,31 @@
       reloadBaselines(currentWellId).catch(e => console.warn('baselines preload', e));
     }
 
+    // Per TZ §7.5: при смене скважины iframe-вкладки должны атомарно
+    // перезагрузиться с новым ?well=. Сбрасываем кэш безусловно
+    // (раньше — только при наличии restoreState), и если активная
+    // вкладка — iframe-вкладка, инициируем её перезагрузку прямо сейчас.
+    if (typeof _iframeLoaded === 'object') {
+      Object.keys(_iframeLoaded).forEach(k => delete _iframeLoaded[k]);
+    }
+    // Кэш iframe-вкладки «Сравнение периодов» (правая панель)
+    if (typeof _compareIframeLoadedFor !== 'undefined') {
+      _compareIframeLoadedFor = null;
+    }
+    const activeTab = document.querySelector('.rw-tab.active')?.dataset.rwtab;
+    if (['well', 'customer', 'reagents', 'blocks'].includes(activeTab)) {
+      // Перерисовать iframe текущей активной вкладки с новой well_id
+      activateTab(activeTab);
+    }
+    // Если открыта под-вкладка «Сравнение периодов» — её iframe тоже нужно
+    // перезагрузить (она внутри ar-tab-content, не в rw-tab).
+    const activeArTab = document.querySelector('.ar-tab.active')?.dataset.tab;
+    if (activeArTab === 'compare' && typeof loadCompareIframe === 'function') {
+      loadCompareIframe();
+    }
+
     // Persistent state: подтянуть сохранённые поля и активный таб
     if (typeof restoreState === 'function') {
-      // сбрасываем кэш iframe для новой скважины — в открываемых
-      // вкладках перезагрузится с новым ?well=
-      if (typeof _iframeLoaded === 'object') {
-        Object.keys(_iframeLoaded).forEach(k => delete _iframeLoaded[k]);
-      }
       try { await restoreState(); } catch (_) {}
     }
   }

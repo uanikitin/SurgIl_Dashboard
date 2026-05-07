@@ -779,12 +779,17 @@
     markStatus(1, 'done');
   }
 
-  // ═══ STEP 2: Заказчик (B1) — формат как на /customer-daily ═══
+  // ═══ STEP 2: Заказчик (B1) — встраивает /customer-daily в iframe ═══
+  // Полностью использует функционал страницы «Данные заказчика»: загрузка
+  // XLSX, шкала с этапами и зумом, базовый период, период анализа,
+  // наложение наших данных, сравнение периодов, прикрепление к отчёту.
+  // Все эти секции уже работают на /customer-daily — нет смысла дублировать.
   function renderStep2(main) {
     const d = state.steps[2].data;
-    if (!d.periods) d.periods = [];
-    if (!d.from) d.from = null;
-    if (!d.to) d.to = null;
+    const wn = state.well?.number ? encodeURIComponent(String(state.well.number)) : '';
+    const src = wn
+      ? `/customer-daily?embedded=1&well=${wn}`
+      : '/customer-daily?embedded=1';
     main.innerHTML = `
       <h2 class="wz-step-title"><span class="step-num">2</span>Анализ исходных данных (B1, заказчик)</h2>
 
@@ -794,160 +799,30 @@
         Это доказывает, что скважина деградировала / была стабильна / улучшалась
         и подтверждает реальный эффект адаптации на фоне предыдущей динамики.
         <br><br>
-        <b>Что добавлять в отчёт:</b> один или несколько периодов (например,
-        «3 мес. до начала работ», «месяц перед работами», «лучший месяц в прошлом»)
-        — каждый со своим описанием попадёт в PDF главу 2.
+        <b>Что добавлять в отчёт:</b> в секции «Прикреплено к отчёту»
+        ниже — каждый прикреплённый период попадёт в PDF главу 2.
       </div>
 
-      <div class="wz-step-hint">
-        Источник: <code>well_daily</code> (суточные сводки УзКорГаз). Графики давлений
-        и дебитов, учёт рабочего времени, помесячная агрегация, тренды, описания.
+      <div class="wz-step-hint" style="margin-bottom:0.5rem;">
+        Ниже встроена страница <b>«Данные заказчика»</b> со всем функционалом:
+        загрузка XLSX, шкала с этапами и зумом, базовый период, анализ, сравнение,
+        прикрепление периодов к отчёту.
+        <a href="${src.replace('embedded=1&', '').replace('?embedded=1', '')}" target="_blank"
+           style="margin-left:0.5rem;">Открыть в отдельной вкладке ↗</a>
       </div>
 
-      <div class="wz-section">
-        <h3>Параметры периода</h3>
-
-        <!-- ═══ Временная шкала с этапами (как на /customer-daily) ═══ -->
-        <div class="tl2-builder">
-          <div class="tl2-mode-row">
-            Режим: <b id="tl2-mode-label">не выбран</b>
-            <span class="tl2-period-display" id="tl2-period-display"></span>
-          </div>
-          <div class="tl2-zoom-row">
-            <span style="font-size:0.78rem; color:#6b7280;">Масштаб:</span>
-            <button type="button" class="tl2-zoom-btn" data-tl2-zoom="day"
-                    title="Каждая дата отдельно (горизонтальный скролл)">Сутки</button>
-            <button type="button" class="tl2-zoom-btn" data-tl2-zoom="week">Неделя</button>
-            <button type="button" class="tl2-zoom-btn active" data-tl2-zoom="month">Месяц</button>
-            <button type="button" class="tl2-zoom-btn" data-tl2-zoom="year">Год</button>
-            <span style="margin-left:auto;">
-              <button type="button" class="tl2-zoom-btn" id="tl2-clear-btn"
-                      title="Снять выбор">✕ Сбросить</button>
-            </span>
-          </div>
-          <div class="tl2-scroll" id="tl2-scroll">
-            <div class="tl2-scale" id="tl2-scale"
-                 title="Кликните по точке этапа = взять диапазон этапа. Клик по пустому месту: первый = «от», второй = «до».">
-            </div>
-          </div>
-          <div class="tl2-help">
-            <span><b>Точки сверху</b> — этапы из журнала статусов скважины (клик = взять весь диапазон этапа)</span>
-            <span><b>Синяя полоса</b> — well_daily</span>
-            <span><b>Зелёная полоса</b> — pressure_hourly (наши датчики)</span>
-            <span><b>Клик по пустому месту</b>: первый = «от», повторный = «до»</span>
-          </div>
-        </div>
-
-        <div class="wz-row">
-          <div class="wz-field"><label>С</label><input type="date" id="wz2-from"></div>
-          <div class="wz-field"><label>По</label><input type="date" id="wz2-to"></div>
-        </div>
-        <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.5rem;">
-          <button id="wz2-analyze" class="wz-btn wz-btn-primary" style="margin-left: auto;">Проанализировать</button>
-        </div>
-        <div style="display:flex; align-items:center; gap:1rem; padding:0.5rem 0.7rem; background:#f5f7fa; border:1px solid #d8dee5; border-radius:5px; font-size:0.84rem; flex-wrap:wrap;">
-          <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
-            <input type="checkbox" id="wz2-overlay-ours" style="margin:0;">
-            <b>Наши данные</b>
-            <span style="color:#666;">(почасовые P/ΔP/Q после масок)</span>
-          </label>
-          <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
-            <input type="checkbox" id="wz2-overlay-events" style="margin:0;">
-            <b>События</b>
-            <span style="color:#666;">(вбросы 💧 / продувки 🌀)</span>
-          </label>
-          <span id="wz2-overlay-status" style="color:#888; font-size:0.78rem; margin-left:auto;"></span>
-        </div>
-      </div>
-
-      <!-- 4 графика 2x2 как на /customer-daily -->
-      <div id="wz2-charts-block" style="display:none;">
-        <div class="wz-section">
-          <h3>Графики</h3>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.7rem;">
-            <div id="wz2-ch-pres" style="height:300px;"></div>
-            <div id="wz2-ch-static" style="height:300px;"></div>
-            <div id="wz2-ch-rates" style="height:300px;"></div>
-            <div id="wz2-ch-monthly" style="height:300px;"></div>
-          </div>
-          <div style="height:280px; margin-top:0.7rem;" id="wz2-ch-trends"></div>
-        </div>
-      </div>
-
-      <!-- Описательная статистика (без квартилей) -->
-      <div id="wz2-describe-block" style="display:none;">
-        <div class="wz-section">
-          <h3>Описательная статистика за период</h3>
-          <table class="wz-table" id="wz2-describe-table"></table>
-        </div>
-      </div>
-
-      <!-- Помесячная агрегация и тренды -->
-      <div id="wz2-monthly-block" style="display:none;">
-        <div class="wz-section">
-          <h3>Помесячная агрегация и тренды</h3>
-          <table class="wz-table" id="wz2-monthly-table"></table>
-          <h3 style="margin-top:0.8rem;">Описание по месяцам</h3>
-          <div id="wz2-monthly-desc"></div>
-        </div>
-      </div>
-
-      <div class="wz-section">
-        <h3>Периоды для отчёта</h3>
-        <div id="wz2-periods-list"></div>
-        <button id="wz2-add" class="wz-btn wz-btn-success" style="margin-top: 0.4rem;" disabled>
-          + Добавить текущий период в отчёт
-        </button>
+      <div class="wz-section" style="padding:0; overflow:hidden;">
+        <iframe id="wz2-cd-iframe" src="${src}"
+                style="width:100%; height:calc(100vh - 280px); min-height:700px;
+                       border:none; display:block; background:#fff;"
+                title="Данные заказчика"></iframe>
       </div>
 
       ${includeBlock(2, 'Включить главу «Анализ исходных данных» в PDF')}
       ${navButtons(2)}
     `;
     bindIncludeBlock(2);
-
-    // Восстанавливаем сохранённые поля периода (если были раньше)
-    if (d.from) $('wz2-from').value = d.from;
-    if (d.to) $('wz2-to').value = d.to;
-    if (!$('wz2-from').value) {
-      // Дефолт: попробуем умные пресеты на основе work_start_date или сегодняшней даты
-      const ws = state.steps[1] && state.steps[1].data && state.steps[1].data.work_start;
-      if (ws) {
-        const wd = new Date(ws); const ago = new Date(wd.getTime() - 90 * 86400000);
-        $('wz2-from').value = ago.toISOString().slice(0, 10);
-        $('wz2-to').value = wd.toISOString().slice(0, 10);
-      } else {
-        const today = new Date(); const ago = new Date(Date.now() - 90 * 86400000);
-        $('wz2-from').value = ago.toISOString().slice(0, 10);
-        $('wz2-to').value = today.toISOString().slice(0, 10);
-      }
-      d.from = $('wz2-from').value;
-      d.to = $('wz2-to').value;
-    }
-
-    $('wz2-from').addEventListener('change', e => { d.from = e.target.value; tl2SyncFromFields(); });
-    $('wz2-to').addEventListener('change', e => { d.to = e.target.value; tl2SyncFromFields(); });
-    $('wz2-analyze').addEventListener('click', wz2RunAnalysis);
-    $('wz2-add').addEventListener('click', wz2AddCurrent);
-    // Инициализируем конструктор периода (шкалу) для шага 2
-    tl2Init();
-    // Восстанавливаем состояние чекбоксов оверлея + обработчики.
-    // По умолчанию — оба выключены; при первом включении попросит "Проанализировать".
-    if (typeof d.overlayEvents === 'undefined') d.overlayEvents = !!d.overlayOurs;  // мигр.
-    $('wz2-overlay-ours').checked = !!d.overlayOurs;
-    $('wz2-overlay-events').checked = !!d.overlayEvents;
-    $('wz2-overlay-ours').addEventListener('change', wz2OnOverlayToggle);
-    $('wz2-overlay-events').addEventListener('change', wz2OnOverlayToggle);
-    wz2RenderPeriodsList();
-
-    // Восстанавливаем результат предыдущего анализа (если был)
-    if (d.lastResult) {
-      wz2CurrentAnalysis = d.lastResult;
-      const our = (d.overlayOurs || d.overlayEvents) ? d.lastOurResult : null;
-      wz2RenderPlotlyCharts(d.lastResult, our, {data: d.overlayOurs, events: d.overlayEvents});
-      wz2RenderDescribe(d.lastResult.describe || []);
-      wz2RenderMonthly(d.lastResult.monthly || [], d.lastResult.monthly_desc || []);
-      $('wz2-add').disabled = false;
-    }
+    markStatus(2, 'done');
   }
 
   // Переключение оверлеев. Каждый чекбокс независим, но оба используют один источник

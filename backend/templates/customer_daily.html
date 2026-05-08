@@ -166,6 +166,27 @@
 
 .cd-hint { font-size: 0.78rem; color: #6b7280; margin-top: 4px; }
 
+/* B1 approved tile */
+.b1-metric {
+    background: #fff; border: 1px solid #fcd34d; border-radius: 6px;
+    padding: 8px 10px;
+}
+.b1-metric-title {
+    font-size: 0.72rem; color: #92400e; text-transform: uppercase;
+    font-weight: 600; letter-spacing: 0.03em; margin-bottom: 4px;
+}
+.b1-metric-val {
+    font-size: 0.95rem; color: #1f2937; font-weight: 600;
+    line-height: 1.35;
+}
+.b1-metric-val .b1-unit {
+    font-size: 0.7rem; color: #6b7280; font-weight: 400;
+    margin-left: 4px;
+}
+.b1-metric-unit {
+    font-size: 0.7rem; color: #78350f; margin-top: 4px;
+}
+
 /* ─── Timeline period builder (cd-tl) ─── */
 .cdtl-wrap {
     background: #fafafa; border: 1px solid #e5e7eb; border-radius: 6px;
@@ -379,6 +400,23 @@
     <div id="cd-avail-block"></div>
   </div>
 
+  <!-- ═══ 2.7. Утверждённый базовый период B1 (если есть) ═══ -->
+  <div class="cd-section" id="cd-approved-b1-section" style="display:none;
+       border-left:4px solid #d97706; background:#fffbeb;">
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+      <h2 style="margin:0; flex:1;">📌 Утверждённый базовый период B1 заказчика</h2>
+      <button class="cd-btn cd-btn-secondary" id="cd-b1-restore-btn"
+              title="Восстановить период этого baseline в полях С/по и пересчитать аналитику">
+        ↻ Открыть и пересчитать
+      </button>
+      <button class="cd-btn cd-btn-secondary" id="cd-b1-unpin-btn"
+              title="Снять закрепление (baseline останется в списке, но перестанет быть утверждённым)">
+        🔓 Снять утверждение
+      </button>
+    </div>
+    <div id="cd-approved-b1-content" style="margin-top:10px;"></div>
+  </div>
+
   <!-- ═══ 2.5. Базовый период (до работ) ═══ -->
   <div class="cd-section" id="cd-baseline-section" style="display:none;">
     <h2>3. Базовый период (до начала работ)</h2>
@@ -509,9 +547,9 @@
               title="Прикрепить выбранный период к отчёту с дефолтным комментарием. Можно потом отредактировать в списке внизу."
               style="display:none;">➕ Прикрепить к отчёту</button>
       <button class="cd-btn cd-btn-secondary" id="cd-set-baseline-btn"
-              title="Сохранить выбранный период как базовый (B1) в БД. Метрики Q/ΔP/P записываются для дальнейшего сравнения с любыми периодами."
+              title="Сохранить и (опц.) утвердить выбранный период как базовый (B1) для сравнений. Утверждённый B1 закрепляется и отображается плиткой наверху страницы."
               style="display:none; background:#fef3c7; color:#92400e; border-color:#fcd34d;">
-        📌 Сохранить как базовый (B1)
+        ✓ Утвердить как B1
       </button>
       <button class="cd-btn cd-btn-secondary" id="cd-new-period-btn"
               title="Сбросить текущий выбор периода и шкалу — начать выбор нового периода для анализа"
@@ -848,6 +886,8 @@
     currentWellInfo = null;
     $('cd-baseline-section').style.display = 'none';
     $('cd-attached-section').style.display = 'none';
+    const apprSec = $('cd-approved-b1-section');
+    if (apprSec) apprSec.style.display = 'none';
     if (!well) return;
 
     $('cd-avail-block').appendChild(makeLoader('Проверяю наличие данных по скв. № ' + well + '…'));
@@ -893,6 +933,8 @@
       // выбрана — даже пустой, чтобы пользователь видел статус накопления.
       if (currentWellId) {
         await refreshAttachedBlocks();
+        // Утверждённый baseline B1 — если есть, рисуем плитку наверху
+        await refreshApprovedB1();
         $('cd-attached-section').style.display = '';
       }
     } catch (e) {
@@ -2890,6 +2932,94 @@
     })[k] || '#6b7280';
   }
 
+  // ─── Утверждённый базовый период B1 (закреплённый customer_baseline) ──
+  // Плитка наверху страницы со ключевыми метриками, чтобы при возврате
+  // на скважину пользователь сразу видел свой утверждённый эталон.
+  let approvedB1 = null;  // кэш для других секций (например, кнопка «Открыть»)
+
+  async function refreshApprovedB1() {
+    const sec = $('cd-approved-b1-section');
+    if (!sec || !currentWellId) { if (sec) sec.style.display = 'none'; return; }
+    try {
+      const r = await fetch('/api/adaptation-report/baselines?well_id=' + currentWellId);
+      const d = await r.json();
+      const list = (d.baselines || []).filter(
+        b => b.source === 'customer' && b.is_pinned
+      );
+      if (!list.length) { sec.style.display = 'none'; approvedB1 = null; return; }
+      // Берём самый свежий по created_at, если их несколько
+      list.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+      const bl = list[0];
+      approvedB1 = bl;
+      _renderApprovedB1Card(bl);
+      sec.style.display = '';
+    } catch (e) {
+      console.warn('refreshApprovedB1 failed', e);
+    }
+  }
+
+  function _renderApprovedB1Card(bl) {
+    const box = $('cd-approved-b1-content');
+    const fmt = (v, d=2) => (v == null || isNaN(v))
+      ? '<span style="color:#9ca3af;">—</span>'
+      : Number(v).toFixed(d);
+    const sdMin = bl.shutdown_min_total || 0;
+    const sdH   = sdMin ? (sdMin / 60).toFixed(1) : '0';
+
+    box.innerHTML = `
+      <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;
+                  font-size:0.86rem; color:#92400e; flex-wrap:wrap;">
+        <b>${bl.name}</b>
+        <span style="font-family:monospace; background:#fff; padding:2px 8px;
+                     border-radius:3px; border:1px solid #fcd34d;">
+          ${bl.period_from} → ${bl.period_to} · <b>${bl.days_count}</b> сут.
+        </span>
+        ${bl.notes
+          ? `<span style="color:#78350f; font-style:italic;">«${bl.notes}»</span>`
+          : ''}
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
+                  gap:8px;">
+        <div class="b1-metric">
+          <div class="b1-metric-title">Q общий</div>
+          <div class="b1-metric-val">${fmt(bl.q_total_avg)} <span class="b1-unit">ср.</span></div>
+          <div class="b1-metric-val">${fmt(bl.q_total_median)} <span class="b1-unit">мед.</span></div>
+          <div class="b1-metric-unit">тыс.м³/сут</div>
+        </div>
+        <div class="b1-metric">
+          <div class="b1-metric-title">Q рабочий</div>
+          <div class="b1-metric-val">${fmt(bl.q_working_avg)} <span class="b1-unit">ср.</span></div>
+          <div class="b1-metric-val">${fmt(bl.q_working_median)} <span class="b1-unit">мед.</span></div>
+          <div class="b1-metric-unit">тыс.м³/сут</div>
+        </div>
+        <div class="b1-metric">
+          <div class="b1-metric-title">ΔP</div>
+          <div class="b1-metric-val">${fmt(bl.dp_avg)} <span class="b1-unit">ср.</span></div>
+          <div class="b1-metric-val">${fmt(bl.dp_median)} <span class="b1-unit">мед.</span></div>
+          <div class="b1-metric-unit">кгс/см²</div>
+        </div>
+        <div class="b1-metric">
+          <div class="b1-metric-title">P устье / шлейф</div>
+          <div class="b1-metric-val">${fmt(bl.p_wellhead_median)} <span class="b1-unit">мед. устье</span></div>
+          <div class="b1-metric-val">${fmt(bl.p_flowline_median)} <span class="b1-unit">мед. шлейф</span></div>
+          <div class="b1-metric-unit">кгс/см²</div>
+        </div>
+        <div class="b1-metric">
+          <div class="b1-metric-title">Простой</div>
+          <div class="b1-metric-val">${fmt(sdMin, 0)} <span class="b1-unit">мин всего</span></div>
+          <div class="b1-metric-val">${sdH} <span class="b1-unit">часов</span></div>
+          <div class="b1-metric-unit">${bl.shutdown_days_count || 0} дней с простоем</div>
+        </div>
+        <div class="b1-metric">
+          <div class="b1-metric-title">Период</div>
+          <div class="b1-metric-val" style="font-family:monospace; font-size:0.85rem;">${bl.period_from}</div>
+          <div class="b1-metric-val" style="font-family:monospace; font-size:0.85rem;">${bl.period_to}</div>
+          <div class="b1-metric-unit"><b>${bl.days_count}</b> сут.</div>
+        </div>
+      </div>
+    `;
+  }
+
   async function refreshAttachedBlocks() {
     if (!currentWellId) return;
     try {
@@ -3209,16 +3339,19 @@
     const f = $('cd-date-from').value, t = $('cd-date-to').value;
     const days = lastWellData.rows;
     const defName = `B1 ${f} … ${t} (скв. ${well})`;
-    const name = prompt(
-      `Сохранить выбранный период как базовый (B1) для скв. ${well}?\n\n` +
+    const approve = confirm(
+      `Утвердить выбранный период как базовый (B1) для скв. ${well}?\n\n` +
       `Период: ${f} — ${t} (${days} сут.)\n\n` +
-      `Имя baseline:`,
-      defName
+      `«Утверждённый» B1 закрепляется (is_pinned=true) и появится плиткой\n` +
+      `наверху страницы. У скважины может быть только один утверждённый B1\n` +
+      `(если уже есть — снимите утверждение в плитке наверху).\n\n` +
+      `OK = утвердить, Отмена = просто сохранить (без утверждения).`
     );
+    const name = prompt('Имя baseline:', defName);
     if (!name) return;
     const notes = prompt('Заметки (можно пусто, попадут в подпись baseline):', '') || '';
     const status = $('cd-attach-quick-status');
-    if (status) { status.textContent = '⏳ Сохраняю как B1…'; status.style.color = '#92400e'; }
+    if (status) { status.textContent = approve ? '⏳ Утверждаю как B1…' : '⏳ Сохраняю B1…'; status.style.color = '#92400e'; }
     try {
       const r = await fetch('/api/adaptation-report/baselines', {
         method: 'POST',
@@ -3230,7 +3363,7 @@
           period_to: t,
           source: 'customer',
           notes: notes,
-          is_pinned: false,
+          is_pinned: !!approve,
         }),
       });
       const d = await r.json();
@@ -3243,9 +3376,13 @@
       }
       const bl = d.baseline || {};
       if (status) {
-        status.textContent = `✓ B1 #${bl.id || '?'} сохранён`;
+        status.textContent = bl.is_pinned
+          ? `✓ B1 #${bl.id || '?'} утверждён (плитка наверху)`
+          : `✓ B1 #${bl.id || '?'} сохранён`;
         status.style.color = '#059669';
       }
+      // Если утверждали — обновляем плитку наверху
+      if (bl.is_pinned) await refreshApprovedB1();
       setTimeout(() => {
         if (status) { status.textContent = ''; status.style.color = '#10b981'; }
       }, 5000);
@@ -3254,6 +3391,45 @@
         status.textContent = '✗ Сетевая ошибка: ' + e.message;
         status.style.color = '#dc2626';
       }
+    }
+  });
+
+  // ─── Кнопки плитки утверждённого B1 ─────────────────────────────
+  // «Открыть и пересчитать»: восстановить период baseline в полях С/по
+  // и запустить «Показать аналитику».
+  $('cd-b1-restore-btn')?.addEventListener('click', async () => {
+    if (!approvedB1) return;
+    $('cd-date-from').value = approvedB1.period_from;
+    $('cd-date-to').value   = approvedB1.period_to;
+    if (typeof cdtlSyncFromFields === 'function') cdtlSyncFromFields();
+    await runAnalytics();
+    // Скроллим к графикам
+    const ch = $('cd-charts-section');
+    if (ch && ch.style.display !== 'none') {
+      ch.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+
+  // «Снять утверждение»: PATCH baseline → is_pinned=false. Запись остаётся
+  // в БД, просто перестаёт быть утверждённой.
+  $('cd-b1-unpin-btn')?.addEventListener('click', async () => {
+    if (!approvedB1) return;
+    if (!confirm(`Снять утверждение с baseline «${approvedB1.name}»?\n\n` +
+                 `Запись останется в БД, но плитка исчезнет. Можно повторно ` +
+                 `утвердить (закрепить) другой baseline.`)) return;
+    try {
+      const r = await fetch('/api/adaptation-report/baselines/' + approvedB1.id, {
+        method: 'PATCH', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ is_pinned: false }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        alert('Не удалось снять утверждение: ' + (d.detail || r.status));
+        return;
+      }
+      await refreshApprovedB1();
+    } catch (e) {
+      alert('Сетевая ошибка: ' + e.message);
     }
   });
 

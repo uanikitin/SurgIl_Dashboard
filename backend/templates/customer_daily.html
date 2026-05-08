@@ -584,6 +584,19 @@
     <div class="cd-month-list" id="cd-monthly-desc"></div>
   </div>
 
+  <!-- ═══ 8.2. Строгое сравнение на совместном периоде ═══ -->
+  <div class="cd-section" id="cd-strict-compare-section" style="display:none;">
+    <h2>Строгое сравнение UzKorGaz vs UniTool (на совместных днях)</h2>
+    <div id="cd-strict-compare-info" class="cd-hint" style="margin-bottom:8px;"></div>
+    <table class="cd-table" id="cd-strict-compare-table"></table>
+    <div style="margin-top:10px;">
+      <label style="display:inline-flex; align-items:center; gap:6px; font-size:0.88rem;">
+        <input type="checkbox" id="cd-strict-compare-include">
+        Включить таблицу «Строгое сравнение» в отчёт об адаптации
+      </label>
+    </div>
+  </div>
+
   <!-- ═══ 8.5. Добавить «Анализ периода» в отчёт ═══ -->
   <div class="cd-section" id="cd-period-save-section" style="display:none;">
     <h3 style="margin-top:0;">Добавить «Анализ периода» в отчёт об адаптации</h3>
@@ -1751,8 +1764,13 @@
       diag += `<i style="color:#64748b">ΔP считается на фронте как max(0, p_tube − p_line) — единое правило с /well.</i>`;
       alertBox(status, 'info', 'Наши данные: ' + parts.join(', ') + '.<br>' + diag);
 
-      // Перерисовать графики с overlay
-      if (lastWellData) renderCharts(lastWellData);
+      // Перерисовать графики и таблицы с overlay
+      if (lastWellData) {
+        renderCharts(lastWellData);
+        if (lastWellData.describe) renderDescribe(lastWellData.describe);
+        if (lastWellData.monthly) renderMonthly(lastWellData.monthly, lastWellData.monthly_desc || []);
+      }
+      renderStrictCompare();
     } catch (e) {
       clearChildren(status);
       alertBox(status, 'error', 'Сетевая ошибка: ' + e.message);
@@ -1920,9 +1938,18 @@
         const dMeanPct = (dMeanAbs != null && r.mean) ? (dMeanAbs / r.mean * 100) : null;
         const dMedAbs  = (o.median != null && r.median != null) ? (o.median - r.median) : null;
         const dMedPct  = (dMedAbs  != null && r.median) ? (dMedAbs  / r.median * 100) : null;
+        // Сопоставимость по N (количеству точек): на основной таблице
+        // считаем разницу по дням-источника (lastWellData.rows vs UniTool days).
+        const custDays = lastWellData?.rows || 0;
+        const ourDaysAll = (lastOurData?.pressure?.dates || [])
+          .reduce((s,t) => { if (t) s.add(String(t).slice(0,10)); return s; }, new Set()).size;
+        const m = Math.max(custDays, ourDaysAll);
+        const cmpRatio = m ? Math.abs(custDays - ourDaysAll) / m * 100 : 0;
+        const compat = cmpRatio <= 10;
         const sign = (v) => v == null ? '—' : (v >= 0 ? '+' : '') + fmtNum(v);
         const colorize = (v) => {
           if (v == null) return '';
+          if (!compat) return 'color:#9ca3af; font-style:italic;';
           if (v > 0) return 'color:#059669;';
           if (v < 0) return 'color:#dc2626;';
           return '';
@@ -1941,6 +1968,29 @@
           `<td>${r.n}</td><td>${fmtNum(r.mean)}</td><td>${fmtNum(r.std)}</td><td>${fmtNum(r.median)}</td>`;
       }
       tb.appendChild(tr);
+    }
+    // Под таблицей — пометка о сопоставимости периодов (только при overlay).
+    if (our) {
+      const custDays = lastWellData?.rows || 0;
+      const ourDaysAll = (lastOurData?.pressure?.dates || [])
+        .reduce((s,t) => { if (t) s.add(String(t).slice(0,10)); return s; }, new Set()).size;
+      const m = Math.max(custDays, ourDaysAll);
+      const cmpRatio = m ? Math.abs(custDays - ourDaysAll) / m * 100 : 0;
+      const compat = cmpRatio <= 10;
+      let warn = $('cd-describe-compat-note');
+      if (!warn) {
+        warn = document.createElement('div');
+        warn.id = 'cd-describe-compat-note';
+        warn.style.cssText = 'margin-top:6px; padding:8px 12px; border-radius:4px; font-size:0.83rem;';
+        tbl.parentElement.insertBefore(warn, tbl.nextSibling);
+      }
+      if (compat) {
+        warn.style.cssText += 'background:#d1fae5; border-left:3px solid #10b981; color:#065f46;';
+        warn.innerHTML = `✓ Периоды UzKorGaz (${custDays} сут) и UniTool (${ourDaysAll} сут) <b>сопоставимы</b>: разница ${cmpRatio.toFixed(1)}% ≤ 10%. Сравнение в таблице корректно.`;
+      } else {
+        warn.style.cssText += 'background:#fef3c7; border-left:3px solid #f59e0b; color:#92400e;';
+        warn.innerHTML = `⚠ Периоды UzKorGaz (${custDays} сут) и UniTool (${ourDaysAll} сут) <b>несопоставимы</b>: разница ${cmpRatio.toFixed(1)}% > 10%. Δ-колонки в этой таблице — индикативные (выделены серым курсивом). Корректное сравнение — в таблице <b>«Строгое сравнение на совместном периоде»</b> ниже.`;
+      }
     }
 
     // Текстовое описание совмещения периодов под таблицей
@@ -2022,6 +2072,149 @@
       lines.push('<i>UniTool не наложен — включите чекбокс «Наложить данные UniTool» выше.</i>');
     }
     return lines.join('<br>');
+  }
+
+  // ─── Строгое сравнение на пересечении дат ─────────────────────────
+  // Берём UzKorGaz суточный ряд (chart.dates + chart.q_*, dp, p_*),
+  // UniTool часовой ряд → агрегируем по дням, пересекаем по date-key.
+  // Возвращаем { dates, cust:{q_total, q_working, dp, p_tube, p_line},
+  //              our: {q, dp, p_tube, p_line}, days: N }
+  function _buildStrictIntersection() {
+    if (!lastWellData || !lastWellData.chart) return null;
+    if (!lastOurData || !lastOurData.ok) return null;
+    const c = lastWellData.chart;
+    const cdates = (c.dates || []).map(d => String(d).slice(0,10));
+
+    // UniTool: агрегируем по дням
+    const o = lastOurData;
+    const ots = (o.pressure?.dates || []);
+    const opt = (o.pressure?.p_tube || []);
+    const opl = (o.pressure?.p_line || []);
+    const odp = (o.pressure?.dp    || []);
+    const ofr = (o.flow?.avg_flow_rate || []);
+    const ourDay = {};
+    for (let i = 0; i < ots.length; i++) {
+      const dk = String(ots[i]).slice(0,10);
+      if (!ourDay[dk]) ourDay[dk] = { pt: [], pl: [], dp: [], q: [] };
+      if (opt[i] != null) ourDay[dk].pt.push(+opt[i]);
+      if (opl[i] != null) ourDay[dk].pl.push(+opl[i]);
+      if (odp[i] != null) ourDay[dk].dp.push(+odp[i]);
+      if (ofr.length && ofr[i] != null) ourDay[dk].q.push(+ofr[i]);
+    }
+    const avg = (a) => a.length ? a.reduce((s,x)=>s+x,0)/a.length : null;
+
+    // Пересечение
+    const interDates = [];
+    const cust = { q_total: [], q_working: [], dp: [], p_tube: [], p_line: [] };
+    const our  = { q: [], dp: [], p_tube: [], p_line: [] };
+    for (let i = 0; i < cdates.length; i++) {
+      const dk = cdates[i];
+      const od = ourDay[dk];
+      if (!od) continue;
+      // На этот день есть и UzKorGaz, и UniTool
+      interDates.push(dk);
+      if (c.q_gas_total?.[i]   != null) cust.q_total.push(+c.q_gas_total[i]);
+      if (c.q_gas_working?.[i] != null) cust.q_working.push(+c.q_gas_working[i]);
+      if (c.dp?.[i]            != null) cust.dp.push(+c.dp[i]);
+      if (c.p_wellhead?.[i]    != null) cust.p_tube.push(+c.p_wellhead[i]);
+      if (c.p_flowline?.[i]    != null) cust.p_line.push(+c.p_flowline[i]);
+      const oQ  = avg(od.q);
+      const oDp = avg(od.dp);
+      const oPt = avg(od.pt);
+      const oPl = avg(od.pl);
+      if (oQ  != null) our.q.push(oQ);
+      if (oDp != null) our.dp.push(oDp);
+      if (oPt != null) our.p_tube.push(oPt);
+      if (oPl != null) our.p_line.push(oPl);
+    }
+    return { dates: interDates, cust, our, days: interDates.length };
+  }
+
+  function _stat(a) {
+    if (!a || !a.length) return { n: 0, mean: null, median: null };
+    const v = a.slice().sort((x,y) => x-y);
+    const mean = a.reduce((s,x)=>s+x,0) / a.length;
+    const med = v.length % 2 ? v[(v.length-1) >> 1] : (v[v.length/2-1] + v[v.length/2]) / 2;
+    return { n: a.length, mean, median: med };
+  }
+
+  function renderStrictCompare() {
+    const sec = $('cd-strict-compare-section');
+    const ourOn = $('cd-compare-toggle')?.checked && lastOurData && lastOurData.ok;
+    if (!ourOn || !lastWellData) {
+      sec.style.display = 'none';
+      return;
+    }
+    const inter = _buildStrictIntersection();
+    if (!inter || !inter.days) {
+      sec.style.display = '';
+      $('cd-strict-compare-info').innerHTML =
+        '<span style="color:#dc2626;">⚠ Нет совместных дней между UzKorGaz и UniTool в выбранном периоде. ' +
+        'Сравнение невозможно.</span>';
+      $('cd-strict-compare-table').innerHTML = '';
+      return;
+    }
+    sec.style.display = '';
+    const dFrom = inter.dates[0];
+    const dTo   = inter.dates[inter.dates.length - 1];
+    const custDays = lastWellData.rows || 0;
+    const ourDaysAll = (lastOurData.pressure?.dates || []).reduce((set, t) => {
+      if (t) set.add(String(t).slice(0,10));
+      return set;
+    }, new Set()).size;
+    const ratio = (a, b) => {
+      const m = Math.max(a, b);
+      return m ? Math.abs(a-b) / m * 100 : 0;
+    };
+    const cmpRatio = ratio(custDays, ourDaysAll);
+    const compatible = cmpRatio <= 10;
+    $('cd-strict-compare-info').innerHTML =
+      `Совместных дней: <b>${inter.days}</b> (${dFrom} — ${dTo}). ` +
+      `Полные периоды: UzKorGaz <b>${custDays}</b> сут, UniTool <b>${ourDaysAll}</b> сут ` +
+      `(разница <b style="color:${compatible ? '#059669' : '#b45309'};">${cmpRatio.toFixed(1)}%</b>). ` +
+      (compatible
+        ? '<i style="color:#059669;">Периоды сопоставимы (≤ 10%) — можно сравнивать на полных периодах в основной таблице.</i>'
+        : '<i style="color:#b45309;">Периоды не сопоставимы (> 10%). Корректное сравнение — только на совместных днях, см. таблицу ниже.</i>');
+
+    const rows = [
+      { label: 'Q общий, тыс.м³/сут',   c: _stat(inter.cust.q_total),   o: _stat(inter.our.q) },
+      { label: 'Q рабочий, тыс.м³/сут', c: _stat(inter.cust.q_working), o: _stat(inter.our.q) },
+      { label: 'ΔP, кгс/см²',           c: _stat(inter.cust.dp),        o: _stat(inter.our.dp) },
+      { label: 'P устье, кгс/см²',      c: _stat(inter.cust.p_tube),    o: _stat(inter.our.p_tube) },
+      { label: 'P шлейф, кгс/см²',      c: _stat(inter.cust.p_line),    o: _stat(inter.our.p_line) },
+    ];
+    const tbl = $('cd-strict-compare-table');
+    tbl.innerHTML =
+      '<thead><tr>' +
+        '<th rowspan="2">Параметр</th>' +
+        '<th colspan="2" style="background:#dbeafe;">UzKorGaz</th>' +
+        '<th colspan="2" style="background:#fed7aa;">UniTool</th>' +
+        '<th colspan="4" style="background:#fef3c7;">Δ (UniTool − UzKorGaz)</th>' +
+      '</tr><tr>' +
+        '<th style="background:#eff6ff;">Среднее</th><th style="background:#eff6ff;">Медиана</th>' +
+        '<th style="background:#fff7ed;">Среднее</th><th style="background:#fff7ed;">Медиана</th>' +
+        '<th style="background:#fffbeb;">Δ ср.</th><th style="background:#fffbeb;">Δ ср. %</th>' +
+        '<th style="background:#fffbeb;">Δ мед.</th><th style="background:#fffbeb;">Δ мед. %</th>' +
+      '</tr></thead><tbody></tbody>';
+    const tb = tbl.querySelector('tbody');
+    const sign = (v) => v == null ? '—' : (v >= 0 ? '+' : '') + fmtNum(v);
+    const colorize = (v) => v == null || v === 0 ? '' : (v > 0 ? 'color:#059669;' : 'color:#dc2626;');
+    for (const r of rows) {
+      const dM    = (r.o.mean   != null && r.c.mean   != null) ? (r.o.mean   - r.c.mean)   : null;
+      const dMP   = (dM   != null && r.c.mean)   ? dM   / r.c.mean   * 100 : null;
+      const dMd   = (r.o.median != null && r.c.median != null) ? (r.o.median - r.c.median) : null;
+      const dMdP  = (dMd  != null && r.c.median) ? dMd  / r.c.median * 100 : null;
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        `<td>${r.label}</td>` +
+        `<td>${fmtNum(r.c.mean)}</td><td>${fmtNum(r.c.median)}</td>` +
+        `<td>${fmtNum(r.o.mean)}</td><td>${fmtNum(r.o.median)}</td>` +
+        `<td style="${colorize(dM)}">${sign(dM)}</td>` +
+        `<td style="${colorize(dMP)}">${dMP != null ? sign(dMP) + '%' : '—'}</td>` +
+        `<td style="${colorize(dMd)}">${sign(dMd)}</td>` +
+        `<td style="${colorize(dMdP)}">${dMdP != null ? sign(dMdP) + '%' : '—'}</td>`;
+      tb.appendChild(tr);
+    }
   }
 
   // Агрегация UniTool по календарным месяцам из часового ряда.
@@ -2121,6 +2314,12 @@
       if (ourOn) {
         // Строка UniTool
         const o = ourByMonth[r.month_key] || ourByMonth[r.month_label] || {};
+        // Сопоставимость месяца: разница дней не > 10%
+        const custDays = r.days || 0;
+        const ourDays  = o.days || 0;
+        const maxD = Math.max(custDays, ourDays);
+        const cmpRatio = maxD ? Math.abs(custDays - ourDays) / maxD * 100 : 0;
+        const compat = cmpRatio <= 10;
         const trOur = document.createElement('tr');
         trOur.style.background = '#fff7ed';
         trOur.innerHTML =
@@ -2135,24 +2334,33 @@
           `<td>${o.mean_p_tube != null ? fmtNum(o.mean_p_tube) : '—'}</td><td>—</td>`;
         tb.appendChild(trOur);
 
-        // Строка Δ% (UniTool − UzKorGaz)
+        // Строка Δ% (UniTool − UzKorGaz). Если периоды несопоставимы — серый.
         const dQmean   = pct(o.mean_q,   r.mean_q_total);
         const dQmed    = pct(o.median_q, r.median_q_total);
         const dDpmean  = pct(o.mean_dp,  r.mean_dp);
         const dDpmed   = pct(o.median_dp, r.median_dp);
         const dPtmean  = pct(o.mean_p_tube, r.mean_p_wellhead);
         const trDelta = document.createElement('tr');
-        trDelta.style.background = '#fffbeb';
+        trDelta.style.background = compat ? '#fffbeb' : '#f3f4f6';
+        const labelText = compat
+          ? `<b style="color:#854d0e;">Δ %</b>`
+          : `<b style="color:#6b7280;" title="Разница ${cmpRatio.toFixed(1)}% > 10%, корректное сравнение — на пересечении дат (см. таблицу «Строгое сравнение»)">Δ % ⚠</b>`;
+        const renderDelta = (v) => {
+          if (v == null) return '<td>—</td>';
+          if (!compat) return `<td style="color:#9ca3af; font-style:italic;">${sign(v)}%</td>`;
+          return `<td style="${colorize(v)}">${sign(v)}%</td>`;
+        };
         trDelta.innerHTML =
-          `<td><b style="color:#854d0e;">Δ %</b></td>` +
-          `<td>—</td>` +
-          `<td style="${colorize(dQmean)}">${dQmean != null ? sign(dQmean) + '%' : '—'}</td>` +
-          `<td style="${colorize(dQmed)}">${dQmed != null ? sign(dQmed) + '%' : '—'}</td>` +
+          `<td>${labelText}</td>` +
+          `<td style="font-size:0.74rem; color:${compat ? '#854d0e' : '#9ca3af'};">` +
+            `${custDays}/${ourDays}` +
+            (compat ? '' : ` <span style="color:#b45309;">(Δ${cmpRatio.toFixed(0)}%)</span>`) +
+          `</td>` +
+          renderDelta(dQmean) + renderDelta(dQmed) +
           `<td>—</td><td>—</td>` +
-          `<td style="${colorize(dDpmean)}">${dDpmean != null ? sign(dDpmean) + '%' : '—'}</td>` +
-          `<td style="${colorize(dDpmed)}">${dDpmed != null ? sign(dDpmed) + '%' : '—'}</td>` +
+          renderDelta(dDpmean) + renderDelta(dDpmed) +
           `<td>—</td><td>—</td>` +
-          `<td style="${colorize(dPtmean)}">${dPtmean != null ? sign(dPtmean) + '%' : '—'}</td><td>—</td>`;
+          renderDelta(dPtmean) + `<td>—</td>`;
         tb.appendChild(trDelta);
       }
     }
@@ -2285,6 +2493,7 @@
     // Перерисуем обе таблицы — они показывают UniTool колонки/строки в зависимости от чекбокса
     if (lastWellData?.describe) renderDescribe(lastWellData.describe);
     if (lastWellData?.monthly) renderMonthly(lastWellData.monthly, lastWellData.monthly_desc || []);
+    renderStrictCompare();
   });
   // Изменение цвета или fill — перерисовать графики (без перезапроса наших данных)
   $('cd-our-color')?.addEventListener('change', () => {
@@ -2864,6 +3073,55 @@
       if (status) {
         status.textContent = '✗ Сетевая ошибка: ' + e.message;
         status.style.color = '#dc2626';
+      }
+    }
+  });
+
+  // Чекбокс «Включить «Строгое сравнение» в отчёт» — сохраняет блок типа
+  // 'comparison' с снапшотом таблицы пересечения. Снимается = блок удаляется.
+  $('cd-strict-compare-include')?.addEventListener('change', async (ev) => {
+    if (!currentWellId) return;
+    const checked = ev.target.checked;
+    const inter = _buildStrictIntersection();
+    if (!inter || !inter.days) {
+      ev.target.checked = false;
+      alert('Строгое сравнение невозможно: нет совместных дней между UzKorGaz и UniTool.');
+      return;
+    }
+    const f = inter.dates[0], t = inter.dates[inter.dates.length - 1];
+    const well = $('cd-well-select').value;
+    if (checked) {
+      const params = { date_from: f, date_to: t, well_number: well, kind_detail: 'strict_intersection' };
+      const title = `Строгое сравнение UzKorGaz↔UniTool ${f}…${t} (скв. ${well}, ${inter.days} сут)`;
+      const snap = {
+        date_from: f, date_to: t, days: inter.days,
+        cust_q_total_mean:    _stat(inter.cust.q_total).mean,
+        cust_q_total_median:  _stat(inter.cust.q_total).median,
+        cust_dp_mean:         _stat(inter.cust.dp).mean,
+        cust_dp_median:       _stat(inter.cust.dp).median,
+        cust_p_tube_mean:     _stat(inter.cust.p_tube).mean,
+        our_q_mean:           _stat(inter.our.q).mean,
+        our_q_median:         _stat(inter.our.q).median,
+        our_dp_mean:          _stat(inter.our.dp).mean,
+        our_dp_median:        _stat(inter.our.dp).median,
+        our_p_tube_mean:      _stat(inter.our.p_tube).mean,
+      };
+      const block = await createBlock('comparison', title, params,
+        `Сравнение на совместных днях UzKorGaz и UniTool. Совместный период: ${inter.days} сут.`,
+        snap);
+      if (block) refreshAttachedBlocks();
+    } else {
+      // Найти существующий блок этого типа за этот период и удалить
+      const r = await fetch('/api/customer-daily/blocks?well_id=' + currentWellId);
+      const d = await r.json();
+      const target = (d.blocks || []).find(b =>
+        b.kind === 'comparison' &&
+        b.params?.kind_detail === 'strict_intersection' &&
+        b.params?.date_from === f && b.params?.date_to === t
+      );
+      if (target) {
+        await fetch('/api/customer-daily/blocks/' + target.id, { method: 'DELETE' });
+        refreshAttachedBlocks();
       }
     }
   });

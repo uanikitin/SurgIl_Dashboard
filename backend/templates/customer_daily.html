@@ -538,6 +538,16 @@
   <div class="cd-section" id="cd-compare-section" style="display:none;">
     <div class="cd-compare">
       <label><input type="checkbox" id="cd-compare-toggle"> <b>Наложить наши данные</b></label>
+      <label style="display:inline-flex; align-items:center; gap:6px; margin-left:14px; font-size:0.84rem;">
+        Цвет:
+        <input type="color" id="cd-our-color" value="#ea580c"
+               style="width:32px; height:24px; border:1px solid #d1d5db;
+                      border-radius:3px; padding:0; cursor:pointer; background:#fff;"
+               title="Цвет наших данных на графиках">
+        <label style="display:inline-flex; align-items:center; gap:4px; cursor:pointer;">
+          <input type="checkbox" id="cd-our-fill" checked> заливка
+        </label>
+      </label>
       <span class="cd-compare-info">
         Конвейер идентичен <b>/well</b>, <b>daily_report</b> и
         <b>adaptation_report</b>: pressure_raw → clean → verified-маски →
@@ -1673,9 +1683,37 @@
       // 2) Сборка lastOurData в шейпе, ожидаемом renderCharts.
       //    ΔP вычисляем поточечно: max(0, p_tube - p_line) — ровно как
       //    delta_pressure_chart.js на странице скважины (ΔP < 0 не существует).
-      const ts = (chart?.timestamps) || [];
-      const pt = (chart?.p_tube)     || [];
-      const pl = (chart?.p_line)     || [];
+      let ts = (chart?.timestamps) || [];
+      let pt = (chart?.p_tube)     || [];
+      let pl = (chart?.p_line)     || [];
+      let fr = (chart?.flow_rate)  || [];
+      let cm = (chart?.cumulative_flow) || [];
+
+      // Фильтр «до установки оборудования»: pressure_raw может содержать
+      // строки с этим well_id, записанные ДО монтажа датчика на скважину
+      // (артефакт привязки в pressure_pipeline). Такие точки не должны
+      // ни рисоваться на overlay, ни участвовать в нашей статистике.
+      const equipEv = (cdtlState?.data?.events || []).find(e => e.kind === 'equip');
+      let droppedPreEquip = 0;
+      if (equipEv?.dt) {
+        const equipDt = equipEv.dt;  // ISO 'YYYY-MM-DDTHH:MM:SS'
+        const keep = ts.map(t => (t >= equipDt));
+        const filteredTs = [], filteredPt = [], filteredPl = [], filteredFr = [], filteredCm = [];
+        for (let i = 0; i < ts.length; i++) {
+          if (keep[i]) {
+            filteredTs.push(ts[i]);
+            filteredPt.push(pt[i] ?? null);
+            filteredPl.push(pl[i] ?? null);
+            if (fr.length) filteredFr.push(fr[i] ?? null);
+            if (cm.length) filteredCm.push(cm[i] ?? null);
+          } else {
+            droppedPreEquip++;
+          }
+        }
+        ts = filteredTs; pt = filteredPt; pl = filteredPl;
+        fr = filteredFr; cm = filteredCm;
+      }
+
       const dp = ts.map((_, i) => {
         const a = pt[i], b = pl[i];
         if (a == null || b == null) return null;
@@ -1691,13 +1729,15 @@
         pressure: { dates: ts, p_tube: pt, p_line: pl, dp: dp },
         flow: {
           dates: hasFlow ? ts : [],
-          avg_flow_rate: hasFlow ? chart.flow_rate : [],
-          cumulative_flow: hasFlow ? chart.cumulative_flow : [],
+          avg_flow_rate: hasFlow ? fr : [],
+          cumulative_flow: hasFlow ? cm : [],
         },
         summary: summary,
         choke_mm: chokeMm,
         choke_source: chokeSource,
         sensor_first_date: ts[0] ? ts[0].slice(0, 10) : null,
+        dropped_pre_equip: droppedPreEquip,
+        equip_dt: equipEv?.dt || null,
       };
 
       clearChildren(status);
@@ -1707,6 +1747,10 @@
       let diag = `Источник: <b>${hasFlow ? '/api/flow-rate/calculate' : '/api/pressure/chart'}</b> ` +
                  `(тот же эндпоинт, что использует страница скважины /well/${$('cd-well-select').value}).<br>`;
       if (chokeMm) diag += `Штуцер: <b>${chokeMm} мм</b><br>`;
+      if (droppedPreEquip > 0 && equipEv?.dt) {
+        diag += `<b style="color:#b45309;">⚠ Отброшено ${droppedPreEquip} точек до установки оборудования (${equipEv.dt.slice(0,10)}).</b> ` +
+                `Это записи pressure_raw до привязки датчика к скважине — не учитываются в графиках и статистике.<br>`;
+      }
       diag += `<i style="color:#64748b">ΔP считается на фронте как max(0, p_tube − p_line) — единое правило с /well.</i>`;
       alertBox(status, 'info', 'Наши данные: ' + parts.join(', ') + '.<br>' + diag);
 
@@ -1728,11 +1772,33 @@
   };
   const PLOTLY_CONFIG = { displaylogo: false, responsive: true };
 
+  // Утилиты для управления цветом наших данных (overlay)
+  function _hexToRgba(hex, alpha) {
+    const m = String(hex).match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+    if (!m) return `rgba(234,88,12,${alpha})`;
+    return `rgba(${parseInt(m[1],16)},${parseInt(m[2],16)},${parseInt(m[3],16)},${alpha})`;
+  }
+  function _adjustColor(hex, lightenPct) {
+    // lightenPct: 0..1 — насколько осветлить (1=белый)
+    const m = String(hex).match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+    if (!m) return hex;
+    const mix = (c) => Math.round(parseInt(c,16) + (255 - parseInt(c,16)) * lightenPct);
+    return '#' + [m[1], m[2], m[3]].map(mix)
+      .map(v => v.toString(16).padStart(2,'0')).join('');
+  }
+
   function renderCharts(data) {
     $('cd-charts-section').style.display = '';
     const c = data.chart;
     const ourOn = $('cd-compare-toggle').checked && lastOurData && lastOurData.ok;
     const our = ourOn ? lastOurData : null;
+    const ourColor = $('cd-our-color')?.value || '#ea580c';
+    const ourFill  = !!$('cd-our-fill')?.checked;
+    const ourFillCfg = ourFill ? {
+      fill: 'tozeroy',
+      fillcolor: _hexToRgba(ourColor, 0.18),
+    } : {};
+    const ourColorAlt = _adjustColor(ourColor, 0.35);  // светлее — для P_line
 
     // 1) Давления
     const pressureTraces = [
@@ -1744,9 +1810,11 @@
     if (our && our.has_pressure) {
       pressureTraces.push(
         { x: our.pressure.dates, y: our.pressure.p_tube, name: 'Наше: P_tube (LoRa)',
-          mode: 'lines', line: { color: '#ea580c', width: 2.2, dash: 'dot' } },
+          mode: 'lines', line: { color: ourColor, width: 2.2 },
+          ...ourFillCfg, fillcolor: _hexToRgba(ourColor, 0.20) },
         { x: our.pressure.dates, y: our.pressure.p_line, name: 'Наше: P_line (LoRa)',
-          mode: 'lines', line: { color: '#7c3aed', width: 2.2, dash: 'dot' } },
+          mode: 'lines', line: { color: ourColorAlt, width: 2.2 },
+          ...ourFillCfg, fillcolor: _hexToRgba(ourColorAlt, 0.18) },
       );
     }
     Plotly.newPlot('cd-chart-pressures', pressureTraces,
@@ -1760,7 +1828,8 @@
     if (our && our.has_pressure) {
       dpTraces.push({
         x: our.pressure.dates, y: our.pressure.dp, name: 'Наше: ΔP (LoRa)',
-        mode: 'lines', line: { color: '#ea580c', width: 2, dash: 'dot' },
+        mode: 'lines', line: { color: ourColor, width: 2 },
+        ...ourFillCfg, fillcolor: _hexToRgba(ourColor, 0.22),
       });
     }
     Plotly.newPlot('cd-chart-dp', dpTraces,
@@ -1783,7 +1852,8 @@
     if (our && our.has_flow) {
       rateTraces.push({
         x: our.flow.dates, y: our.flow.avg_flow_rate, name: 'Наше: avg Q (расчёт)',
-        mode: 'lines', line: { color: '#ea580c', width: 2.2, dash: 'dot' }, yaxis: 'y',
+        mode: 'lines', line: { color: ourColor, width: 2.2 }, yaxis: 'y',
+        ...ourFillCfg, fillcolor: _hexToRgba(ourColor, 0.20),
       });
     }
     Plotly.newPlot('cd-chart-rates', rateTraces, {
@@ -1811,23 +1881,139 @@
   }
 
   // ─────────────────────────── Tables ──────────────────────────────
+  // Описательная статистика. Без квартилей (Q25/Q75/мин/макс) — оставляем
+  // только N / Среднее / СКО / Медиана. Если включён overlay наших данных
+  // и есть пересечение — добавляем колонки «Наши: среднее / медиана» и Δ%.
   function renderDescribe(rows) {
     if (!rows || !rows.length) { $('cd-describe-section').style.display = 'none'; return; }
     $('cd-describe-section').style.display = '';
     const tbl = $('cd-describe-table');
-    tbl.innerHTML = '<thead><tr>'
-      + '<th>Параметр</th><th>N</th><th>Среднее</th><th>СКО</th>'
-      + '<th>Мин</th><th>Q25</th><th>Медиана</th><th>Q75</th><th>Макс</th>'
-      + '</tr></thead><tbody></tbody>';
+
+    // Метрики наших данных в шейпе, совместимом с rows
+    const ourOn = $('cd-compare-toggle')?.checked && lastOurData && lastOurData.ok;
+    const our = ourOn ? _buildOurDescribeMap() : null;
+
+    // Шапка: с overlay → две группы колонок
+    let head;
+    if (our) {
+      head = '<thead><tr>'
+        + '<th rowspan="2">Параметр</th>'
+        + '<th colspan="3" style="background:#dbeafe;">Заказчик</th>'
+        + '<th colspan="3" style="background:#fed7aa;">Наши (LoRa)</th>'
+        + '<th colspan="2" style="background:#fef3c7;">Δ (наши − заказчик)</th>'
+        + '</tr><tr>'
+        + '<th style="background:#eff6ff;">N</th><th style="background:#eff6ff;">Среднее</th><th style="background:#eff6ff;">Медиана</th>'
+        + '<th style="background:#fff7ed;">N</th><th style="background:#fff7ed;">Среднее</th><th style="background:#fff7ed;">Медиана</th>'
+        + '<th style="background:#fffbeb;">Δ ср.</th><th style="background:#fffbeb;">Δ ср. %</th>'
+        + '</tr></thead><tbody></tbody>';
+    } else {
+      head = '<thead><tr>'
+        + '<th>Параметр</th><th>N</th><th>Среднее</th><th>СКО</th><th>Медиана</th>'
+        + '</tr></thead><tbody></tbody>';
+    }
+    tbl.innerHTML = head;
     const tb = tbl.querySelector('tbody');
+
     for (const r of rows) {
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${r.label}</td>`
-        + `<td>${r.n}</td><td>${fmtNum(r.mean)}</td><td>${fmtNum(r.std)}</td>`
-        + `<td>${fmtNum(r.min)}</td><td>${fmtNum(r.q25)}</td><td>${fmtNum(r.median)}</td>`
-        + `<td>${fmtNum(r.q75)}</td><td>${fmtNum(r.max)}</td>`;
+      if (our) {
+        const o = our[r.label] || {};
+        const dAbs = (o.mean != null && r.mean != null) ? (o.mean - r.mean) : null;
+        const dPct = (dAbs != null && r.mean) ? (dAbs / r.mean * 100) : null;
+        const sign = (v) => v == null ? '—' : (v >= 0 ? '+' : '') + fmtNum(v);
+        tr.innerHTML =
+          `<td>${r.label}</td>` +
+          `<td>${r.n}</td><td>${fmtNum(r.mean)}</td><td>${fmtNum(r.median)}</td>` +
+          `<td>${o.n ?? '—'}</td><td>${o.mean != null ? fmtNum(o.mean) : '—'}</td><td>${o.median != null ? fmtNum(o.median) : '—'}</td>` +
+          `<td>${sign(dAbs)}</td><td>${dPct != null ? sign(dPct) + '%' : '—'}</td>`;
+      } else {
+        tr.innerHTML =
+          `<td>${r.label}</td>` +
+          `<td>${r.n}</td><td>${fmtNum(r.mean)}</td><td>${fmtNum(r.std)}</td><td>${fmtNum(r.median)}</td>`;
+      }
       tb.appendChild(tr);
     }
+
+    // Текстовое описание совмещения периодов под таблицей
+    let descBox = $('cd-describe-overlap-text');
+    if (!descBox) {
+      descBox = document.createElement('div');
+      descBox.id = 'cd-describe-overlap-text';
+      descBox.style.cssText = 'margin-top:10px; padding:10px 14px; background:#f0f9ff;' +
+                              'border-left:3px solid #0284c7; border-radius:4px;' +
+                              'font-size:0.85rem; color:#0c4a6e; line-height:1.55;';
+      tbl.parentElement.appendChild(descBox);
+    }
+    descBox.innerHTML = _buildOverlapDescription(rows, our);
+  }
+
+  // Построить map { 'Устье, кгс/см²': {n, mean, median}, ... } из lastOurData,
+  // используя те же label-и, что приходят с бэкенда в rows.
+  function _buildOurDescribeMap() {
+    const o = lastOurData;
+    if (!o || !o.ok) return null;
+    const stat = (arr) => {
+      const v = (arr || []).filter(x => x != null && !isNaN(x)).map(Number);
+      if (!v.length) return { n: 0, mean: null, median: null };
+      const mean = v.reduce((s, x) => s + x, 0) / v.length;
+      const sorted = v.slice().sort((a, b) => a - b);
+      const median = sorted.length % 2
+        ? sorted[(sorted.length - 1) >> 1]
+        : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
+      return { n: v.length, mean, median };
+    };
+    const map = {};
+    if (o.has_pressure) {
+      map['Устье, кгс/см²'] = stat(o.pressure.p_tube);
+      map['Шлейф, кгс/см²'] = stat(o.pressure.p_line);
+      map['ΔP, кгс/см²']    = stat(o.pressure.dp);
+    }
+    if (o.has_flow) {
+      map['Дебит общий, тыс.м³/сут']  = stat(o.flow.avg_flow_rate);
+      // У наших данных нет отдельного «рабочий» — Q расчётный аналог общего;
+      // если потребуется working — отдельная строка позже.
+    }
+    return map;
+  }
+
+  // Текст «По данным заказчика — N сут (... — ...). По нашим — M сут.
+  // Совместный период — K сут. Сравнение делается на пересечении».
+  function _buildOverlapDescription(rows, our) {
+    const dFrom = $('cd-date-from').value;
+    const dTo   = $('cd-date-to').value;
+    const cust  = lastWellData || {};
+    const custDays = cust.rows || 0;
+    const lines = [];
+    lines.push(`<b>Выбранный период:</b> ${dFrom} … ${dTo}.`);
+    lines.push(`<b>По данным заказчика (well_daily):</b> ${custDays} сут.${cust.date_min && cust.date_max ? ' (' + cust.date_min + ' — ' + cust.date_max + ')' : ''}.`);
+    if (our && lastOurData) {
+      const o = lastOurData;
+      const oFirst = o.sensor_first_date;
+      const oLast  = o.pressure?.dates?.length
+        ? o.pressure.dates[o.pressure.dates.length - 1].slice(0, 10)
+        : null;
+      const ptsTotal = o.pressure?.dates?.length || 0;
+      const droppedNote = o.dropped_pre_equip > 0
+        ? ` Отброшено <b>${o.dropped_pre_equip}</b> точек до установки оборудования (${(o.equip_dt || '').slice(0,10)}).`
+        : '';
+      lines.push(`<b>По нашим датчикам:</b> ${ptsTotal} точек${oFirst && oLast ? ' (' + oFirst + ' — ' + oLast + ')' : ''}.${droppedNote}`);
+      // Пересечение
+      if (oFirst && cust.date_min && cust.date_max) {
+        const interStart = oFirst > cust.date_min ? oFirst : cust.date_min;
+        const interEnd   = oLast && oLast < cust.date_max ? oLast : cust.date_max;
+        if (interStart <= interEnd) {
+          const days = Math.round((new Date(interEnd) - new Date(interStart)) / 86400000) + 1;
+          lines.push(`<b>Совместный период:</b> ${days} сут (${interStart} — ${interEnd}).`);
+          lines.push('Сравнение в таблице делается по полным периодам каждого источника. ' +
+                     'Если нужно строго по пересечению — выберите соответствующий диапазон в шкале.');
+        } else {
+          lines.push('<b>Совместный период:</b> отсутствует (периоды не пересекаются).');
+        }
+      }
+    } else {
+      lines.push('<i>Наши данные не наложены — включите чекбокс «Наложить наши данные» выше.</i>');
+    }
+    return lines.join('<br>');
   }
 
   function renderMonthly(months, descs) {
@@ -1981,6 +2167,15 @@
   $('cd-compare-toggle').addEventListener('change', async () => {
     if ($('cd-compare-toggle').checked) await loadAndOverlayOurData();
     else if (lastWellData) renderCharts(lastWellData);
+    // Перерисуем таблицу — она показывает «Наши» колонки в зависимости от чекбокса
+    if (lastWellData?.describe) renderDescribe(lastWellData.describe);
+  });
+  // Изменение цвета или fill — перерисовать графики (без перезапроса наших данных)
+  $('cd-our-color')?.addEventListener('change', () => {
+    if (lastWellData) renderCharts(lastWellData);
+  });
+  $('cd-our-fill')?.addEventListener('change', () => {
+    if (lastWellData) renderCharts(lastWellData);
   });
   document.querySelectorAll('.cd-pill').forEach(p => {
     p.addEventListener('click', () => {

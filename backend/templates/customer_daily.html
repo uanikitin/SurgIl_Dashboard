@@ -3409,31 +3409,107 @@
     return await r.json();
   }
 
-  // Снимок ключевых метрик периода для отображения на плитке прикрепления.
-  // Берёт всё из lastWellData (результат /api/customer-daily/well/{N}).
+  // Полный снимок периода для прикрепления к отчёту. Сохраняем всё, что
+  // отображается на экране для этого периода: метрики, ряды графиков,
+  // описательную таблицу, помесячную агрегацию, описания, текстовый анализ
+  // UzKorGaz/UniTool/совмещение, метрики UniTool. PDF и «Открыть» строятся
+  // из этого снимка → точно ту же картинку, что видел пользователь.
   function _buildPeriodSnapshot() {
     const d = lastWellData || {};
     if (!d.rows) return null;
+    const ourOn = $('cd-compare-toggle')?.checked && lastOurData && lastOurData.ok;
+
+    // UniTool snapshot (метрики + сводки агрегатов по месяцам, без сырых часовых
+    // рядов — они весят слишком много, при «Открыть» пересчитываются на лету
+    // через /api/flow-rate/calculate)
+    let unitool = null;
+    if (ourOn) {
+      const ourMap = _buildOurDescribeMap() || {};
+      const ourByMonth = _aggregateOurByMonth() || {};
+      const ourDays = (lastOurData?.pressure?.dates || [])
+        .reduce((s,t) => { if (t) s.add(String(t).slice(0,10)); return s; }, new Set()).size;
+      unitool = {
+        first_date: lastOurData.sensor_first_date,
+        last_date:  lastOurData.pressure?.dates?.length
+          ? lastOurData.pressure.dates[lastOurData.pressure.dates.length - 1].slice(0, 10)
+          : null,
+        days: ourDays,
+        equip_dt: lastOurData.equip_dt,
+        dropped_pre_equip: lastOurData.dropped_pre_equip || 0,
+        choke_mm: lastOurData.choke_mm,
+        has_flow: !!lastOurData.has_flow,
+        // Сводные метрики (mean/median/n) по тем же label-ам, что и UzKorGaz
+        describe_map: ourMap,
+        // Помесячно — { 'Январь 2026': {days, mean_q, median_q, mean_dp, ...} }
+        by_month: ourByMonth,
+      };
+    }
+
+    // Текстовый анализ — собирается тем же _buildOverlapDescription, что
+    // отображается под таблицей. Сохраняем готовый HTML — будет вставлен в PDF.
+    let overlapHtml = '';
+    try { overlapHtml = _buildOverlapDescription(d.describe || [], unitool ? {} : null); }
+    catch (e) { /* fallback — пусто */ }
+
+    // Строгое сравнение на пересечении (если есть) — снимок таблицы
+    let strictCompare = null;
+    if (ourOn) {
+      const inter = (typeof _buildStrictIntersection === 'function')
+        ? _buildStrictIntersection() : null;
+      if (inter && inter.days) {
+        strictCompare = {
+          dates_from: inter.dates[0],
+          dates_to:   inter.dates[inter.dates.length - 1],
+          days:       inter.days,
+          cust_q_total:   _stat(inter.cust.q_total),
+          cust_q_working: _stat(inter.cust.q_working),
+          cust_dp:        _stat(inter.cust.dp),
+          cust_p_tube:    _stat(inter.cust.p_tube),
+          cust_p_line:    _stat(inter.cust.p_line),
+          our_q:          _stat(inter.our.q),
+          our_dp:         _stat(inter.our.dp),
+          our_p_tube:     _stat(inter.our.p_tube),
+          our_p_line:     _stat(inter.our.p_line),
+        };
+      }
+    }
+
     return {
-      // Период
+      // ─── Период ─────────────────────────────────────────────
       date_from: $('cd-date-from').value,
       date_to:   $('cd-date-to').value,
       days:      d.rows || 0,
-      // Q (тыс. м³/сут)
+      date_min:  d.date_min || null,
+      date_max:  d.date_max || null,
+
+      // ─── Сводные метрики UzKorGaz (для плитки) ──────────────
       q_total_avg:    d.q_total_avg ?? null,
       q_total_median: d.q_total_median ?? null,
       q_working_avg:    d.q_working_avg ?? null,
       q_working_median: d.q_working_median ?? null,
-      // Давления
       p_wellhead_median: d.p_wellhead_median ?? null,
       p_flowline_median: d.p_flowline_median ?? null,
       dp_avg:    d.dp_avg ?? null,
       dp_median: d.dp_median ?? null,
-      // Простой
       shutdown_min_total:   d.shutdown_min_total ?? 0,
       shutdown_days_count:  d.shutdown_days_count ?? 0,
-      // Тренд Q (если посчитан)
       q_trend: d.q_trend || null,
+
+      // ─── Полные ряды для графиков (для PDF/предпросмотра) ──
+      chart:    d.chart    || null,   // dates, p_wellhead, p_annular, p_flowline, p_static, dp, q_*, shutdown_min
+      describe: d.describe || null,   // строки описательной статистики
+      monthly:  d.monthly  || null,   // помесячная агрегация
+      monthly_desc: d.monthly_desc || null,  // авто-описания месяцев
+
+      // ─── UniTool (если был наложен) ─────────────────────────
+      unitool: unitool,
+
+      // ─── Текстовый анализ + строгое сравнение ──────────────
+      overlap_html: overlapHtml,
+      strict_compare: strictCompare,
+
+      // ─── Версия снимка (для миграций при изменении формата) ─
+      _v: 2,
     };
   }
 

@@ -3128,6 +3128,7 @@
     }
     for (const b of blocks) {
       const card = document.createElement('div');
+      card.dataset.blockId = b.id;
       card.style.cssText =
         'border:1px solid #e5e7eb; border-radius:6px; padding:10px 12px; margin-bottom:8px; background:#fff;';
       const periodStr = b.params && b.params.date_from
@@ -3236,6 +3237,7 @@
         }
       });
     });
+
     // Bind events: title/comment -> debounced save; checkbox -> immediate; delete
     const debounce = (fn, ms) => {
       let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
@@ -3264,7 +3266,6 @@
           method: 'PUT', headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({in_report: el.checked}),
         });
-        // Перерисуем счётчик без полной перезагрузки
         refreshAttachedBlocks();
       });
     });
@@ -3275,6 +3276,114 @@
         refreshAttachedBlocks();
       });
     });
+
+    // Авто-подгрузка метрик для старых блоков (созданных до того, как
+    // фронт начал передавать data_snapshot). Тихо запрашиваем через
+    // /api/customer-daily/well/{N}?date_from=...&date_to=...
+    // и подсовываем результат в PATCH блок + перерисовываем плитку.
+    for (const b of blocks) {
+      if (b.data_snapshot) continue;
+      if (b.kind !== 'period_analysis' && b.kind !== 'baseline') continue;
+      const f = b.params?.date_from, t = b.params?.date_to;
+      const wn = b.params?.well_number;
+      if (!f || !t || !wn) continue;
+      _backfillBlockSnapshot(b, f, t, wn);  // fire-and-forget
+    }
+  }
+
+  async function _backfillBlockSnapshot(b, f, t, wn) {
+    try {
+      const r = await fetch(`/api/customer-daily/well/${encodeURIComponent(wn)}` +
+                            `?date_from=${f}&date_to=${t}`);
+      if (!r.ok) return;
+      const d = await r.json();
+      if (!d.ok || !d.rows) return;
+      const snap = {
+        date_from: f, date_to: t, days: d.rows || 0,
+        q_total_avg:    d.q_total_avg ?? null,
+        q_total_median: d.q_total_median ?? null,
+        q_working_avg:    d.q_working_avg ?? null,
+        q_working_median: d.q_working_median ?? null,
+        p_wellhead_median: d.p_wellhead_median ?? null,
+        p_flowline_median: d.p_flowline_median ?? null,
+        dp_avg:    d.dp_avg ?? null,
+        dp_median: d.dp_median ?? null,
+        shutdown_min_total:   d.shutdown_min_total ?? 0,
+        shutdown_days_count:  d.shutdown_days_count ?? 0,
+      };
+      // PATCH блок чтобы метрики сохранились в БД (иначе при следующем
+      // refresh снова пусто). Tolerate failures silently — это «улучшение».
+      await fetch('/api/customer-daily/blocks/' + b.id, {
+        method: 'PUT', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ data_snapshot: snap }),
+      }).catch(() => {});
+      b.data_snapshot = snap;  // обновляем локальный кэш
+      // Локально обновляем именно эту карточку, не перерисовывая весь список
+      _renderSingleBlockStats(b);
+    } catch (e) {
+      console.warn('backfill snapshot failed for block', b.id, e);
+    }
+  }
+
+  // Локальный апдейт сетки метрик в одной существующей карточке —
+  // вставляет блок b1-metric grid сразу после строки «Период: …».
+  function _renderSingleBlockStats(b) {
+    const list = $('cd-attached-list');
+    if (!list) return;
+    const card = list.querySelector(`[data-block-id="${b.id}"]`);
+    if (!card) {
+      // Карточки помечаются data-block-id ниже — если не найдена, перерисуем всё
+      refreshAttachedBlocks();
+      return;
+    }
+    // Удаляем старый stats-блок если есть
+    const oldStats = card.querySelector('.atc-stats');
+    if (oldStats) oldStats.remove();
+    const snap = b.data_snapshot;
+    if (!snap) return;
+    const fmt = (v, d=2) => (v == null || isNaN(v))
+      ? '<span style="color:#9ca3af;">—</span>'
+      : Number(v).toFixed(d);
+    const sdMin = snap.shutdown_min_total || 0;
+    const sdH   = sdMin ? (sdMin / 60).toFixed(1) : '0';
+    const days  = snap.days || 0;
+    const dFrom = snap.date_from || (b.params && b.params.date_from) || '—';
+    const dTo   = snap.date_to   || (b.params && b.params.date_to)   || '—';
+    const wrap = document.createElement('div');
+    wrap.className = 'atc-stats';
+    wrap.innerHTML = `
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
+                  gap:8px; margin-top:8px;">
+        <div class="b1-metric"><div class="b1-metric-title">Q общий</div>
+          <div class="b1-metric-val">${fmt(snap.q_total_avg)} <span class="b1-unit">ср.</span></div>
+          <div class="b1-metric-val">${fmt(snap.q_total_median)} <span class="b1-unit">мед.</span></div>
+          <div class="b1-metric-unit">тыс.м³/сут</div></div>
+        <div class="b1-metric"><div class="b1-metric-title">Q рабочий</div>
+          <div class="b1-metric-val">${fmt(snap.q_working_avg)} <span class="b1-unit">ср.</span></div>
+          <div class="b1-metric-val">${fmt(snap.q_working_median)} <span class="b1-unit">мед.</span></div>
+          <div class="b1-metric-unit">тыс.м³/сут</div></div>
+        <div class="b1-metric"><div class="b1-metric-title">ΔP</div>
+          <div class="b1-metric-val">${fmt(snap.dp_avg)} <span class="b1-unit">ср.</span></div>
+          <div class="b1-metric-val">${fmt(snap.dp_median)} <span class="b1-unit">мед.</span></div>
+          <div class="b1-metric-unit">кгс/см²</div></div>
+        <div class="b1-metric"><div class="b1-metric-title">P устье / шлейф</div>
+          <div class="b1-metric-val">${fmt(snap.p_wellhead_median)} <span class="b1-unit">мед. устье</span></div>
+          <div class="b1-metric-val">${fmt(snap.p_flowline_median)} <span class="b1-unit">мед. шлейф</span></div>
+          <div class="b1-metric-unit">кгс/см²</div></div>
+        <div class="b1-metric"><div class="b1-metric-title">Простой</div>
+          <div class="b1-metric-val">${fmt(sdMin, 0)} <span class="b1-unit">мин всего</span></div>
+          <div class="b1-metric-val">${sdH} <span class="b1-unit">часов</span></div>
+          <div class="b1-metric-unit">${snap.shutdown_days_count || 0} дней с простоем</div></div>
+        <div class="b1-metric"><div class="b1-metric-title">Период</div>
+          <div class="b1-metric-val" style="font-family:monospace; font-size:0.85rem;">${dFrom}</div>
+          <div class="b1-metric-val" style="font-family:monospace; font-size:0.85rem;">${dTo}</div>
+          <div class="b1-metric-unit"><b>${days}</b> сут.</div></div>
+      </div>
+    `;
+    // Вставляем перед textarea (ищем .atc-comment) или в конец
+    const ta = card.querySelector('.atc-comment');
+    if (ta) card.insertBefore(wrap, ta);
+    else card.appendChild(wrap);
   }
 
   async function createBlock(kind, title, params, comment, dataSnapshot) {

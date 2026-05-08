@@ -201,15 +201,15 @@
     padding: 6px 0;
 }
 .cdtl-scale {
-    position: relative; height: 110px; min-width: 100%;
+    position: relative; height: 160px; min-width: 100%;
     cursor: crosshair; user-select: none;
 }
 .cdtl-bar {
-    position: absolute; height: 16px; border-radius: 3px;
+    position: absolute; height: 18px; border-radius: 3px;
     pointer-events: none;
 }
-.cdtl-bar-customer { top: 38px; background: #93c5fd; }
-.cdtl-bar-our      { top: 60px; background: #6ee7b7; }
+.cdtl-bar-customer { top: 76px; background: #93c5fd; }
+.cdtl-bar-our      { top: 102px; background: #6ee7b7; }
 .cdtl-bar-label {
     position: absolute; left: 6px; font-size: 0.7rem;
     color: rgba(0,0,0,0.7); line-height: 16px; pointer-events: none;
@@ -245,7 +245,7 @@
     overflow: hidden; text-overflow: ellipsis;
 }
 .cdtl-event-icon {
-    position: absolute; top: 56px;
+    position: absolute; top: 100px;
     transform: translateX(-50%);
     font-size: 13px; line-height: 13px;
     background: #fff; border-radius: 50%;
@@ -254,7 +254,7 @@
     user-select: none;
 }
 .cdtl-stage-line {
-    position: absolute; top: 12px; height: 88px;
+    position: absolute; top: 12px; height: 130px;
     width: 2px; background: currentColor; opacity: 0.45;
     transform: translateX(-50%); pointer-events: none;
 }
@@ -290,7 +290,7 @@
     background: #dc2626; box-shadow: 0 0 6px rgba(220,38,38,0.5);
 }
 .cdtl-range {
-    position: absolute; top: 34px; height: 56px;
+    position: absolute; top: 70px; height: 60px;
     background: rgba(220,38,38,0.10);
     border-left: 2px solid rgba(220,38,38,0.55);
     border-right: 2px solid rgba(220,38,38,0.55);
@@ -494,9 +494,10 @@
 
       <div class="cdtl-help">
         <span><b>Точки сверху</b> — этапы из журнала статусов (клик по точке = взять диапазон этапа)</span>
-        <span><b>Синяя полоса</b> — данные заказчика (well_daily)</span>
-        <span><b>Зелёная полоса</b> — наши датчики (pressure_hourly)</span>
-        <span><b>Клик по шкале</b> ставит точку отсчёта; кнопки <b>±N</b> расширяют диапазон от неё</span>
+        <span><b style="color:#1e3a8a;">Синяя полоса «UzKorGaz»</b> — суточные сводки заказчика (таблица well_daily, поступают через XLSX-парсер)</span>
+        <span><b style="color:#065f46;">Зелёная полоса «UniTool»</b> — данные с наших LoRa-датчиков (давление p_tube/p_line, дебит, P/ΔP)</span>
+        <span><b>Серый</b> на зелёной полосе — артефакт привязки до установки оборудования</span>
+        <span><b>Клик по шкале</b> ставит точку отсчёта; кнопки <b>±N</b> расширяют диапазон</span>
       </div>
     </div>
 
@@ -537,13 +538,13 @@
   <!-- ═══ 5. Сравнение с нашими данными ═══ -->
   <div class="cd-section" id="cd-compare-section" style="display:none;">
     <div class="cd-compare">
-      <label><input type="checkbox" id="cd-compare-toggle"> <b>Наложить наши данные</b></label>
+      <label><input type="checkbox" id="cd-compare-toggle"> <b>Наложить данные UniTool</b></label>
       <label style="display:inline-flex; align-items:center; gap:6px; margin-left:14px; font-size:0.84rem;">
-        Цвет:
+        Цвет UniTool:
         <input type="color" id="cd-our-color" value="#ea580c"
                style="width:32px; height:24px; border:1px solid #d1d5db;
                       border-radius:3px; padding:0; cursor:pointer; background:#fff;"
-               title="Цвет наших данных на графиках">
+               title="Цвет данных UniTool на графиках">
         <label style="display:inline-flex; align-items:center; gap:4px; cursor:pointer;">
           <input type="checkbox" id="cd-our-fill" checked> заливка
         </label>
@@ -1171,25 +1172,23 @@
     const d = cdtlState.data || {};
     const parts = [];
 
-    // Бар данных заказчика — с явными метками начала и конца на полосе
+    // Бар данных заказчика (UzKorGaz) — с явными метками начала и конца
     if (d.customer_data?.first_date && d.customer_data?.last_date) {
       const a = _cdtlPct(_cdtlParse(d.customer_data.first_date));
       const b = _cdtlPct(_cdtlParse(d.customer_data.last_date));
       parts.push(
         `<div class="cdtl-bar cdtl-bar-customer" style="left:${a}%; width:${Math.max(b-a,0.3)}%;"
-              title="well_daily: ${d.customer_data.first_date} — ${d.customer_data.last_date} (${d.customer_data.days_count} дн.)"></div>` +
-        `<div class="cdtl-bar-label" style="top:38px;">Заказчик</div>` +
-        // Метка с датой начала — над левым краем полосы
-        `<div class="cdtl-bar-tip" style="left:${a}%; top:24px; transform:translateX(-50%);
+              title="UzKorGaz / well_daily: ${d.customer_data.first_date} — ${d.customer_data.last_date} (${d.customer_data.days_count} дн.)"></div>` +
+        `<div class="cdtl-bar-label" style="top:76px; color:#1e3a8a;">UzKorGaz · суточные сводки заказчика (${d.customer_data.days_count} дн.)</div>` +
+        `<div class="cdtl-bar-tip" style="left:${a}%; top:62px; transform:translateX(-50%);
                                           background:#1d4ed8;">${d.customer_data.first_date}</div>` +
-        // Метка с датой конца — над правым краем полосы
-        `<div class="cdtl-bar-tip" style="left:${b}%; top:24px; transform:translateX(-50%);
+        `<div class="cdtl-bar-tip" style="left:${b}%; top:62px; transform:translateX(-50%);
                                           background:#1d4ed8;">${d.customer_data.last_date}</div>`
       );
     } else {
-      parts.push(`<div class="cdtl-bar-label" style="top:38px; color:#9ca3af;">Заказчик: нет данных</div>`);
+      parts.push(`<div class="cdtl-bar-label" style="top:76px; color:#9ca3af;">UzKorGaz · нет данных</div>`);
     }
-    // Бар наших датчиков. Если first_date < даты установки оборудования —
+    // Бар наших датчиков (UniTool). Если first_date < даты установки оборудования —
     // часть до установки рисуем серым: «есть в pressure_raw, но датчик
     // не был привязан к скважине» (артефакт пайплайна).
     if (d.our_data?.first_date && d.our_data?.last_date) {
@@ -1198,37 +1197,35 @@
       const equipEv  = (d.events || []).find(e => e.kind === 'equip');
       const equipDate = equipEv ? _cdtlParse(equipEv.dt) : null;
       if (equipDate && ourStart < equipDate) {
-        // Сегмент 1: pre-equip — серый, предупреждающий
         const a = _cdtlPct(ourStart);
         const m = _cdtlPct(equipDate);
         parts.push(
           `<div class="cdtl-bar" style="left:${a}%; width:${Math.max(m-a,0.3)}%;
-                top:60px; height:16px; background:#9ca3af; opacity:0.5;
+                top:102px; height:18px; background:#9ca3af; opacity:0.5;
                 border-radius:3px;"
-                title="pressure_raw до установки оборудования (${d.our_data.first_date} — ${equipEv.dt.slice(0,10)}) — артефакт пайплайна, датчик не был привязан к скважине"></div>`
+                title="UniTool / pressure_raw до установки (${d.our_data.first_date} — ${equipEv.dt.slice(0,10)}) — артефакт пайплайна, датчик не был привязан к скважине"></div>`
         );
-        // Сегмент 2: после equip — зелёный
         if (ourEnd > equipDate) {
           const b = _cdtlPct(ourEnd);
           parts.push(
             `<div class="cdtl-bar cdtl-bar-our" style="left:${m}%; width:${Math.max(b-m,0.3)}%;"
-                  title="pressure_raw: ${equipEv.dt.slice(0,10)} — ${d.our_data.last_date} (с момента установки)"></div>`
+                  title="UniTool / pressure_raw: ${equipEv.dt.slice(0,10)} — ${d.our_data.last_date} (с момента установки)"></div>`
           );
         }
         parts.push(
-          `<div class="cdtl-bar-label" style="top:60px;">Датчики (серый = до привязки)</div>`
+          `<div class="cdtl-bar-label" style="top:102px; color:#065f46;">UniTool · LoRa-датчики (серый = до привязки)</div>`
         );
       } else {
         const a = _cdtlPct(ourStart);
         const b = _cdtlPct(ourEnd);
         parts.push(
           `<div class="cdtl-bar cdtl-bar-our" style="left:${a}%; width:${Math.max(b-a,0.3)}%;"
-                title="pressure_raw: ${d.our_data.first_date} — ${d.our_data.last_date}"></div>` +
-          `<div class="cdtl-bar-label" style="top:60px;">Датчики</div>`
+                title="UniTool / pressure_raw: ${d.our_data.first_date} — ${d.our_data.last_date}"></div>` +
+          `<div class="cdtl-bar-label" style="top:102px; color:#065f46;">UniTool · LoRa-датчики</div>`
         );
       }
     } else {
-      parts.push(`<div class="cdtl-bar-label" style="top:60px; color:#9ca3af;">Датчики: нет данных</div>`);
+      parts.push(`<div class="cdtl-bar-label" style="top:102px; color:#9ca3af;">UniTool · нет данных</div>`);
     }
 
     // Этапы — точки + вертикальная линия + подпись С ДАТОЙ
@@ -1802,17 +1799,17 @@
 
     // 1) Давления
     const pressureTraces = [
-      { x: c.dates, y: c.p_wellhead, name: 'Заказчик: устье',     mode: 'lines+markers', marker:{size:5}, line:{width:1.4} },
-      { x: c.dates, y: c.p_annular,  name: 'Заказчик: затрубное', mode: 'lines+markers', marker:{size:5}, line:{width:1.4} },
-      { x: c.dates, y: c.p_flowline, name: 'Заказчик: шлейф',     mode: 'lines+markers', marker:{size:5}, line:{width:1.4} },
-      { x: c.dates, y: c.p_static,   name: 'Заказчик: статич.',   mode: 'lines+markers', marker:{size:5}, line:{width:1.4} },
+      { x: c.dates, y: c.p_wellhead, name: 'UzKorGaz: устье',     mode: 'lines+markers', marker:{size:5}, line:{width:1.4} },
+      { x: c.dates, y: c.p_annular,  name: 'UzKorGaz: затрубное', mode: 'lines+markers', marker:{size:5}, line:{width:1.4} },
+      { x: c.dates, y: c.p_flowline, name: 'UzKorGaz: шлейф',     mode: 'lines+markers', marker:{size:5}, line:{width:1.4} },
+      { x: c.dates, y: c.p_static,   name: 'UzKorGaz: статич.',   mode: 'lines+markers', marker:{size:5}, line:{width:1.4} },
     ];
     if (our && our.has_pressure) {
       pressureTraces.push(
-        { x: our.pressure.dates, y: our.pressure.p_tube, name: 'Наше: P_tube (LoRa)',
+        { x: our.pressure.dates, y: our.pressure.p_tube, name: 'UniTool: P_tube',
           mode: 'lines', line: { color: ourColor, width: 2.2 },
           ...ourFillCfg, fillcolor: _hexToRgba(ourColor, 0.20) },
-        { x: our.pressure.dates, y: our.pressure.p_line, name: 'Наше: P_line (LoRa)',
+        { x: our.pressure.dates, y: our.pressure.p_line, name: 'UniTool: P_line',
           mode: 'lines', line: { color: ourColorAlt, width: 2.2 },
           ...ourFillCfg, fillcolor: _hexToRgba(ourColorAlt, 0.18) },
       );
@@ -1822,12 +1819,12 @@
 
     // 2) ΔP
     const dpTraces = [
-      { x: c.dates, y: c.dp, name: 'Заказчик: ΔP', mode: 'lines+markers',
+      { x: c.dates, y: c.dp, name: 'UzKorGaz: ΔP', mode: 'lines+markers',
         marker:{size:5,color:'#dc2626'}, line:{color:'#dc2626',width:1.6} },
     ];
     if (our && our.has_pressure) {
       dpTraces.push({
-        x: our.pressure.dates, y: our.pressure.dp, name: 'Наше: ΔP (LoRa)',
+        x: our.pressure.dates, y: our.pressure.dp, name: 'UniTool: ΔP',
         mode: 'lines', line: { color: ourColor, width: 2 },
         ...ourFillCfg, fillcolor: _hexToRgba(ourColor, 0.22),
       });
@@ -1840,18 +1837,18 @@
 
     // 3) Дебиты + простой
     const rateTraces = [
-      { x: c.dates, y: c.q_gas_total,   name: 'Заказчик: Q общий',
+      { x: c.dates, y: c.q_gas_total,   name: 'UzKorGaz: Q общий',
         mode:'lines+markers', marker:{size:5,color:'#1d4ed8'},
         line:{color:'#1d4ed8',width:1.5}, yaxis:'y' },
-      { x: c.dates, y: c.q_gas_working, name: 'Заказчик: Q рабочий',
+      { x: c.dates, y: c.q_gas_working, name: 'UzKorGaz: Q рабочий',
         mode:'lines+markers', marker:{size:5,color:'#16a34a'},
         line:{color:'#16a34a',width:1.5}, yaxis:'y' },
-      { x: c.dates, y: c.shutdown_min,  name: 'Заказчик: простой, мин',
+      { x: c.dates, y: c.shutdown_min,  name: 'UzKorGaz: простой, мин',
         type:'bar', marker:{color:'rgba(220,38,38,0.35)'}, yaxis:'y2' },
     ];
     if (our && our.has_flow) {
       rateTraces.push({
-        x: our.flow.dates, y: our.flow.avg_flow_rate, name: 'Наше: avg Q (расчёт)',
+        x: our.flow.dates, y: our.flow.avg_flow_rate, name: 'UniTool: avg Q (расчёт)',
         mode: 'lines', line: { color: ourColor, width: 2.2 }, yaxis: 'y',
         ...ourFillCfg, fillcolor: _hexToRgba(ourColor, 0.20),
       });
@@ -1898,13 +1895,14 @@
     if (our) {
       head = '<thead><tr>'
         + '<th rowspan="2">Параметр</th>'
-        + '<th colspan="3" style="background:#dbeafe;">Заказчик</th>'
-        + '<th colspan="3" style="background:#fed7aa;">Наши (LoRa)</th>'
-        + '<th colspan="2" style="background:#fef3c7;">Δ (наши − заказчик)</th>'
+        + '<th colspan="3" style="background:#dbeafe;">UzKorGaz</th>'
+        + '<th colspan="3" style="background:#fed7aa;">UniTool</th>'
+        + '<th colspan="4" style="background:#fef3c7;">Δ (UniTool − UzKorGaz)</th>'
         + '</tr><tr>'
         + '<th style="background:#eff6ff;">N</th><th style="background:#eff6ff;">Среднее</th><th style="background:#eff6ff;">Медиана</th>'
         + '<th style="background:#fff7ed;">N</th><th style="background:#fff7ed;">Среднее</th><th style="background:#fff7ed;">Медиана</th>'
         + '<th style="background:#fffbeb;">Δ ср.</th><th style="background:#fffbeb;">Δ ср. %</th>'
+        + '<th style="background:#fffbeb;">Δ мед.</th><th style="background:#fffbeb;">Δ мед. %</th>'
         + '</tr></thead><tbody></tbody>';
     } else {
       head = '<thead><tr>'
@@ -1918,14 +1916,25 @@
       const tr = document.createElement('tr');
       if (our) {
         const o = our[r.label] || {};
-        const dAbs = (o.mean != null && r.mean != null) ? (o.mean - r.mean) : null;
-        const dPct = (dAbs != null && r.mean) ? (dAbs / r.mean * 100) : null;
+        const dMeanAbs = (o.mean   != null && r.mean   != null) ? (o.mean   - r.mean)   : null;
+        const dMeanPct = (dMeanAbs != null && r.mean) ? (dMeanAbs / r.mean * 100) : null;
+        const dMedAbs  = (o.median != null && r.median != null) ? (o.median - r.median) : null;
+        const dMedPct  = (dMedAbs  != null && r.median) ? (dMedAbs  / r.median * 100) : null;
         const sign = (v) => v == null ? '—' : (v >= 0 ? '+' : '') + fmtNum(v);
+        const colorize = (v) => {
+          if (v == null) return '';
+          if (v > 0) return 'color:#059669;';
+          if (v < 0) return 'color:#dc2626;';
+          return '';
+        };
         tr.innerHTML =
           `<td>${r.label}</td>` +
           `<td>${r.n}</td><td>${fmtNum(r.mean)}</td><td>${fmtNum(r.median)}</td>` +
           `<td>${o.n ?? '—'}</td><td>${o.mean != null ? fmtNum(o.mean) : '—'}</td><td>${o.median != null ? fmtNum(o.median) : '—'}</td>` +
-          `<td>${sign(dAbs)}</td><td>${dPct != null ? sign(dPct) + '%' : '—'}</td>`;
+          `<td style="${colorize(dMeanAbs)}">${sign(dMeanAbs)}</td>` +
+          `<td style="${colorize(dMeanPct)}">${dMeanPct != null ? sign(dMeanPct) + '%' : '—'}</td>` +
+          `<td style="${colorize(dMedAbs)}">${sign(dMedAbs)}</td>` +
+          `<td style="${colorize(dMedPct)}">${dMedPct != null ? sign(dMedPct) + '%' : '—'}</td>`;
       } else {
         tr.innerHTML =
           `<td>${r.label}</td>` +
@@ -1985,7 +1994,7 @@
     const custDays = cust.rows || 0;
     const lines = [];
     lines.push(`<b>Выбранный период:</b> ${dFrom} … ${dTo}.`);
-    lines.push(`<b>По данным заказчика (well_daily):</b> ${custDays} сут.${cust.date_min && cust.date_max ? ' (' + cust.date_min + ' — ' + cust.date_max + ')' : ''}.`);
+    lines.push(`<b>UzKorGaz (well_daily):</b> ${custDays} сут.${cust.date_min && cust.date_max ? ' (' + cust.date_min + ' — ' + cust.date_max + ')' : ''}.`);
     if (our && lastOurData) {
       const o = lastOurData;
       const oFirst = o.sensor_first_date;
@@ -1996,24 +2005,73 @@
       const droppedNote = o.dropped_pre_equip > 0
         ? ` Отброшено <b>${o.dropped_pre_equip}</b> точек до установки оборудования (${(o.equip_dt || '').slice(0,10)}).`
         : '';
-      lines.push(`<b>По нашим датчикам:</b> ${ptsTotal} точек${oFirst && oLast ? ' (' + oFirst + ' — ' + oLast + ')' : ''}.${droppedNote}`);
-      // Пересечение
+      lines.push(`<b>UniTool (LoRa-датчики):</b> ${ptsTotal} точек${oFirst && oLast ? ' (' + oFirst + ' — ' + oLast + ')' : ''}.${droppedNote}`);
       if (oFirst && cust.date_min && cust.date_max) {
         const interStart = oFirst > cust.date_min ? oFirst : cust.date_min;
         const interEnd   = oLast && oLast < cust.date_max ? oLast : cust.date_max;
         if (interStart <= interEnd) {
           const days = Math.round((new Date(interEnd) - new Date(interStart)) / 86400000) + 1;
-          lines.push(`<b>Совместный период:</b> ${days} сут (${interStart} — ${interEnd}).`);
+          lines.push(`<b>Совместный период (UzKorGaz ∩ UniTool):</b> ${days} сут (${interStart} — ${interEnd}).`);
           lines.push('Сравнение в таблице делается по полным периодам каждого источника. ' +
                      'Если нужно строго по пересечению — выберите соответствующий диапазон в шкале.');
         } else {
-          lines.push('<b>Совместный период:</b> отсутствует (периоды не пересекаются).');
+          lines.push('<b>Совместный период:</b> отсутствует (UzKorGaz и UniTool не пересекаются по времени).');
         }
       }
     } else {
-      lines.push('<i>Наши данные не наложены — включите чекбокс «Наложить наши данные» выше.</i>');
+      lines.push('<i>UniTool не наложен — включите чекбокс «Наложить данные UniTool» выше.</i>');
     }
     return lines.join('<br>');
+  }
+
+  // Агрегация UniTool по календарным месяцам из часового ряда.
+  // Возвращает map { 'YYYY-MM': {days, mean_q, median_q, mean_dp, median_dp, mean_p_tube} }
+  // и одновременно ключи в формате месяца «Январь 2026» (как у backend month_label).
+  function _aggregateOurByMonth() {
+    const o = lastOurData;
+    if (!o || !o.ok) return {};
+    const dates = o.pressure?.dates || [];
+    const dp    = o.pressure?.dp    || [];
+    const pt    = o.pressure?.p_tube || [];
+    const fr    = o.flow?.avg_flow_rate || [];
+    const buckets = {};
+    const monthRu = ['Январь','Февраль','Март','Апрель','Май','Июнь',
+                     'Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+    for (let i = 0; i < dates.length; i++) {
+      const d = dates[i]; if (!d) continue;
+      const ym = d.slice(0, 7);  // 'YYYY-MM'
+      if (!buckets[ym]) buckets[ym] = { dp: [], pt: [], q: [], daysSet: new Set() };
+      const dayKey = d.slice(0, 10);
+      buckets[ym].daysSet.add(dayKey);
+      if (dp[i] != null) buckets[ym].dp.push(+dp[i]);
+      if (pt[i] != null) buckets[ym].pt.push(+pt[i]);
+      if (fr.length && fr[i] != null) buckets[ym].q.push(+fr[i]);
+    }
+    const stat = (a) => {
+      if (!a.length) return { mean: null, median: null };
+      const m = a.reduce((s,x) => s+x, 0) / a.length;
+      const sorted = a.slice().sort((x,y) => x-y);
+      const med = sorted.length % 2
+        ? sorted[(sorted.length-1) >> 1]
+        : (sorted[sorted.length/2-1] + sorted[sorted.length/2]) / 2;
+      return { mean: m, median: med };
+    };
+    const map = {};
+    for (const [ym, b] of Object.entries(buckets)) {
+      const sQ  = stat(b.q);
+      const sDp = stat(b.dp);
+      const sPt = stat(b.pt);
+      const monthLabel = `${monthRu[parseInt(ym.slice(5,7), 10) - 1]} ${ym.slice(0,4)}`;
+      const obj = {
+        days: b.daysSet.size,
+        mean_q:    sQ.mean,    median_q:    sQ.median,
+        mean_dp:   sDp.mean,   median_dp:   sDp.median,
+        mean_p_tube: sPt.mean,
+      };
+      map[ym] = obj;
+      map[monthLabel] = obj;  // для совпадения с month_label с бекенда
+    }
+    return map;
   }
 
   function renderMonthly(months, descs) {
@@ -2022,8 +2080,10 @@
     }
     $('cd-monthly-section').style.display = '';
     const tbl = $('cd-monthly-table');
+    const ourOn = $('cd-compare-toggle')?.checked && lastOurData && lastOurData.ok;
+
     tbl.innerHTML = '<thead><tr>'
-      + '<th>Месяц</th><th>Дней</th>'
+      + '<th>Месяц</th><th>Источник</th><th>Дней</th>'
       + '<th>Q общ. ср.</th><th>Q общ. мед.</th>'
       + '<th>Q раб. ср.</th><th>Q раб. мед.</th>'
       + '<th>ΔP ср.</th><th>ΔP мед.</th>'
@@ -2031,15 +2091,70 @@
       + '<th>P уст. ср.</th><th>Простой,мин/сут</th>'
       + '</tr></thead><tbody></tbody>';
     const tb = tbl.querySelector('tbody');
+
+    // Помесячная агрегация UniTool — собираем из lastOurData.pressure (часовые
+    // ряды). Группируем по году-месяцу, считаем mean/median.
+    const ourByMonth = ourOn ? _aggregateOurByMonth() : {};
+
+    const sign = (v) => v == null ? '—' : (v >= 0 ? '+' : '') + fmtNum(v);
+    const colorize = (v) => {
+      if (v == null || v === 0) return '';
+      return v > 0 ? 'color:#059669;' : 'color:#dc2626;';
+    };
+    const pct = (a, b) => (a != null && b != null && b !== 0) ? (a - b) / b * 100 : null;
+
     for (const r of months) {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${r.month_label}</td><td>${r.days}</td>`
-        + `<td>${fmtNum(r.mean_q_total)}</td><td>${fmtNum(r.median_q_total)}</td>`
-        + `<td>${fmtNum(r.mean_q_working)}</td><td>${fmtNum(r.median_q_working)}</td>`
-        + `<td>${fmtNum(r.mean_dp)}</td><td>${fmtNum(r.median_dp)}</td>`
-        + `<td>${fmtNum(r.trend_q_total, 3)}</td><td>${fmtNum(r.trend_dp, 3)}</td>`
-        + `<td>${fmtNum(r.mean_p_wellhead)}</td><td>${fmtNum(r.mean_shutdown, 1)}</td>`;
-      tb.appendChild(tr);
+      // Строка UzKorGaz
+      const trCust = document.createElement('tr');
+      trCust.style.background = '#eff6ff';
+      trCust.innerHTML =
+        `<td rowspan="${ourOn ? 3 : 1}" style="background:#fff; vertical-align:top;"><b>${r.month_label}</b></td>` +
+        `<td><b style="color:#1e3a8a;">UzKorGaz</b></td>` +
+        `<td>${r.days}</td>` +
+        `<td>${fmtNum(r.mean_q_total)}</td><td>${fmtNum(r.median_q_total)}</td>` +
+        `<td>${fmtNum(r.mean_q_working)}</td><td>${fmtNum(r.median_q_working)}</td>` +
+        `<td>${fmtNum(r.mean_dp)}</td><td>${fmtNum(r.median_dp)}</td>` +
+        `<td>${fmtNum(r.trend_q_total, 3)}</td><td>${fmtNum(r.trend_dp, 3)}</td>` +
+        `<td>${fmtNum(r.mean_p_wellhead)}</td><td>${fmtNum(r.mean_shutdown, 1)}</td>`;
+      tb.appendChild(trCust);
+
+      if (ourOn) {
+        // Строка UniTool
+        const o = ourByMonth[r.month_key] || ourByMonth[r.month_label] || {};
+        const trOur = document.createElement('tr');
+        trOur.style.background = '#fff7ed';
+        trOur.innerHTML =
+          `<td><b style="color:#9a3412;">UniTool</b></td>` +
+          `<td>${o.days ?? '—'}</td>` +
+          `<td>${o.mean_q != null ? fmtNum(o.mean_q) : '—'}</td>` +
+          `<td>${o.median_q != null ? fmtNum(o.median_q) : '—'}</td>` +
+          `<td>—</td><td>—</td>` +
+          `<td>${o.mean_dp != null ? fmtNum(o.mean_dp) : '—'}</td>` +
+          `<td>${o.median_dp != null ? fmtNum(o.median_dp) : '—'}</td>` +
+          `<td>—</td><td>—</td>` +
+          `<td>${o.mean_p_tube != null ? fmtNum(o.mean_p_tube) : '—'}</td><td>—</td>`;
+        tb.appendChild(trOur);
+
+        // Строка Δ% (UniTool − UzKorGaz)
+        const dQmean   = pct(o.mean_q,   r.mean_q_total);
+        const dQmed    = pct(o.median_q, r.median_q_total);
+        const dDpmean  = pct(o.mean_dp,  r.mean_dp);
+        const dDpmed   = pct(o.median_dp, r.median_dp);
+        const dPtmean  = pct(o.mean_p_tube, r.mean_p_wellhead);
+        const trDelta = document.createElement('tr');
+        trDelta.style.background = '#fffbeb';
+        trDelta.innerHTML =
+          `<td><b style="color:#854d0e;">Δ %</b></td>` +
+          `<td>—</td>` +
+          `<td style="${colorize(dQmean)}">${dQmean != null ? sign(dQmean) + '%' : '—'}</td>` +
+          `<td style="${colorize(dQmed)}">${dQmed != null ? sign(dQmed) + '%' : '—'}</td>` +
+          `<td>—</td><td>—</td>` +
+          `<td style="${colorize(dDpmean)}">${dDpmean != null ? sign(dDpmean) + '%' : '—'}</td>` +
+          `<td style="${colorize(dDpmed)}">${dDpmed != null ? sign(dDpmed) + '%' : '—'}</td>` +
+          `<td>—</td><td>—</td>` +
+          `<td style="${colorize(dPtmean)}">${dPtmean != null ? sign(dPtmean) + '%' : '—'}</td><td>—</td>`;
+        tb.appendChild(trDelta);
+      }
     }
     const list = $('cd-monthly-desc');
     clearChildren(list);
@@ -2167,8 +2282,9 @@
   $('cd-compare-toggle').addEventListener('change', async () => {
     if ($('cd-compare-toggle').checked) await loadAndOverlayOurData();
     else if (lastWellData) renderCharts(lastWellData);
-    // Перерисуем таблицу — она показывает «Наши» колонки в зависимости от чекбокса
+    // Перерисуем обе таблицы — они показывают UniTool колонки/строки в зависимости от чекбокса
     if (lastWellData?.describe) renderDescribe(lastWellData.describe);
+    if (lastWellData?.monthly) renderMonthly(lastWellData.monthly, lastWellData.monthly_desc || []);
   });
   // Изменение цвета или fill — перерисовать графики (без перезапроса наших данных)
   $('cd-our-color')?.addEventListener('change', () => {

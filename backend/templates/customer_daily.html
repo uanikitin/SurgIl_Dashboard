@@ -2963,8 +2963,23 @@
     const fmt = (v, d=2) => (v == null || isNaN(v))
       ? '<span style="color:#9ca3af;">—</span>'
       : Number(v).toFixed(d);
+    const fmtN = (v, d=2) => (v == null || isNaN(v)) ? '—' : Number(v).toFixed(d);
     const sdMin = bl.shutdown_min_total || 0;
     const sdH   = sdMin ? (sdMin / 60).toFixed(1) : '0';
+
+    // Авто-описание для отчёта PDF — собирается из метрик baseline
+    const autoDesc = (
+      `Для оценки эффективности выбран базовый период по данным УзКорГаз ` +
+      `с ${bl.period_from} по ${bl.period_to}, длительность ${bl.days_count} сут. ` +
+      `Средний дебит общий — ${fmtN(bl.q_total_avg)} (медиана ${fmtN(bl.q_total_median)}), ` +
+      `средний дебит рабочий — ${fmtN(bl.q_working_avg)} (медиана ${fmtN(bl.q_working_median)}) тыс.м³/сут. ` +
+      `Средний перепад давления — ${fmtN(bl.dp_avg)} (медиана ${fmtN(bl.dp_median)}) кгс/см². ` +
+      `Медианы давлений: устье ${fmtN(bl.p_wellhead_median)}, шлейф ${fmtN(bl.p_flowline_median)} кгс/см². ` +
+      `Суммарный простой за период — ${fmtN(sdMin, 0)} мин (${sdH} ч), ` +
+      `дней с простоем — ${bl.shutdown_days_count || 0}.`
+    );
+    // Если пользователь уже редактировал notes — используем их, иначе авто
+    const userDesc = (bl.notes && bl.notes.trim()) ? bl.notes : autoDesc;
 
     box.innerHTML = `
       <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;
@@ -3017,7 +3032,55 @@
           <div class="b1-metric-unit"><b>${bl.days_count}</b> сут.</div>
         </div>
       </div>
+
+      <!-- Описание для отчёта (попадёт в PDF главу 2) -->
+      <div style="margin-top:12px;">
+        <div style="font-size:0.78rem; color:#92400e; font-weight:600; margin-bottom:4px;
+                    text-transform:uppercase; letter-spacing:0.03em;">
+          📄 Описание для PDF-отчёта (правится, попадёт в главу «Анализ исходных данных»)
+        </div>
+        <textarea id="cd-b1-description" rows="4"
+                  style="width:100%; padding:8px 10px; border:1px solid #fcd34d;
+                         border-radius:5px; background:#fff; font-size:0.85rem;
+                         line-height:1.5; resize:vertical; font-family:inherit;"
+                  placeholder="Описание базового периода для PDF…">${userDesc.replace(/</g,'&lt;')}</textarea>
+        <div style="display:flex; gap:8px; margin-top:6px; align-items:center;">
+          <button class="cd-btn cd-btn-secondary" id="cd-b1-desc-save"
+                  style="padding:4px 12px; font-size:0.82rem;">
+            💾 Сохранить описание
+          </button>
+          <button class="cd-btn cd-btn-secondary" id="cd-b1-desc-auto"
+                  title="Сгенерировать описание заново из метрик baseline"
+                  style="padding:4px 12px; font-size:0.82rem;">
+            🪄 Авто-описание
+          </button>
+          <span id="cd-b1-desc-status" style="font-size:0.78rem; color:#10b981;"></span>
+        </div>
+      </div>
     `;
+
+    // Bind handlers (rebind при каждом render — элементы новые)
+    $('cd-b1-desc-save')?.addEventListener('click', async () => {
+      const txt = $('cd-b1-description')?.value || '';
+      const st  = $('cd-b1-desc-status');
+      if (st) { st.textContent = '⏳ Сохраняю…'; st.style.color = '#92400e'; }
+      try {
+        const r = await fetch('/api/adaptation-report/baselines/' + bl.id, {
+          method: 'PATCH', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ notes: txt }),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        bl.notes = txt;  // обновляем кэш
+        if (st) { st.textContent = '✓ Сохранено'; st.style.color = '#059669'; }
+        setTimeout(() => { if (st) st.textContent = ''; }, 3000);
+      } catch (e) {
+        if (st) { st.textContent = '✗ ' + e.message; st.style.color = '#dc2626'; }
+      }
+    });
+    $('cd-b1-desc-auto')?.addEventListener('click', () => {
+      const ta = $('cd-b1-description');
+      if (ta) ta.value = autoDesc;
+    });
   }
 
   async function refreshAttachedBlocks() {
@@ -3099,11 +3162,23 @@
            </div>`;
       }
 
+      // Кнопка «Открыть» доступна для блоков с явным периодом
+      // (period_analysis, baseline). Для comparison кнопка не нужна,
+      // т.к. период там описывается через A/B пары.
+      const hasOpen = (b.kind === 'period_analysis' || b.kind === 'baseline')
+                      && b.params?.date_from && b.params?.date_to;
+      const openBtn = hasOpen
+        ? `<button class="cd-btn cd-btn-secondary atc-open" data-id="${b.id}" ` +
+          `data-from="${b.params.date_from}" data-to="${b.params.date_to}" ` +
+          `title="Восстановить период этого блока в полях С/по и пересчитать графики/таблицы" ` +
+          `style="padding:3px 9px; background:#dbeafe; color:#1d4ed8; border-color:#93c5fd;">📈 Открыть</button>`
+        : '';
       card.innerHTML =
-        `<div style="display:flex; align-items:center; gap:10px;">` +
+        `<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">` +
           `<span style="background:${_kindColor(b.kind)}; color:#fff; padding:2px 8px; border-radius:4px; font-size:0.7rem;">${_kindLabel(b.kind)}</span>` +
           `<input type="text" class="atc-title" value="${b.title.replace(/"/g, '&quot;')}" data-id="${b.id}" ` +
-            `style="flex:1; padding:4px 8px; border:1px solid #d1d5db; border-radius:4px; font-size:0.88rem; font-weight:500;">` +
+            `style="flex:1; min-width:200px; padding:4px 8px; border:1px solid #d1d5db; border-radius:4px; font-size:0.88rem; font-weight:500;">` +
+          openBtn +
           `<label style="font-size:0.78rem; display:flex; align-items:center; gap:4px;">` +
             `<input type="checkbox" class="atc-inrep" data-id="${b.id}" ${b.in_report ? 'checked' : ''}> в отчёт` +
           `</label>` +
@@ -3115,6 +3190,21 @@
           `style="width:100%; margin-top:6px; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:0.82rem; resize:vertical;">${(b.comment || '').replace(/</g,'&lt;')}</textarea>`;
       list.appendChild(card);
     }
+    // Bind «Открыть» — восстанавливает период и запускает аналитику
+    list.querySelectorAll('.atc-open').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const f = btn.dataset.from, t = btn.dataset.to;
+        if (!f || !t) return;
+        $('cd-date-from').value = f;
+        $('cd-date-to').value   = t;
+        if (typeof cdtlSyncFromFields === 'function') cdtlSyncFromFields();
+        await runAnalytics();
+        const ch = $('cd-charts-section');
+        if (ch && ch.style.display !== 'none') {
+          ch.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    });
     // Bind events: title/comment -> debounced save; checkbox -> immediate; delete
     const debounce = (fn, ms) => {
       let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };

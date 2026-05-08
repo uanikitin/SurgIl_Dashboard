@@ -3136,30 +3136,61 @@
       const bPart = (b.params && b.params.B) ? ` · B: ${b.params.B.source}/${b.params.B.well} (${b.params.B.date_from}…${b.params.B.date_to})` : '';
       const paramsLine = (b.kind === 'comparison' ? (aPart + bPart) : `Период: ${periodStr}`);
 
-      // Сводка характеристик периода — из data_snapshot, если есть
+      // Сводка характеристик периода — из data_snapshot, если есть.
+      // Рендерим в стиле плитки B1 (карточки b1-metric) — единое
+      // визуальное оформление с утверждённым baseline'ом.
       let statsHtml = '';
       const snap = b.data_snapshot;
       if (snap && (b.kind === 'period_analysis' || b.kind === 'baseline')) {
         const fmt = (v, d=2) => (v === null || v === undefined || isNaN(v))
-          ? '—' : Number(v).toFixed(d);
-        const sdH = snap.shutdown_min_total
-          ? (snap.shutdown_min_total / 60).toFixed(1) : '0';
+          ? '<span style="color:#9ca3af;">—</span>'
+          : Number(v).toFixed(d);
+        const sdMin = snap.shutdown_min_total || 0;
+        const sdH   = sdMin ? (sdMin / 60).toFixed(1) : '0';
         const days = snap.days || 0;
-        statsHtml =
-          `<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr));
-                       gap:4px 12px; margin-top:6px; padding:6px 8px;
-                       background:#f9fafb; border-radius:4px; font-size:0.76rem;">
-             <div><span style="color:#6b7280;">Дней:</span> <b>${days}</b></div>
-             <div><span style="color:#6b7280;">Q ср:</span> <b>${fmt(snap.q_total_avg)}</b> тыс.м³/сут</div>
-             <div><span style="color:#6b7280;">Q мед:</span> <b>${fmt(snap.q_total_median)}</b></div>
-             <div><span style="color:#6b7280;">Q раб. ср:</span> <b>${fmt(snap.q_working_avg)}</b></div>
-             <div><span style="color:#6b7280;">Q раб. мед:</span> <b>${fmt(snap.q_working_median)}</b></div>
-             <div><span style="color:#6b7280;">P уст. мед:</span> <b>${fmt(snap.p_wellhead_median)}</b> кгс/см²</div>
-             <div><span style="color:#6b7280;">P шл. мед:</span> <b>${fmt(snap.p_flowline_median)}</b></div>
-             <div><span style="color:#6b7280;">ΔP ср:</span> <b>${fmt(snap.dp_avg)}</b></div>
-             <div><span style="color:#6b7280;">ΔP мед:</span> <b>${fmt(snap.dp_median)}</b></div>
-             <div><span style="color:#6b7280;">Простой:</span> <b>${sdH}</b> ч (${snap.shutdown_days_count || 0} дн.)</div>
-           </div>`;
+        const dFrom = snap.date_from || (b.params && b.params.date_from) || '—';
+        const dTo   = snap.date_to   || (b.params && b.params.date_to)   || '—';
+        statsHtml = `
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
+                      gap:8px; margin-top:8px;">
+            <div class="b1-metric">
+              <div class="b1-metric-title">Q общий</div>
+              <div class="b1-metric-val">${fmt(snap.q_total_avg)} <span class="b1-unit">ср.</span></div>
+              <div class="b1-metric-val">${fmt(snap.q_total_median)} <span class="b1-unit">мед.</span></div>
+              <div class="b1-metric-unit">тыс.м³/сут</div>
+            </div>
+            <div class="b1-metric">
+              <div class="b1-metric-title">Q рабочий</div>
+              <div class="b1-metric-val">${fmt(snap.q_working_avg)} <span class="b1-unit">ср.</span></div>
+              <div class="b1-metric-val">${fmt(snap.q_working_median)} <span class="b1-unit">мед.</span></div>
+              <div class="b1-metric-unit">тыс.м³/сут</div>
+            </div>
+            <div class="b1-metric">
+              <div class="b1-metric-title">ΔP</div>
+              <div class="b1-metric-val">${fmt(snap.dp_avg)} <span class="b1-unit">ср.</span></div>
+              <div class="b1-metric-val">${fmt(snap.dp_median)} <span class="b1-unit">мед.</span></div>
+              <div class="b1-metric-unit">кгс/см²</div>
+            </div>
+            <div class="b1-metric">
+              <div class="b1-metric-title">P устье / шлейф</div>
+              <div class="b1-metric-val">${fmt(snap.p_wellhead_median)} <span class="b1-unit">мед. устье</span></div>
+              <div class="b1-metric-val">${fmt(snap.p_flowline_median)} <span class="b1-unit">мед. шлейф</span></div>
+              <div class="b1-metric-unit">кгс/см²</div>
+            </div>
+            <div class="b1-metric">
+              <div class="b1-metric-title">Простой</div>
+              <div class="b1-metric-val">${fmt(sdMin, 0)} <span class="b1-unit">мин всего</span></div>
+              <div class="b1-metric-val">${sdH} <span class="b1-unit">часов</span></div>
+              <div class="b1-metric-unit">${snap.shutdown_days_count || 0} дней с простоем</div>
+            </div>
+            <div class="b1-metric">
+              <div class="b1-metric-title">Период</div>
+              <div class="b1-metric-val" style="font-family:monospace; font-size:0.85rem;">${dFrom}</div>
+              <div class="b1-metric-val" style="font-family:monospace; font-size:0.85rem;">${dTo}</div>
+              <div class="b1-metric-unit"><b>${days}</b> сут.</div>
+            </div>
+          </div>
+        `;
       }
 
       // Кнопка «Открыть» доступна для блоков с явным периодом

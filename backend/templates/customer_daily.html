@@ -512,6 +512,11 @@
               style="display:none; background:#fef3c7; color:#92400e; border-color:#fcd34d;">
         📌 Сохранить как базовый (B1)
       </button>
+      <button class="cd-btn cd-btn-secondary" id="cd-new-period-btn"
+              title="Сбросить текущий выбор периода и шкалу — начать выбор нового периода для анализа"
+              style="display:none;">
+        ➕ Новый период
+      </button>
       <span id="cd-attach-quick-status"
             style="font-size:0.82rem; color:#10b981;"></span>
     </div>
@@ -1174,15 +1179,44 @@
     } else {
       parts.push(`<div class="cdtl-bar-label" style="top:38px; color:#9ca3af;">Заказчик: нет данных</div>`);
     }
-    // Бар наших датчиков
+    // Бар наших датчиков. Если first_date < даты установки оборудования —
+    // часть до установки рисуем серым: «есть в pressure_raw, но датчик
+    // не был привязан к скважине» (артефакт пайплайна).
     if (d.our_data?.first_date && d.our_data?.last_date) {
-      const a = _cdtlPct(_cdtlParse(d.our_data.first_date));
-      const b = _cdtlPct(_cdtlParse(d.our_data.last_date));
-      parts.push(
-        `<div class="cdtl-bar cdtl-bar-our" style="left:${a}%; width:${Math.max(b-a,0.3)}%;"
-              title="pressure_hourly: ${d.our_data.first_date} — ${d.our_data.last_date}"></div>` +
-        `<div class="cdtl-bar-label" style="top:60px;">Датчики</div>`
-      );
+      const ourStart = _cdtlParse(d.our_data.first_date);
+      const ourEnd   = _cdtlParse(d.our_data.last_date);
+      const equipEv  = (d.events || []).find(e => e.kind === 'equip');
+      const equipDate = equipEv ? _cdtlParse(equipEv.dt) : null;
+      if (equipDate && ourStart < equipDate) {
+        // Сегмент 1: pre-equip — серый, предупреждающий
+        const a = _cdtlPct(ourStart);
+        const m = _cdtlPct(equipDate);
+        parts.push(
+          `<div class="cdtl-bar" style="left:${a}%; width:${Math.max(m-a,0.3)}%;
+                top:60px; height:16px; background:#9ca3af; opacity:0.5;
+                border-radius:3px;"
+                title="pressure_raw до установки оборудования (${d.our_data.first_date} — ${equipEv.dt.slice(0,10)}) — артефакт пайплайна, датчик не был привязан к скважине"></div>`
+        );
+        // Сегмент 2: после equip — зелёный
+        if (ourEnd > equipDate) {
+          const b = _cdtlPct(ourEnd);
+          parts.push(
+            `<div class="cdtl-bar cdtl-bar-our" style="left:${m}%; width:${Math.max(b-m,0.3)}%;"
+                  title="pressure_raw: ${equipEv.dt.slice(0,10)} — ${d.our_data.last_date} (с момента установки)"></div>`
+          );
+        }
+        parts.push(
+          `<div class="cdtl-bar-label" style="top:60px;">Датчики (серый = до привязки)</div>`
+        );
+      } else {
+        const a = _cdtlPct(ourStart);
+        const b = _cdtlPct(ourEnd);
+        parts.push(
+          `<div class="cdtl-bar cdtl-bar-our" style="left:${a}%; width:${Math.max(b-a,0.3)}%;"
+                title="pressure_raw: ${d.our_data.first_date} — ${d.our_data.last_date}"></div>` +
+          `<div class="cdtl-bar-label" style="top:60px;">Датчики</div>`
+        );
+      }
     } else {
       parts.push(`<div class="cdtl-bar-label" style="top:60px; color:#9ca3af;">Датчики: нет данных</div>`);
     }
@@ -1560,6 +1594,8 @@
         if (qb) qb.style.display = '';
         const bb = $('cd-set-baseline-btn');
         if (bb) bb.style.display = '';
+        const nb = $('cd-new-period-btn');
+        if (nb) nb.style.display = '';
       }
 
       // Если включено сравнение — подгружаем наши данные и накладываем
@@ -2521,6 +2557,31 @@
     }
   });
 
+  // Кнопка «➕ Новый период» — явный сброс выбора и текущей аналитики
+  // (без сохранения). Используется когда пользователь хочет начать
+  // подбор нового периода без прикрепления текущего.
+  $('cd-new-period-btn')?.addEventListener('click', () => {
+    if (typeof cdtlState === 'object') {
+      cdtlState.from = null; cdtlState.to = null; cdtlState.anchor = null;
+      if (typeof cdtlRender === 'function') cdtlRender();
+      if (typeof cdtlUpdateMode === 'function') cdtlUpdateMode();
+      if (typeof cdtlUpdateAnchorBar === 'function') cdtlUpdateAnchorBar();
+    }
+    $('cd-charts-section').style.display = 'none';
+    $('cd-describe-section').style.display = 'none';
+    $('cd-monthly-section').style.display = 'none';
+    $('cd-period-save-section').style.display = 'none';
+    $('cd-attach-quick-btn').style.display = 'none';
+    $('cd-set-baseline-btn').style.display = 'none';
+    $('cd-new-period-btn').style.display = 'none';
+    lastWellData = null;
+    const status = $('cd-attach-quick-status');
+    if (status) status.textContent = '';
+    // Скроллим к шкале для следующего выбора
+    const scaleEl = $('cdtl-scroll') || $('cd-period-section');
+    if (scaleEl) scaleEl.scrollIntoView({behavior: 'smooth', block: 'start'});
+  });
+
   // Быстрое прикрепление одной кнопкой (рядом с «Показать аналитику»):
   // сохранить с дефолтным комментарием → сбросить выбор шкалы для следующего
   // периода → проскроллить наверх к шкале.
@@ -2550,6 +2611,8 @@
       $('cd-attach-quick-btn').style.display = 'none';
       const bb = $('cd-set-baseline-btn');
       if (bb) bb.style.display = 'none';
+      const nb = $('cd-new-period-btn');
+      if (nb) nb.style.display = 'none';
       // Скрываем графики предыдущего анализа — они больше не для этого выбора
       $('cd-charts-section').style.display = 'none';
       $('cd-describe-section').style.display = 'none';

@@ -721,7 +721,8 @@
 
   let pendingFile = null;
   let lastWellData = null;   // ответ /api/customer-daily/well/{well}
-  let lastOurData = null;    // ответ /api/customer-daily/our-data/{well}
+  let lastOurData = null;    // наши данные: chart из /api/flow-rate/calculate
+                              // или /api/pressure/chart (см. loadAndOverlayOurData)
   let availability = null;   // ответ /api/customer-daily/availability/{well}
 
   // wells.id текущей скв. (нужен для блоков customer_report_block).
@@ -1572,49 +1573,105 @@
   }
 
   // ─────────────────────────── Compare with our data ───────────────
+  // АКСИОМА (см. TZ_adaptation_report.md §0): источник «наших данных» —
+  // ТОЛЬКО /api/flow-rate/calculate (если есть штуцер) или /api/pressure/chart
+  // (если штуцера нет). Это те же эндпоинты, которые использует страница
+  // скважины /well/{number}. Запрещено писать собственные агрегаты
+  // (старый /api/customer-daily/our-data давал ΔP < 0 — буггед AVG).
+  // ΔP считается на фронте: Math.max(0, p_tube - p_line).
   async function loadAndOverlayOurData() {
-    const well = $('cd-well-select').value;
     const dFrom = $('cd-date-from').value;
     const dTo = $('cd-date-to').value;
-    if (!well || !dFrom || !dTo) return;
+    if (!currentWellId || !dFrom || !dTo) return;
 
     const status = $('cd-compare-status');
     clearChildren(status);
-    status.appendChild(makeLoader('Загружаю наши данные (pressure_hourly + flow_result)…'));
+    status.appendChild(makeLoader('Загружаю наши данные (тот же pipeline что /well)…'));
+
+    // Кунградское время без TZ-суффикса — формат, который принимают оба эндпоинта
+    const startKgr = dFrom + 'T00:00:00';
+    const endKgr   = dTo   + 'T23:59:59';
 
     try {
-      const params = new URLSearchParams({ date_from: dFrom, date_to: dTo });
-      const r = await fetch(`/api/customer-daily/our-data/${encodeURIComponent(well)}?${params}`);
-      lastOurData = await r.json();
-      clearChildren(status);
-      if (!lastOurData.ok) {
-        alertBox(status, 'warn', lastOurData.error || 'Не удалось получить наши данные.');
-        return;
-      }
-      const d = lastOurData;
-      const nRows = (d.pressure && d.pressure.dates) ? d.pressure.dates.length : 0;
-      const parts = [];
-      parts.push(`<b>${nRows}</b> суток`);
-      if (d.has_flow) parts.push('дебит посчитан');
-      else            parts.push('<i>дебит не посчитан</i> (нет штуцера)');
+      // 1) Пробуем полный расчёт через flow-rate (даёт давления + Q + продувки)
+      let chart = null, summary = null, hasFlow = false;
+      let chokeMm = null, chokeSource = null;
+      const flowUrl = `/api/flow-rate/calculate/${currentWellId}` +
+        `?start=${encodeURIComponent(startKgr)}&end=${encodeURIComponent(endKgr)}`;
+      let flowResp = await fetch(flowUrl);
 
-      let diag = '';
-      if (d.well) {
-        diag += `Сопоставлено: <b>wells.id=${d.well.id}</b>, number=${d.well.number ?? '—'}, name=${d.well.name ?? '—'}<br>`;
-      }
-      if (d.sensor_first_date)
-        diag += `Дата первого измерения в pressure_raw: <b>${d.sensor_first_date}</b> (ряд обрезан этой датой снизу)<br>`;
-      else
-        diag += `<span style="color:#991b1b">pressure_raw пуст по этой скважине — датчиков не было.</span><br>`;
-      if (d.choke_mm) {
-        const src = d.choke_source ? ` (источник: ${d.choke_source})` : '';
-        diag += `Штуцер: <b>${d.choke_mm} мм</b>${src}<br>`;
+      if (flowResp.ok) {
+        const fr = await flowResp.json();
+        chart = fr.chart || null;
+        summary = fr.summary || null;
+        hasFlow = !!(chart && Array.isArray(chart.flow_rate) && chart.flow_rate.length);
+        chokeMm = summary?.choke_mm ?? null;
+        chokeSource = chokeMm ? 'well_construction' : null;
       } else {
-        diag += `<span style="color:#92400e">Штуцер не найден ни в well_construction, ни в сводке заказчика — дебит не рассчитан.</span><br>`;
+        // 404 → нет штуцера или нет данных. Пробуем pressure-chart для давлений.
+        const errBody = await flowResp.json().catch(() => ({}));
+        const detail = errBody.detail || `HTTP ${flowResp.status}`;
+        const pressureUrl = `/api/pressure/chart/${currentWellId}` +
+          `?start=${encodeURIComponent(startKgr)}&end=${encodeURIComponent(endKgr)}` +
+          `&interval=60&mode=masked`;
+        const pr = await fetch(pressureUrl);
+        if (!pr.ok) {
+          clearChildren(status);
+          alertBox(status, 'warn', 'Нет данных давления: ' + detail);
+          lastOurData = { ok: false, error: detail };
+          return;
+        }
+        const pj = await pr.json();
+        // Адаптируем формат /api/pressure/chart → как у flow-rate.chart
+        const pts = (pj.points || []).filter(p => p.t);
+        chart = {
+          timestamps: pts.map(p => p.t),
+          p_tube: pts.map(p => p.p_tube_avg ?? null),
+          p_line: pts.map(p => p.p_line_avg ?? null),
+          flow_rate: [],
+          cumulative_flow: [],
+        };
+        hasFlow = false;
       }
-      diag += `Применено verified-масок (исправлено точек): <b>${d.mask_count || 0}</b><br>`;
-      diag += `<i style="color:#64748b">Конвейер: pressure_raw → clean → masks → calc_flow → cumulative → aggregate_to_daily (тот же что /well, daily_report, adaptation_report).</i>`;
 
+      // 2) Сборка lastOurData в шейпе, ожидаемом renderCharts.
+      //    ΔP вычисляем поточечно: max(0, p_tube - p_line) — ровно как
+      //    delta_pressure_chart.js на странице скважины (ΔP < 0 не существует).
+      const ts = (chart?.timestamps) || [];
+      const pt = (chart?.p_tube)     || [];
+      const pl = (chart?.p_line)     || [];
+      const dp = ts.map((_, i) => {
+        const a = pt[i], b = pl[i];
+        if (a == null || b == null) return null;
+        return Math.max(0, +(a - b).toFixed(2));
+      });
+      const hasPressure = ts.length > 0 && pt.some(v => v != null);
+
+      lastOurData = {
+        ok: true,
+        well: { id: currentWellId, number: $('cd-well-select').value },
+        has_pressure: hasPressure,
+        has_flow: hasFlow,
+        pressure: { dates: ts, p_tube: pt, p_line: pl, dp: dp },
+        flow: {
+          dates: hasFlow ? ts : [],
+          avg_flow_rate: hasFlow ? chart.flow_rate : [],
+          cumulative_flow: hasFlow ? chart.cumulative_flow : [],
+        },
+        summary: summary,
+        choke_mm: chokeMm,
+        choke_source: chokeSource,
+        sensor_first_date: ts[0] ? ts[0].slice(0, 10) : null,
+      };
+
+      clearChildren(status);
+      const parts = [];
+      parts.push(`<b>${ts.length}</b> точек`);
+      parts.push(hasFlow ? 'дебит посчитан' : '<i>без дебита</i> (нет штуцера)');
+      let diag = `Источник: <b>${hasFlow ? '/api/flow-rate/calculate' : '/api/pressure/chart'}</b> ` +
+                 `(тот же эндпоинт, что использует страница скважины /well/${$('cd-well-select').value}).<br>`;
+      if (chokeMm) diag += `Штуцер: <b>${chokeMm} мм</b><br>`;
+      diag += `<i style="color:#64748b">ΔP считается на фронте как max(0, p_tube − p_line) — единое правило с /well.</i>`;
       alertBox(status, 'info', 'Наши данные: ' + parts.join(', ') + '.<br>' + diag);
 
       // Перерисовать графики с overlay
@@ -1622,6 +1679,7 @@
     } catch (e) {
       clearChildren(status);
       alertBox(status, 'error', 'Сетевая ошибка: ' + e.message);
+      lastOurData = { ok: false, error: e.message };
     }
   }
 
@@ -2149,6 +2207,32 @@
       const bPart = (b.params && b.params.B) ? ` · B: ${b.params.B.source}/${b.params.B.well} (${b.params.B.date_from}…${b.params.B.date_to})` : '';
       const paramsLine = (b.kind === 'comparison' ? (aPart + bPart) : `Период: ${periodStr}`);
 
+      // Сводка характеристик периода — из data_snapshot, если есть
+      let statsHtml = '';
+      const snap = b.data_snapshot;
+      if (snap && (b.kind === 'period_analysis' || b.kind === 'baseline')) {
+        const fmt = (v, d=2) => (v === null || v === undefined || isNaN(v))
+          ? '—' : Number(v).toFixed(d);
+        const sdH = snap.shutdown_min_total
+          ? (snap.shutdown_min_total / 60).toFixed(1) : '0';
+        const days = snap.days || 0;
+        statsHtml =
+          `<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr));
+                       gap:4px 12px; margin-top:6px; padding:6px 8px;
+                       background:#f9fafb; border-radius:4px; font-size:0.76rem;">
+             <div><span style="color:#6b7280;">Дней:</span> <b>${days}</b></div>
+             <div><span style="color:#6b7280;">Q ср:</span> <b>${fmt(snap.q_total_avg)}</b> тыс.м³/сут</div>
+             <div><span style="color:#6b7280;">Q мед:</span> <b>${fmt(snap.q_total_median)}</b></div>
+             <div><span style="color:#6b7280;">Q раб. ср:</span> <b>${fmt(snap.q_working_avg)}</b></div>
+             <div><span style="color:#6b7280;">Q раб. мед:</span> <b>${fmt(snap.q_working_median)}</b></div>
+             <div><span style="color:#6b7280;">P уст. мед:</span> <b>${fmt(snap.p_wellhead_median)}</b> кгс/см²</div>
+             <div><span style="color:#6b7280;">P шл. мед:</span> <b>${fmt(snap.p_flowline_median)}</b></div>
+             <div><span style="color:#6b7280;">ΔP ср:</span> <b>${fmt(snap.dp_avg)}</b></div>
+             <div><span style="color:#6b7280;">ΔP мед:</span> <b>${fmt(snap.dp_median)}</b></div>
+             <div><span style="color:#6b7280;">Простой:</span> <b>${sdH}</b> ч (${snap.shutdown_days_count || 0} дн.)</div>
+           </div>`;
+      }
+
       card.innerHTML =
         `<div style="display:flex; align-items:center; gap:10px;">` +
           `<span style="background:${_kindColor(b.kind)}; color:#fff; padding:2px 8px; border-radius:4px; font-size:0.7rem;">${_kindLabel(b.kind)}</span>` +
@@ -2160,6 +2244,7 @@
           `<button class="cd-btn cd-btn-secondary atc-del" data-id="${b.id}" style="padding:3px 9px;">✕</button>` +
         `</div>` +
         `<div style="font-size:0.78rem; color:#6b7280; margin-top:6px;">${paramsLine}</div>` +
+        statsHtml +
         `<textarea class="atc-comment" data-id="${b.id}" rows="2" placeholder="Комментарий к блоку (попадёт в PDF)..." ` +
           `style="width:100%; margin-top:6px; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:0.82rem; resize:vertical;">${(b.comment || '').replace(/</g,'&lt;')}</textarea>`;
       list.appendChild(card);
@@ -2205,7 +2290,7 @@
     });
   }
 
-  async function createBlock(kind, title, params, comment) {
+  async function createBlock(kind, title, params, comment, dataSnapshot) {
     if (!currentWellId) {
       alert('Скважина не сопоставлена с wells.id — сохранение в отчёт недоступно.');
       return null;
@@ -2214,7 +2299,10 @@
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         well_id: currentWellId, kind, title,
-        params: params || {}, comment: comment || '', in_report: true,
+        params: params || {},
+        data_snapshot: dataSnapshot || null,
+        comment: comment || '',
+        in_report: true,
       }),
     });
     if (!r.ok) {
@@ -2223,6 +2311,34 @@
       return null;
     }
     return await r.json();
+  }
+
+  // Снимок ключевых метрик периода для отображения на плитке прикрепления.
+  // Берёт всё из lastWellData (результат /api/customer-daily/well/{N}).
+  function _buildPeriodSnapshot() {
+    const d = lastWellData || {};
+    if (!d.rows) return null;
+    return {
+      // Период
+      date_from: $('cd-date-from').value,
+      date_to:   $('cd-date-to').value,
+      days:      d.rows || 0,
+      // Q (тыс. м³/сут)
+      q_total_avg:    d.q_total_avg ?? null,
+      q_total_median: d.q_total_median ?? null,
+      q_working_avg:    d.q_working_avg ?? null,
+      q_working_median: d.q_working_median ?? null,
+      // Давления
+      p_wellhead_median: d.p_wellhead_median ?? null,
+      p_flowline_median: d.p_flowline_median ?? null,
+      dp_avg:    d.dp_avg ?? null,
+      dp_median: d.dp_median ?? null,
+      // Простой
+      shutdown_min_total:   d.shutdown_min_total ?? 0,
+      shutdown_days_count:  d.shutdown_days_count ?? 0,
+      // Тренд Q (если посчитан)
+      q_trend: d.q_trend || null,
+    };
   }
 
   // ═════════════ Базовый период ═════════════
@@ -2295,7 +2411,23 @@
     const f = $('cd-baseline-from').value, t = $('cd-baseline-to').value;
     const params = {date_from: f, date_to: t, well_number: well};
     const title = `Базовый период ${f} … ${t} (скв. ${well})`;
-    const block = await createBlock('baseline', title, params, $('cd-baseline-comment').value || '');
+    // Снимок характеристик базового периода (структура такая же как у period_analysis)
+    const bd = lastBaselineSnapshot || {};
+    const snap = {
+      date_from: f, date_to: t, days: bd.rows || 0,
+      q_total_avg: bd.q_total_avg ?? null,
+      q_total_median: bd.q_total_median ?? null,
+      q_working_avg: bd.q_working_avg ?? null,
+      q_working_median: bd.q_working_median ?? null,
+      p_wellhead_median: bd.p_wellhead_median ?? null,
+      p_flowline_median: bd.p_flowline_median ?? null,
+      dp_avg: bd.dp_avg ?? null,
+      dp_median: bd.dp_median ?? null,
+      shutdown_min_total: bd.shutdown_min_total ?? 0,
+      shutdown_days_count: bd.shutdown_days_count ?? 0,
+    };
+    const block = await createBlock('baseline', title, params,
+                                    $('cd-baseline-comment').value || '', snap);
     if (block) {
       $('cd-baseline-save-status').textContent = '✓ Добавлено в отчёт';
       setTimeout(() => $('cd-baseline-save-status').textContent = '', 3000);
@@ -2314,7 +2446,9 @@
     const f = $('cd-date-from').value, t = $('cd-date-to').value;
     const params = {date_from: f, date_to: t, well_number: well};
     const title = `Анализ периода ${f} … ${t} (скв. ${well})`;
-    const block = await createBlock('period_analysis', title, params, $('cd-period-comment').value || '');
+    const snap = _buildPeriodSnapshot();
+    const block = await createBlock('period_analysis', title, params,
+                                    $('cd-period-comment').value || '', snap);
     if (block) {
       $('cd-period-save-status').textContent = '✓ Добавлено в отчёт';
       setTimeout(() => $('cd-period-save-status').textContent = '', 3000);
@@ -2401,7 +2535,8 @@
     const title = `Анализ периода ${f} … ${t} (скв. ${well})`;
     const status = $('cd-attach-quick-status');
     if (status) status.textContent = '⏳ Сохраняю…';
-    const block = await createBlock('period_analysis', title, params, '');
+    const snap = _buildPeriodSnapshot();
+    const block = await createBlock('period_analysis', title, params, '', snap);
     if (block) {
       if (status) status.textContent = '✓ Прикреплено';
       await refreshAttachedBlocks();

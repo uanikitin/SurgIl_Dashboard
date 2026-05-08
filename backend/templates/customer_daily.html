@@ -2479,10 +2479,78 @@
     const list = $('cd-monthly-desc');
     clearChildren(list);
     for (const d of (descs || [])) {
-      const div = document.createElement('div');
-      div.className = 'cd-month-item';
-      div.innerHTML = `<div class="label">${d.label}</div><div class="text">${d.text}</div>`;
-      list.appendChild(div);
+      const wrap = document.createElement('div');
+      wrap.className = 'cd-month-item';
+
+      // Заголовок месяца
+      const hdr = `<div class="label">${d.label}</div>`;
+
+      // UzKorGaz — оригинальное описание с бекенда
+      const cust = `<div style="margin-top:4px; padding:8px 10px; background:#dbeafe;
+                                border-left:3px solid #1d4ed8; border-radius:4px;">
+                      <div style="font-weight:600; color:#1e3a8a; font-size:0.78rem;
+                                  margin-bottom:3px;">📊 UzKorGaz</div>
+                      <div class="text" style="font-size:0.84rem; line-height:1.55;">${d.text}</div>
+                    </div>`;
+
+      // UniTool — описание из ourByMonth, если данные есть
+      let our = '';
+      if (ourOn) {
+        const o = ourByMonth[d.label] || {};
+        if (o.days) {
+          const fmt = (v, dd=2) => (v == null || isNaN(v)) ? '—' : Number(v).toFixed(dd);
+          const cust_r = months.find(m => m.month_label === d.label) || {};
+          const custDays = cust_r.days || 0;
+          const cmpRatio = Math.max(custDays, o.days)
+            ? Math.abs(custDays - o.days) / Math.max(custDays, o.days) * 100 : 0;
+          const compat = cmpRatio <= 10;
+          const compatNote = compat
+            ? ` <span style="color:#059669;">Сопоставимо с UzKorGaz (${custDays} сут): разница ${cmpRatio.toFixed(1)}% ≤ 10%.</span>`
+            : ` <span style="color:#b45309;">⚠ Несопоставимо с UzKorGaz (${custDays} сут): разница ${cmpRatio.toFixed(1)}% &gt; 10% — корректное сравнение только в таблице «Строгое сравнение».</span>`;
+
+          // Сборка текстового описания UniTool по аналогии с UzKorGaz
+          const lines = [];
+          lines.push(`За месяц записано <b>${o.days}</b> сут измерений.`);
+          if (o.mean_q != null || o.median_q != null) {
+            lines.push(`Q (расчётный): среднее <b>${fmt(o.mean_q)}</b>, медиана <b>${fmt(o.median_q)}</b> тыс.м³/сут.`);
+          }
+          if (o.mean_dp != null || o.median_dp != null) {
+            lines.push(`Перепад давления: среднее <b>${fmt(o.mean_dp)}</b>, медиана <b>${fmt(o.median_dp)}</b> кгс/см².`);
+          }
+          if (o.mean_p_tube != null) {
+            lines.push(`Среднее устьевое давление: <b>${fmt(o.mean_p_tube)}</b> кгс/см².`);
+          }
+          // Сравнение с UzKorGaz по основным метрикам (только если совместимо)
+          if (compat && cust_r.mean_q_total != null && o.mean_q != null) {
+            const dQ = (o.mean_q - cust_r.mean_q_total) / cust_r.mean_q_total * 100;
+            const dDp = (cust_r.mean_dp != null && o.mean_dp != null && cust_r.mean_dp !== 0)
+              ? (o.mean_dp - cust_r.mean_dp) / cust_r.mean_dp * 100 : null;
+            const arr = (v) => v >= 0 ? '↑' : '↓';
+            const cmp = [];
+            cmp.push(`Q ${arr(dQ)} ${(dQ >= 0 ? '+' : '') + dQ.toFixed(1)}%`);
+            if (dDp != null) cmp.push(`ΔP ${arr(dDp)} ${(dDp >= 0 ? '+' : '') + dDp.toFixed(1)}%`);
+            lines.push(`<b>Расхождение с UzKorGaz:</b> ${cmp.join(', ')}.`);
+          }
+
+          our = `<div style="margin-top:6px; padding:8px 10px; background:#fed7aa;
+                              border-left:3px solid #c2410c; border-radius:4px;">
+                   <div style="font-weight:600; color:#7c2d12; font-size:0.78rem;
+                               margin-bottom:3px;">🌐 UniTool (LoRa-датчики)</div>
+                   <div class="text" style="font-size:0.84rem; line-height:1.55;">
+                     ${lines.join(' ')}${compatNote}
+                   </div>
+                 </div>`;
+        } else {
+          our = `<div style="margin-top:6px; padding:8px 10px; background:#f3f4f6;
+                              border-left:3px solid #9ca3af; border-radius:4px;
+                              font-size:0.82rem; color:#6b7280; font-style:italic;">
+                   🌐 UniTool: нет данных за этот месяц
+                   (датчик установлен ${(lastOurData?.equip_dt || '').slice(0,10) || '—'}).
+                 </div>`;
+        }
+      }
+      wrap.innerHTML = hdr + cust + our;
+      list.appendChild(wrap);
     }
   }
 

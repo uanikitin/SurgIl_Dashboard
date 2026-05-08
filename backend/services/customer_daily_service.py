@@ -161,6 +161,7 @@ def create_block(
     comment: str | None = None,
     in_report: bool = True,
     sort_order: int | None = None,
+    data_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if kind not in VALID_BLOCK_KINDS:
         raise ValueError(f"Invalid block kind: {kind}")
@@ -196,13 +197,17 @@ def create_block(
     import json as _json
     new_id = db.execute(text("""
         INSERT INTO customer_report_block
-            (well_id, kind, title, params, comment, in_report, sort_order)
+            (well_id, kind, title, params, data_snapshot, comment, in_report, sort_order)
         VALUES
-            (:wid, :kind, :title, CAST(:params AS JSONB), :comment, :in_report, :sort_order)
+            (:wid, :kind, :title,
+             CAST(:params AS JSONB),
+             CAST(:data_snapshot AS JSONB),
+             :comment, :in_report, :sort_order)
         RETURNING id
     """), {
         "wid": well_id, "kind": kind, "title": title,
         "params": _json.dumps(params, default=str),
+        "data_snapshot": _json.dumps(data_snapshot, default=str) if data_snapshot is not None else None,
         "comment": comment, "in_report": in_report,
         "sort_order": sort_order,
     }).fetchone()[0]

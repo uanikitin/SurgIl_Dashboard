@@ -260,6 +260,7 @@ class BlockCreate(_BM):
     kind: str  # 'baseline' | 'period_analysis' | 'comparison'
     title: str
     params: dict[str, _Any] | None = None
+    data_snapshot: dict[str, _Any] | None = None
     comment: str | None = None
     in_report: bool = True
 
@@ -305,6 +306,7 @@ def api_create_block(
             db,
             well_id=body.well_id, kind=body.kind, title=body.title,
             params=body.params, comment=body.comment, in_report=body.in_report,
+            data_snapshot=body.data_snapshot,
         )
     except ValueError as e:
         raise HTTPException(400, str(e)) from e

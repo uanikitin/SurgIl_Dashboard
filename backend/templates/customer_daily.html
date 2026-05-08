@@ -1998,9 +1998,7 @@
     if (!descBox) {
       descBox = document.createElement('div');
       descBox.id = 'cd-describe-overlap-text';
-      descBox.style.cssText = 'margin-top:10px; padding:10px 14px; background:#f0f9ff;' +
-                              'border-left:3px solid #0284c7; border-radius:4px;' +
-                              'font-size:0.85rem; color:#0c4a6e; line-height:1.55;';
+      descBox.style.cssText = 'margin-top:14px; font-size:0.85rem;';
       tbl.parentElement.appendChild(descBox);
     }
     descBox.innerHTML = _buildOverlapDescription(rows, our);
@@ -2035,43 +2033,157 @@
     return map;
   }
 
-  // Текст «По данным заказчика — N сут (... — ...). По нашим — M сут.
-  // Совместный период — K сут. Сравнение делается на пересечении».
+  // Развёрнутое описание периода: две секции (UzKorGaz / UniTool) +
+  // пересечение. Каждая секция — те же метрики (Q ср/мед, ΔP ср/мед,
+  // P устье/шлейф ср, простой, дни измерений) чтобы можно было сравнить
+  // непосредственно в тексте.
   function _buildOverlapDescription(rows, our) {
     const dFrom = $('cd-date-from').value;
     const dTo   = $('cd-date-to').value;
     const cust  = lastWellData || {};
     const custDays = cust.rows || 0;
-    const lines = [];
-    lines.push(`<b>Выбранный период:</b> ${dFrom} … ${dTo}.`);
-    lines.push(`<b>UzKorGaz (well_daily):</b> ${custDays} сут.${cust.date_min && cust.date_max ? ' (' + cust.date_min + ' — ' + cust.date_max + ')' : ''}.`);
-    if (our && lastOurData) {
+    const fmt = (v, d=2) => (v == null || isNaN(v)) ? '—' : Number(v).toFixed(d);
+    const trendArrow = (slope) => {
+      if (slope == null) return '→';
+      if (slope > 0.05) return '↗';
+      if (slope < -0.05) return '↘';
+      return '→';
+    };
+
+    const out = [];
+
+    // ─── Шапка: выбранный период ───────────────────────────────────
+    out.push(`<div style="margin-bottom:10px;"><b>Выбранный период:</b> ${dFrom} … ${dTo}.</div>`);
+
+    // ─── Секция 1: Анализ данных UzKorGaz ──────────────────────────
+    const custLines = [];
+    custLines.push(`<b>Период:</b> ${cust.date_min || '—'} — ${cust.date_max || '—'} (${custDays} сут)`);
+    if (cust.q_total_avg != null || cust.q_total_median != null) {
+      custLines.push(`<b>Q общий:</b> среднее <b>${fmt(cust.q_total_avg)}</b>, медиана <b>${fmt(cust.q_total_median)}</b> тыс.м³/сут`);
+    }
+    if (cust.q_working_avg != null || cust.q_working_median != null) {
+      custLines.push(`<b>Q рабочий:</b> среднее <b>${fmt(cust.q_working_avg)}</b>, медиана <b>${fmt(cust.q_working_median)}</b> тыс.м³/сут`);
+    }
+    if (cust.dp_avg != null || cust.dp_median != null) {
+      custLines.push(`<b>ΔP:</b> среднее <b>${fmt(cust.dp_avg)}</b>, медиана <b>${fmt(cust.dp_median)}</b> кгс/см²`);
+    }
+    if (cust.p_wellhead_median != null || cust.p_flowline_median != null) {
+      custLines.push(`<b>Давления (медиана):</b> устье <b>${fmt(cust.p_wellhead_median)}</b>, шлейф <b>${fmt(cust.p_flowline_median)}</b> кгс/см²`);
+    }
+    if (cust.shutdown_min_total != null) {
+      const h = (cust.shutdown_min_total / 60).toFixed(1);
+      custLines.push(`<b>Простой:</b> всего <b>${fmt(cust.shutdown_min_total, 0)}</b> мин (${h} ч), дней с простоем — <b>${cust.shutdown_days_count || 0}</b>`);
+    }
+    if (cust.q_trend) {
+      custLines.push(`<b>Тренд Q:</b> ${trendArrow(cust.q_trend.slope_per_day)} ${fmt(cust.q_trend.slope_per_day, 3)} тыс.м³/сут (за весь период)`);
+    }
+    out.push(
+      `<div style="margin-bottom:10px; padding:10px 12px; background:#dbeafe;
+                   border-left:4px solid #1d4ed8; border-radius:4px;">
+         <div style="font-weight:600; color:#1e3a8a; margin-bottom:6px; font-size:0.92rem;">
+           📊 Анализ данных UzKorGaz (well_daily)
+         </div>
+         <div style="line-height:1.7;">${custLines.join('<br>')}</div>
+       </div>`
+    );
+
+    // ─── Секция 2: Анализ данных UniTool (LoRa) ────────────────────
+    if (our && lastOurData?.ok) {
       const o = lastOurData;
       const oFirst = o.sensor_first_date;
       const oLast  = o.pressure?.dates?.length
-        ? o.pressure.dates[o.pressure.dates.length - 1].slice(0, 10)
-        : null;
+        ? o.pressure.dates[o.pressure.dates.length - 1].slice(0, 10) : null;
+      const ourMap = _buildOurDescribeMap() || {};
+      const equipDt = (o.equip_dt || '').slice(0, 10);
       const ptsTotal = o.pressure?.dates?.length || 0;
-      const droppedNote = o.dropped_pre_equip > 0
-        ? ` Отброшено <b>${o.dropped_pre_equip}</b> точек до установки оборудования (${(o.equip_dt || '').slice(0,10)}).`
-        : '';
-      lines.push(`<b>UniTool (LoRa-датчики):</b> ${ptsTotal} точек${oFirst && oLast ? ' (' + oFirst + ' — ' + oLast + ')' : ''}.${droppedNote}`);
+      const ourDaysSet = (o.pressure?.dates || [])
+        .reduce((s,t) => { if (t) s.add(String(t).slice(0,10)); return s; }, new Set());
+      const ourDays = ourDaysSet.size;
+
+      const ourLines = [];
+      if (equipDt) {
+        ourLines.push(`<b>🔧 Установка датчика:</b> <b>${equipDt}</b>` +
+          (o.dropped_pre_equip > 0
+            ? ` <span style="color:#b45309;">(отброшено ${o.dropped_pre_equip} точек pressure_raw до установки)</span>`
+            : ''));
+      }
+      ourLines.push(`<b>Период измерений:</b> ${oFirst || '—'} — ${oLast || '—'} (<b>${ourDays}</b> сут, <b>${ptsTotal}</b> точек)`);
+      const qOur  = ourMap['Дебит общий, тыс.м³/сут'] || {};
+      const dpOur = ourMap['ΔP, кгс/см²'] || {};
+      const ptOur = ourMap['Устье, кгс/см²'] || {};
+      const plOur = ourMap['Шлейф, кгс/см²'] || {};
+      if (o.has_flow) {
+        ourLines.push(`<b>Q (расчёт по штуцеру ${o.choke_mm || '—'} мм):</b> среднее <b>${fmt(qOur.mean)}</b>, медиана <b>${fmt(qOur.median)}</b> тыс.м³/сут`);
+      } else {
+        ourLines.push(`<i>Q не рассчитан — нет данных по штуцеру в well_construction.</i>`);
+      }
+      if (dpOur.mean != null || dpOur.median != null) {
+        ourLines.push(`<b>ΔP:</b> среднее <b>${fmt(dpOur.mean)}</b>, медиана <b>${fmt(dpOur.median)}</b> кгс/см²`);
+      }
+      if (ptOur.mean != null || plOur.mean != null) {
+        ourLines.push(`<b>Давления (медиана):</b> устье <b>${fmt(ptOur.median)}</b>, шлейф <b>${fmt(plOur.median)}</b> кгс/см²`);
+      }
+      // Источник данных
+      ourLines.push(
+        `<span style="font-size:0.78rem; color:#6b7280;">Источник: ` +
+        `${o.has_flow ? '<code>/api/flow-rate/calculate</code>' : '<code>/api/pressure/chart</code>'} ` +
+        `(тот же конвейер, что на странице скважины <code>/well/${o.well?.number || ''}</code>).</span>`
+      );
+      out.push(
+        `<div style="margin-bottom:10px; padding:10px 12px; background:#fed7aa;
+                     border-left:4px solid #c2410c; border-radius:4px;">
+           <div style="font-weight:600; color:#7c2d12; margin-bottom:6px; font-size:0.92rem;">
+             🌐 Анализ данных UniTool (LoRa-датчики)
+           </div>
+           <div style="line-height:1.7;">${ourLines.join('<br>')}</div>
+         </div>`
+      );
+
+      // ─── Секция 3: Совместный период ──────────────────────────────
       if (oFirst && cust.date_min && cust.date_max) {
         const interStart = oFirst > cust.date_min ? oFirst : cust.date_min;
         const interEnd   = oLast && oLast < cust.date_max ? oLast : cust.date_max;
         if (interStart <= interEnd) {
           const days = Math.round((new Date(interEnd) - new Date(interStart)) / 86400000) + 1;
-          lines.push(`<b>Совместный период (UzKorGaz ∩ UniTool):</b> ${days} сут (${interStart} — ${interEnd}).`);
-          lines.push('Сравнение в таблице делается по полным периодам каждого источника. ' +
-                     'Если нужно строго по пересечению — выберите соответствующий диапазон в шкале.');
+          const ratio = ourDays && custDays
+            ? Math.abs(custDays - ourDays) / Math.max(custDays, ourDays) * 100 : 0;
+          const compat = ratio <= 10;
+          const compNote = compat
+            ? '<span style="color:#059669;">✓ Периоды сопоставимы (≤ 10% разницы) — сравнение в основной таблице корректно.</span>'
+            : '<span style="color:#b45309;">⚠ Периоды несопоставимы (> 10% разницы) — корректное сравнение только в таблице «Строгое сравнение» ниже.</span>';
+          out.push(
+            `<div style="margin-bottom:6px; padding:10px 12px; background:#fef3c7;
+                         border-left:4px solid #d97706; border-radius:4px;">
+               <div style="font-weight:600; color:#92400e; margin-bottom:6px; font-size:0.92rem;">
+                 🔗 Совместный период UzKorGaz ∩ UniTool
+               </div>
+               <div style="line-height:1.7;">
+                 <b>Совместных суток:</b> <b>${days}</b> (${interStart} — ${interEnd}).<br>
+                 Полные периоды: UzKorGaz <b>${custDays}</b> сут, UniTool <b>${ourDays}</b> сут (разница ${ratio.toFixed(1)}%).<br>
+                 ${compNote}
+               </div>
+             </div>`
+          );
         } else {
-          lines.push('<b>Совместный период:</b> отсутствует (UzKorGaz и UniTool не пересекаются по времени).');
+          out.push(
+            `<div style="padding:10px 12px; background:#fee2e2; border-left:4px solid #dc2626;
+                         border-radius:4px; color:#991b1b;">
+               ⚠ Совместный период отсутствует — UzKorGaz и UniTool не пересекаются по времени.
+             </div>`
+          );
         }
       }
     } else {
-      lines.push('<i>UniTool не наложен — включите чекбокс «Наложить данные UniTool» выше.</i>');
+      out.push(
+        `<div style="padding:10px 12px; background:#f3f4f6; border-left:4px solid #9ca3af;
+                     border-radius:4px; color:#374151; font-style:italic;">
+           UniTool не наложен — включите чекбокс «Наложить данные UniTool» выше для появления секции
+           «Анализ данных UniTool» и сравнения.
+         </div>`
+      );
     }
-    return lines.join('<br>');
+
+    return out.join('');
   }
 
   // ─── Строгое сравнение на пересечении дат ─────────────────────────

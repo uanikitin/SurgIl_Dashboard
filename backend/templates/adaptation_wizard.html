@@ -1764,6 +1764,120 @@
     );
   }
 
+  // ═══ Прикреплённые блоки наблюдения ═══
+  // Подгружает все блоки скважины из customer_report_block, отображает
+  // как плитки. По кнопке «📈 Открыть» — переход на /customer-daily где
+  // в секции «Прикреплено к отчёту» доступна модалка предпросмотра.
+  async function wz3LoadAttachedBlocks() {
+    if (!state.well?.id) return;
+    const list = $('wz3-attached-list');
+    const cnt  = $('wz3-attached-count');
+    if (!list) return;
+    try {
+      const r = await fetch('/api/customer-daily/blocks?well_id=' + state.well.id);
+      const d = await r.json();
+      const blocks = d.blocks || [];
+      const inReport = blocks.filter(b => b.in_report).length;
+      if (cnt) cnt.textContent = blocks.length
+        ? `(${inReport} в отчёт из ${blocks.length})`
+        : '(пока пусто)';
+      list.innerHTML = '';
+      if (!blocks.length) {
+        list.innerHTML = `
+          <div style="padding:14px; text-align:center; color:#6b7280; font-size:0.85rem;
+                      background:#f9fafb; border:1px dashed #d1d5db; border-radius:6px;">
+            Пока нет прикреплённых анализов наблюдения.<br>
+            Откройте плитку B2 кнопкой «📈 Открыть графики и таблицы ↗»,
+            выберите период и нажмите «➕ Прикрепить к отчёту».
+          </div>`;
+        return;
+      }
+      const wn = state.well?.number ? encodeURIComponent(String(state.well.number)) : '';
+      for (const b of blocks) {
+        const card = document.createElement('div');
+        card.style.cssText =
+          'background:#fff; border:1px solid #e5e7eb; border-radius:6px;' +
+          'padding:10px 12px;';
+        const snap = b.data_snapshot || {};
+        const fmt = (v, dec=2) => (v == null || isNaN(v))
+          ? '<span style="color:#9ca3af;">—</span>'
+          : Number(v).toFixed(dec);
+        const dFrom = snap.date_from || (b.params?.date_from) || '—';
+        const dTo   = snap.date_to   || (b.params?.date_to)   || '—';
+        const days  = snap.days || 0;
+        const sdMin = snap.shutdown_min_total || 0;
+        const sdH   = sdMin ? (sdMin / 60).toFixed(1) : '0';
+        const kindLabel = b.kind === 'period_analysis' ? '📈 Анализ периода'
+          : b.kind === 'baseline' ? '📌 Базовый период'
+          : b.kind === 'comparison' ? '🔗 Сравнение'
+          : b.kind;
+        const kindColor = b.kind === 'period_analysis' ? '#16a34a'
+          : b.kind === 'baseline' ? '#d97706'
+          : b.kind === 'comparison' ? '#7c3aed'
+          : '#6b7280';
+        const openUrl = wn && b.params?.date_from && b.params?.date_to
+          ? `/customer-daily?well=${wn}&date_from=${b.params.date_from}&date_to=${b.params.date_to}&mode=observation`
+          : null;
+        const metricsBlock = (snap.q_total_avg != null || snap.dp_avg != null) ? `
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr));
+                      gap:6px; margin-top:8px;">
+            <div class="wz3bl-cell"><div class="wz3bl-cell-title">Q общий</div>
+              <div class="wz3bl-cell-val">${fmt(snap.q_total_avg)} <span class="wz3bl-cell-sub">ср.</span></div>
+              <div class="wz3bl-cell-val">${fmt(snap.q_total_median)} <span class="wz3bl-cell-sub">мед.</span></div>
+            </div>
+            <div class="wz3bl-cell"><div class="wz3bl-cell-title">Q рабочий</div>
+              <div class="wz3bl-cell-val">${fmt(snap.q_working_avg)} <span class="wz3bl-cell-sub">ср.</span></div>
+              <div class="wz3bl-cell-val">${fmt(snap.q_working_median)} <span class="wz3bl-cell-sub">мед.</span></div>
+            </div>
+            <div class="wz3bl-cell"><div class="wz3bl-cell-title">ΔP, кгс/см²</div>
+              <div class="wz3bl-cell-val">${fmt(snap.dp_avg)} <span class="wz3bl-cell-sub">ср.</span></div>
+              <div class="wz3bl-cell-val">${fmt(snap.dp_median)} <span class="wz3bl-cell-sub">мед.</span></div>
+            </div>
+            <div class="wz3bl-cell"><div class="wz3bl-cell-title">P уст. / шл.</div>
+              <div class="wz3bl-cell-val">${fmt(snap.p_wellhead_median)} <span class="wz3bl-cell-sub">уст.</span></div>
+              <div class="wz3bl-cell-val">${fmt(snap.p_flowline_median)} <span class="wz3bl-cell-sub">шл.</span></div>
+            </div>
+            <div class="wz3bl-cell"><div class="wz3bl-cell-title">Простой</div>
+              <div class="wz3bl-cell-val">${fmt(sdMin, 0)} <span class="wz3bl-cell-sub">мин</span></div>
+              <div class="wz3bl-cell-val">${sdH} <span class="wz3bl-cell-sub">часов</span></div>
+            </div>
+            <div class="wz3bl-cell"><div class="wz3bl-cell-title">Период</div>
+              <div class="wz3bl-cell-val" style="font-family:monospace; font-size:0.78rem;">${dFrom}</div>
+              <div class="wz3bl-cell-val" style="font-family:monospace; font-size:0.78rem;">${dTo}</div>
+              <div class="wz3bl-cell-sub"><b>${days}</b> сут.</div>
+            </div>
+          </div>` : `
+          <div style="font-size:0.78rem; color:#9ca3af; font-style:italic; margin-top:6px;">
+            Снимок данных пуст — откройте блок и пересохраните на /customer-daily,
+            чтобы получить полный набор метрик и графиков.
+          </div>`;
+        card.innerHTML = `
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <span style="background:${kindColor}; color:#fff; padding:2px 8px;
+                         border-radius:4px; font-size:0.7rem;">${kindLabel}</span>
+            <b style="flex:1; min-width:200px; font-size:0.9rem;">${b.title}</b>
+            ${openUrl ? `
+              <a href="${openUrl}" target="_blank"
+                 style="padding:3px 10px; font-size:0.78rem; background:#dbeafe;
+                        color:#1d4ed8; border:1px solid #93c5fd; border-radius:4px;
+                        text-decoration:none;">📈 Открыть</a>` : ''}
+            <span style="font-size:0.74rem; color:#6b7280;">
+              ${b.in_report ? '✓ в отчёт' : 'отключён'}
+            </span>
+          </div>
+          <div style="font-size:0.78rem; color:#6b7280; margin-top:4px;">
+            Период: ${dFrom} … ${dTo}
+            ${b.comment ? ` · <i>${b.comment.slice(0, 80)}${b.comment.length > 80 ? '…' : ''}</i>` : ''}
+          </div>
+          ${metricsBlock}
+        `;
+        list.appendChild(card);
+      }
+    } catch (e) {
+      console.warn('wz3LoadAttachedBlocks', e);
+    }
+  }
+
   // ═══ Шкала шага 3 (wz3tl) — выбор периода наблюдения ═══
   // Использует тот же /api/adaptation-report/timeline что и /customer-daily.
   // При клике по точке этапа — заполняет wz3-from/wz3-to, переключает
@@ -2127,6 +2241,23 @@
         </div>
       </div>
 
+      <!-- Прикреплённые анализы периодов наблюдения (плитки как на /customer-daily) -->
+      <div class="wz-section">
+        <h3 style="margin-top:0;">
+          📋 Прикреплено к разделу «Наблюдение»
+          <span id="wz3-attached-count" style="font-size:0.78rem; color:#6b7280; font-weight:400;"></span>
+        </h3>
+        <div class="wz-step-hint" style="margin-bottom:8px;">
+          Сохранённые анализы периодов с полным набором (графики, таблицы,
+          описания) — попадут в PDF главу «Этап наблюдения». Каждая плитка
+          показывает ключевые метрики; кнопка <b>«📈 Открыть»</b> ведёт на
+          страницу анализа, где доступен <b>«👁 Предпросмотр»</b> со всем
+          содержимым блока.
+        </div>
+        <div id="wz3-attached-list"
+             style="display:flex; flex-direction:column; gap:8px;"></div>
+      </div>
+
       <!-- Шкала + сравнение (новое) -->
       <div class="wz-section">
         <h3>Временная шкала и выбор периода наблюдения</h3>
@@ -2222,6 +2353,10 @@
     // Загрузка утверждённых baseline-плиток (B2 + B1)
     if (typeof wz3LoadBaselineTiles === 'function') {
       wz3LoadBaselineTiles().catch(e => console.warn('baseline tiles', e));
+    }
+    // Загрузка прикреплённых блоков наблюдения
+    if (typeof wz3LoadAttachedBlocks === 'function') {
+      wz3LoadAttachedBlocks().catch(e => console.warn('attached blocks', e));
     }
 
     // Применяем источник по умолчанию

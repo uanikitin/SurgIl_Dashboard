@@ -1764,6 +1764,252 @@
     );
   }
 
+  // ═══ Сравнение участков (wz3cmp-) — общая ось «день от начала» ═══
+  // Хранилище сегментов: [{ id, from, to, source, color, data, days }]
+  let wz3cmpSegments = [];
+  const WZ3CMP_PALETTE = ['#1d4ed8', '#dc2626', '#16a34a', '#7c3aed', '#ea580c',
+                          '#0891b2', '#db2777', '#65a30d', '#9333ea', '#ca8a04'];
+  const WZ3CMP_KEY_MAP = {
+    'customer': {
+      q_total:    'q_gas_total',
+      q_working:  'q_gas_working',
+      dp:         'dp',
+      p_wellhead: 'p_wellhead',
+      p_flowline: 'p_flowline',
+    },
+    'our_pressure': {
+      q_total:    'q',          // нет в нашем — fallback на dp/p_*
+      q_working:  'q',
+      dp:         'dp',
+      p_wellhead: 'p_tube',
+      p_flowline: 'p_line',
+    },
+  };
+
+  async function _wz3cmpFetchSegment(source, dateFrom, dateTo) {
+    if (!state.well?.number || !state.well?.id) return null;
+    const wn = state.well.number;
+    if (source === 'customer') {
+      const r = await fetch(`/api/customer-daily/well/${encodeURIComponent(wn)}` +
+                            `?date_from=${dateFrom}&date_to=${dateTo}`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      if (!d.ok || !d.rows) return null;
+      return {
+        dates: d.chart?.dates || [],
+        q_gas_total:   d.chart?.q_gas_total   || [],
+        q_gas_working: d.chart?.q_gas_working || [],
+        dp:            d.chart?.dp            || [],
+        p_wellhead:    d.chart?.p_wellhead    || [],
+        p_flowline:    d.chart?.p_flowline    || [],
+      };
+    }
+    // UniTool: /api/flow-rate/calculate, час → агрегируем по дням
+    const start = `${dateFrom}T00:00:00`;
+    const end   = `${dateTo}T23:59:59`;
+    let r = await fetch(`/api/flow-rate/calculate/${state.well.id}` +
+                        `?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+    let chart = null;
+    if (r.ok) {
+      const fr = await r.json();
+      chart = fr.chart;
+    } else {
+      // Fallback на pressure-chart (если нет штуцера → нет flow-rate)
+      const pr = await fetch(`/api/pressure/chart/${state.well.id}` +
+                             `?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}` +
+                             `&interval=60&mode=masked`);
+      if (!pr.ok) return null;
+      const pj = await pr.json();
+      const pts = (pj.points || []).filter(p => p.t);
+      chart = {
+        timestamps: pts.map(p => p.t),
+        p_tube: pts.map(p => p.p_tube_avg ?? null),
+        p_line: pts.map(p => p.p_line_avg ?? null),
+        flow_rate: [],
+      };
+    }
+    if (!chart || !chart.timestamps) return null;
+    // Агрегируем час → день
+    const buckets = {};
+    const ts = chart.timestamps;
+    const pt = chart.p_tube || [];
+    const pl = chart.p_line || [];
+    const fr = chart.flow_rate || [];
+    for (let i = 0; i < ts.length; i++) {
+      const dk = String(ts[i]).slice(0, 10);
+      if (!buckets[dk]) buckets[dk] = { pt: [], pl: [], fr: [] };
+      if (pt[i] != null) buckets[dk].pt.push(+pt[i]);
+      if (pl[i] != null) buckets[dk].pl.push(+pl[i]);
+      if (fr.length && fr[i] != null) buckets[dk].fr.push(+fr[i]);
+    }
+    const days = Object.keys(buckets).sort();
+    const avg = (a) => a.length ? a.reduce((s,x) => s+x, 0)/a.length : null;
+    const ptArr = days.map(k => avg(buckets[k].pt));
+    const plArr = days.map(k => avg(buckets[k].pl));
+    const dpArr = days.map((k, i) => {
+      const a = ptArr[i], b = plArr[i];
+      if (a == null || b == null) return null;
+      return Math.max(0, +(a - b).toFixed(2));
+    });
+    const qArr = days.map(k => avg(buckets[k].fr));
+    return {
+      dates:       days,
+      p_tube:      ptArr,
+      p_line:      plArr,
+      dp:          dpArr,
+      q:           qArr,
+    };
+  }
+
+  function _wz3cmpAddSegment() {
+    const f = wz3tlState.from;
+    const t = wz3tlState.to;
+    const status = $('wz3cmp-status');
+    if (!f || !t) {
+      if (status) {
+        status.textContent = '⚠ Выберите период на шкале выше (от и до), затем нажмите «Добавить».';
+        status.style.color = '#dc2626';
+      }
+      return;
+    }
+    const source = $('wz3cmp-source')?.value || 'customer';
+    const fStr = _w3y(f);
+    const tStr = _w3y(t);
+    const id = 'seg' + Date.now() + Math.random().toString(36).slice(2, 6);
+    const color = WZ3CMP_PALETTE[wz3cmpSegments.length % WZ3CMP_PALETTE.length];
+    const days = _w3diff(f, t) + 1;
+    const seg = {
+      id, source, color,
+      from: fStr, to: tStr, days,
+      label: `${source === 'customer' ? 'UzKorGaz' : 'UniTool'} ${fStr}…${tStr} (${days} сут)`,
+      data: null, loading: true,
+    };
+    wz3cmpSegments.push(seg);
+    _wz3cmpRender();
+    if (status) {
+      status.textContent = `⏳ Загружаю данные сегмента ${seg.label}…`;
+      status.style.color = '#92400e';
+    }
+    _wz3cmpFetchSegment(source, fStr, tStr).then(data => {
+      seg.data = data;
+      seg.loading = false;
+      _wz3cmpRender();
+      _wz3cmpRenderChart();
+      if (status) {
+        status.textContent = data
+          ? `✓ Сегмент добавлен (${seg.label}). Всего: ${wz3cmpSegments.length}.`
+          : `⚠ Нет данных за ${fStr}…${tStr} в источнике ${source}.`;
+        status.style.color = data ? '#059669' : '#dc2626';
+        setTimeout(() => { if (status) status.textContent = ''; }, 5000);
+      }
+    }).catch(e => {
+      seg.loading = false;
+      seg.error = e.message;
+      _wz3cmpRender();
+      if (status) {
+        status.textContent = `✗ Ошибка: ${e.message}`;
+        status.style.color = '#dc2626';
+      }
+    });
+  }
+
+  function _wz3cmpRemoveSegment(id) {
+    wz3cmpSegments = wz3cmpSegments.filter(s => s.id !== id);
+    _wz3cmpRender();
+    _wz3cmpRenderChart();
+  }
+
+  function _wz3cmpRender() {
+    const box = $('wz3cmp-segments');
+    if (!box) return;
+    if (!wz3cmpSegments.length) {
+      box.innerHTML = `
+        <div style="padding:10px; text-align:center; color:#6b7280;
+                    font-size:0.82rem; background:#f9fafb;
+                    border:1px dashed #d1d5db; border-radius:6px;">
+          Нет добавленных сегментов. Выберите период на шкале выше → «Добавить».
+        </div>`;
+      return;
+    }
+    box.innerHTML = wz3cmpSegments.map((s, i) => `
+      <div class="wz3cmp-seg" style="border-color:${s.color};">
+        <span class="swatch" style="background:${s.color};"></span>
+        <span style="font-weight:600;">${String.fromCharCode(65 + i)}.</span>
+        <span>${s.label}</span>
+        ${s.loading ? '<span style="color:#92400e;">⏳</span>' : ''}
+        ${s.error ? `<span style="color:#dc2626;" title="${s.error}">⚠</span>` : ''}
+        <button onclick="_wz3cmpRemoveSegment('${s.id}')" title="Удалить сегмент">✕</button>
+      </div>
+    `).join('');
+  }
+  // Экспорт remove чтобы работал inline-onclick
+  window._wz3cmpRemoveSegment = _wz3cmpRemoveSegment;
+
+  function _wz3cmpRenderChart() {
+    const el = $('wz3cmp-chart');
+    if (!el) return;
+    const segments = wz3cmpSegments.filter(s => s.data);
+    if (!segments.length) {
+      el.style.display = 'none';
+      return;
+    }
+    el.style.display = '';
+    const metric = $('wz3cmp-metric')?.value || 'q_total';
+    const traces = [];
+    for (let i = 0; i < segments.length; i++) {
+      const s = segments[i];
+      const keyMap = WZ3CMP_KEY_MAP[s.source];
+      const yKey = keyMap?.[metric];
+      if (!yKey) continue;
+      const dates = s.data.dates || [];
+      const yArr  = s.data[yKey] || [];
+      // X = день от начала сегмента (0, 1, 2, ...)
+      const xArr = dates.map((_, idx) => idx);
+      // Подпись: «A. UzKorGaz 2026-01-01…2026-02-18 (49 сут)»
+      const label = `${String.fromCharCode(65 + i)}. ${s.label}`;
+      traces.push({
+        x: xArr, y: yArr, name: label,
+        mode: 'lines+markers', marker: { size: 4, color: s.color },
+        line: { color: s.color, width: 2 },
+        hovertemplate: 'День %{x}: %{y:.2f}<br>' +
+                       `<i>${dates[0] || ''} → ${dates[dates.length-1] || ''}</i><extra></extra>`,
+      });
+    }
+    if (!traces.length) {
+      el.style.display = 'none';
+      return;
+    }
+    const metricLabel = {
+      q_total: 'Q общий, тыс.м³/сут',
+      q_working: 'Q рабочий, тыс.м³/сут',
+      dp: 'ΔP, кгс/см²',
+      p_wellhead: 'P устье, кгс/см²',
+      p_flowline: 'P шлейф, кгс/см²',
+    }[metric] || metric;
+    Plotly.newPlot(el, traces, {
+      title: `Сравнение участков · ${metricLabel} · ось X — день от начала каждого сегмента`,
+      margin: { l: 60, r: 30, t: 50, b: 60 },
+      xaxis: { title: 'День от начала сегмента (0, 1, 2, …)' },
+      yaxis: { title: metricLabel },
+      hovermode: 'x unified',
+      legend: { orientation: 'h', y: -0.2 },
+      font: { size: 11 },
+    }, { displaylogo: false, responsive: true });
+  }
+
+  function _wz3cmpBindHandlers() {
+    $('wz3cmp-add-btn')?.addEventListener('click', _wz3cmpAddSegment);
+    $('wz3cmp-clear-btn')?.addEventListener('click', () => {
+      if (!wz3cmpSegments.length) return;
+      if (!confirm('Удалить все сегменты сравнения?')) return;
+      wz3cmpSegments = [];
+      _wz3cmpRender();
+      _wz3cmpRenderChart();
+    });
+    // Перерисовка при смене метрики (источник меняется на этапе добавления)
+    $('wz3cmp-metric')?.addEventListener('change', _wz3cmpRenderChart);
+  }
+
   // ═══ Прикреплённые блоки наблюдения ═══
   // Подгружает все блоки скважины из customer_report_block, отображает
   // как плитки. По кнопке «📈 Открыть» — переход на /customer-daily где
@@ -2241,6 +2487,62 @@
         </div>
       </div>
 
+      <!-- Сравнение участков (relative-days overlay) -->
+      <div class="wz-section">
+        <h3 style="margin-top:0;">
+          🔁 Сравнение участков
+          <span style="font-size:0.78rem; color:#6b7280; font-weight:400;">
+            (общая ось: «день от начала периода»)
+          </span>
+        </h3>
+        <div class="wz-step-hint" style="margin-bottom:8px;">
+          Чтобы сравнить разные участки между собой (например, начало vs конец
+          этапа, разные недели, до/после события) — выберите период на шкале выше,
+          нажмите <b>«➕ Добавить как сегмент»</b>, повторите для других участков.
+          Все добавленные сегменты накладываются друг на друга по оси
+          <b>«день от начала»</b> (без привязки к датам), что позволяет видеть
+          форму кривой независимо от календаря.
+        </div>
+
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;
+                    margin-bottom:8px;">
+          <button id="wz3cmp-add-btn" class="wz-btn wz-btn-secondary"
+                  style="padding:5px 12px; font-size:0.84rem;
+                         background:#dbeafe; color:#1d4ed8; border-color:#93c5fd;">
+            ➕ Добавить как сегмент
+          </button>
+          <button id="wz3cmp-clear-btn" class="wz-btn wz-btn-secondary"
+                  style="padding:5px 12px; font-size:0.84rem;">
+            ✕ Очистить все
+          </button>
+          <span style="margin-left:auto; display:inline-flex; gap:6px; align-items:center;">
+            <span style="font-size:0.84rem; color:#374151;">Метрика:</span>
+            <select id="wz3cmp-metric"
+                    style="padding:4px 8px; border:1px solid #d1d5db;
+                           border-radius:4px; font-size:0.84rem;">
+              <option value="q_total">Q общий, тыс.м³/сут</option>
+              <option value="q_working">Q рабочий, тыс.м³/сут</option>
+              <option value="dp">ΔP, кгс/см²</option>
+              <option value="p_wellhead">P устье, кгс/см²</option>
+              <option value="p_flowline">P шлейф, кгс/см²</option>
+            </select>
+            <span style="font-size:0.84rem; color:#374151;">Источник:</span>
+            <select id="wz3cmp-source"
+                    style="padding:4px 8px; border:1px solid #d1d5db;
+                           border-radius:4px; font-size:0.84rem;">
+              <option value="customer">UzKorGaz (well_daily)</option>
+              <option value="our_pressure">UniTool (LoRa)</option>
+            </select>
+          </span>
+        </div>
+
+        <div id="wz3cmp-segments" class="wz3cmp-segments"></div>
+        <div id="wz3cmp-chart"
+             style="height:380px; margin-top:10px; display:none;
+                    border:1px solid #e5e7eb; border-radius:6px;"></div>
+        <div id="wz3cmp-status" style="margin-top:6px; font-size:0.82rem;"></div>
+      </div>
+
       <!-- Прикреплённые анализы периодов наблюдения (плитки как на /customer-daily) -->
       <div class="wz-section">
         <h3 style="margin-top:0;">
@@ -2357,6 +2659,11 @@
     // Загрузка прикреплённых блоков наблюдения
     if (typeof wz3LoadAttachedBlocks === 'function') {
       wz3LoadAttachedBlocks().catch(e => console.warn('attached blocks', e));
+    }
+    // Bind модуля сравнения участков
+    if (typeof _wz3cmpBindHandlers === 'function') {
+      _wz3cmpBindHandlers();
+      _wz3cmpRender();  // нарисует empty-state
     }
 
     // Применяем источник по умолчанию

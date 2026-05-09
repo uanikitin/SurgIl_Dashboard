@@ -2937,7 +2937,61 @@
         const openUrl = wn && b.params?.date_from && b.params?.date_to
           ? `/customer-daily?well=${wn}&date_from=${b.params.date_from}&date_to=${b.params.date_to}&mode=observation`
           : null;
-        const metricsBlock = (snap.q_total_avg != null || snap.dp_avg != null) ? `
+
+        // Разные виды плашки в зависимости от kind:
+        //  - period_analysis / baseline → стандартные метрики Q/ΔP/P
+        //  - comparison (wz3cmp_v1)     → таблица сегментов + slopes
+        //  - старое сравнение           → плашка «снимок пуст»
+        let metricsBlock = '';
+        if (b.kind === 'comparison' && snap._v === 'wz3cmp_v1' && Array.isArray(snap.segments)) {
+          const sign = (v, d=4) => v == null || isNaN(v)
+            ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(d);
+          const fmtN = (v, d=2) => v == null || isNaN(v)
+            ? '—' : Number(v).toFixed(d);
+          let rows = '';
+          for (const seg of snap.segments) {
+            const dur = seg.duration_hours || 0;
+            const dd = Math.floor(dur / 24);
+            const dh = (dur - dd * 24).toFixed(1);
+            const arrow = seg.slope_per_hour == null ? '→'
+              : seg.slope_per_hour > 0.001 ? '↑'
+              : seg.slope_per_hour < -0.001 ? '↓' : '→';
+            const ac = seg.slope_per_hour == null ? '#6b7280'
+              : seg.slope_per_hour > 0 ? '#059669'
+              : seg.slope_per_hour < 0 ? '#dc2626' : '#6b7280';
+            rows += `<tr>
+              <td><span style="display:inline-block; width:10px; height:10px;
+                               border-radius:2px; background:${seg.color || '#6b7280'};
+                               vertical-align:middle; margin-right:4px;"></span>
+                  <b>${seg.letter}.</b> ${seg.source === 'customer' ? 'UzKorGaz' : 'UniTool'}</td>
+              <td style="font-family:monospace; font-size:0.74rem;">
+                ${(seg.from_ts || seg.from || '').slice(0, 16).replace('T', ' ')}<br>
+                ${(seg.to_ts || seg.to || '').slice(0, 16).replace('T', ' ')}
+              </td>
+              <td>${dd} сут ${dh} ч</td>
+              <td>${seg.n || '—'}</td>
+              <td>${fmtN(seg.mean)}</td>
+              <td>${fmtN(seg.median)}</td>
+              <td>${sign(seg.slope_per_hour, 4)}</td>
+              <td>${sign(seg.slope_per_day, 3)}</td>
+              <td style="color:${ac}; font-weight:600;">${arrow}</td>
+            </tr>`;
+          }
+          metricsBlock = `
+            <div style="margin-top:8px; font-size:0.78rem; color:#374151;">
+              <b>Метрика:</b> ${snap.metric_label || snap.metric || '—'}
+              · <b>Метод тренда:</b> ${snap.method === 'theil_sen' ? 'Theil-Sen' : 'МНК линейная'}
+              · <b>Сегментов:</b> ${snap.segments.length}
+            </div>
+            <table class="wz-table" style="font-size:0.78rem; margin-top:6px;">
+              <thead><tr>
+                <th>Сегмент</th><th>Период</th><th>Длительность</th><th>N</th>
+                <th>Среднее</th><th>Медиана</th><th>/час</th><th>/день</th><th>↑↓</th>
+              </tr></thead>
+              <tbody>${rows}</tbody>
+            </table>`;
+        } else if (snap.q_total_avg != null || snap.dp_avg != null) {
+          metricsBlock = `
           <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr));
                       gap:6px; margin-top:8px;">
             <div class="wz3bl-cell"><div class="wz3bl-cell-title">Q общий</div>
@@ -2965,36 +3019,160 @@
               <div class="wz3bl-cell-val" style="font-family:monospace; font-size:0.78rem;">${dTo}</div>
               <div class="wz3bl-cell-sub"><b>${days}</b> сут.</div>
             </div>
-          </div>` : `
-          <div style="font-size:0.78rem; color:#9ca3af; font-style:italic; margin-top:6px;">
-            Снимок данных пуст — откройте блок и пересохраните на /customer-daily,
-            чтобы получить полный набор метрик и графиков.
           </div>`;
+        } else {
+          metricsBlock = `
+          <div style="font-size:0.78rem; color:#9ca3af; font-style:italic; margin-top:6px;">
+            Снимок данных пуст — пересохраните блок чтобы получить набор метрик.
+          </div>`;
+        }
+
+        const periodLine = (b.kind === 'comparison')
+          ? `Сравнение: ${snap.segments?.length || '?'} сегментов`
+          : `Период: ${dFrom} … ${dTo}`;
+
         card.innerHTML = `
           <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
             <span style="background:${kindColor}; color:#fff; padding:2px 8px;
                          border-radius:4px; font-size:0.7rem;">${kindLabel}</span>
-            <b style="flex:1; min-width:200px; font-size:0.9rem;">${b.title}</b>
+            <b class="wz3-block-title" data-block-id="${b.id}"
+               style="flex:1; min-width:200px; font-size:0.9rem;">${b.title}</b>
             ${openUrl ? `
               <a href="${openUrl}" target="_blank"
                  style="padding:3px 10px; font-size:0.78rem; background:#dbeafe;
                         color:#1d4ed8; border:1px solid #93c5fd; border-radius:4px;
                         text-decoration:none;">📈 Открыть</a>` : ''}
-            <span style="font-size:0.74rem; color:#6b7280;">
-              ${b.in_report ? '✓ в отчёт' : 'отключён'}
-            </span>
+            <label style="font-size:0.74rem; cursor:pointer; user-select:none;
+                          display:inline-flex; align-items:center; gap:3px;">
+              <input type="checkbox" data-block-inreport="${b.id}"
+                     ${b.in_report ? 'checked' : ''}> в отчёт
+            </label>
+            <button class="wz-btn wz-btn-secondary" data-block-edit="${b.id}"
+                    style="padding:3px 9px; font-size:0.78rem;">✏ Описание</button>
+            <button class="wz-btn wz-btn-secondary" data-block-delete="${b.id}"
+                    style="padding:3px 9px; font-size:0.78rem;
+                           background:#fee2e2; color:#991b1b; border-color:#fca5a5;">
+              ✕ Удалить
+            </button>
           </div>
           <div style="font-size:0.78rem; color:#6b7280; margin-top:4px;">
-            Период: ${dFrom} … ${dTo}
-            ${b.comment ? ` · <i>${b.comment.slice(0, 80)}${b.comment.length > 80 ? '…' : ''}</i>` : ''}
+            ${periodLine}
+            ${b.comment ? ` · <i>${b.comment.slice(0, 100).replace(/\n/g, ' ')}${b.comment.length > 100 ? '…' : ''}</i>` : ''}
           </div>
           ${metricsBlock}
+          <textarea data-block-comment="${b.id}" rows="3"
+                    style="display:none; width:100%; margin-top:8px;
+                           padding:6px 8px; border:1px solid #d1d5db;
+                           border-radius:4px; font-size:0.84rem; line-height:1.5;
+                           resize:vertical; font-family:inherit;
+                           box-sizing:border-box;">${(b.comment || '').replace(/</g, '&lt;')}</textarea>
         `;
         list.appendChild(card);
       }
+      // Bind handlers ко всем карточкам
+      _wz3BindAttachedHandlers(list, blocks);
     } catch (e) {
       console.warn('wz3LoadAttachedBlocks', e);
     }
+  }
+
+  // Обработчики кнопок «✕ Удалить», «✏ Описание», чекбокса «в отчёт»
+  // и редактирования заголовка (контекст-меню), переименования.
+  function _wz3BindAttachedHandlers(list, blocks) {
+    // ✕ Удалить — DELETE /blocks/{id}
+    list.querySelectorAll('[data-block-delete]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.blockDelete;
+        const block = blocks.find(b => String(b.id) === String(id));
+        if (!block) return;
+        if (!confirm(`Удалить блок «${block.title}»?\n\n` +
+                     `Восстановить будет нельзя.`)) return;
+        try {
+          const r = await fetch('/api/customer-daily/blocks/' + id, { method: 'DELETE' });
+          if (!r.ok) {
+            alert('Ошибка удаления: HTTP ' + r.status);
+            return;
+          }
+          await wz3LoadAttachedBlocks();
+        } catch (e) {
+          alert('Сетевая ошибка: ' + e.message);
+        }
+      });
+    });
+    // ✏ Описание — раскрыть textarea и кнопку Сохранить
+    list.querySelectorAll('[data-block-edit]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.blockEdit;
+        const card = btn.closest('[data-block-id], div');
+        const ta = card.querySelector(`[data-block-comment="${id}"]`);
+        if (!ta) return;
+        if (ta.style.display === 'none') {
+          ta.style.display = '';
+          ta.focus();
+          btn.textContent = '💾 Сохранить';
+          btn.dataset.editing = '1';
+        } else {
+          // Save → PUT comment
+          (async () => {
+            try {
+              const r = await fetch('/api/customer-daily/blocks/' + id, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ comment: ta.value }),
+              });
+              if (!r.ok) { alert('Ошибка: HTTP ' + r.status); return; }
+              ta.style.display = 'none';
+              btn.textContent = '✏ Описание';
+              btn.dataset.editing = '';
+              await wz3LoadAttachedBlocks();
+            } catch (e) {
+              alert('Сетевая ошибка: ' + e.message);
+            }
+          })();
+        }
+      });
+    });
+    // Чекбокс «в отчёт» — toggle in_report
+    list.querySelectorAll('[data-block-inreport]').forEach(cb => {
+      cb.addEventListener('change', async () => {
+        const id = cb.dataset.blockInreport;
+        try {
+          const r = await fetch('/api/customer-daily/blocks/' + id, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ in_report: cb.checked }),
+          });
+          if (!r.ok) {
+            alert('Ошибка: HTTP ' + r.status);
+            cb.checked = !cb.checked;  // revert
+          }
+          // обновляем счётчик
+          await wz3LoadAttachedBlocks();
+        } catch (e) {
+          alert('Сетевая ошибка: ' + e.message);
+          cb.checked = !cb.checked;
+        }
+      });
+    });
+    // Переименование заголовка — двойной клик по <b>
+    list.querySelectorAll('.wz3-block-title').forEach(el => {
+      el.addEventListener('dblclick', async () => {
+        const id = el.dataset.blockId;
+        const cur = el.textContent;
+        const next = prompt('Новое название блока:', cur);
+        if (!next || next === cur) return;
+        try {
+          const r = await fetch('/api/customer-daily/blocks/' + id, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: next }),
+          });
+          if (!r.ok) { alert('Ошибка: HTTP ' + r.status); return; }
+          await wz3LoadAttachedBlocks();
+        } catch (e) {
+          alert('Сетевая ошибка: ' + e.message);
+        }
+      });
+      el.title = 'Двойной клик — переименовать';
+      el.style.cursor = 'pointer';
+    });
   }
 
   // ═══ Шкала шага 3 (wz3tl) — выбор периода наблюдения ═══

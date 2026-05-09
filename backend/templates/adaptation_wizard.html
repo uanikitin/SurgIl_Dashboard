@@ -2358,7 +2358,7 @@
       const tStr = ($('wz3-to')?.value || '').slice(0, 10);
       wz3tlState.from = _w3p(fStr);
       wz3tlState.to   = _w3p(tStr);
-      _w3Render(); _w3UpdateMode();
+      _w3Render(); _w3UpdateMode(); _w3UpdateApplyBtn();
     } catch (e) { console.warn('wz3tlInit', e); }
   }
   function _w3ScaleWidth() {
@@ -2470,34 +2470,36 @@
     }
     parts.push(`<div class="wz3tl-axis">${ax.join('')}</div>`);
     sc.innerHTML = parts.join('');
-    // Bind клики на точках этапов
+    // Bind клики на точках этапов: ставим выбор, НЕ пишем в поля
+    // (запись только по кнопке «✓ Применить»)
     sc.querySelectorAll('.wz3tl-stage-dot').forEach(dot => {
       dot.addEventListener('click', ev => {
         ev.stopPropagation();
         const f = dot.dataset.from, t = dot.dataset.to;
         if (!f || !t) return;
         wz3tlState.from = _w3p(f); wz3tlState.to = _w3p(t);
-        _w3WriteToFields();
-        _w3Render(); _w3UpdateMode();
+        _w3Render(); _w3UpdateMode(); _w3UpdateApplyBtn();
       });
     });
   }
+  // Запись от-/до- в поля Начало/Окончание + переключение источника +
+  // запуск анализа. Вызывается ТОЛЬКО при нажатии «✓ Применить».
   function _w3WriteToFields() {
     if (!wz3tlState.from || !wz3tlState.to) return;
-    // wz3-from/to это datetime-local, формат 'YYYY-MM-DDTHH:MM'
     const f = _w3y(wz3tlState.from) + 'T00:00';
     const t = _w3y(wz3tlState.to) + 'T23:59';
     if ($('wz3-from')) {
       $('wz3-from').value = f;
       $('wz3-from').readOnly = false;
-      $('wz3-from').style.background = '';
+      $('wz3-from').style.background = '#fef3c7';  // ярко-жёлтый flash
+      setTimeout(() => { if ($('wz3-from')) $('wz3-from').style.background = ''; }, 1800);
     }
     if ($('wz3-to')) {
       $('wz3-to').value = t;
       $('wz3-to').readOnly = false;
-      $('wz3-to').style.background = '';
+      $('wz3-to').style.background = '#fef3c7';
+      setTimeout(() => { if ($('wz3-to')) $('wz3-to').style.background = ''; }, 1800);
     }
-    // Переключаем источник на 'manual' (пользователь явно выбрал на шкале)
     const d = state.steps[3].data;
     d.from = f; d.to = t; d.source = 'manual';
     const radio = document.querySelector('input[name="wz3-src"][value="manual"]');
@@ -2505,6 +2507,15 @@
     if (typeof wz3UpdateDuration === 'function') wz3UpdateDuration();
     if (typeof wz3MarkStale === 'function') wz3MarkStale();
     if (typeof wz3DebouncedAnalyze === 'function') wz3DebouncedAnalyze();
+  }
+  // Обновляет state кнопки «✓ Применить»: enabled когда оба from/to заданы
+  function _w3UpdateApplyBtn() {
+    const btn = $('wz3tl-apply-btn');
+    if (!btn) return;
+    const ok = !!(wz3tlState.from && wz3tlState.to);
+    btn.disabled = !ok;
+    btn.style.opacity = ok ? '1' : '0.5';
+    btn.style.cursor = ok ? 'pointer' : 'not-allowed';
   }
   function _w3UpdateMode() {
     const lbl = $('wz3tl-mode');
@@ -2534,7 +2545,7 @@
     });
     $('wz3tl-clear-btn')?.addEventListener('click', () => {
       wz3tlState.from = null; wz3tlState.to = null;
-      _w3Render(); _w3UpdateMode();
+      _w3Render(); _w3UpdateMode(); _w3UpdateApplyBtn();
     });
     $('wz3tl-scale')?.addEventListener('click', ev => {
       if (ev.target.closest('.wz3tl-stage-dot')) return;
@@ -2551,8 +2562,14 @@
         if (d < wz3tlState.from) { wz3tlState.to = wz3tlState.from; wz3tlState.from = d; }
         else { wz3tlState.to = d; }
       }
+      // Только обновляем визуал и кнопку «Применить» — БЕЗ записи в поля
+      _w3Render(); _w3UpdateMode(); _w3UpdateApplyBtn();
+    });
+    // Кнопка «✓ Применить как период наблюдения» — единственное место,
+    // которое пишет from/to в wz3-поля и запускает анализ.
+    $('wz3tl-apply-btn')?.addEventListener('click', () => {
+      if (!wz3tlState.from || !wz3tlState.to) return;
       _w3WriteToFields();
-      _w3Render(); _w3UpdateMode();
     });
   }
 
@@ -2619,11 +2636,26 @@
       <!-- 1. Шкала + сравнение (новое) -->
       <div class="wz-section">
         <h3>Временная шкала и выбор периода наблюдения</h3>
+        <div class="wz-step-hint" style="margin-bottom:8px;">
+          ✏️ <b>Как выбрать период наблюдения:</b>
+          (а) кликните по точке этапа — возьмёт его диапазон;
+          (б) или кликните на пустом месте шкалы — первый клик ставит «от»,
+          второй ставит «до».
+          После выбора нажмите кнопку <b>«✓ Применить как период наблюдения»</b>
+          ниже — даты попадут в поля «Начало / Окончание» секции «Источник дат
+          этапа», и сразу запустится анализ.
+        </div>
         <div class="wz3tl-wrap">
           <div class="wz3tl-headerrow">
             Режим: <span class="wz3tl-mode" id="wz3tl-mode">не выбран</span>
             <span id="wz3tl-period-display" style="font-family:monospace; color:#374151;
-                  font-size:0.78rem; margin-left:auto;"></span>
+                  font-size:0.78rem;"></span>
+            <button type="button" id="wz3tl-apply-btn" class="wz-btn wz-btn-primary"
+                    disabled
+                    style="margin-left:auto; padding:5px 14px; font-size:0.84rem;
+                           opacity:0.5;">
+              ✓ Применить как период наблюдения
+            </button>
           </div>
           <div class="wz3tl-zoom-row">
             <span>Масштаб:</span>

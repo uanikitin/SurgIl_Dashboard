@@ -2039,13 +2039,14 @@
     if (!block || !state.well?.id) return;
     if (status) { status.textContent = '⏳ Загружаю детальные данные UniTool…'; status.style.color = '#92400e'; }
 
-    // Берём диапазон pressure_raw скважины
+    // Берём диапазон pressure_raw скважины + этапы для маркеров
     let dateFrom, dateTo;
     try {
       const r = await fetch('/api/adaptation-report/timeline?well_id=' + state.well.id);
       const tl = await r.json();
       dateFrom = tl.our_data?.first_date;
       dateTo   = tl.our_data?.last_date;
+      state._cmpStages = tl.stages || [];
     } catch (e) {
       if (status) { status.textContent = '✗ ' + e.message; status.style.color = '#dc2626'; }
       return;
@@ -2132,15 +2133,95 @@
     const cust = wz3cmpCustOverlay;
     const vzPt = $('wz3cmp-vz-pt')?.checked, vzPl = $('wz3cmp-vz-pl')?.checked;
     const vzDp = $('wz3cmp-vz-dp')?.checked, vzQ  = $('wz3cmp-vz-q')?.checked;
+
+    // Default zoom: этап наблюдения ± его длительность.
+    // Источник дат: 1) из step3 wz3-from/to (если уже выбрали),
+    //               2) этап «Наблюдение» из state._cmpStages,
+    //               3) stages_status.obs_from/to,
+    //               4) stages_events (events-based) obs_from + adapt_from.
+    let xRange = null;
+    const fmt = (s) => s ? String(s).slice(0, 19) : null;
+    let obsFrom = fmt(state.steps[3]?.data?.from);
+    let obsTo   = fmt(state.steps[3]?.data?.to);
+    if (!obsFrom || !obsTo) {
+      const obsStage = (state._cmpStages || []).find(s => /набл/i.test(s.label || ''));
+      if (obsStage && obsStage.dt_start && obsStage.dt_end) {
+        obsFrom = fmt(obsStage.dt_start);
+        obsTo   = fmt(obsStage.dt_end);
+      }
+    }
+    if ((!obsFrom || !obsTo) && state.metadata?.stages_status) {
+      obsFrom = obsFrom || fmt(state.metadata.stages_status.obs_from);
+      obsTo   = obsTo   || fmt(state.metadata.stages_status.obs_to);
+    }
+    if ((!obsFrom || !obsTo) && state.metadata?.stages_events) {
+      obsFrom = obsFrom || fmt(state.metadata.stages_events.obs_from);
+      obsTo   = obsTo   || fmt(state.metadata.stages_events.adapt_from);
+    }
+    if (obsFrom && obsTo) {
+      const f = new Date(obsFrom).getTime();
+      const t = new Date(obsTo).getTime();
+      const len = Math.max(t - f, 86400000);  // минимум 1 сутки
+      xRange = [
+        new Date(f - len).toISOString().slice(0, 19),
+        new Date(t + len).toISOString().slice(0, 19),
+      ];
+    }
+
+    // Vertical shapes для этапов (Наблюдение / Адаптация / Оптимизация)
+    const stageShapes = [];
+    const stageAnnots = [];
+    const stages = state._cmpStages || [];  // набивается в _wz3cmpLoadSourceChart
+    const stageColor = (lbl) => /набл/i.test(lbl) ? 'rgba(29,78,216,0.10)'
+      : /адапт/i.test(lbl) ? 'rgba(217,119,6,0.10)'
+      : /оптимиз/i.test(lbl) ? 'rgba(22,163,74,0.10)'
+      : 'rgba(107,114,128,0.08)';
+    const stageLine = (lbl) => /набл/i.test(lbl) ? '#1d4ed8'
+      : /адапт/i.test(lbl) ? '#d97706'
+      : /оптимиз/i.test(lbl) ? '#16a34a'
+      : '#6b7280';
+    for (const s of stages) {
+      if (!s.dt_start) continue;
+      const x0 = s.dt_start;
+      const x1 = s.dt_end || data.dates[data.dates.length - 1];
+      const c = stageColor(s.label || '');
+      const lc = stageLine(s.label || '');
+      stageShapes.push({
+        type: 'rect', xref: 'x', yref: 'paper',
+        x0, x1, y0: 0, y1: 1,
+        fillcolor: c, line: { width: 0 },
+        layer: 'below',
+      });
+      stageShapes.push({
+        type: 'line', xref: 'x', yref: 'paper',
+        x0, x1: x0, y0: 0, y1: 1,
+        line: { color: lc, width: 1.5, dash: 'dot' },
+      });
+      stageAnnots.push({
+        x: x0, y: 1, xref: 'x', yref: 'paper',
+        text: (s.label || '').slice(0, 12),
+        showarrow: false, yanchor: 'top', xanchor: 'left',
+        font: { size: 9, color: lc },
+        bgcolor: 'rgba(255,255,255,0.85)', borderpad: 2,
+      });
+    }
+
     const layout = (title, ytitle) => ({
       title, margin: { l: 50, r: 30, t: 40, b: 40 },
       hovermode: 'x unified', font: { size: 10 },
       legend: { orientation: 'h', y: -0.18 },
-      xaxis: { type: 'date' }, yaxis: { title: ytitle },
+      xaxis: { type: 'date', range: xRange },
+      yaxis: { title: ytitle },
       dragmode: 'select', selectdirection: 'h',
+      shapes: stageShapes,
+      annotations: stageAnnots,
     });
-    const cfg = { displaylogo: false, responsive: true,
-                  modeBarButtonsToAdd: ['select2d'] };
+    const cfg = {
+      displaylogo: false, responsive: true,
+      modeBarButtonsToAdd: ['select2d'],
+      // Убираем зум из тулбара чтобы не путать с select
+      modeBarButtonsToRemove: ['lasso2d', 'autoScale2d'],
+    };
 
     // 1. Давления (наши)
     const presTraces = [];
@@ -2209,19 +2290,30 @@
     }
   }
 
-  // Привязывает plotly_selected к графику — выделение → новый сегмент
+  // Привязывает plotly_selected к графику — выделение → новый сегмент.
+  // Plotly.newPlot заменяет внутренние event-listeners, поэтому привязываем
+  // ЗАНОВО после каждого рендера. Гард через el._wz3cmpListener чтобы не
+  // плодить дубли (removeAllListeners сбрасывает старые).
   function _wz3cmpWireSelect(divId) {
     const el = document.getElementById(divId);
-    if (!el || el._wz3cmpWired) return;
-    el._wz3cmpWired = true;
-    el.on('plotly_selected', (ev) => {
+    if (!el) return;
+    // Снимаем старый listener (если есть) — чтобы не плодить дубли
+    if (el._wz3cmpListener && typeof el.removeAllListeners === 'function') {
+      el.removeAllListeners('plotly_selected');
+    }
+    const listener = (ev) => {
+      // ev может быть null если пользователь снял выделение
       if (!ev || !ev.range || !ev.range.x) return;
       const [x0, x1] = ev.range.x;
       const f = String(x0).slice(0, 10);
       const t = String(x1).slice(0, 10);
+      if (!f || !t || f === t) return;  // защита от пустого выделения
       _wz3cmpAddSegmentFromDates('our_pressure', f, t);
-      Plotly.relayout(el, { selections: [] }).catch(() => {});
-    });
+      // Снимаем визуальное выделение чтобы было понятно что добавилось
+      try { Plotly.relayout(el, { selections: [] }); } catch (_) {}
+    };
+    el._wz3cmpListener = listener;
+    el.on('plotly_selected', listener);
   }
 
   // Добавление сегмента по явным датам (используется в drag-select callback)

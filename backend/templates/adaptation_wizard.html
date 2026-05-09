@@ -458,6 +458,52 @@
                 display:flex; gap:12px; flex-wrap:wrap; }
   .wz3tl-help b { color:#4b5563; }
 
+  /* B1/B2 утверждённые baseline-плитки (используются на шаге 3) */
+  .wz3bl-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    margin-bottom: 12px;
+  }
+  @media (max-width: 1100px) { .wz3bl-row { grid-template-columns: 1fr; } }
+  .wz3bl-tile {
+    border-radius: 8px; padding: 12px 14px; border-left: 4px solid;
+  }
+  .wz3bl-tile.b1 { background: #fffbeb; border-left-color: #d97706; }
+  .wz3bl-tile.b2 { background: #ecfdf5; border-left-color: #059669; }
+  .wz3bl-tile.empty {
+    background: #f9fafb; border-left-color: #9ca3af;
+    color: #6b7280; font-style: italic; font-size: 0.85rem;
+  }
+  .wz3bl-tile-title {
+    font-size: 0.92rem; font-weight: 600; margin-bottom: 6px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .wz3bl-tile.b1 .wz3bl-tile-title { color: #92400e; }
+  .wz3bl-tile.b2 .wz3bl-tile-title { color: #065f46; }
+  .wz3bl-meta {
+    font-size: 0.78rem; color: #4b5563; margin-bottom: 8px;
+    font-family: monospace;
+  }
+  .wz3bl-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 6px;
+  }
+  .wz3bl-cell {
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 5px;
+    padding: 6px 8px; font-size: 0.78rem;
+  }
+  .wz3bl-tile.b1 .wz3bl-cell { border-color: #fcd34d; }
+  .wz3bl-tile.b2 .wz3bl-cell { border-color: #6ee7b7; }
+  .wz3bl-cell-title {
+    font-size: 0.65rem; color: #6b7280; text-transform: uppercase;
+    letter-spacing: 0.03em; font-weight: 600; margin-bottom: 2px;
+  }
+  .wz3bl-cell-val { font-size: 0.85rem; color: #1f2937; font-weight: 600; }
+  .wz3bl-cell-sub { font-size: 0.7rem; color: #6b7280; }
+  .wz3bl-desc {
+    font-size: 0.82rem; color: #374151; line-height: 1.5; margin-top: 8px;
+    padding: 6px 10px; background: rgba(255,255,255,0.7); border-radius: 4px;
+  }
+
   /* Сравнение участков (relative-days overlay) */
   .wz3cmp-segments { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
   .wz3cmp-seg {
@@ -1540,6 +1586,95 @@
     if (v === null || v === undefined || isNaN(v)) return '—';
     return Number(v).toFixed(d);
   }
+  // ═══ Утверждённые baseline-плитки шага 3 ═══
+  // Слева — B2 (этап наблюдения, source='observation'), справа — B1
+  // (заказчик, source='customer'). Берутся из БД через
+  // /api/adaptation-report/baselines, выбирается is_pinned=true.
+  // НЕ ПЕРЕСЧИТЫВАЮТСЯ — только то что уже утверждено.
+  async function wz3LoadBaselineTiles() {
+    if (!state.well?.id) return;
+    try {
+      const r = await fetch('/api/adaptation-report/baselines?well_id=' + state.well.id);
+      const d = await r.json();
+      const list = d.baselines || [];
+      const sortByCreated = (a, b) =>
+        (b.created_at || '').localeCompare(a.created_at || '');
+      const b1 = list.filter(b => b.source === 'customer' && b.is_pinned).sort(sortByCreated)[0] || null;
+      const b2 = list.filter(b => b.source === 'observation' && b.is_pinned).sort(sortByCreated)[0] || null;
+      _wz3RenderTile($('wz3-bl-b2'), 'b2', b2);
+      _wz3RenderTile($('wz3-bl-b1'), 'b1', b1);
+    } catch (e) {
+      console.warn('wz3LoadBaselineTiles', e);
+    }
+  }
+
+  function _wz3RenderTile(box, kind, bl) {
+    if (!box) return;
+    const isB2 = kind === 'b2';
+    if (!bl) {
+      // Пустая плитка
+      box.className = 'wz3bl-tile empty';
+      box.innerHTML = isB2
+        ? `<div class="wz3bl-tile-title" style="color:#6b7280;">🌱 B2 — этап наблюдения (UniTool)</div>
+           <div>Базовый период наблюдения ещё не утверждён.<br>
+                Выберите период на шкале, проанализируйте, затем зафиксируйте через
+                «Утвердить как baseline B2» ниже.</div>`
+        : `<div class="wz3bl-tile-title" style="color:#6b7280;">📊 B1 — данные заказчика (UzKorGaz)</div>
+           <div>B1 не утверждён.<br>
+                Сделайте это на шаге 2 (B1 Заказчик) — кнопка «Утвердить как B1»
+                на странице с данными заказчика.</div>`;
+      return;
+    }
+    box.className = `wz3bl-tile ${kind}`;
+    const fmt = (v, d=2) => (v == null || isNaN(v))
+      ? '<span style="color:#9ca3af;">—</span>'
+      : Number(v).toFixed(d);
+    const sdMin = bl.shutdown_min_total || 0;
+    const sdH   = sdMin ? (sdMin / 60).toFixed(1) : '0';
+    const title = isB2
+      ? '🌱 B2 — этап наблюдения (UniTool)'
+      : '📊 B1 — данные заказчика (UzKorGaz)';
+    box.innerHTML = `
+      <div class="wz3bl-tile-title">${title}
+        <span style="font-weight:400; font-size:0.78rem; color:#6b7280;">
+          ${bl.is_pinned ? '📌 утверждён' : ''}
+        </span>
+      </div>
+      <div class="wz3bl-meta">
+        <b>${bl.name}</b><br>
+        ${bl.period_from} → ${bl.period_to} · ${bl.days_count} сут.
+      </div>
+      <div class="wz3bl-grid">
+        <div class="wz3bl-cell">
+          <div class="wz3bl-cell-title">Q общий</div>
+          <div class="wz3bl-cell-val">${fmt(bl.q_total_avg)} <span class="wz3bl-cell-sub">ср.</span></div>
+          <div class="wz3bl-cell-val">${fmt(bl.q_total_median)} <span class="wz3bl-cell-sub">мед.</span></div>
+        </div>
+        <div class="wz3bl-cell">
+          <div class="wz3bl-cell-title">Q рабочий</div>
+          <div class="wz3bl-cell-val">${fmt(bl.q_working_avg)} <span class="wz3bl-cell-sub">ср.</span></div>
+          <div class="wz3bl-cell-val">${fmt(bl.q_working_median)} <span class="wz3bl-cell-sub">мед.</span></div>
+        </div>
+        <div class="wz3bl-cell">
+          <div class="wz3bl-cell-title">ΔP, кгс/см²</div>
+          <div class="wz3bl-cell-val">${fmt(bl.dp_avg)} <span class="wz3bl-cell-sub">ср.</span></div>
+          <div class="wz3bl-cell-val">${fmt(bl.dp_median)} <span class="wz3bl-cell-sub">мед.</span></div>
+        </div>
+        <div class="wz3bl-cell">
+          <div class="wz3bl-cell-title">P устье / шлейф</div>
+          <div class="wz3bl-cell-val">${fmt(bl.p_wellhead_median)} <span class="wz3bl-cell-sub">уст.</span></div>
+          <div class="wz3bl-cell-val">${fmt(bl.p_flowline_median)} <span class="wz3bl-cell-sub">шл.</span></div>
+        </div>
+        <div class="wz3bl-cell">
+          <div class="wz3bl-cell-title">Простой</div>
+          <div class="wz3bl-cell-val">${fmt(sdMin, 0)} <span class="wz3bl-cell-sub">мин</span></div>
+          <div class="wz3bl-cell-val">${sdH} <span class="wz3bl-cell-sub">часов</span></div>
+        </div>
+      </div>
+      ${bl.notes ? `<div class="wz3bl-desc">${(bl.notes || '').replace(/</g,'&lt;')}</div>` : ''}
+    `;
+  }
+
   // ═══ Шкала шага 3 (wz3tl) — выбор периода наблюдения ═══
   // Использует тот же /api/adaptation-report/timeline что и /customer-daily.
   // При клике по точке этапа — заполняет wz3-from/wz3-to, переключает
@@ -1895,6 +2030,14 @@
         <b>Окончание наблюдения = начало адаптации</b> — автоматически прокидывается в шаг 5.
       </div>
 
+      <!-- Утверждённые baseline-ы B2 (этого шага) и B1 (из шага 2) -->
+      <div class="wz-section" style="background:transparent; border:none; padding:0;">
+        <div class="wz3bl-row">
+          <div id="wz3-bl-b2"></div>
+          <div id="wz3-bl-b1"></div>
+        </div>
+      </div>
+
       <!-- Шкала + сравнение (новое) -->
       <div class="wz-section">
         <h3>Временная шкала и выбор периода наблюдения</h3>
@@ -1986,6 +2129,10 @@
     if (typeof wz3tlInit === 'function') {
       _w3BindHandlers();
       wz3tlInit().catch(e => console.warn('wz3tl init', e));
+    }
+    // Загрузка утверждённых baseline-плиток (B2 + B1)
+    if (typeof wz3LoadBaselineTiles === 'function') {
+      wz3LoadBaselineTiles().catch(e => console.warn('baseline tiles', e));
     }
 
     // Применяем источник по умолчанию

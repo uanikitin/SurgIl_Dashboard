@@ -3298,18 +3298,39 @@
       if (!r.ok) return;
       const d = await r.json();
       if (!d.ok || !d.rows) return;
+      // Метрики считаем локально из chart — endpoint не возвращает их
+      // на верхнем уровне.
+      const c = d.chart || {};
+      const stat = (arr) => {
+        const v = (arr || []).filter(x => x != null && !isNaN(x)).map(Number);
+        if (!v.length) return { mean: null, median: null };
+        const mean = v.reduce((s,x)=>s+x,0) / v.length;
+        const sorted = v.slice().sort((a,b)=>a-b);
+        const median = sorted.length % 2
+          ? sorted[(sorted.length-1) >> 1]
+          : (sorted[sorted.length/2 - 1] + sorted[sorted.length/2]) / 2;
+        return { mean, median };
+      };
+      const sQ  = stat(c.q_gas_total);
+      const sQw = stat(c.q_gas_working);
+      const sDp = stat(c.dp);
+      const sPt = stat(c.p_wellhead);
+      const sPl = stat(c.p_flowline);
+      const sd  = (c.shutdown_min || []).map(v => v == null ? 0 : Number(v) || 0);
+      const sdTotal = sd.reduce((s,x) => s+x, 0);
+      const sdDays  = sd.filter(v => v > 0).length;
       const snap = {
         date_from: f, date_to: t, days: d.rows || 0,
-        q_total_avg:    d.q_total_avg ?? null,
-        q_total_median: d.q_total_median ?? null,
-        q_working_avg:    d.q_working_avg ?? null,
-        q_working_median: d.q_working_median ?? null,
-        p_wellhead_median: d.p_wellhead_median ?? null,
-        p_flowline_median: d.p_flowline_median ?? null,
-        dp_avg:    d.dp_avg ?? null,
-        dp_median: d.dp_median ?? null,
-        shutdown_min_total:   d.shutdown_min_total ?? 0,
-        shutdown_days_count:  d.shutdown_days_count ?? 0,
+        q_total_avg:       sQ.mean,
+        q_total_median:    sQ.median,
+        q_working_avg:     sQw.mean,
+        q_working_median:  sQw.median,
+        p_wellhead_median: sPt.median,
+        p_flowline_median: sPl.median,
+        dp_avg:            sDp.mean,
+        dp_median:         sDp.median,
+        shutdown_min_total:   sdTotal,
+        shutdown_days_count:  sdDays,
       };
       // PATCH блок чтобы метрики сохранились в БД (иначе при следующем
       // refresh снова пусто). Tolerate failures silently — это «улучшение».
@@ -3419,6 +3440,29 @@
     if (!d.rows) return null;
     const ourOn = $('cd-compare-toggle')?.checked && lastOurData && lastOurData.ok;
 
+    // Endpoint /api/customer-daily/well/{N} НЕ возвращает агрегаты типа
+    // q_total_avg на верхнем уровне — там только массивы в chart.* и
+    // строки в describe. Считаем mean/median локально из chart.
+    const c = d.chart || {};
+    const _arrStat = (arr) => {
+      const v = (arr || []).filter(x => x != null && !isNaN(x)).map(Number);
+      if (!v.length) return { mean: null, median: null };
+      const mean = v.reduce((s,x) => s+x, 0) / v.length;
+      const sorted = v.slice().sort((a,b) => a-b);
+      const median = sorted.length % 2
+        ? sorted[(sorted.length-1) >> 1]
+        : (sorted[sorted.length/2 - 1] + sorted[sorted.length/2]) / 2;
+      return { mean, median };
+    };
+    const sQ   = _arrStat(c.q_gas_total);
+    const sQw  = _arrStat(c.q_gas_working);
+    const sDp  = _arrStat(c.dp);
+    const sPt  = _arrStat(c.p_wellhead);
+    const sPl  = _arrStat(c.p_flowline);
+    const shutdownArr = (c.shutdown_min || []).map(v => v == null ? 0 : Number(v) || 0);
+    const shutdownTotal = shutdownArr.reduce((s, x) => s + x, 0);
+    const shutdownDays  = shutdownArr.filter(v => v > 0).length;
+
     // UniTool snapshot (метрики + сводки агрегатов по месяцам, без сырых часовых
     // рядов — они весят слишком много, при «Открыть» пересчитываются на лету
     // через /api/flow-rate/calculate)
@@ -3482,17 +3526,17 @@
       date_min:  d.date_min || null,
       date_max:  d.date_max || null,
 
-      // ─── Сводные метрики UzKorGaz (для плитки) ──────────────
-      q_total_avg:    d.q_total_avg ?? null,
-      q_total_median: d.q_total_median ?? null,
-      q_working_avg:    d.q_working_avg ?? null,
-      q_working_median: d.q_working_median ?? null,
-      p_wellhead_median: d.p_wellhead_median ?? null,
-      p_flowline_median: d.p_flowline_median ?? null,
-      dp_avg:    d.dp_avg ?? null,
-      dp_median: d.dp_median ?? null,
-      shutdown_min_total:   d.shutdown_min_total ?? 0,
-      shutdown_days_count:  d.shutdown_days_count ?? 0,
+      // ─── Сводные метрики UzKorGaz (для плитки) — пересчитаны из chart ──
+      q_total_avg:       sQ.mean,
+      q_total_median:    sQ.median,
+      q_working_avg:     sQw.mean,
+      q_working_median:  sQw.median,
+      p_wellhead_median: sPt.median,
+      p_flowline_median: sPl.median,
+      dp_avg:            sDp.mean,
+      dp_median:         sDp.median,
+      shutdown_min_total:  shutdownTotal,
+      shutdown_days_count: shutdownDays,
       q_trend: d.q_trend || null,
 
       // ─── Полные ряды для графиков (для PDF/предпросмотра) ──

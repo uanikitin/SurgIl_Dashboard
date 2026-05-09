@@ -2045,47 +2045,105 @@
     const segments = wz3cmpSegments.filter(s => s.data);
     if (!segments.length) {
       el.style.display = 'none';
+      $('wz3cmp-trends-table').innerHTML = '';
       return;
     }
     el.style.display = '';
     const metric = $('wz3cmp-metric')?.value || 'dp';
-    const traces = [];
+    const showCurve    = $('wz3cmp-show-curve')?.checked !== false;
+    const showTrend    = $('wz3cmp-show-trend')?.checked !== false;
+    const showForecast = $('wz3cmp-show-forecast')?.checked || false;
+    const method = $('wz3cmp-trend-method')?.value || 'linear';
+
+    // Сначала готовим данные для всех сегментов и считаем maxHours
+    const segData = [];
     let maxHours = 0;
     for (let i = 0; i < segments.length; i++) {
       const s = segments[i];
       const keyMap = WZ3CMP_KEY_MAP[s.source];
       const yKey = keyMap?.[metric];
       if (!yKey) continue;
-      // Источник: для UniTool — ts (минутный/часовой); для customer — dates (суточный)
       const tsArr = s.data.ts || s.data.dates || [];
       const yArr  = s.data[yKey] || [];
       if (!tsArr.length) continue;
-      // Обрезаем по фактическому диапазону fromTs/toTs (минуты тоже учитываем)
       const fromMs = (new Date(s.fromTs || (s.from + 'T00:00'))).getTime();
       const toMs   = (new Date(s.toTs   || (s.to   + 'T23:59'))).getTime();
-      const xArr = [], yArrFiltered = [];
+      const xH = [], yY = [];
       for (let j = 0; j < tsArr.length; j++) {
         const tsMs = (new Date(tsArr[j])).getTime();
         if (tsMs < fromMs || tsMs > toMs) continue;
-        // X = (ts - fromMs) в часах (float, сохраняет минутное разрешение)
+        if (yArr[j] == null || isNaN(yArr[j])) continue;
         const hours = (tsMs - fromMs) / 3600000;
-        xArr.push(hours);
-        yArrFiltered.push(yArr[j]);
+        xH.push(hours);
+        yY.push(+yArr[j]);
         if (hours > maxHours) maxHours = hours;
       }
-      const letter = String.fromCharCode(65 + i);
-      const label = `${letter}. ${s.source === 'customer' ? 'UzKorGaz' : 'UniTool'} ` +
-                    `${(s.fromTs || s.from).slice(0,16).replace('T',' ')}…` +
-                    `${(s.toTs   || s.to  ).slice(0,16).replace('T',' ')}`;
-      traces.push({
-        x: xArr, y: yArrFiltered, name: label,
-        mode: 'lines', line: { color: s.color, width: 1.6 },
-        hovertemplate: '+%{x:.2f} ч: %{y:.2f}<extra>' + label + '</extra>',
-      });
+      const segDur = (toMs - fromMs) / 3600000;
+      if (segDur > maxHours) maxHours = segDur;
+      const reg = method === 'theil_sen' ? _theilSen(xH, yY) : _linRegress(xH, yY);
+      segData.push({ s, i, xH, yY, segDur, reg });
     }
-    if (!traces.length) {
+    if (!segData.length) {
       el.style.display = 'none';
+      $('wz3cmp-trends-table').innerHTML = '';
       return;
+    }
+    const inDays = maxHours > 48;
+    const toUnit = (h) => inDays ? h / 24 : h;
+
+    const traces = [];
+    for (const sd of segData) {
+      const letter = String.fromCharCode(65 + sd.i);
+      const label = `${letter}. ${sd.s.source === 'customer' ? 'UzKorGaz' : 'UniTool'} ` +
+                    `${(sd.s.fromTs || sd.s.from).slice(0,16).replace('T',' ')}…` +
+                    `${(sd.s.toTs   || sd.s.to  ).slice(0,16).replace('T',' ')}`;
+      // Кривая
+      if (showCurve) {
+        traces.push({
+          x: sd.xH.map(toUnit), y: sd.yY,
+          name: label, mode: 'lines', line: { color: sd.s.color, width: 1.5 },
+          hovertemplate: `+%{x:.2f} ${inDays ? 'дн' : 'ч'}: %{y:.3f}<extra>${label}</extra>`,
+        });
+      }
+      // Линия тренда
+      if (showTrend && sd.reg.slope != null) {
+        const xMin = 0;
+        const xMax = showForecast ? maxHours : sd.segDur;
+        const yA = sd.reg.intercept + sd.reg.slope * xMin;
+        const yB = sd.reg.intercept + sd.reg.slope * xMax;
+        const isForecast = showForecast && xMax > sd.segDur;
+        // Если есть прогноз — рисуем 2 куска: фактический + прогноз пунктиром
+        if (isForecast) {
+          // Факт-часть
+          traces.push({
+            x: [xMin, sd.segDur].map(toUnit),
+            y: [sd.reg.intercept + sd.reg.slope * xMin,
+                sd.reg.intercept + sd.reg.slope * sd.segDur],
+            name: `${letter}. тренд`, mode: 'lines',
+            line: { color: sd.s.color, width: 2.5, dash: 'dash' },
+            showlegend: !showCurve,
+            hoverinfo: 'skip',
+          });
+          // Прогноз-часть
+          traces.push({
+            x: [sd.segDur, xMax].map(toUnit),
+            y: [sd.reg.intercept + sd.reg.slope * sd.segDur, yB],
+            name: `${letter}. прогноз`, mode: 'lines',
+            line: { color: sd.s.color, width: 2, dash: 'dot' },
+            opacity: 0.6,
+            showlegend: false,
+            hoverinfo: 'skip',
+          });
+        } else {
+          traces.push({
+            x: [xMin, xMax].map(toUnit), y: [yA, yB],
+            name: `${letter}. тренд`, mode: 'lines',
+            line: { color: sd.s.color, width: 2.5, dash: 'dash' },
+            showlegend: !showCurve,
+            hoverinfo: 'skip',
+          });
+        }
+      }
     }
     const metricLabel = {
       dp: 'ΔP, кгс/см²',
@@ -2097,25 +2155,12 @@
       p_wellhead: 'P устье, кгс/см²',
       p_flowline: 'P шлейф, кгс/см²',
     }[metric] || metric;
-    // Если все сегменты короткие (< 24 ч) — показываем ось в часах,
-    // иначе — в сутках. Tickvals в часах в любом случае.
-    const inDays = maxHours > 48;
     const xTitle = inDays
       ? 'Время от начала сегмента, дни'
       : 'Время от начала сегмента, часы';
-    const xTickConverter = inDays
-      ? { tickformat: '.2f', tickmode: 'auto',
-          tickvals: undefined,
-          // делим часы на 24 для отображения дней
-          // через transform: применим к данным напрямую
-        }
-      : null;
-    // Конвертируем X в дни если нужно
-    if (inDays) {
-      for (const tr of traces) tr.x = tr.x.map(h => h / 24);
-    }
     Plotly.newPlot(el, traces, {
-      title: `Сравнение участков · ${metricLabel} · ось X = время от начала сегмента (Δt)`,
+      title: `Сравнение участков · ${metricLabel} · ось X = Δt от начала сегмента` +
+             (showForecast ? ' (прогноз пунктиром до длины самого длинного)' : ''),
       margin: { l: 60, r: 30, t: 50, b: 60 },
       xaxis: { title: xTitle, hoverformat: '.2f' },
       yaxis: { title: metricLabel },
@@ -2123,6 +2168,85 @@
       legend: { orientation: 'h', y: -0.2 },
       font: { size: 11 },
     }, { displaylogo: false, responsive: true });
+
+    // Таблица характеристик и трендов
+    _wz3cmpRenderTrendsTable(segData, metricLabel, method);
+  }
+
+  // Таблица: per-сегмент длительность, тренд (slope в /час и /день),
+  // R², min/max/mean/median.
+  function _wz3cmpRenderTrendsTable(segData, metricLabel, method) {
+    const box = $('wz3cmp-trends-table');
+    if (!box) return;
+    const fmt = (v, d=3) => (v == null || isNaN(v))
+      ? '<span style="color:#9ca3af;">—</span>' : Number(v).toFixed(d);
+    const sign = (v, d=3) => v == null ? '—'
+      : (v >= 0 ? '+' : '') + Number(v).toFixed(d);
+    let html = `<h4 style="margin:8px 0; font-size:0.92rem;">
+      Тренды и характеристики участков
+      <span style="font-size:0.78rem; font-weight:400; color:#6b7280;">
+        (метод: ${method === 'theil_sen' ? 'Theil-Sen' : 'МНК линейная'})
+      </span>
+    </h4>
+    <table class="wz-table" style="font-size:0.82rem;">
+      <thead><tr>
+        <th>Сегмент</th>
+        <th>Длительность</th>
+        <th>N точек</th>
+        <th>Среднее</th>
+        <th>Медиана</th>
+        <th>Мин</th>
+        <th>Макс</th>
+        <th>Slope, /час</th>
+        <th>Slope, /день</th>
+        <th>Направление</th>
+        <th>R²</th>
+      </tr></thead><tbody>`;
+    for (const sd of segData) {
+      const letter = String.fromCharCode(65 + sd.i);
+      const yY = sd.yY;
+      const n = yY.length;
+      let mean = null, median = null, mn = null, mx = null;
+      if (n > 0) {
+        mean = yY.reduce((s, x) => s + x, 0) / n;
+        const sorted = yY.slice().sort((a, b) => a - b);
+        median = sorted.length % 2
+          ? sorted[(sorted.length - 1) >> 1]
+          : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
+        mn = sorted[0];
+        mx = sorted[sorted.length - 1];
+      }
+      const slopeH = sd.reg.slope;       // единица/час
+      const slopeD = slopeH != null ? slopeH * 24 : null;  // /день
+      const arrow = slopeH == null ? '→'
+        : slopeH > 0.001 ? '↑ рост'
+        : slopeH < -0.001 ? '↓ падение'
+        : '→ стабильно';
+      const arrowColor = slopeH == null ? '#6b7280'
+        : slopeH > 0 ? '#059669' : slopeH < 0 ? '#dc2626' : '#6b7280';
+      const dur = sd.segDur;
+      const days = Math.floor(dur / 24);
+      const hrs  = (dur - days * 24).toFixed(1);
+      const r2Str = sd.reg.r2 == null ? '—' : sd.reg.r2.toFixed(3);
+      html += `
+        <tr>
+          <td><span style="display:inline-block; width:12px; height:12px; border-radius:2px;
+                           background:${sd.s.color}; vertical-align:middle; margin-right:5px;"></span>
+              <b>${letter}.</b> ${sd.s.source === 'customer' ? 'UzKorGaz' : 'UniTool'}</td>
+          <td>${days} сут ${hrs} ч</td>
+          <td>${n}</td>
+          <td>${fmt(mean)}</td>
+          <td>${fmt(median)}</td>
+          <td>${fmt(mn)}</td>
+          <td>${fmt(mx)}</td>
+          <td>${sign(slopeH, 4)}</td>
+          <td>${sign(slopeD, 3)}</td>
+          <td style="color:${arrowColor}; font-weight:600;">${arrow}</td>
+          <td>${r2Str}</td>
+        </tr>`;
+    }
+    html += '</tbody></table>';
+    box.innerHTML = html;
   }
 
   function _wz3cmpBindHandlers() {
@@ -2146,6 +2270,75 @@
         if (wz3cmpFullData) _wz3cmpRenderRichCharts();
       });
     });
+    // Тоггл-кнопки тренда / прогноза
+    ['wz3cmp-show-curve','wz3cmp-show-trend','wz3cmp-show-forecast',
+     'wz3cmp-trend-method'].forEach(id => {
+      $(id)?.addEventListener('change', _wz3cmpRenderChart);
+    });
+  }
+
+  // ─── Расчёт линейной регрессии (МНК) ──────────────────────────────
+  // Возвращает {slope, intercept, r2, n} для пары массивов x, y
+  function _linRegress(x, y) {
+    const v = [];
+    for (let i = 0; i < x.length; i++) {
+      if (x[i] != null && y[i] != null && !isNaN(x[i]) && !isNaN(y[i])) {
+        v.push([+x[i], +y[i]]);
+      }
+    }
+    const n = v.length;
+    if (n < 2) return { slope: null, intercept: null, r2: null, n };
+    let sx = 0, sy = 0;
+    for (const [a, b] of v) { sx += a; sy += b; }
+    const mx = sx / n, my = sy / n;
+    let num = 0, denX = 0, denY = 0;
+    for (const [a, b] of v) {
+      num  += (a - mx) * (b - my);
+      denX += (a - mx) ** 2;
+      denY += (b - my) ** 2;
+    }
+    if (denX === 0) return { slope: 0, intercept: my, r2: null, n };
+    const slope = num / denX;
+    const intercept = my - slope * mx;
+    const r2 = denY === 0 ? null : (num * num) / (denX * denY);
+    return { slope, intercept, r2, n };
+  }
+
+  // ─── Theil-Sen робастный slope (медиана попарных наклонов) ────────
+  // Не использует МНК, не чувствителен к выбросам
+  function _theilSen(x, y) {
+    const v = [];
+    for (let i = 0; i < x.length; i++) {
+      if (x[i] != null && y[i] != null && !isNaN(x[i]) && !isNaN(y[i])) {
+        v.push([+x[i], +y[i]]);
+      }
+    }
+    const n = v.length;
+    if (n < 2) return { slope: null, intercept: null, r2: null, n };
+    // Сэмплируем не более 5000 пар чтобы не повесить браузер
+    const slopes = [];
+    const maxPairs = 5000;
+    const step = Math.max(1, Math.floor(n * (n - 1) / 2 / maxPairs));
+    let cnt = 0;
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        if (++cnt % step !== 0) continue;
+        const dx = v[j][0] - v[i][0];
+        if (dx === 0) continue;
+        slopes.push((v[j][1] - v[i][1]) / dx);
+      }
+    }
+    if (!slopes.length) return { slope: 0, intercept: v[0][1], r2: null, n };
+    slopes.sort((a, b) => a - b);
+    const slope = slopes.length % 2
+      ? slopes[(slopes.length - 1) >> 1]
+      : (slopes[slopes.length / 2 - 1] + slopes[slopes.length / 2]) / 2;
+    // Intercept = медиана (y_i - slope * x_i)
+    const inters = v.map(([a, b]) => b - slope * a).sort((a, b) => a - b);
+    const intercept = inters.length % 2
+      ? inters[(inters.length - 1) >> 1]
+      : (inters[inters.length / 2 - 1] + inters[inters.length / 2]) / 2;
+    return { slope, intercept, r2: null, n };
   }
 
   // Загружает детальные данные UniTool (минутное/часовое разрешение)
@@ -3162,9 +3355,32 @@
           </span>
         </div>
         <div id="wz3cmp-segments" class="wz3cmp-segments"></div>
+
+        <!-- Тоггл-панель управления отображением тренда / прогноза -->
+        <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap;
+                    margin-top:10px; padding:8px 12px; background:#f5f7fa;
+                    border:1px solid #d8dee5; border-radius:5px;
+                    font-size:0.82rem;">
+          <b>Показать на графике:</b>
+          <label><input type="checkbox" id="wz3cmp-show-curve" checked> Кривая (точки данных)</label>
+          <label><input type="checkbox" id="wz3cmp-show-trend" checked> Линия тренда</label>
+          <label><input type="checkbox" id="wz3cmp-show-forecast"> Прогноз до длины самого длинного</label>
+          <span style="margin-left:auto;">
+            Метод тренда:
+            <select id="wz3cmp-trend-method"
+                    style="padding:2px 6px; border:1px solid #d1d5db;
+                           border-radius:3px; font-size:0.78rem; margin-left:4px;">
+              <option value="linear">Линейная регрессия (МНК)</option>
+              <option value="theil_sen">Theil-Sen (робастная)</option>
+            </select>
+          </span>
+        </div>
+
         <div id="wz3cmp-chart"
-             style="height:380px; margin-top:10px; display:none;
+             style="height:420px; margin-top:10px; display:none;
                     border:1px solid #e5e7eb; border-radius:6px;"></div>
+        <!-- Таблица характеристик / трендов / скоростей по сегментам -->
+        <div id="wz3cmp-trends-table" style="margin-top:10px;"></div>
         <div id="wz3cmp-status" style="margin-top:6px; font-size:0.82rem;"></div>
         <!-- Скрытая кнопка для совместимости со старым обработчиком (если был
              добавитель «из шкалы вверху») — убираем UI, оставляем функцию -->

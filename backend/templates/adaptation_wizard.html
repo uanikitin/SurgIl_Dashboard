@@ -2039,20 +2039,34 @@
     if (!block || !state.well?.id) return;
     if (status) { status.textContent = '⏳ Загружаю детальные данные UniTool…'; status.style.color = '#92400e'; }
 
-    // Берём диапазон pressure_raw скважины + этапы для маркеров
-    let dateFrom, dateTo;
+    // Берём диапазоны UzKorGaz + UniTool + этапы + дату установки
+    let ourFrom, ourTo, custFrom, custTo, equipDt;
     try {
-      const r = await fetch('/api/adaptation-report/timeline?well_id=' + state.well.id);
+      const r = await fetch('/api/adaptation-report/timeline?well_id=' + state.well.id
+                            + '&_=' + Date.now(), { cache: 'no-store' });
       const tl = await r.json();
-      dateFrom = tl.our_data?.first_date;
-      dateTo   = tl.our_data?.last_date;
+      ourFrom  = tl.our_data?.first_date;
+      ourTo    = tl.our_data?.last_date;
+      custFrom = tl.customer_data?.first_date;
+      custTo   = tl.customer_data?.last_date;
+      const equipEv = (tl.events || []).find(e => e.kind === 'equip');
+      equipDt  = equipEv?.dt ? equipEv.dt.slice(0, 10) : null;
       state._cmpStages = tl.stages || [];
     } catch (e) {
       if (status) { status.textContent = '✗ ' + e.message; status.style.color = '#dc2626'; }
       return;
     }
-    if (!dateFrom || !dateTo) {
-      if (status) { status.textContent = '⚠ Нет данных UniTool (LoRa) для этой скважины.'; status.style.color = '#dc2626'; }
+    // Полный диапазон ось X — объединение UzKorGaz и UniTool (если оба есть)
+    const allFrom = [ourFrom, custFrom].filter(Boolean).sort()[0];
+    const allTo   = [ourTo, custTo].filter(Boolean).sort().slice(-1)[0];
+    // Для UniTool fetch берём от equip_dt (если был) до конца — отбрасываем
+    // pressure_raw до установки оборудования (артефакт привязки)
+    const fetchOurFrom = (equipDt && ourFrom && equipDt > ourFrom) ? equipDt : ourFrom;
+    const fetchOurTo   = ourTo;
+    const dateFrom = fetchOurFrom;  // legacy var, используется ниже
+    const dateTo   = fetchOurTo;
+    if ((!dateFrom || !dateTo) && !custFrom) {
+      if (status) { status.textContent = '⚠ Нет данных ни в pressure_raw, ни в well_daily для этой скважины.'; status.style.color = '#dc2626'; }
       block.style.display = 'none';
       return;
     }
@@ -2102,12 +2116,13 @@
       dates: ts, p_tube: pt, p_line: pl, dp, q: fr, dateFrom, dateTo,
     };
 
-    // Опционально: overlay UzKorGaz
-    if ($('wz3cmp-overlay-cust')?.checked) {
+    // Опционально: overlay UzKorGaz за ПОЛНЫЙ его диапазон (custFrom..custTo),
+    // НЕ ограниченный UniTool. Так данные январь-февраль увидены до monтажа.
+    if ($('wz3cmp-overlay-cust')?.checked && custFrom && custTo) {
       try {
         const wn = state.well?.number;
         const cr = await fetch(`/api/customer-daily/well/${encodeURIComponent(wn)}` +
-                               `?date_from=${dateFrom}&date_to=${dateTo}`);
+                               `?date_from=${custFrom}&date_to=${custTo}`);
         if (cr.ok) {
           const cd = await cr.json();
           if (cd.ok && cd.chart) wz3cmpCustOverlay = cd.chart;
@@ -2120,9 +2135,13 @@
     block.style.display = '';
     _wz3cmpRenderRichCharts();
     if (status) {
-      status.textContent = `✓ ${ts.length} точек ${dateFrom}…${dateTo}` +
-        (wz3cmpCustOverlay ? ' + UzKorGaz overlay' : '') +
-        '. Выделите участок мышкой на любом графике.';
+      const dropNote = (equipDt && ourFrom && equipDt > ourFrom)
+        ? ` (отбросили pressure_raw до ${equipDt} — до монтажа)` : '';
+      status.innerHTML = `✓ UniTool: <b>${ts.length}</b> точек ${dateFrom}…${dateTo}${dropNote}` +
+        (wz3cmpCustOverlay
+          ? ` · UzKorGaz: <b>${(wz3cmpCustOverlay.dates||[]).length}</b> сут ${custFrom}…${custTo}`
+          : '') +
+        '. <b>Чтобы выбрать участок</b> — нажмите иконку <b>📦 Box Select</b> в верхнем меню любого графика и проведите мышью по горизонтали.';
       status.style.color = '#059669';
     }
   }
@@ -2218,9 +2237,11 @@
     });
     const cfg = {
       displaylogo: false, responsive: true,
+      // Box Select явно в toolbar — пользователь может переключаться
+      // между Zoom / Pan / Box Select. autoScale (домик) — чтобы быстро
+      // увидеть весь диапазон.
       modeBarButtonsToAdd: ['select2d'],
-      // Убираем зум из тулбара чтобы не путать с select
-      modeBarButtonsToRemove: ['lasso2d', 'autoScale2d'],
+      modeBarButtonsToRemove: ['lasso2d'],
     };
 
     // 1. Давления (наши)

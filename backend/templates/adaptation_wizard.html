@@ -1466,8 +1466,54 @@
     if (v === null || v === undefined || isNaN(v)) return '—';
     return Number(v).toFixed(d);
   }
-  // ═══ STEP 3: Наблюдение (B2) — полный анализ ═══
+  // ═══ STEP 3: Наблюдение (B2) — встраивает /customer-daily?mode=observation ═══
+  // Полный анализ + шкала + сравнение + утверждение B2 + прикрепление в отчёт.
   function renderStep3(main) {
+    const d = state.steps[3].data;
+    const wn = state.well?.number ? encodeURIComponent(String(state.well.number)) : '';
+    const src = wn
+      ? `/customer-daily?embedded=1&mode=observation&well=${wn}`
+      : '/customer-daily?embedded=1&mode=observation';
+    main.innerHTML = `
+      <h2 class="wz-step-title"><span class="step-num">3</span>Этап наблюдения (B2, наши данные UniTool)</h2>
+
+      <div style="background: #fff3cd; border-left: 4px solid #f57f17; padding: 0.7rem 0.9rem;
+                  border-radius: 5px; margin-bottom: 1rem; font-size: 0.86rem; line-height: 1.5;">
+        <b>📌 Зачем эта глава:</b> на наших датчиках UniTool (минутная/часовая дискретность,
+        точнее данных заказчика) фиксируем <b>базовые параметры</b> до начала работ.
+        Можно <b>менять длительность периода</b> через шкалу и видеть как меняются
+        базовые значения (Q, ΔP). Когда нашли «правильное» окно — нажмите
+        <b>«✓ Утвердить как B2»</b>. Прикрепите блок в отчёт кнопкой
+        <b>«➕ Прикрепить к отчёту»</b> — он попадёт в раздел «Наблюдение» PDF.
+        <br><br>
+        <b>Окончание наблюдения = начало адаптации</b> — автоматически прокидывается в шаг 5.
+      </div>
+
+      <div class="wz-step-hint" style="margin-bottom:0.5rem;">
+        Ниже встроена страница «Анализ периода» в режиме <b>Наблюдение (B2)</b>:
+        шкала с этапами, наложение UniTool ↔ UzKorGaz, помесячная агрегация,
+        строгое сравнение, прикрепление к отчёту.
+        <a href="${src.replace('embedded=1&', '')}" target="_blank"
+           style="margin-left:0.5rem;">Открыть в отдельной вкладке ↗</a>
+      </div>
+
+      <div class="wz-section" style="padding:0; overflow:hidden;">
+        <iframe id="wz3-cd-iframe" src="${src}"
+                style="width:100%; height:calc(100vh - 280px); min-height:700px;
+                       border:none; display:block; background:#fff;"
+                title="Этап наблюдения (B2)"></iframe>
+      </div>
+
+      ${includeBlock(3, 'Включить раздел «Этап наблюдения» в PDF')}
+      ${navButtons(3)}
+    `;
+    bindIncludeBlock(3);
+    markStatus(3, 'done');
+  }
+
+  // ═══ STEP 3 (legacy): Наблюдение (B2) — старая версия с собственной логикой ═══
+  // Оставлена как dead code — могут понадобиться wz3* helpers для шага 5.
+  function renderStep3_LEGACY(main) {
     const d = state.steps[3].data;
     if (!d.source) d.source = 'auto';
 

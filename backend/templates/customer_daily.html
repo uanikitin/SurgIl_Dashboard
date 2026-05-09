@@ -808,6 +808,45 @@
   const PRESET_WELL = {{ preset_well|tojson if preset_well else "null" }};
   const PRESET_FROM = {{ preset_from|tojson if preset_from else "null" }};
   const PRESET_TO   = {{ preset_to|tojson   if preset_to   else "null" }};
+  const PAGE_MODE   = {{ page_mode|tojson if page_mode is defined else '"customer"' }};
+  // 'customer' — обычный режим «Данные заказчика»
+  // 'observation' — режим B2: этап наблюдения, UniTool как первичный источник
+
+  // Применяем режим observation сразу при загрузке (заголовки + автo-overlay)
+  if (PAGE_MODE === 'observation') {
+    document.addEventListener('DOMContentLoaded', () => {
+      const h1 = document.querySelector('h1');
+      if (h1) h1.textContent = 'Этап наблюдения (B2) — анализ данных UniTool и UzKorGaz';
+      // Заголовки секций
+      const setSec = (id, text) => {
+        const el = document.querySelector(`#${id} h2`);
+        if (el) el.firstChild && (el.firstChild.textContent = text);
+      };
+      const setH2 = (sel, text) => {
+        const el = document.querySelector(sel);
+        if (el) el.childNodes[0].nodeValue = text;
+      };
+      setH2('#cd-period-section h2', '4. Период этапа наблюдения');
+      setH2('#cd-attached-section h2', '6. Прикреплено к разделу «Наблюдение» отчёта ');
+      // Автовключение overlay UniTool — в наблюдении это первичный источник
+      setTimeout(() => {
+        const cb = $('cd-compare-toggle');
+        if (cb && !cb.checked) {
+          cb.checked = true;
+          cb.dispatchEvent(new Event('change'));
+        }
+        // Кнопка B1 → B2 (визуально)
+        const b1Btn = $('cd-set-baseline-btn');
+        if (b1Btn) {
+          b1Btn.innerHTML = '✓ Утвердить как B2';
+          b1Btn.title = 'Сохранить как утверждённый baseline B2 (этап наблюдения, наши датчики UniTool)';
+        }
+        // Плитка утверждённого B1 — переименовать в B2 (косметика)
+        const apprH = document.querySelector('#cd-approved-b1-section h2');
+        if (apprH) apprH.innerHTML = '📌 Утверждённый baseline B2 (этап наблюдения)';
+      }, 200);
+    });
+  }
 
   let pendingFile = null;
   let lastWellData = null;   // ответ /api/customer-daily/well/{well}

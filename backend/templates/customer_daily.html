@@ -3467,10 +3467,22 @@
 
     const body = $('cd-preview-body');
     body.innerHTML = '';
+    const hasOurOverlay = !!(snap.unitool && snap.unitool.daily && snap.unitool.daily.dates && snap.unitool.daily.dates.length);
 
-    // ─── 1. Сводные метрики (плитка как в B1) ────────────────────
-    const metricsHtml = `
-      <h3 style="margin:0 0 8px;">📊 Сводные метрики</h3>
+    // Стиль для текстового перехода между секциями
+    const intro = (text) =>
+      `<p style="margin:6px 0 10px; padding:8px 12px; background:#f0f9ff;
+                 border-left:3px solid #0284c7; border-radius:4px;
+                 font-size:0.85rem; color:#0c4a6e; line-height:1.5;">${text}</p>`;
+
+    // ─── 1. Ключевые показатели за период ────────────────────────
+    body.innerHTML +=
+      `<h3 style="margin:0 0 6px;">Ключевые показатели за период</h3>` +
+      intro(
+        `Сводка средних и медианных значений за выбранный диапазон <b>${dFrom} → ${dTo}</b> ` +
+        `(<b>${days}</b> сут.) по данным заказчика UzKorGaz` +
+        (hasOurOverlay ? ' (наложение UniTool активно — см. графики и таблицы ниже).' : '.')
+      ) + `
       <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
                   gap:8px; margin-bottom:18px;">
         <div class="b1-metric"><div class="b1-metric-title">Q общий</div>
@@ -3494,27 +3506,37 @@
           <div class="b1-metric-val">${snap.shutdown_min_total ? (snap.shutdown_min_total/60).toFixed(1) : '0'} <span class="b1-unit">часов</span></div>
           <div class="b1-metric-unit">${snap.shutdown_days_count || 0} дней с простоем</div></div>
       </div>`;
-    body.innerHTML += metricsHtml;
 
-    // ─── 2. Графики (4 шт) ───────────────────────────────────────
+    // ─── 2. Графики динамики ─────────────────────────────────────
     if (snap.chart && snap.chart.dates && snap.chart.dates.length) {
-      body.innerHTML += `
-        <h3 style="margin:14px 0 8px;">📈 Графики</h3>
+      body.innerHTML +=
+        `<h3 style="margin:14px 0 6px;">Графики динамики показателей</h3>` +
+        intro(
+          'Суточная динамика давлений (устье / затрубное / шлейф / статическое), перепада ΔP, ' +
+          'дебитов (общий и рабочий), а также времени простоя по данным UzKorGaz.' +
+          (hasOurOverlay
+            ? ' Поверх (заливка) наложены данные UniTool с LoRa-датчиков, агрегированные посуточно.'
+            : '')
+        ) + `
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
           <div id="cd-pv-pres" style="height:300px;"></div>
           <div id="cd-pv-dp" style="height:300px;"></div>
           <div id="cd-pv-rates" style="height:300px;"></div>
           <div id="cd-pv-monthly" style="height:300px;"></div>
         </div>`;
-      // Перерисовываем через Plotly после вставки в DOM
       setTimeout(() => _renderPreviewCharts(snap), 50);
     }
 
-    // ─── 3. Описательная статистика (таблица) ───────────────────
+    // ─── 3. Статистика по показателям (таблица описательной) ─────
     if (snap.describe && snap.describe.length) {
+      body.innerHTML +=
+        `<h3 style="margin:18px 0 6px;">Статистика по показателям</h3>` +
+        intro(
+          'Сводная таблица по каждому параметру — количество измерений, среднее, ' +
+          'СКО (рассеяние) и медиана. По СКО видно стабильность параметра в периоде.'
+        );
       const ds = snap.describe;
-      let descHtml = `<h3 style="margin:18px 0 8px;">📋 Описательная статистика</h3>
-        <table class="cd-table"><thead><tr>
+      let descHtml = `<table class="cd-table"><thead><tr>
           <th>Параметр</th><th>N</th><th>Среднее</th><th>СКО</th><th>Медиана</th>
         </tr></thead><tbody>`;
       for (const r of ds) {
@@ -3526,11 +3548,18 @@
       body.innerHTML += descHtml;
     }
 
-    // ─── 4. Помесячная таблица + описания ────────────────────────
+    // ─── 4. Динамика по месяцам (таблица) ────────────────────────
     if (snap.monthly && snap.monthly.length) {
+      body.innerHTML +=
+        `<h3 style="margin:18px 0 6px;">Динамика показателей по месяцам</h3>` +
+        intro(
+          'Помесячная агрегация показателей UzKorGaz. По колонкам Q видно изменение дебита ' +
+          'между месяцами; ΔP — изменение перепада давления (рост ΔP обычно говорит о ' +
+          'засорении призабойной зоны или ствола скважины); простой — суммарное время ' +
+          'неработающего состояния скважины в среднем за день месяца.'
+        );
       const ms = snap.monthly;
-      let mHtml = `<h3 style="margin:18px 0 8px;">📅 Помесячная агрегация</h3>
-        <table class="cd-table"><thead><tr>
+      let mHtml = `<table class="cd-table"><thead><tr>
           <th>Месяц</th><th>Дней</th>
           <th>Q общ. ср.</th><th>Q общ. мед.</th>
           <th>Q раб. ср.</th><th>Q раб. мед.</th>
@@ -3550,26 +3579,96 @@
       body.innerHTML += mHtml;
     }
 
-    if (snap.monthly_desc && snap.monthly_desc.length) {
-      let dHtml = `<h3 style="margin:18px 0 8px;">Описание по месяцам</h3>
-        <div class="cd-month-list">`;
-      for (const d of snap.monthly_desc) {
-        dHtml += `<div class="cd-month-item">
-          <div class="label">${d.label}</div>
-          <div class="text">${d.text}</div>
-        </div>`;
+    // ─── 5. Описание изменений по месяцам (UzKorGaz + UniTool) ──
+    if ((snap.monthly_desc && snap.monthly_desc.length)
+        || (snap.unitool && snap.unitool.by_month)) {
+      body.innerHTML +=
+        `<h3 style="margin:18px 0 6px;">Развёрнутое описание изменений по месяцам</h3>` +
+        intro(
+          'Поясняющий текст к каждому месяцу: средние значения, тренды, изменения ' +
+          'по сравнению с предыдущим месяцем. Для месяцев, в которых есть данные UniTool, ' +
+          'добавлен отдельный блок с метриками датчиков и оценкой расхождения с UzKorGaz.'
+        );
+      const list = document.createElement('div');
+      list.className = 'cd-month-list';
+      const descs = snap.monthly_desc || [];
+      const ourBy = snap.unitool?.by_month || {};
+      const monthsCust = snap.monthly || [];
+      for (const d of descs) {
+        const wrap = document.createElement('div');
+        wrap.className = 'cd-month-item';
+        const cust = `<div style="margin-top:4px; padding:8px 10px; background:#dbeafe;
+                                  border-left:3px solid #1d4ed8; border-radius:4px;">
+                        <div style="font-weight:600; color:#1e3a8a; font-size:0.78rem;
+                                    margin-bottom:3px;">📊 UzKorGaz</div>
+                        <div class="text" style="font-size:0.84rem; line-height:1.55;">${d.text}</div>
+                      </div>`;
+        // UniTool — генерируем текст из ourBy[label]
+        let our = '';
+        const o = ourBy[d.label];
+        if (o && o.days) {
+          const cust_r = monthsCust.find(m => m.month_label === d.label) || {};
+          const custDays = cust_r.days || 0;
+          const cmpRatio = Math.max(custDays, o.days)
+            ? Math.abs(custDays - o.days) / Math.max(custDays, o.days) * 100 : 0;
+          const compat = cmpRatio <= 10;
+          const lines = [];
+          lines.push(`За месяц записано <b>${o.days}</b> сут измерений.`);
+          if (o.mean_q != null || o.median_q != null) {
+            lines.push(`Q (расчётный): среднее <b>${fmt(o.mean_q)}</b>, медиана <b>${fmt(o.median_q)}</b> тыс.м³/сут.`);
+          }
+          if (o.mean_dp != null || o.median_dp != null) {
+            lines.push(`Перепад давления: среднее <b>${fmt(o.mean_dp)}</b>, медиана <b>${fmt(o.median_dp)}</b> кгс/см².`);
+          }
+          if (o.mean_p_tube != null) {
+            lines.push(`Среднее устьевое давление: <b>${fmt(o.mean_p_tube)}</b> кгс/см².`);
+          }
+          if (compat && cust_r.mean_q_total != null && o.mean_q != null) {
+            const dQ = (o.mean_q - cust_r.mean_q_total) / cust_r.mean_q_total * 100;
+            const dDp = (cust_r.mean_dp != null && o.mean_dp != null && cust_r.mean_dp !== 0)
+              ? (o.mean_dp - cust_r.mean_dp) / cust_r.mean_dp * 100 : null;
+            const arr = (v) => v >= 0 ? '↑' : '↓';
+            const cmp = [`Q ${arr(dQ)} ${(dQ >= 0 ? '+' : '') + dQ.toFixed(1)}%`];
+            if (dDp != null) cmp.push(`ΔP ${arr(dDp)} ${(dDp >= 0 ? '+' : '') + dDp.toFixed(1)}%`);
+            lines.push(`<b>Расхождение с UzKorGaz:</b> ${cmp.join(', ')}.`);
+          }
+          const compatNote = compat
+            ? ` <span style="color:#059669;">Сопоставимо с UzKorGaz (${custDays} сут): разница ${cmpRatio.toFixed(1)}% ≤ 10%.</span>`
+            : ` <span style="color:#b45309;">⚠ Несопоставимо с UzKorGaz (${custDays} сут): разница ${cmpRatio.toFixed(1)}% &gt; 10%.</span>`;
+          our = `<div style="margin-top:6px; padding:8px 10px; background:#fed7aa;
+                              border-left:3px solid #c2410c; border-radius:4px;">
+                   <div style="font-weight:600; color:#7c2d12; font-size:0.78rem;
+                               margin-bottom:3px;">🌐 UniTool (LoRa-датчики)</div>
+                   <div class="text" style="font-size:0.84rem; line-height:1.55;">
+                     ${lines.join(' ')}${compatNote}
+                   </div>
+                 </div>`;
+        } else if (snap.unitool) {
+          our = `<div style="margin-top:6px; padding:8px 10px; background:#f3f4f6;
+                              border-left:3px solid #9ca3af; border-radius:4px;
+                              font-size:0.82rem; color:#6b7280; font-style:italic;">
+                   🌐 UniTool: нет данных за этот месяц
+                   ${snap.unitool.equip_dt ? `(датчик установлен ${snap.unitool.equip_dt.slice(0,10)})` : ''}
+                 </div>`;
+        }
+        wrap.innerHTML = `<div class="label">${d.label}</div>` + cust + our;
+        list.appendChild(wrap);
       }
-      dHtml += '</div>';
-      body.innerHTML += dHtml;
+      body.appendChild(list);
     }
 
-    // ─── 5. Текстовый анализ (UzKorGaz/UniTool/совмещённый) ──────
+    // ─── 6. Анализ периода (UzKorGaz / UniTool / совмещение) ────
     if (snap.overlap_html) {
-      body.innerHTML += `<h3 style="margin:18px 0 8px;">📝 Текстовый анализ</h3>
-        <div>${snap.overlap_html}</div>`;
+      body.innerHTML +=
+        `<h3 style="margin:18px 0 6px;">Анализ периода: UzKorGaz и UniTool</h3>` +
+        intro(
+          'Развёрнутое описание выбранного периода по двум источникам — суточные сводки ' +
+          'заказчика и LoRa-датчики UniTool — с указанием дат, объёма данных, ключевых ' +
+          'метрик и совместного периода (когда измерения есть и там, и там).'
+        ) + `<div>${snap.overlap_html}</div>`;
     }
 
-    // ─── 6. Строгое сравнение (если было) ───────────────────────
+    // ─── 7. Сопоставление UzKorGaz и UniTool на одних и тех же днях ───
     if (snap.strict_compare) {
       const sc = snap.strict_compare;
       const sign = (v) => v == null ? '—' : (v >= 0 ? '+' : '') + fmt(v);
@@ -3586,10 +3685,14 @@
           <td>${sign(dMd)}</td><td>${dMdp != null ? sign(dMdp) + '%' : '—'}</td>
         </tr>`;
       };
-      body.innerHTML += `<h3 style="margin:18px 0 8px;">🔗 Строгое сравнение на совместном периоде</h3>
-        <div style="font-size:0.84rem; color:#92400e; margin-bottom:6px;">
-          Совместных дней: <b>${sc.days}</b> (${sc.dates_from} — ${sc.dates_to})
-        </div>
+      body.innerHTML +=
+        `<h3 style="margin:18px 0 6px;">Сопоставление UzKorGaz и UniTool на совпадающих днях</h3>` +
+        intro(
+          `Когда периоды UzKorGaz и UniTool различаются по длине, прямое сравнение средних ` +
+          `некорректно. Здесь метрики посчитаны <b>только на тех днях, где есть оба источника</b> ` +
+          `(${sc.days} сут., ${sc.dates_from} — ${sc.dates_to}). Δ показывает расхождение между ` +
+          `источниками: положительное = UniTool выше UzKorGaz, отрицательное = ниже.`
+        ) + `
         <table class="cd-table"><thead><tr>
           <th rowspan="2">Параметр</th>
           <th colspan="2" style="background:#dbeafe;">UzKorGaz</th>
@@ -3609,9 +3712,9 @@
         </tbody></table>`;
     }
 
-    // ─── 7. Комментарий блока ───────────────────────────────────
+    // ─── 8. Комментарий блока ───────────────────────────────────
     if (block.comment) {
-      body.innerHTML += `<h3 style="margin:18px 0 8px;">💬 Комментарий</h3>
+      body.innerHTML += `<h3 style="margin:18px 0 6px;">Комментарий к блоку</h3>
         <div style="padding:10px 12px; background:#f9fafb; border-left:3px solid #6b7280;
                     border-radius:4px; font-size:0.88rem; line-height:1.5;
                     white-space:pre-wrap;">${block.comment.replace(/</g,'&lt;')}</div>`;
@@ -3627,31 +3730,59 @@
     const layout = { margin:{l:50,r:30,t:30,b:50}, hovermode:'x unified',
                      font:{size:10}, legend:{orientation:'h', y:-0.18} };
     const cfg = { displaylogo:false, responsive:true };
+    // Overlay UniTool из суточной агрегации (если был наложен на странице)
+    const ud = snap.unitool?.daily;
+    const hasOur = !!(ud && ud.dates && ud.dates.length);
+    const ourColor = '#ea580c';
+    const ourFill = (alpha) => `rgba(234, 88, 12, ${alpha})`;
+
     // Давления
     if (window.Plotly && document.getElementById('cd-pv-pres')) {
-      Plotly.newPlot('cd-pv-pres', [
-        { x:c.dates, y:c.p_wellhead, name:'устье', mode:'lines+markers', line:{width:1.4} },
-        { x:c.dates, y:c.p_annular,  name:'затрубное', mode:'lines+markers', line:{width:1.4} },
-        { x:c.dates, y:c.p_flowline, name:'шлейф', mode:'lines+markers', line:{width:1.4} },
-        { x:c.dates, y:c.p_static,   name:'статич.', mode:'lines+markers', line:{width:1.4} },
-      ], { ...layout, title:'Давления, кгс/см²' }, cfg);
+      const traces = [
+        { x:c.dates, y:c.p_wellhead, name:'UzKorGaz: устье', mode:'lines+markers', line:{width:1.4} },
+        { x:c.dates, y:c.p_annular,  name:'UzKorGaz: затрубное', mode:'lines+markers', line:{width:1.4} },
+        { x:c.dates, y:c.p_flowline, name:'UzKorGaz: шлейф', mode:'lines+markers', line:{width:1.4} },
+        { x:c.dates, y:c.p_static,   name:'UzKorGaz: статич.', mode:'lines+markers', line:{width:1.4} },
+      ];
+      if (hasOur) {
+        traces.push(
+          { x:ud.dates, y:ud.p_tube, name:'UniTool: P_tube', mode:'lines',
+            line:{color:ourColor, width:2}, fill:'tozeroy', fillcolor:ourFill(0.18) },
+          { x:ud.dates, y:ud.p_line, name:'UniTool: P_line', mode:'lines',
+            line:{color:'#fb923c', width:2}, fill:'tozeroy', fillcolor:ourFill(0.12) },
+        );
+      }
+      Plotly.newPlot('cd-pv-pres', traces, { ...layout, title:'Давления, кгс/см²' }, cfg);
     }
     // ΔP
     if (window.Plotly && document.getElementById('cd-pv-dp')) {
-      Plotly.newPlot('cd-pv-dp', [
-        { x:c.dates, y:c.dp, name:'ΔP', mode:'lines+markers', line:{color:'#dc2626', width:1.6} },
-      ], { ...layout, title:'Перепад давления, кгс/см²' }, cfg);
+      const traces = [
+        { x:c.dates, y:c.dp, name:'UzKorGaz: ΔP', mode:'lines+markers', line:{color:'#dc2626', width:1.6} },
+      ];
+      if (hasOur) {
+        traces.push({ x:ud.dates, y:ud.dp, name:'UniTool: ΔP', mode:'lines',
+          line:{color:ourColor, width:2}, fill:'tozeroy', fillcolor:ourFill(0.20) });
+      }
+      Plotly.newPlot('cd-pv-dp', traces,
+        { ...layout, title:'Перепад давления, кгс/см²' }, cfg);
     }
     // Дебиты + простой
     if (window.Plotly && document.getElementById('cd-pv-rates')) {
-      Plotly.newPlot('cd-pv-rates', [
-        { x:c.dates, y:c.q_gas_total,   name:'Q общий',   mode:'lines+markers', line:{color:'#1d4ed8', width:1.5}, yaxis:'y' },
-        { x:c.dates, y:c.q_gas_working, name:'Q рабочий', mode:'lines+markers', line:{color:'#16a34a', width:1.5}, yaxis:'y' },
-        { x:c.dates, y:c.shutdown_min,  name:'Простой, мин', type:'bar', marker:{color:'rgba(220,38,38,0.35)'}, yaxis:'y2' },
-      ], { ...layout, title:'Дебиты и простой',
-           yaxis:{title:'Q, тыс.м³/сут'},
-           yaxis2:{title:'Простой, мин', overlaying:'y', side:'right', showgrid:false, rangemode:'tozero'},
-           barmode:'overlay' }, cfg);
+      const traces = [
+        { x:c.dates, y:c.q_gas_total,   name:'UzKorGaz: Q общий',   mode:'lines+markers', line:{color:'#1d4ed8', width:1.5}, yaxis:'y' },
+        { x:c.dates, y:c.q_gas_working, name:'UzKorGaz: Q рабочий', mode:'lines+markers', line:{color:'#16a34a', width:1.5}, yaxis:'y' },
+        { x:c.dates, y:c.shutdown_min,  name:'UzKorGaz: простой, мин', type:'bar', marker:{color:'rgba(220,38,38,0.35)'}, yaxis:'y2' },
+      ];
+      if (hasOur && snap.unitool?.has_flow) {
+        traces.push({ x:ud.dates, y:ud.q, name:'UniTool: Q (расчёт)', mode:'lines',
+          line:{color:ourColor, width:2}, fill:'tozeroy', fillcolor:ourFill(0.18), yaxis:'y' });
+      }
+      Plotly.newPlot('cd-pv-rates', traces, {
+        ...layout, title:'Дебиты и простой',
+        yaxis:{title:'Q, тыс.м³/сут'},
+        yaxis2:{title:'Простой, мин', overlaying:'y', side:'right', showgrid:false, rangemode:'tozero'},
+        barmode:'overlay'
+      }, cfg);
     }
     // Помесячно
     if (window.Plotly && document.getElementById('cd-pv-monthly') && snap.monthly && snap.monthly.length) {
@@ -3734,29 +3865,55 @@
     const shutdownTotal = shutdownArr.reduce((s, x) => s + x, 0);
     const shutdownDays  = shutdownArr.filter(v => v > 0).length;
 
-    // UniTool snapshot (метрики + сводки агрегатов по месяцам, без сырых часовых
-    // рядов — они весят слишком много, при «Открыть» пересчитываются на лету
-    // через /api/flow-rate/calculate)
+    // UniTool snapshot. Часовой ряд → агрегируем по суткам для overlay
+    // на графиках предпросмотра (часовой раздул бы snapshot до ~80KB).
     let unitool = null;
     if (ourOn) {
       const ourMap = _buildOurDescribeMap() || {};
       const ourByMonth = _aggregateOurByMonth() || {};
       const ourDays = (lastOurData?.pressure?.dates || [])
         .reduce((s,t) => { if (t) s.add(String(t).slice(0,10)); return s; }, new Set()).size;
+
+      // Агрегация UniTool по суткам — даёт ~90 точек/период вместо 2160
+      const o = lastOurData;
+      const dayBuckets = {};
+      const ots = o.pressure?.dates || [];
+      const opt = o.pressure?.p_tube || [];
+      const opl = o.pressure?.p_line || [];
+      const odp = o.pressure?.dp    || [];
+      const ofr = o.flow?.avg_flow_rate || [];
+      for (let i = 0; i < ots.length; i++) {
+        const dk = String(ots[i]).slice(0, 10);
+        if (!dayBuckets[dk]) dayBuckets[dk] = { pt: [], pl: [], dp: [], q: [] };
+        if (opt[i] != null) dayBuckets[dk].pt.push(+opt[i]);
+        if (opl[i] != null) dayBuckets[dk].pl.push(+opl[i]);
+        if (odp[i] != null) dayBuckets[dk].dp.push(+odp[i]);
+        if (ofr.length && ofr[i] != null) dayBuckets[dk].q.push(+ofr[i]);
+      }
+      const avg = (a) => a.length ? a.reduce((s,x) => s+x, 0)/a.length : null;
+      const dayKeys = Object.keys(dayBuckets).sort();
+      const daily = {
+        dates:   dayKeys,
+        p_tube:  dayKeys.map(k => avg(dayBuckets[k].pt)),
+        p_line:  dayKeys.map(k => avg(dayBuckets[k].pl)),
+        dp:      dayKeys.map(k => avg(dayBuckets[k].dp)),
+        q:       dayKeys.map(k => avg(dayBuckets[k].q)),
+      };
+
       unitool = {
-        first_date: lastOurData.sensor_first_date,
-        last_date:  lastOurData.pressure?.dates?.length
-          ? lastOurData.pressure.dates[lastOurData.pressure.dates.length - 1].slice(0, 10)
+        first_date: o.sensor_first_date,
+        last_date:  o.pressure?.dates?.length
+          ? o.pressure.dates[o.pressure.dates.length - 1].slice(0, 10)
           : null,
         days: ourDays,
-        equip_dt: lastOurData.equip_dt,
-        dropped_pre_equip: lastOurData.dropped_pre_equip || 0,
-        choke_mm: lastOurData.choke_mm,
-        has_flow: !!lastOurData.has_flow,
-        // Сводные метрики (mean/median/n) по тем же label-ам, что и UzKorGaz
+        equip_dt: o.equip_dt,
+        dropped_pre_equip: o.dropped_pre_equip || 0,
+        choke_mm: o.choke_mm,
+        has_flow: !!o.has_flow,
+        well_number: o.well?.number,
         describe_map: ourMap,
-        // Помесячно — { 'Январь 2026': {days, mean_q, median_q, mean_dp, ...} }
         by_month: ourByMonth,
+        daily: daily,  // суточный ряд для overlay
       };
     }
 

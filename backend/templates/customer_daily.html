@@ -743,6 +743,29 @@
   </div>
 
   <!-- ═══ 6. Прикреплённые блоки отчёта ═══ -->
+  <!-- Модалка предпросмотра прикреплённого блока (то что пойдёт в PDF) -->
+  <div id="cd-block-preview-modal"
+       style="display:none; position:fixed; inset:0; z-index:9999;
+              background:rgba(0,0,0,0.55); overflow-y:auto; padding:30px 20px;">
+    <div style="max-width:1200px; margin:0 auto; background:#fff;
+                border-radius:8px; padding:20px 24px; box-shadow:0 10px 40px rgba(0,0,0,0.3);">
+      <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;
+                  padding-bottom:12px; border-bottom:2px solid #e5e7eb;">
+        <h2 id="cd-preview-title" style="margin:0; flex:1; font-size:1.15rem;">Предпросмотр блока</h2>
+        <span id="cd-preview-meta" style="font-size:0.82rem; color:#6b7280;
+              font-family:monospace;"></span>
+        <button id="cd-preview-close" class="cd-btn cd-btn-secondary"
+                style="padding:6px 14px;">✕ Закрыть</button>
+      </div>
+      <div style="font-size:0.78rem; color:#6b7280; margin-bottom:14px; padding:6px 10px;
+                  background:#fef3c7; border-radius:4px; border-left:3px solid #f59e0b;">
+        ⓘ Это превью того, что попадёт в PDF-отчёт. Источник данных — снимок,
+        сохранённый в момент прикрепления блока.
+      </div>
+      <div id="cd-preview-body"></div>
+    </div>
+  </div>
+
   <div class="cd-section" id="cd-attached-section" style="display:none;">
     <h2>6. Прикреплено к отчёту об адаптации <span id="cd-attached-count" style="color:#6b7280; font-weight:400;"></span></h2>
     <div class="cd-hint" style="margin-bottom:8px;">
@@ -3205,12 +3228,19 @@
           `title="Восстановить период этого блока в полях С/по и пересчитать графики/таблицы" ` +
           `style="padding:3px 9px; background:#dbeafe; color:#1d4ed8; border-color:#93c5fd;">📈 Открыть</button>`
         : '';
+      // «Предпросмотр» — модалка со всем содержимым из data_snapshot
+      // (то что пойдёт в PDF: графики, таблицы, описания)
+      const previewBtn = b.data_snapshot
+        ? `<button class="cd-btn cd-btn-secondary atc-preview" data-id="${b.id}" ` +
+          `title="Открыть предпросмотр того, что попадёт в PDF-отчёт" ` +
+          `style="padding:3px 9px; background:#fef3c7; color:#92400e; border-color:#fcd34d;">👁 Предпросмотр</button>`
+        : '';
       card.innerHTML =
         `<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">` +
           `<span style="background:${_kindColor(b.kind)}; color:#fff; padding:2px 8px; border-radius:4px; font-size:0.7rem;">${_kindLabel(b.kind)}</span>` +
           `<input type="text" class="atc-title" value="${b.title.replace(/"/g, '&quot;')}" data-id="${b.id}" ` +
             `style="flex:1; min-width:200px; padding:4px 8px; border:1px solid #d1d5db; border-radius:4px; font-size:0.88rem; font-weight:500;">` +
-          openBtn +
+          openBtn + previewBtn +
           `<label style="font-size:0.78rem; display:flex; align-items:center; gap:4px;">` +
             `<input type="checkbox" class="atc-inrep" data-id="${b.id}" ${b.in_report ? 'checked' : ''}> в отчёт` +
           `</label>` +
@@ -3235,6 +3265,14 @@
         if (ch && ch.style.display !== 'none') {
           ch.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
+      });
+    });
+    // Bind «Предпросмотр» — модалка с полным содержимым data_snapshot
+    list.querySelectorAll('.atc-preview').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = parseInt(btn.dataset.id, 10);
+        const block = blocks.find(x => x.id === id);
+        if (block) _showBlockPreview(block);
       });
     });
 
@@ -3406,6 +3444,239 @@
     if (ta) card.insertBefore(wrap, ta);
     else card.appendChild(wrap);
   }
+
+  // ═══ Модалка предпросмотра прикреплённого блока ═══════════════════
+  // Открывает полное содержимое из data_snapshot: графики, таблицы,
+  // описания — то, что попадёт в PDF.
+  function _showBlockPreview(block) {
+    const snap = block.data_snapshot;
+    if (!snap) {
+      alert('Снимок данных пуст — блок был сохранён до версии v2. ' +
+            'Удалите и пересоздайте блок чтобы получить полный набор.');
+      return;
+    }
+    const fmt = (v, d=2) => (v == null || isNaN(v))
+      ? '—' : Number(v).toFixed(d);
+    const dFrom = snap.date_from || (block.params?.date_from) || '—';
+    const dTo   = snap.date_to   || (block.params?.date_to)   || '—';
+    const days  = snap.days || 0;
+
+    $('cd-preview-title').textContent = block.title;
+    $('cd-preview-meta').innerHTML =
+      `${dFrom} → ${dTo} · <b>${days}</b> сут.`;
+
+    const body = $('cd-preview-body');
+    body.innerHTML = '';
+
+    // ─── 1. Сводные метрики (плитка как в B1) ────────────────────
+    const metricsHtml = `
+      <h3 style="margin:0 0 8px;">📊 Сводные метрики</h3>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
+                  gap:8px; margin-bottom:18px;">
+        <div class="b1-metric"><div class="b1-metric-title">Q общий</div>
+          <div class="b1-metric-val">${fmt(snap.q_total_avg)} <span class="b1-unit">ср.</span></div>
+          <div class="b1-metric-val">${fmt(snap.q_total_median)} <span class="b1-unit">мед.</span></div>
+          <div class="b1-metric-unit">тыс.м³/сут</div></div>
+        <div class="b1-metric"><div class="b1-metric-title">Q рабочий</div>
+          <div class="b1-metric-val">${fmt(snap.q_working_avg)} <span class="b1-unit">ср.</span></div>
+          <div class="b1-metric-val">${fmt(snap.q_working_median)} <span class="b1-unit">мед.</span></div>
+          <div class="b1-metric-unit">тыс.м³/сут</div></div>
+        <div class="b1-metric"><div class="b1-metric-title">ΔP</div>
+          <div class="b1-metric-val">${fmt(snap.dp_avg)} <span class="b1-unit">ср.</span></div>
+          <div class="b1-metric-val">${fmt(snap.dp_median)} <span class="b1-unit">мед.</span></div>
+          <div class="b1-metric-unit">кгс/см²</div></div>
+        <div class="b1-metric"><div class="b1-metric-title">P устье / шлейф</div>
+          <div class="b1-metric-val">${fmt(snap.p_wellhead_median)} <span class="b1-unit">мед. устье</span></div>
+          <div class="b1-metric-val">${fmt(snap.p_flowline_median)} <span class="b1-unit">мед. шлейф</span></div>
+          <div class="b1-metric-unit">кгс/см²</div></div>
+        <div class="b1-metric"><div class="b1-metric-title">Простой</div>
+          <div class="b1-metric-val">${fmt(snap.shutdown_min_total, 0)} <span class="b1-unit">мин всего</span></div>
+          <div class="b1-metric-val">${snap.shutdown_min_total ? (snap.shutdown_min_total/60).toFixed(1) : '0'} <span class="b1-unit">часов</span></div>
+          <div class="b1-metric-unit">${snap.shutdown_days_count || 0} дней с простоем</div></div>
+      </div>`;
+    body.innerHTML += metricsHtml;
+
+    // ─── 2. Графики (4 шт) ───────────────────────────────────────
+    if (snap.chart && snap.chart.dates && snap.chart.dates.length) {
+      body.innerHTML += `
+        <h3 style="margin:14px 0 8px;">📈 Графики</h3>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div id="cd-pv-pres" style="height:300px;"></div>
+          <div id="cd-pv-dp" style="height:300px;"></div>
+          <div id="cd-pv-rates" style="height:300px;"></div>
+          <div id="cd-pv-monthly" style="height:300px;"></div>
+        </div>`;
+      // Перерисовываем через Plotly после вставки в DOM
+      setTimeout(() => _renderPreviewCharts(snap), 50);
+    }
+
+    // ─── 3. Описательная статистика (таблица) ───────────────────
+    if (snap.describe && snap.describe.length) {
+      const ds = snap.describe;
+      let descHtml = `<h3 style="margin:18px 0 8px;">📋 Описательная статистика</h3>
+        <table class="cd-table"><thead><tr>
+          <th>Параметр</th><th>N</th><th>Среднее</th><th>СКО</th><th>Медиана</th>
+        </tr></thead><tbody>`;
+      for (const r of ds) {
+        descHtml += `<tr><td>${r.label}</td>
+          <td>${r.n}</td><td>${fmt(r.mean)}</td>
+          <td>${fmt(r.std)}</td><td>${fmt(r.median)}</td></tr>`;
+      }
+      descHtml += '</tbody></table>';
+      body.innerHTML += descHtml;
+    }
+
+    // ─── 4. Помесячная таблица + описания ────────────────────────
+    if (snap.monthly && snap.monthly.length) {
+      const ms = snap.monthly;
+      let mHtml = `<h3 style="margin:18px 0 8px;">📅 Помесячная агрегация</h3>
+        <table class="cd-table"><thead><tr>
+          <th>Месяц</th><th>Дней</th>
+          <th>Q общ. ср.</th><th>Q общ. мед.</th>
+          <th>Q раб. ср.</th><th>Q раб. мед.</th>
+          <th>ΔP ср.</th><th>ΔP мед.</th>
+          <th>P уст. ср.</th><th>Простой</th>
+        </tr></thead><tbody>`;
+      for (const r of ms) {
+        mHtml += `<tr>
+          <td>${r.month_label}</td><td>${r.days}</td>
+          <td>${fmt(r.mean_q_total)}</td><td>${fmt(r.median_q_total)}</td>
+          <td>${fmt(r.mean_q_working)}</td><td>${fmt(r.median_q_working)}</td>
+          <td>${fmt(r.mean_dp)}</td><td>${fmt(r.median_dp)}</td>
+          <td>${fmt(r.mean_p_wellhead)}</td><td>${fmt(r.mean_shutdown, 1)}</td>
+        </tr>`;
+      }
+      mHtml += '</tbody></table>';
+      body.innerHTML += mHtml;
+    }
+
+    if (snap.monthly_desc && snap.monthly_desc.length) {
+      let dHtml = `<h3 style="margin:18px 0 8px;">Описание по месяцам</h3>
+        <div class="cd-month-list">`;
+      for (const d of snap.monthly_desc) {
+        dHtml += `<div class="cd-month-item">
+          <div class="label">${d.label}</div>
+          <div class="text">${d.text}</div>
+        </div>`;
+      }
+      dHtml += '</div>';
+      body.innerHTML += dHtml;
+    }
+
+    // ─── 5. Текстовый анализ (UzKorGaz/UniTool/совмещённый) ──────
+    if (snap.overlap_html) {
+      body.innerHTML += `<h3 style="margin:18px 0 8px;">📝 Текстовый анализ</h3>
+        <div>${snap.overlap_html}</div>`;
+    }
+
+    // ─── 6. Строгое сравнение (если было) ───────────────────────
+    if (snap.strict_compare) {
+      const sc = snap.strict_compare;
+      const sign = (v) => v == null ? '—' : (v >= 0 ? '+' : '') + fmt(v);
+      const pct = (a, b) => (a != null && b != null && b !== 0) ? (a-b)/b*100 : null;
+      const mkRow = (label, c, o) => {
+        const dM = (c.mean != null && o.mean != null) ? (o.mean - c.mean) : null;
+        const dMp = pct(o.mean, c.mean);
+        const dMd = (c.median != null && o.median != null) ? (o.median - c.median) : null;
+        const dMdp = pct(o.median, c.median);
+        return `<tr><td>${label}</td>
+          <td>${fmt(c.mean)}</td><td>${fmt(c.median)}</td>
+          <td>${fmt(o.mean)}</td><td>${fmt(o.median)}</td>
+          <td>${sign(dM)}</td><td>${dMp != null ? sign(dMp) + '%' : '—'}</td>
+          <td>${sign(dMd)}</td><td>${dMdp != null ? sign(dMdp) + '%' : '—'}</td>
+        </tr>`;
+      };
+      body.innerHTML += `<h3 style="margin:18px 0 8px;">🔗 Строгое сравнение на совместном периоде</h3>
+        <div style="font-size:0.84rem; color:#92400e; margin-bottom:6px;">
+          Совместных дней: <b>${sc.days}</b> (${sc.dates_from} — ${sc.dates_to})
+        </div>
+        <table class="cd-table"><thead><tr>
+          <th rowspan="2">Параметр</th>
+          <th colspan="2" style="background:#dbeafe;">UzKorGaz</th>
+          <th colspan="2" style="background:#fed7aa;">UniTool</th>
+          <th colspan="4" style="background:#fef3c7;">Δ (UniTool − UzKorGaz)</th>
+        </tr><tr>
+          <th>Среднее</th><th>Медиана</th>
+          <th>Среднее</th><th>Медиана</th>
+          <th>Δ ср.</th><th>Δ ср. %</th>
+          <th>Δ мед.</th><th>Δ мед. %</th>
+        </tr></thead><tbody>
+        ${mkRow('Q общий, тыс.м³/сут', sc.cust_q_total, sc.our_q)}
+        ${mkRow('Q рабочий, тыс.м³/сут', sc.cust_q_working, sc.our_q)}
+        ${mkRow('ΔP, кгс/см²', sc.cust_dp, sc.our_dp)}
+        ${mkRow('P устье, кгс/см²', sc.cust_p_tube, sc.our_p_tube)}
+        ${mkRow('P шлейф, кгс/см²', sc.cust_p_line, sc.our_p_line)}
+        </tbody></table>`;
+    }
+
+    // ─── 7. Комментарий блока ───────────────────────────────────
+    if (block.comment) {
+      body.innerHTML += `<h3 style="margin:18px 0 8px;">💬 Комментарий</h3>
+        <div style="padding:10px 12px; background:#f9fafb; border-left:3px solid #6b7280;
+                    border-radius:4px; font-size:0.88rem; line-height:1.5;
+                    white-space:pre-wrap;">${block.comment.replace(/</g,'&lt;')}</div>`;
+    }
+
+    $('cd-block-preview-modal').style.display = 'block';
+    document.body.style.overflow = 'hidden';
+  }
+
+  function _renderPreviewCharts(snap) {
+    const c = snap.chart;
+    if (!c || !c.dates) return;
+    const layout = { margin:{l:50,r:30,t:30,b:50}, hovermode:'x unified',
+                     font:{size:10}, legend:{orientation:'h', y:-0.18} };
+    const cfg = { displaylogo:false, responsive:true };
+    // Давления
+    if (window.Plotly && document.getElementById('cd-pv-pres')) {
+      Plotly.newPlot('cd-pv-pres', [
+        { x:c.dates, y:c.p_wellhead, name:'устье', mode:'lines+markers', line:{width:1.4} },
+        { x:c.dates, y:c.p_annular,  name:'затрубное', mode:'lines+markers', line:{width:1.4} },
+        { x:c.dates, y:c.p_flowline, name:'шлейф', mode:'lines+markers', line:{width:1.4} },
+        { x:c.dates, y:c.p_static,   name:'статич.', mode:'lines+markers', line:{width:1.4} },
+      ], { ...layout, title:'Давления, кгс/см²' }, cfg);
+    }
+    // ΔP
+    if (window.Plotly && document.getElementById('cd-pv-dp')) {
+      Plotly.newPlot('cd-pv-dp', [
+        { x:c.dates, y:c.dp, name:'ΔP', mode:'lines+markers', line:{color:'#dc2626', width:1.6} },
+      ], { ...layout, title:'Перепад давления, кгс/см²' }, cfg);
+    }
+    // Дебиты + простой
+    if (window.Plotly && document.getElementById('cd-pv-rates')) {
+      Plotly.newPlot('cd-pv-rates', [
+        { x:c.dates, y:c.q_gas_total,   name:'Q общий',   mode:'lines+markers', line:{color:'#1d4ed8', width:1.5}, yaxis:'y' },
+        { x:c.dates, y:c.q_gas_working, name:'Q рабочий', mode:'lines+markers', line:{color:'#16a34a', width:1.5}, yaxis:'y' },
+        { x:c.dates, y:c.shutdown_min,  name:'Простой, мин', type:'bar', marker:{color:'rgba(220,38,38,0.35)'}, yaxis:'y2' },
+      ], { ...layout, title:'Дебиты и простой',
+           yaxis:{title:'Q, тыс.м³/сут'},
+           yaxis2:{title:'Простой, мин', overlaying:'y', side:'right', showgrid:false, rangemode:'tozero'},
+           barmode:'overlay' }, cfg);
+    }
+    // Помесячно
+    if (window.Plotly && document.getElementById('cd-pv-monthly') && snap.monthly && snap.monthly.length) {
+      const m = snap.monthly;
+      const x = m.map(r => r.month_label);
+      Plotly.newPlot('cd-pv-monthly', [
+        { x, y:m.map(r=>r.mean_q_total),   name:'Q общ. ср.',  type:'bar', marker:{color:'#1d4ed8'} },
+        { x, y:m.map(r=>r.median_q_total), name:'Q общ. мед.', type:'bar', marker:{color:'#93c5fd'} },
+        { x, y:m.map(r=>r.mean_q_working), name:'Q раб. ср.',  type:'bar', marker:{color:'#16a34a'} },
+        { x, y:m.map(r=>r.median_q_working),name:'Q раб. мед.', type:'bar', marker:{color:'#86efac'} },
+      ], { ...layout, title:'Помесячно: Q', barmode:'group', yaxis:{title:'Q, тыс.м³/сут'} }, cfg);
+    }
+  }
+
+  // Закрытие модалки
+  $('cd-preview-close')?.addEventListener('click', () => {
+    $('cd-block-preview-modal').style.display = 'none';
+    document.body.style.overflow = '';
+  });
+  $('cd-block-preview-modal')?.addEventListener('click', (ev) => {
+    if (ev.target === $('cd-block-preview-modal')) {
+      $('cd-block-preview-modal').style.display = 'none';
+      document.body.style.overflow = '';
+    }
+  });
 
   async function createBlock(kind, title, params, comment, dataSnapshot) {
     if (!currentWellId) {

@@ -1811,7 +1811,8 @@
         p_flowline:    d.chart?.p_flowline    || [],
       };
     }
-    // UniTool: /api/flow-rate/calculate, час → агрегируем по дням
+    // UniTool: возвращаем ПОЛНЫЙ минутный/часовой ряд БЕЗ агрегации до дней
+    // — для построения relative-time графика с реальной детализацией
     const start = `${dateFrom}T00:00:00`;
     const end   = `${dateTo}T23:59:59`;
     let r = await fetch(`/api/flow-rate/calculate/${state.well.id}` +
@@ -1821,7 +1822,6 @@
       const fr = await r.json();
       chart = fr.chart;
     } else {
-      // Fallback на pressure-chart (если нет штуцера → нет flow-rate)
       const pr = await fetch(`/api/pressure/chart/${state.well.id}` +
                              `?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}` +
                              `&interval=60&mode=masked`);
@@ -1836,35 +1836,22 @@
       };
     }
     if (!chart || !chart.timestamps) return null;
-    // Агрегируем час → день
-    const buckets = {};
     const ts = chart.timestamps;
     const pt = chart.p_tube || [];
     const pl = chart.p_line || [];
     const fr = chart.flow_rate || [];
-    for (let i = 0; i < ts.length; i++) {
-      const dk = String(ts[i]).slice(0, 10);
-      if (!buckets[dk]) buckets[dk] = { pt: [], pl: [], fr: [] };
-      if (pt[i] != null) buckets[dk].pt.push(+pt[i]);
-      if (pl[i] != null) buckets[dk].pl.push(+pl[i]);
-      if (fr.length && fr[i] != null) buckets[dk].fr.push(+fr[i]);
-    }
-    const days = Object.keys(buckets).sort();
-    const avg = (a) => a.length ? a.reduce((s,x) => s+x, 0)/a.length : null;
-    const ptArr = days.map(k => avg(buckets[k].pt));
-    const plArr = days.map(k => avg(buckets[k].pl));
-    const dpArr = days.map((k, i) => {
-      const a = ptArr[i], b = plArr[i];
+    const dp = ts.map((_, i) => {
+      const a = pt[i], b = pl[i];
       if (a == null || b == null) return null;
       return Math.max(0, +(a - b).toFixed(2));
     });
-    const qArr = days.map(k => avg(buckets[k].fr));
     return {
-      dates:       days,
-      p_tube:      ptArr,
-      p_line:      plArr,
-      dp:          dpArr,
-      q:           qArr,
+      // ts — массив ISO timestamps в исходном (минутном/часовом) разрешении
+      ts:     ts,
+      p_tube: pt,
+      p_line: pl,
+      dp:     dp,
+      q:      fr,
     };
   }
 
@@ -1934,20 +1921,120 @@
         <div style="padding:10px; text-align:center; color:#6b7280;
                     font-size:0.82rem; background:#f9fafb;
                     border:1px dashed #d1d5db; border-radius:6px;">
-          Нет добавленных сегментов. Выберите период на шкале выше → «Добавить».
+          Нет выбранных участков. Выделите диапазон мышкой на любом графике
+          (Box Select) или нажмите «Добавить из шкалы вверху».
         </div>`;
       return;
     }
-    box.innerHTML = wz3cmpSegments.map((s, i) => `
-      <div class="wz3cmp-seg" style="border-color:${s.color};">
-        <span class="swatch" style="background:${s.color};"></span>
-        <span style="font-weight:600;">${String.fromCharCode(65 + i)}.</span>
-        <span>${s.label}</span>
-        ${s.loading ? '<span style="color:#92400e;">⏳</span>' : ''}
-        ${s.error ? `<span style="color:#dc2626;" title="${s.error}">⚠</span>` : ''}
-        <button onclick="_wz3cmpRemoveSegment('${s.id}')" title="Удалить сегмент">✕</button>
-      </div>
-    `).join('');
+    // Карточки сегментов с полями редактирования + длительность
+    box.innerHTML = '';
+    wz3cmpSegments.forEach((s, i) => {
+      const letter = String.fromCharCode(65 + i);
+      const fromTs = s.fromTs || (s.from + 'T00:00');
+      const toTs   = s.toTs   || (s.to   + 'T23:59');
+      const ms = (new Date(toTs)) - (new Date(fromTs));
+      const totH = ms > 0 ? ms / 3600000 : 0;
+      const days = Math.floor(totH / 24);
+      const hrs  = (totH - days * 24).toFixed(1);
+      const card = document.createElement('div');
+      card.style.cssText = `border:2px solid ${s.color}; border-radius:6px;
+        padding:8px 10px; background:#fff; font-size:0.84rem;`;
+      card.innerHTML = `
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+          <span style="display:inline-block; width:14px; height:14px; border-radius:3px;
+                       background:${s.color};"></span>
+          <b style="color:${s.color};">${letter}.</b>
+          <b>${s.source === 'customer' ? 'UzKorGaz' : 'UniTool'}</b>
+          <span style="color:#6b7280;">·</span>
+          <span><b>${days}</b> сут <b>${hrs}</b> ч</span>
+          ${s.loading ? '<span style="color:#92400e;">⏳ загрузка…</span>' : ''}
+          ${s.error ? `<span style="color:#dc2626;" title="${s.error}">⚠ ошибка</span>` : ''}
+          <button data-seg-remove="${s.id}"
+                  style="margin-left:auto; background:none; border:none;
+                         color:#dc2626; cursor:pointer; font-size:1.1rem;"
+                  title="Удалить сегмент">✕</button>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <label style="font-size:0.78rem; color:#374151;">Начало:</label>
+          <input type="datetime-local" data-seg-from="${s.id}" value="${fromTs.slice(0,16)}"
+                 step="60"
+                 style="padding:2px 6px; border:1px solid #d1d5db; border-radius:3px;
+                        font-size:0.78rem; width:11rem;">
+          <label style="font-size:0.78rem; color:#374151;">Конец:</label>
+          <input type="datetime-local" data-seg-to="${s.id}" value="${toTs.slice(0,16)}"
+                 step="60"
+                 style="padding:2px 6px; border:1px solid #d1d5db; border-radius:3px;
+                        font-size:0.78rem; width:11rem;">
+          <span style="font-size:0.74rem; color:#6b7280;">
+            (изменения применятся при потере фокуса)
+          </span>
+        </div>
+      `;
+      box.appendChild(card);
+    });
+    // Bind remove + edit
+    box.querySelectorAll('[data-seg-remove]').forEach(btn => {
+      btn.addEventListener('click', () => _wz3cmpRemoveSegment(btn.dataset.segRemove));
+    });
+    box.querySelectorAll('[data-seg-from]').forEach(inp => {
+      inp.addEventListener('change', () => {
+        const seg = wz3cmpSegments.find(s => s.id === inp.dataset.segFrom);
+        if (!seg) return;
+        seg.fromTs = inp.value + ':00';
+        seg.from = inp.value.slice(0, 10);
+        _wz3cmpReloadSegment(seg);
+      });
+    });
+    box.querySelectorAll('[data-seg-to]').forEach(inp => {
+      inp.addEventListener('change', () => {
+        const seg = wz3cmpSegments.find(s => s.id === inp.dataset.segTo);
+        if (!seg) return;
+        seg.toTs = inp.value + ':00';
+        seg.to = inp.value.slice(0, 10);
+        _wz3cmpReloadSegment(seg);
+      });
+    });
+    // Перерисовка shapes на основных графиках
+    _wz3cmpRedrawSelectionShapes();
+  }
+
+  // Перезагрузка данных сегмента при ручной правке дат
+  function _wz3cmpReloadSegment(seg) {
+    seg.loading = true;
+    seg.data = null;
+    _wz3cmpRender();
+    _wz3cmpFetchSegment(seg.source, seg.from, seg.to).then(data => {
+      seg.data = data; seg.loading = false;
+      _wz3cmpRender();
+      _wz3cmpRenderChart();
+    });
+  }
+
+  // Рисует прямоугольники-выделения сегментов на 4 главных графиках
+  function _wz3cmpRedrawSelectionShapes() {
+    const ids = ['wz3cmp-ch-pres', 'wz3cmp-ch-dp', 'wz3cmp-ch-flow', 'wz3cmp-ch-down'];
+    const segShapes = wz3cmpSegments.map(s => ({
+      type: 'rect', xref: 'x', yref: 'paper',
+      x0: s.fromTs || s.from, x1: s.toTs || s.to, y0: 0, y1: 1,
+      fillcolor: _hexToRgba(s.color, 0.15),
+      line: { color: s.color, width: 1.5 },
+      layer: 'above',
+    }));
+    for (const id of ids) {
+      const el = document.getElementById(id);
+      if (!el || !el.layout) continue;
+      // Объединяем shapes этапов (stageShapes) и наши selection shapes
+      const baseShapes = (el._stageShapes || []);
+      try {
+        Plotly.relayout(el, { shapes: [...baseShapes, ...segShapes] });
+      } catch (_) {}
+    }
+  }
+  // Утилита hex → rgba
+  function _hexToRgba(hex, alpha) {
+    const m = String(hex).match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+    if (!m) return `rgba(37,99,235,${alpha})`;
+    return `rgba(${parseInt(m[1],16)},${parseInt(m[2],16)},${parseInt(m[3],16)},${alpha})`;
   }
   // Экспорт remove чтобы работал inline-onclick
   window._wz3cmpRemoveSegment = _wz3cmpRemoveSegment;
@@ -1961,25 +2048,39 @@
       return;
     }
     el.style.display = '';
-    const metric = $('wz3cmp-metric')?.value || 'q_total';
+    const metric = $('wz3cmp-metric')?.value || 'dp';
     const traces = [];
+    let maxHours = 0;
     for (let i = 0; i < segments.length; i++) {
       const s = segments[i];
       const keyMap = WZ3CMP_KEY_MAP[s.source];
       const yKey = keyMap?.[metric];
       if (!yKey) continue;
-      const dates = s.data.dates || [];
+      // Источник: для UniTool — ts (минутный/часовой); для customer — dates (суточный)
+      const tsArr = s.data.ts || s.data.dates || [];
       const yArr  = s.data[yKey] || [];
-      // X = день от начала сегмента (0, 1, 2, ...)
-      const xArr = dates.map((_, idx) => idx);
-      // Подпись: «A. UzKorGaz 2026-01-01…2026-02-18 (49 сут)»
-      const label = `${String.fromCharCode(65 + i)}. ${s.label}`;
+      if (!tsArr.length) continue;
+      // Обрезаем по фактическому диапазону fromTs/toTs (минуты тоже учитываем)
+      const fromMs = (new Date(s.fromTs || (s.from + 'T00:00'))).getTime();
+      const toMs   = (new Date(s.toTs   || (s.to   + 'T23:59'))).getTime();
+      const xArr = [], yArrFiltered = [];
+      for (let j = 0; j < tsArr.length; j++) {
+        const tsMs = (new Date(tsArr[j])).getTime();
+        if (tsMs < fromMs || tsMs > toMs) continue;
+        // X = (ts - fromMs) в часах (float, сохраняет минутное разрешение)
+        const hours = (tsMs - fromMs) / 3600000;
+        xArr.push(hours);
+        yArrFiltered.push(yArr[j]);
+        if (hours > maxHours) maxHours = hours;
+      }
+      const letter = String.fromCharCode(65 + i);
+      const label = `${letter}. ${s.source === 'customer' ? 'UzKorGaz' : 'UniTool'} ` +
+                    `${(s.fromTs || s.from).slice(0,16).replace('T',' ')}…` +
+                    `${(s.toTs   || s.to  ).slice(0,16).replace('T',' ')}`;
       traces.push({
-        x: xArr, y: yArr, name: label,
-        mode: 'lines+markers', marker: { size: 4, color: s.color },
-        line: { color: s.color, width: 2 },
-        hovertemplate: 'День %{x}: %{y:.2f}<br>' +
-                       `<i>${dates[0] || ''} → ${dates[dates.length-1] || ''}</i><extra></extra>`,
+        x: xArr, y: yArrFiltered, name: label,
+        mode: 'lines', line: { color: s.color, width: 1.6 },
+        hovertemplate: '+%{x:.2f} ч: %{y:.2f}<extra>' + label + '</extra>',
       });
     }
     if (!traces.length) {
@@ -1987,18 +2088,38 @@
       return;
     }
     const metricLabel = {
+      dp: 'ΔP, кгс/см²',
+      q: 'Q дебит, тыс.м³/сут',
       q_total: 'Q общий, тыс.м³/сут',
       q_working: 'Q рабочий, тыс.м³/сут',
-      dp: 'ΔP, кгс/см²',
+      p_tube: 'P трубное, кгс/см²',
+      p_line: 'P линейное, кгс/см²',
       p_wellhead: 'P устье, кгс/см²',
       p_flowline: 'P шлейф, кгс/см²',
     }[metric] || metric;
+    // Если все сегменты короткие (< 24 ч) — показываем ось в часах,
+    // иначе — в сутках. Tickvals в часах в любом случае.
+    const inDays = maxHours > 48;
+    const xTitle = inDays
+      ? 'Время от начала сегмента, дни'
+      : 'Время от начала сегмента, часы';
+    const xTickConverter = inDays
+      ? { tickformat: '.2f', tickmode: 'auto',
+          tickvals: undefined,
+          // делим часы на 24 для отображения дней
+          // через transform: применим к данным напрямую
+        }
+      : null;
+    // Конвертируем X в дни если нужно
+    if (inDays) {
+      for (const tr of traces) tr.x = tr.x.map(h => h / 24);
+    }
     Plotly.newPlot(el, traces, {
-      title: `Сравнение участков · ${metricLabel} · ось X — день от начала каждого сегмента`,
+      title: `Сравнение участков · ${metricLabel} · ось X = время от начала сегмента (Δt)`,
       margin: { l: 60, r: 30, t: 50, b: 60 },
-      xaxis: { title: 'День от начала сегмента (0, 1, 2, …)' },
+      xaxis: { title: xTitle, hoverformat: '.2f' },
       yaxis: { title: metricLabel },
-      hovermode: 'x unified',
+      hovermode: 'closest',
       legend: { orientation: 'h', y: -0.2 },
       font: { size: 11 },
     }, { displaylogo: false, responsive: true });
@@ -2259,6 +2380,7 @@
       );
     }
     Plotly.newPlot('wz3cmp-ch-pres', presTraces, layout('Давления', 'кгс/см²'), cfg);
+    document.getElementById('wz3cmp-ch-pres')._stageShapes = stageShapes;
     _wz3cmpWireSelect('wz3cmp-ch-pres');
 
     // 2. ΔP
@@ -2270,6 +2392,7 @@
         mode: 'lines+markers', marker: { size: 4 }, line: { width: 1, dash: 'dash', color: '#7c2d12' } });
     }
     Plotly.newPlot('wz3cmp-ch-dp', dpTraces, layout('Перепад давления ΔP', 'кгс/см²'), cfg);
+    document.getElementById('wz3cmp-ch-dp')._stageShapes = stageShapes;
     _wz3cmpWireSelect('wz3cmp-ch-dp');
 
     // 3. Q дебит
@@ -2290,6 +2413,7 @@
     }
     if (qTraces.length) {
       Plotly.newPlot('wz3cmp-ch-flow', qTraces, layout('Дебит Q', 'тыс.м³/сут'), cfg);
+      document.getElementById('wz3cmp-ch-flow')._stageShapes = stageShapes;
       _wz3cmpWireSelect('wz3cmp-ch-flow');
     } else {
       Plotly.purge('wz3cmp-ch-flow');
@@ -2323,34 +2447,36 @@
       el.removeAllListeners('plotly_selected');
     }
     const listener = (ev) => {
-      // ev может быть null если пользователь снял выделение
       if (!ev || !ev.range || !ev.range.x) return;
       const [x0, x1] = ev.range.x;
-      const f = String(x0).slice(0, 10);
-      const t = String(x1).slice(0, 10);
-      if (!f || !t || f === t) return;  // защита от пустого выделения
-      _wz3cmpAddSegmentFromDates('our_pressure', f, t);
-      // Снимаем визуальное выделение чтобы было понятно что добавилось
+      // ПОЛНЫЕ timestamps (с минутами/секундами), не обрезаем до даты
+      const fromTs = String(x0).slice(0, 19);
+      const toTs   = String(x1).slice(0, 19);
+      if (!fromTs || !toTs || fromTs === toTs) return;
+      _wz3cmpAddSegmentFromDates('our_pressure', fromTs, toTs);
+      // Снимаем выделение Plotly — дальше эту область отрисуем как shape
       try { Plotly.relayout(el, { selections: [] }); } catch (_) {}
     };
     el._wz3cmpListener = listener;
     el.on('plotly_selected', listener);
   }
 
-  // Добавление сегмента по явным датам (используется в drag-select callback)
-  function _wz3cmpAddSegmentFromDates(source, fStr, tStr) {
+  // Добавление сегмента по полным timestamps (ISO 'YYYY-MM-DDTHH:MM:SS')
+  function _wz3cmpAddSegmentFromDates(source, fromTs, toTs) {
     const id = 'seg' + Date.now() + Math.random().toString(36).slice(2, 6);
     const color = WZ3CMP_PALETTE[wz3cmpSegments.length % WZ3CMP_PALETTE.length];
-    const f = _w3p(fStr); const t = _w3p(tStr);
-    const days = _w3diff(f, t) + 1;
+    // f / t — даты для fetch endpoint'а
+    const f = String(fromTs).slice(0, 10);
+    const t = String(toTs).slice(0, 10);
     const seg = {
-      id, source, color, from: fStr, to: tStr, days,
-      label: `${source === 'customer' ? 'UzKorGaz' : 'UniTool'} ${fStr}…${tStr} (${days} сут)`,
+      id, source, color,
+      from: f, to: t,           // YYYY-MM-DD для совместимости с fetch
+      fromTs: fromTs, toTs: toTs, // полные timestamps для отображения и shapes
       data: null, loading: true,
     };
     wz3cmpSegments.push(seg);
     _wz3cmpRender();
-    _wz3cmpFetchSegment(source, fStr, tStr).then(data => {
+    _wz3cmpFetchSegment(source, f, t).then(data => {
       seg.data = data; seg.loading = false;
       _wz3cmpRender();
       _wz3cmpRenderChart();

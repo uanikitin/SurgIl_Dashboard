@@ -89,21 +89,13 @@ def customer_daily_page(
     date_from: str | None = None,
     date_to: str | None = None,
     embedded: int = 0,
-    mode: str = "customer",  # 'customer' | 'observation'
     current_user: str = Depends(get_current_user),
 ):
     """Открывается в отдельном окне с предзаполненными скважиной/периодом.
 
     embedded=1 — режим встраивания в iframe: убирает шапку, nav и плавающие
     кнопки (см. base.html:if not embedded).
-
-    mode='observation' — переключает страницу в режим B2 (этап наблюдения):
-    меняет заголовки, акцент на UniTool как первичный источник, кнопка
-    «Утвердить как B1» становится «Утвердить как B2». Используется
-    в визарде на шаге 3.
     """
-    if mode not in {"customer", "observation"}:
-        mode = "customer"
     return templates.TemplateResponse(
         "customer_daily.html",
         {
@@ -111,7 +103,6 @@ def customer_daily_page(
             "current_user": current_user,
             "is_admin": request.session.get("is_admin", False),
             "embedded": bool(embedded),
-            "page_mode": mode,
             "preset_well": well,
             "preset_from": date_from,
             "preset_to": date_to,

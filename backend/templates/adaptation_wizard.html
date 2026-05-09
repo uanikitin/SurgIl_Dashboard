@@ -2008,6 +2008,143 @@
     });
     // Перерисовка при смене метрики (источник меняется на этапе добавления)
     $('wz3cmp-metric')?.addEventListener('change', _wz3cmpRenderChart);
+    // Кнопка загрузки полного графика-источника
+    $('wz3cmp-load-btn')?.addEventListener('click', _wz3cmpLoadSourceChart);
+    $('wz3cmp-source')?.addEventListener('change', _wz3cmpLoadSourceChart);
+  }
+
+  // Загружает полные данные за период скважины (последний год или весь
+  // диапазон well_daily / pressure_raw) и рисует график со всеми кривыми.
+  // Brush-select на графике → автодобавление сегмента.
+  let wz3cmpFullData = null;
+  async function _wz3cmpLoadSourceChart() {
+    const status = $('wz3cmp-source-status');
+    const chartEl = $('wz3cmp-source-chart');
+    if (!chartEl) return;
+    if (!state.well?.id) return;
+    const source = $('wz3cmp-source')?.value || 'customer';
+    if (status) {
+      status.textContent = '⏳ Загружаю данные…';
+      status.style.color = '#92400e';
+    }
+    // Берём весь диапазон по timeline endpoint, чтобы определить даты
+    let dateFrom, dateTo;
+    try {
+      const r = await fetch('/api/adaptation-report/timeline?well_id=' + state.well.id);
+      const tl = await r.json();
+      if (source === 'customer') {
+        dateFrom = tl.customer_data?.first_date;
+        dateTo   = tl.customer_data?.last_date;
+      } else {
+        dateFrom = tl.our_data?.first_date;
+        dateTo   = tl.our_data?.last_date;
+      }
+    } catch (e) {
+      if (status) { status.textContent = '✗ ' + e.message; status.style.color = '#dc2626'; }
+      return;
+    }
+    if (!dateFrom || !dateTo) {
+      if (status) {
+        status.textContent = source === 'customer'
+          ? '⚠ Нет данных UzKorGaz для этой скважины.'
+          : '⚠ Нет данных UniTool (LoRa) для этой скважины.';
+        status.style.color = '#dc2626';
+      }
+      Plotly.purge(chartEl);
+      return;
+    }
+    const data = await _wz3cmpFetchSegment(source, dateFrom, dateTo);
+    if (!data || !data.dates || !data.dates.length) {
+      if (status) { status.textContent = '⚠ Нет данных за период.'; status.style.color = '#dc2626'; }
+      Plotly.purge(chartEl);
+      return;
+    }
+    wz3cmpFullData = { source, dateFrom, dateTo, ...data };
+    // Рисуем все кривые на одном графике
+    const isCust = source === 'customer';
+    const traces = [];
+    if (isCust) {
+      traces.push(
+        { x: data.dates, y: data.p_wellhead, name: 'P устье',
+          mode: 'lines', line: { color: '#1d4ed8', width: 1.4 }, yaxis: 'y' },
+        { x: data.dates, y: data.p_flowline, name: 'P шлейф',
+          mode: 'lines', line: { color: '#16a34a', width: 1.4 }, yaxis: 'y' },
+        { x: data.dates, y: data.dp, name: 'ΔP',
+          mode: 'lines', line: { color: '#dc2626', width: 1.6 }, yaxis: 'y2' },
+      );
+      if (data.q_gas_total && data.q_gas_total.some(v => v != null)) {
+        traces.push({ x: data.dates, y: data.q_gas_total, name: 'Q общий',
+          mode: 'lines', line: { color: '#7c3aed', width: 1.5 }, yaxis: 'y3' });
+      }
+    } else {
+      traces.push(
+        { x: data.dates, y: data.p_tube, name: 'P трубное',
+          mode: 'lines', line: { color: '#1d4ed8', width: 1.4 }, yaxis: 'y' },
+        { x: data.dates, y: data.p_line, name: 'P линейное',
+          mode: 'lines', line: { color: '#16a34a', width: 1.4 }, yaxis: 'y' },
+        { x: data.dates, y: data.dp, name: 'ΔP',
+          mode: 'lines', line: { color: '#dc2626', width: 1.6 }, yaxis: 'y2' },
+      );
+      if (data.q && data.q.some(v => v != null)) {
+        traces.push({ x: data.dates, y: data.q, name: 'Q (расчёт)',
+          mode: 'lines', line: { color: '#7c3aed', width: 1.5 }, yaxis: 'y3' });
+      }
+    }
+    Plotly.newPlot(chartEl, traces, {
+      title: `${isCust ? 'UzKorGaz' : 'UniTool'} · ${dateFrom} … ${dateTo} ` +
+             '— выделите участок мышкой для добавления в сравнение',
+      margin: { l: 60, r: 80, t: 50, b: 50 },
+      xaxis: { title: '', type: 'date', rangeslider: { visible: false } },
+      yaxis:  { title: 'P, кгс/см²', side: 'left' },
+      yaxis2: { title: 'ΔP', overlaying: 'y', side: 'right',
+                titlefont: { color: '#dc2626' }, showgrid: false },
+      yaxis3: { title: 'Q', overlaying: 'y', side: 'right', position: 0.97,
+                titlefont: { color: '#7c3aed' }, showgrid: false },
+      hovermode: 'x unified',
+      legend: { orientation: 'h', y: 1.12 },
+      dragmode: 'select',  // включает brush-select
+      selectdirection: 'h',  // только горизонтальное выделение
+      font: { size: 11 },
+    }, { displaylogo: false, responsive: true,
+         modeBarButtonsToAdd: ['select2d'],
+         scrollZoom: true });
+    // Listener brush-select
+    chartEl.on('plotly_selected', (ev) => {
+      if (!ev || !ev.range || !ev.range.x) return;
+      const [x0, x1] = ev.range.x;
+      const f = String(x0).slice(0, 10);
+      const t = String(x1).slice(0, 10);
+      // Эмулируем поведение _wz3cmpAddSegment, но с явными датами
+      _wz3cmpAddSegmentFromDates(source, f, t);
+      // Снимаем выделение
+      Plotly.relayout(chartEl, { selections: [] }).catch(() => {});
+    });
+    if (status) {
+      status.textContent =
+        `✓ Загружено ${data.dates.length} точек ${dateFrom}…${dateTo}. ` +
+        `Выделите участок мышкой (drag по горизонтали) для добавления в сравнение.`;
+      status.style.color = '#059669';
+    }
+  }
+
+  // Добавление сегмента по явным датам (используется в drag-select callback)
+  function _wz3cmpAddSegmentFromDates(source, fStr, tStr) {
+    const id = 'seg' + Date.now() + Math.random().toString(36).slice(2, 6);
+    const color = WZ3CMP_PALETTE[wz3cmpSegments.length % WZ3CMP_PALETTE.length];
+    const f = _w3p(fStr); const t = _w3p(tStr);
+    const days = _w3diff(f, t) + 1;
+    const seg = {
+      id, source, color, from: fStr, to: tStr, days,
+      label: `${source === 'customer' ? 'UzKorGaz' : 'UniTool'} ${fStr}…${tStr} (${days} сут)`,
+      data: null, loading: true,
+    };
+    wz3cmpSegments.push(seg);
+    _wz3cmpRender();
+    _wz3cmpFetchSegment(source, fStr, tStr).then(data => {
+      seg.data = data; seg.loading = false;
+      _wz3cmpRender();
+      _wz3cmpRenderChart();
+    });
   }
 
   // ═══ Прикреплённые блоки наблюдения ═══
@@ -2479,88 +2616,7 @@
         <b>Окончание наблюдения = начало адаптации</b> — автоматически прокидывается в шаг 5.
       </div>
 
-      <!-- Утверждённые baseline-ы B2 (этого шага) и B1 (из шага 2) -->
-      <div class="wz-section" style="background:transparent; border:none; padding:0;">
-        <div class="wz3bl-row">
-          <div id="wz3-bl-b2"></div>
-          <div id="wz3-bl-b1"></div>
-        </div>
-      </div>
-
-      <!-- Сравнение участков (relative-days overlay) -->
-      <div class="wz-section">
-        <h3 style="margin-top:0;">
-          🔁 Сравнение участков
-          <span style="font-size:0.78rem; color:#6b7280; font-weight:400;">
-            (общая ось: «день от начала периода»)
-          </span>
-        </h3>
-        <div class="wz-step-hint" style="margin-bottom:8px;">
-          Чтобы сравнить разные участки между собой (например, начало vs конец
-          этапа, разные недели, до/после события) — выберите период на шкале выше,
-          нажмите <b>«➕ Добавить как сегмент»</b>, повторите для других участков.
-          Все добавленные сегменты накладываются друг на друга по оси
-          <b>«день от начала»</b> (без привязки к датам), что позволяет видеть
-          форму кривой независимо от календаря.
-        </div>
-
-        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;
-                    margin-bottom:8px;">
-          <button id="wz3cmp-add-btn" class="wz-btn wz-btn-secondary"
-                  style="padding:5px 12px; font-size:0.84rem;
-                         background:#dbeafe; color:#1d4ed8; border-color:#93c5fd;">
-            ➕ Добавить как сегмент
-          </button>
-          <button id="wz3cmp-clear-btn" class="wz-btn wz-btn-secondary"
-                  style="padding:5px 12px; font-size:0.84rem;">
-            ✕ Очистить все
-          </button>
-          <span style="margin-left:auto; display:inline-flex; gap:6px; align-items:center;">
-            <span style="font-size:0.84rem; color:#374151;">Метрика:</span>
-            <select id="wz3cmp-metric"
-                    style="padding:4px 8px; border:1px solid #d1d5db;
-                           border-radius:4px; font-size:0.84rem;">
-              <option value="q_total">Q общий, тыс.м³/сут</option>
-              <option value="q_working">Q рабочий, тыс.м³/сут</option>
-              <option value="dp">ΔP, кгс/см²</option>
-              <option value="p_wellhead">P устье, кгс/см²</option>
-              <option value="p_flowline">P шлейф, кгс/см²</option>
-            </select>
-            <span style="font-size:0.84rem; color:#374151;">Источник:</span>
-            <select id="wz3cmp-source"
-                    style="padding:4px 8px; border:1px solid #d1d5db;
-                           border-radius:4px; font-size:0.84rem;">
-              <option value="customer">UzKorGaz (well_daily)</option>
-              <option value="our_pressure">UniTool (LoRa)</option>
-            </select>
-          </span>
-        </div>
-
-        <div id="wz3cmp-segments" class="wz3cmp-segments"></div>
-        <div id="wz3cmp-chart"
-             style="height:380px; margin-top:10px; display:none;
-                    border:1px solid #e5e7eb; border-radius:6px;"></div>
-        <div id="wz3cmp-status" style="margin-top:6px; font-size:0.82rem;"></div>
-      </div>
-
-      <!-- Прикреплённые анализы периодов наблюдения (плитки как на /customer-daily) -->
-      <div class="wz-section">
-        <h3 style="margin-top:0;">
-          📋 Прикреплено к разделу «Наблюдение»
-          <span id="wz3-attached-count" style="font-size:0.78rem; color:#6b7280; font-weight:400;"></span>
-        </h3>
-        <div class="wz-step-hint" style="margin-bottom:8px;">
-          Сохранённые анализы периодов с полным набором (графики, таблицы,
-          описания) — попадут в PDF главу «Этап наблюдения». Каждая плитка
-          показывает ключевые метрики; кнопка <b>«📈 Открыть»</b> ведёт на
-          страницу анализа, где доступен <b>«👁 Предпросмотр»</b> со всем
-          содержимым блока.
-        </div>
-        <div id="wz3-attached-list"
-             style="display:flex; flex-direction:column; gap:8px;"></div>
-      </div>
-
-      <!-- Шкала + сравнение (новое) -->
+      <!-- 1. Шкала + сравнение (новое) -->
       <div class="wz-section">
         <h3>Временная шкала и выбор периода наблюдения</h3>
         <div class="wz3tl-wrap">
@@ -2591,6 +2647,14 @@
             <span><b style="color:#1e3a8a;">Синяя полоса</b> — UzKorGaz (well_daily)</span>
             <span><b style="color:#065f46;">Зелёная полоса</b> — UniTool (LoRa-датчики)</span>
           </div>
+        </div>
+      </div>
+
+      <!-- 2. Утверждённые baseline-ы B2 (этого шага) и B1 (из шага 2) -->
+      <div class="wz-section" style="background:transparent; border:none; padding:0;">
+        <div class="wz3bl-row">
+          <div id="wz3-bl-b2"></div>
+          <div id="wz3-bl-b1"></div>
         </div>
       </div>
 
@@ -2641,6 +2705,90 @@
       <div class="wz-section">
         <h3>Описание этапа (для PDF)</h3>
         <textarea id="wz3-desc" rows="3" placeholder="Что наблюдали, особенности скважины, замечания...">${d.description || ''}</textarea>
+      </div>
+
+      <!-- 4. Прикреплённые анализы периодов наблюдения -->
+      <div class="wz-section">
+        <h3 style="margin-top:0;">
+          📋 Прикреплено к разделу «Наблюдение»
+          <span id="wz3-attached-count" style="font-size:0.78rem; color:#6b7280; font-weight:400;"></span>
+        </h3>
+        <div class="wz-step-hint" style="margin-bottom:8px;">
+          Сохранённые анализы периодов с полным набором (графики, таблицы,
+          описания) — попадут в PDF главу «Этап наблюдения». Каждая плитка
+          показывает ключевые метрики; кнопка <b>«📈 Открыть»</b> ведёт на
+          страницу анализа, где доступен <b>«👁 Предпросмотр»</b> со всем
+          содержимым блока.
+        </div>
+        <div id="wz3-attached-list"
+             style="display:flex; flex-direction:column; gap:8px;"></div>
+      </div>
+
+      <!-- 5. Сравнение участков: drag-select на графике + relative-days overlay -->
+      <div class="wz-section">
+        <h3 style="margin-top:0;">
+          🔁 Выбор участков для сравнения
+        </h3>
+        <div class="wz-step-hint" style="margin-bottom:8px;">
+          Ниже — график со всеми данными скважины (давления, ΔP, дебит).
+          <b>Выделите участок мышкой</b> прямо на графике (drag по горизонтали)
+          — он автоматически добавится в сравнение. Повторите для других
+          участков. В нижней части появится общий график на оси
+          <b>«день от начала каждого участка»</b> — это позволяет сравнивать
+          форму кривой независимо от календарных дат.
+        </div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;
+                    margin-bottom:8px;">
+          <span style="font-size:0.84rem; color:#374151;">Источник:</span>
+          <select id="wz3cmp-source"
+                  style="padding:4px 8px; border:1px solid #d1d5db;
+                         border-radius:4px; font-size:0.84rem;">
+            <option value="customer">UzKorGaz (well_daily)</option>
+            <option value="our_pressure">UniTool (LoRa)</option>
+          </select>
+          <button id="wz3cmp-load-btn" class="wz-btn wz-btn-secondary"
+                  style="padding:4px 12px; font-size:0.82rem;">
+            🔄 Загрузить полные данные
+          </button>
+          <span style="margin-left:auto; display:inline-flex; gap:6px; align-items:center;">
+            <span style="font-size:0.84rem; color:#374151;">Метрика сравнения:</span>
+            <select id="wz3cmp-metric"
+                    style="padding:4px 8px; border:1px solid #d1d5db;
+                           border-radius:4px; font-size:0.84rem;">
+              <option value="dp">ΔP, кгс/см²</option>
+              <option value="q_total">Q общий, тыс.м³/сут</option>
+              <option value="q_working">Q рабочий, тыс.м³/сут</option>
+              <option value="p_wellhead">P устье, кгс/см²</option>
+              <option value="p_flowline">P шлейф, кгс/см²</option>
+            </select>
+          </span>
+        </div>
+        <div id="wz3cmp-source-chart"
+             style="height:340px; border:1px solid #e5e7eb; border-radius:6px;"></div>
+        <div id="wz3cmp-source-status"
+             style="margin-top:6px; font-size:0.82rem; color:#6b7280;">
+          Нажмите «🔄 Загрузить полные данные» чтобы построить кривые.
+        </div>
+
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;
+                    margin-top:14px; margin-bottom:6px;">
+          <h4 style="margin:0; font-size:0.92rem;">Выбранные участки:</h4>
+          <button id="wz3cmp-add-btn" class="wz-btn wz-btn-secondary"
+                  style="padding:4px 10px; font-size:0.78rem;
+                         background:#dbeafe; color:#1d4ed8; border-color:#93c5fd;"
+                  title="Добавить текущий выбор шкалы вверху страницы как сегмент">
+            ➕ Добавить из шкалы вверху
+          </button>
+          <button id="wz3cmp-clear-btn" class="wz-btn wz-btn-secondary"
+                  style="padding:4px 10px; font-size:0.78rem;">
+            ✕ Очистить все
+          </button>
+        </div>
+        <div id="wz3cmp-segments" class="wz3cmp-segments"></div>
+        <div id="wz3cmp-chart"
+             style="height:380px; margin-top:10px; display:none;
+                    border:1px solid #e5e7eb; border-radius:6px;"></div>
+        <div id="wz3cmp-status" style="margin-top:6px; font-size:0.82rem;"></div>
       </div>
 
       ${includeBlock(3, 'Включить раздел «Этап наблюдения» в PDF')}

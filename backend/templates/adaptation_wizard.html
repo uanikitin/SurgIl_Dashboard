@@ -2171,6 +2171,101 @@
 
     // Таблица характеристик и трендов
     _wz3cmpRenderTrendsTable(segData, metricLabel, method);
+    // Блок «Сохранить сравнение в отчёт» — виден когда есть ≥1 сегмент
+    _wz3cmpUpdateSaveBlock(segData, metricLabel, method);
+    // Сохраняем последнее состояние для использования при сохранении блока
+    wz3cmpLastState = { segData, metricLabel, method,
+      metric: $('wz3cmp-metric')?.value || 'dp',
+      toggles: {
+        showCurve:    $('wz3cmp-show-curve')?.checked !== false,
+        showTrend:    $('wz3cmp-show-trend')?.checked !== false,
+        showForecast: $('wz3cmp-show-forecast')?.checked || false,
+      },
+    };
+  }
+
+  // Кэш последнего расчёта (для save-блока)
+  let wz3cmpLastState = null;
+
+  function _wz3cmpUpdateSaveBlock(segData, metricLabel, method) {
+    const block = $('wz3cmp-save-block');
+    if (!block) return;
+    if (!segData.length) { block.style.display = 'none'; return; }
+    block.style.display = '';
+    // Если поле названия пусто — заполняем дефолтным
+    const titleEl = $('wz3cmp-save-title');
+    if (titleEl && !titleEl.value) {
+      const letters = segData.map(sd => String.fromCharCode(65 + sd.i)).join('+');
+      titleEl.value = `Сравнение участков ${letters} · ${metricLabel}`;
+    }
+    // Авто-описание — если поле пусто
+    const descEl = $('wz3cmp-save-desc');
+    if (descEl && !descEl.value) {
+      descEl.value = _wz3cmpBuildAutoDesc(segData, metricLabel, method);
+    }
+  }
+
+  function _wz3cmpBuildAutoDesc(segData, metricLabel, method) {
+    const fmt = (v, d=3) => (v == null || isNaN(v)) ? '—' : Number(v).toFixed(d);
+    const sign = (v, d=3) => v == null ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(d);
+    const lines = [];
+    lines.push(
+      `Анализ сравнения ${segData.length} ${segData.length === 1 ? 'участка' : 'участков'} ` +
+      `по показателю «${metricLabel}». Тренды рассчитаны методом ` +
+      `${method === 'theil_sen' ? 'Theil-Sen (робастный)' : 'линейной регрессии (МНК)'}.`
+    );
+    lines.push('');
+    lines.push('Сравниваемые участки:');
+    for (const sd of segData) {
+      const letter = String.fromCharCode(65 + sd.i);
+      const src = sd.s.source === 'customer' ? 'UzKorGaz' : 'UniTool';
+      const fStr = (sd.s.fromTs || sd.s.from).slice(0, 16).replace('T', ' ');
+      const tStr = (sd.s.toTs   || sd.s.to  ).slice(0, 16).replace('T', ' ');
+      const days = Math.floor(sd.segDur / 24);
+      const hrs  = (sd.segDur - days * 24).toFixed(1);
+      const yY = sd.yY;
+      const n = yY.length;
+      let mean = null, median = null;
+      if (n > 0) {
+        mean = yY.reduce((s, x) => s + x, 0) / n;
+        const sorted = yY.slice().sort((a, b) => a - b);
+        median = sorted.length % 2
+          ? sorted[(sorted.length - 1) >> 1]
+          : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
+      }
+      const slopeH = sd.reg.slope;
+      const slopeD = slopeH != null ? slopeH * 24 : null;
+      const direction = slopeH == null ? 'нет данных'
+        : slopeH > 0.001 ? 'рост'
+        : slopeH < -0.001 ? 'падение'
+        : 'стабильно';
+      lines.push(
+        `  ${letter}. ${src} · ${fStr} … ${tStr} (${days} сут ${hrs} ч, ${n} точек). ` +
+        `Среднее ${fmt(mean)}, медиана ${fmt(median)}. ` +
+        `Тренд: ${direction}, slope ${sign(slopeH, 4)} ед./час (${sign(slopeD, 3)} ед./день)` +
+        (sd.reg.r2 != null ? `, R² = ${fmt(sd.reg.r2, 3)}` : '') + '.'
+      );
+    }
+    // Сравнение между сегментами
+    if (segData.length >= 2) {
+      const first = segData[0];
+      const last  = segData[segData.length - 1];
+      const meanF = first.yY.length
+        ? first.yY.reduce((s,x)=>s+x,0)/first.yY.length : null;
+      const meanL = last.yY.length
+        ? last.yY.reduce((s,x)=>s+x,0)/last.yY.length : null;
+      if (meanF != null && meanL != null && meanF !== 0) {
+        const dPct = (meanL - meanF) / meanF * 100;
+        const lF = String.fromCharCode(65 + first.i);
+        const lL = String.fromCharCode(65 + last.i);
+        lines.push('');
+        lines.push(
+          `Изменение между ${lF} и ${lL}: среднее ${fmt(meanF)} → ${fmt(meanL)} ` +
+          `(${dPct >= 0 ? '+' : ''}${dPct.toFixed(1)}%).`
+        );
+      }
+    }
+    return lines.join('\n');
   }
 
   // Таблица: per-сегмент длительность, тренд (slope в /час и /день),
@@ -2275,6 +2370,115 @@
      'wz3cmp-trend-method'].forEach(id => {
       $(id)?.addEventListener('change', _wz3cmpRenderChart);
     });
+    // Save-блок: «Авто-описание» и «Сохранить»
+    $('wz3cmp-auto-desc')?.addEventListener('click', () => {
+      if (!wz3cmpLastState) return;
+      const { segData, metricLabel, method } = wz3cmpLastState;
+      $('wz3cmp-save-desc').value = _wz3cmpBuildAutoDesc(segData, metricLabel, method);
+    });
+    $('wz3cmp-save-btn')?.addEventListener('click', _wz3cmpSaveAsBlock);
+  }
+
+  // Сохранить текущее сравнение как customer_report_block с kind='comparison'
+  async function _wz3cmpSaveAsBlock() {
+    const status = $('wz3cmp-save-status');
+    if (!wz3cmpLastState) {
+      if (status) { status.textContent = '⚠ Нет сравнения для сохранения.'; status.style.color = '#dc2626'; }
+      return;
+    }
+    if (!state.well?.id) {
+      if (status) { status.textContent = '⚠ Скважина не определена.'; status.style.color = '#dc2626'; }
+      return;
+    }
+    const title = ($('wz3cmp-save-title')?.value || '').trim()
+      || `Сравнение участков · ${wz3cmpLastState.metricLabel}`;
+    const desc  = $('wz3cmp-save-desc')?.value || '';
+
+    // Снимок: метрика, метод, тогглы, и параметры сегментов
+    // (включая агрегаты тренда — для отображения без повторного fetch)
+    const segs = wz3cmpLastState.segData.map(sd => {
+      const yY = sd.yY;
+      let mean = null, median = null, mn = null, mx = null;
+      if (yY.length) {
+        mean = yY.reduce((s,x)=>s+x,0) / yY.length;
+        const sorted = yY.slice().sort((a,b)=>a-b);
+        median = sorted.length % 2
+          ? sorted[(sorted.length-1) >> 1]
+          : (sorted[sorted.length/2-1] + sorted[sorted.length/2]) / 2;
+        mn = sorted[0]; mx = sorted[sorted.length-1];
+      }
+      return {
+        letter: String.fromCharCode(65 + sd.i),
+        source: sd.s.source,
+        color:  sd.s.color,
+        from_ts: sd.s.fromTs || (sd.s.from + 'T00:00:00'),
+        to_ts:   sd.s.toTs   || (sd.s.to   + 'T23:59:59'),
+        from:    sd.s.from,
+        to:      sd.s.to,
+        duration_hours: sd.segDur,
+        n: yY.length,
+        mean, median, min: mn, max: mx,
+        slope_per_hour: sd.reg.slope,
+        slope_per_day:  sd.reg.slope != null ? sd.reg.slope * 24 : null,
+        intercept:      sd.reg.intercept,
+        r2:             sd.reg.r2,
+      };
+    });
+    const snap = {
+      _v: 'wz3cmp_v1',
+      kind_detail: 'segments_comparison',
+      metric: wz3cmpLastState.metric,
+      metric_label: wz3cmpLastState.metricLabel,
+      method: wz3cmpLastState.method,
+      toggles: wz3cmpLastState.toggles,
+      segments: segs,
+    };
+
+    if (status) { status.textContent = '⏳ Сохраняю…'; status.style.color = '#92400e'; }
+    try {
+      const r = await fetch('/api/customer-daily/blocks', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          well_id: state.well.id,
+          kind: 'comparison',
+          title: title,
+          params: {
+            kind_detail: 'segments_comparison',
+            metric: wz3cmpLastState.metric,
+            method: wz3cmpLastState.method,
+            segments_count: segs.length,
+          },
+          data_snapshot: snap,
+          comment: desc,
+          in_report: true,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        if (status) {
+          status.textContent = '✗ ' + (d.detail || 'HTTP ' + r.status);
+          status.style.color = '#dc2626';
+        }
+        return;
+      }
+      if (status) {
+        status.textContent = '✓ Блок сравнения #' + (d.id || '?') + ' сохранён';
+        status.style.color = '#059669';
+      }
+      // Сбрасываем title и description чтобы можно было сохранить новое сравнение
+      $('wz3cmp-save-title').value = '';
+      $('wz3cmp-save-desc').value = '';
+      // Обновляем секцию «Прикреплено к разделу»
+      if (typeof wz3LoadAttachedBlocks === 'function') {
+        wz3LoadAttachedBlocks().catch(() => {});
+      }
+      setTimeout(() => { if (status) status.textContent = ''; }, 5000);
+    } catch (e) {
+      if (status) {
+        status.textContent = '✗ Сетевая ошибка: ' + e.message;
+        status.style.color = '#dc2626';
+      }
+    }
   }
 
   // ─── Расчёт линейной регрессии (МНК) ──────────────────────────────
@@ -3381,6 +3585,49 @@
                     border:1px solid #e5e7eb; border-radius:6px;"></div>
         <!-- Таблица характеристик / трендов / скоростей по сегментам -->
         <div id="wz3cmp-trends-table" style="margin-top:10px;"></div>
+
+        <!-- Блок сохранения сравнения в отчёт -->
+        <div id="wz3cmp-save-block" style="display:none; margin-top:14px;
+              padding:12px 14px; background:#fef3c7; border:1px solid #fcd34d;
+              border-radius:6px;">
+          <div style="font-weight:600; color:#92400e; margin-bottom:8px;
+                      font-size:0.92rem;">
+            💾 Сохранить анализ сравнения как блок отчёта
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;
+                      margin-bottom:8px;">
+            <label style="font-size:0.84rem;">Название блока:</label>
+            <input type="text" id="wz3cmp-save-title"
+                   style="flex:1; min-width:300px; padding:5px 8px;
+                          border:1px solid #fcd34d; border-radius:4px;
+                          font-size:0.86rem; background:#fff;"
+                   placeholder="Напр.: «Сравнение начала и середины наблюдения»">
+          </div>
+          <div style="font-size:0.78rem; color:#92400e; font-weight:600;
+                      margin-bottom:4px; text-transform:uppercase;
+                      letter-spacing:0.03em;">
+            📄 Описание для PDF (правится — попадёт в отчёт)
+          </div>
+          <textarea id="wz3cmp-save-desc" rows="5"
+                    style="width:100%; padding:8px 10px; border:1px solid #fcd34d;
+                           border-radius:4px; font-size:0.85rem; line-height:1.5;
+                           resize:vertical; background:#fff; font-family:inherit;
+                           box-sizing:border-box;"
+                    placeholder="Описание сравнения…"></textarea>
+          <div style="display:flex; gap:8px; margin-top:8px; align-items:center;">
+            <button id="wz3cmp-save-btn" class="wz-btn wz-btn-success"
+                    style="padding:6px 16px;">
+              💾 Сохранить в отчёт
+            </button>
+            <button id="wz3cmp-auto-desc" class="wz-btn wz-btn-secondary"
+                    style="padding:6px 12px; font-size:0.82rem;">
+              🪄 Авто-описание
+            </button>
+            <span id="wz3cmp-save-status" style="font-size:0.82rem;
+                  color:#10b981; margin-left:8px;"></span>
+          </div>
+        </div>
+
         <div id="wz3cmp-status" style="margin-top:6px; font-size:0.82rem;"></div>
         <!-- Скрытая кнопка для совместимости со старым обработчиком (если был
              добавитель «из шкалы вверху») — убираем UI, оставляем функцию -->

@@ -1634,11 +1634,25 @@
     const title = isB2
       ? '🌱 B2 — этап наблюдения (UniTool)'
       : '📊 B1 — данные заказчика (UzKorGaz)';
+    // Ссылка для просмотра всех графиков и таблиц этого baseline
+    const wn = state.well?.number ? encodeURIComponent(String(state.well.number)) : '';
+    const previewUrl = wn
+      ? `/customer-daily?well=${wn}&date_from=${bl.period_from}&date_to=${bl.period_to}`
+        + (isB2 ? '&mode=observation' : '')
+      : null;
     box.innerHTML = `
       <div class="wz3bl-tile-title">${title}
         <span style="font-weight:400; font-size:0.78rem; color:#6b7280;">
           ${bl.is_pinned ? '📌 утверждён' : ''}
         </span>
+        ${previewUrl ? `
+          <a href="${previewUrl}" target="_blank"
+             style="margin-left:auto; padding:3px 10px; font-size:0.76rem;
+                    background:#fff; border:1px solid currentColor;
+                    border-radius:4px; text-decoration:none;"
+             title="Открыть период этого baseline на странице «Анализ периода» — все графики, таблицы, описания">
+            📈 Открыть графики и таблицы ↗
+          </a>` : ''}
       </div>
       <div class="wz3bl-meta">
         <b>${bl.name}</b><br>
@@ -1671,8 +1685,83 @@
           <div class="wz3bl-cell-val">${sdH} <span class="wz3bl-cell-sub">часов</span></div>
         </div>
       </div>
-      ${bl.notes ? `<div class="wz3bl-desc">${(bl.notes || '').replace(/</g,'&lt;')}</div>` : ''}
+      <div style="margin-top:10px;">
+        <div style="font-size:0.7rem; color:${isB2 ? '#065f46' : '#92400e'};
+                    font-weight:600; text-transform:uppercase;
+                    letter-spacing:0.03em; margin-bottom:4px;">
+          📄 Описание для PDF (правится, попадает в главу)
+        </div>
+        <textarea data-bl-desc-id="${bl.id}" rows="3"
+                  style="width:100%; padding:6px 8px; border:1px solid ${isB2 ? '#6ee7b7' : '#fcd34d'};
+                         border-radius:4px; font-size:0.82rem; line-height:1.5;
+                         resize:vertical; background:#fff; font-family:inherit;"
+        >${(bl.notes || _wz3AutoDesc(kind, bl)).replace(/</g,'&lt;')}</textarea>
+        <div style="display:flex; gap:6px; margin-top:5px; align-items:center;">
+          <button type="button" data-bl-save-id="${bl.id}"
+                  class="wz-btn wz-btn-secondary"
+                  style="padding:3px 10px; font-size:0.78rem;">💾 Сохранить</button>
+          <button type="button" data-bl-auto-id="${bl.id}" data-bl-kind="${kind}"
+                  class="wz-btn wz-btn-secondary"
+                  style="padding:3px 10px; font-size:0.78rem;">🪄 Авто</button>
+          <span data-bl-status-id="${bl.id}" style="font-size:0.74rem; color:#10b981;"></span>
+        </div>
+      </div>
     `;
+    // bind кнопки
+    box.querySelector(`[data-bl-save-id="${bl.id}"]`)?.addEventListener('click', async () => {
+      const ta = box.querySelector(`[data-bl-desc-id="${bl.id}"]`);
+      const st = box.querySelector(`[data-bl-status-id="${bl.id}"]`);
+      const txt = ta?.value || '';
+      if (st) { st.textContent = '⏳ Сохраняю…'; st.style.color = '#92400e'; }
+      try {
+        const r = await fetch('/api/adaptation-report/baselines/' + bl.id, {
+          method: 'PATCH', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ notes: txt }),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        bl.notes = txt;
+        if (st) { st.textContent = '✓ Сохранено'; st.style.color = '#059669'; }
+        setTimeout(() => { if (st) st.textContent = ''; }, 3000);
+      } catch (e) {
+        if (st) { st.textContent = '✗ ' + e.message; st.style.color = '#dc2626'; }
+      }
+    });
+    box.querySelector(`[data-bl-auto-id="${bl.id}"]`)?.addEventListener('click', () => {
+      const ta = box.querySelector(`[data-bl-desc-id="${bl.id}"]`);
+      if (ta) ta.value = _wz3AutoDesc(kind, bl);
+    });
+  }
+
+  // Автогенерация описания baseline для PDF — текст в стиле отчёта
+  function _wz3AutoDesc(kind, bl) {
+    const fmt = (v, d=2) => (v == null || isNaN(v)) ? '—' : Number(v).toFixed(d);
+    const sdMin = bl.shutdown_min_total || 0;
+    const sdH   = sdMin ? (sdMin / 60).toFixed(1) : '0';
+    if (kind === 'b2') {
+      return (
+        `Этап наблюдения зафиксирован по данным датчиков UniTool с ${bl.period_from} ` +
+        `по ${bl.period_to}, длительность ${bl.days_count} сут. ` +
+        `Средний дебит — ${fmt(bl.q_total_avg)} (медиана ${fmt(bl.q_total_median)}) тыс.м³/сут ` +
+        `(расчёт по штуцеру через единый pipeline /api/flow-rate/calculate). ` +
+        `Дебит рабочий, скорректированный на долю простоя — ${fmt(bl.q_working_avg)} ` +
+        `(медиана ${fmt(bl.q_working_median)}) тыс.м³/сут. ` +
+        `Средний перепад давления — ${fmt(bl.dp_avg)} (медиана ${fmt(bl.dp_median)}) кгс/см². ` +
+        `Медианы давлений: устье ${fmt(bl.p_wellhead_median)}, шлейф ${fmt(bl.p_flowline_median)} кгс/см². ` +
+        `Простой за период — ${fmt(sdMin, 0)} мин (${sdH} ч), ` +
+        `${bl.shutdown_days_count || 0} дней с простоем. ` +
+        `Эти значения — опорная линия (B2) для последующего сравнения с этапом адаптации.`
+      );
+    }
+    return (
+      `Для оценки эффективности выбран базовый период по данным УзКорГаз ` +
+      `с ${bl.period_from} по ${bl.period_to}, длительность ${bl.days_count} сут. ` +
+      `Средний дебит общий — ${fmt(bl.q_total_avg)} (медиана ${fmt(bl.q_total_median)}), ` +
+      `средний дебит рабочий — ${fmt(bl.q_working_avg)} ` +
+      `(медиана ${fmt(bl.q_working_median)}) тыс.м³/сут. ` +
+      `Средний перепад давления — ${fmt(bl.dp_avg)} (медиана ${fmt(bl.dp_median)}) кгс/см². ` +
+      `Медианы давлений: устье ${fmt(bl.p_wellhead_median)}, шлейф ${fmt(bl.p_flowline_median)} кгс/см². ` +
+      `Суммарный простой за период — ${fmt(sdMin, 0)} мин (${sdH} ч), дней с простоем — ${bl.shutdown_days_count || 0}.`
+    );
   }
 
   // ═══ Шкала шага 3 (wz3tl) — выбор периода наблюдения ═══

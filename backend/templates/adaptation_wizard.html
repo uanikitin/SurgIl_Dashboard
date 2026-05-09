@@ -397,6 +397,80 @@
     width: 8.5rem;
   }
   .tl2-divider { width: 1px; height: 22px; background: #d4d4d8; margin: 0 0.3rem; }
+
+  /* ─── Step 3 timeline (wz3tl-) ─── */
+  .wz3tl-wrap { background:#fafafa; border:1px solid #e5e7eb; border-radius:6px;
+                padding:10px 12px; margin-bottom:12px; }
+  .wz3tl-headerrow { display:flex; align-items:center; gap:10px;
+                     font-size:0.84rem; color:#374151; flex-wrap:wrap; margin-bottom:8px; }
+  .wz3tl-mode { color:#1d4ed8; font-weight:500; }
+  .wz3tl-zoom-row { display:flex; align-items:center; gap:8px; margin-bottom:6px;
+                    font-size:0.78rem; color:#6b7280; flex-wrap:wrap; }
+  .wz3tl-zoom-btn { padding:3px 10px; font-size:0.76rem; background:#fff;
+                    border:1px solid #d1d5db; border-radius:999px; cursor:pointer;
+                    color:#374151; }
+  .wz3tl-zoom-btn:hover { background:#eff6ff; border-color:#93c5fd; }
+  .wz3tl-zoom-btn.active { background:#2563eb; color:#fff; border-color:#1d4ed8; }
+  .wz3tl-scroll { width:100%; overflow-x:auto; overflow-y:hidden;
+                  background:#fff; border:1px solid #e5e7eb; border-radius:4px;
+                  padding:6px 0; margin-bottom:4px; }
+  .wz3tl-scale { position:relative; height:160px; min-width:100%;
+                 cursor:crosshair; user-select:none; }
+  .wz3tl-bar { position:absolute; height:18px; border-radius:3px; pointer-events:none; }
+  .wz3tl-bar-customer { top:76px; background:#93c5fd; }
+  .wz3tl-bar-our      { top:102px; background:#6ee7b7; }
+  .wz3tl-bar-label { position:absolute; left:6px; font-size:0.7rem;
+                     color:rgba(0,0,0,0.7); line-height:18px; pointer-events:none; }
+  .wz3tl-stage-line { position:absolute; top:12px; height:130px; width:2px;
+                      background:currentColor; opacity:0.45;
+                      transform:translateX(-50%); pointer-events:none; }
+  .wz3tl-stage-dot { position:absolute; top:6px; width:14px; height:14px;
+                     border-radius:50%; background:currentColor;
+                     box-shadow:0 0 0 2px #fff, 0 1px 4px rgba(0,0,0,0.2);
+                     transform:translateX(-50%); cursor:pointer; pointer-events:auto; }
+  .wz3tl-stage-dot:hover { transform:translateX(-50%) scale(1.4); }
+  .wz3tl-stage-label-side { position:absolute; font-size:0.66rem; font-weight:600;
+                            background:#fff; padding:1px 4px; border-radius:2px;
+                            border:1px solid currentColor; white-space:nowrap;
+                            pointer-events:none; line-height:14px; }
+  .wz3tl-event-icon { position:absolute; top:100px; transform:translateX(-50%);
+                      font-size:13px; line-height:13px; background:#fff;
+                      border-radius:50%; padding:1px 2px;
+                      box-shadow:0 0 0 1px currentColor, 0 1px 3px rgba(0,0,0,0.15);
+                      pointer-events:auto; cursor:help; }
+  .wz3tl-range { position:absolute; top:70px; height:60px;
+                 background:rgba(220,38,38,0.10);
+                 border-left:2px solid rgba(220,38,38,0.55);
+                 border-right:2px solid rgba(220,38,38,0.55); pointer-events:none; }
+  .wz3tl-range-label { position:absolute; top:-2px; background:rgba(220,38,38,0.85);
+                       color:#fff; font-size:0.66rem; font-weight:600;
+                       padding:1px 5px; border-radius:2px; white-space:nowrap; }
+  .wz3tl-axis { position:absolute; bottom:0; left:0; right:0; height:16px;
+                pointer-events:none; }
+  .wz3tl-axis-tick { position:absolute; top:0; font-size:0.62rem; color:#6b7280;
+                     transform:translateX(-50%); white-space:nowrap; }
+  .wz3tl-axis-tick::before { content:""; display:block; width:1px; height:4px;
+                             background:#9ca3af; margin:0 auto 1px; }
+  .wz3tl-bar-tip { position:absolute; color:#fff; font-size:0.65rem;
+                   font-weight:600; padding:1px 5px; border-radius:2px;
+                   white-space:nowrap; pointer-events:none; }
+  .wz3tl-help { font-size:0.7rem; color:#9ca3af; margin-top:4px;
+                display:flex; gap:12px; flex-wrap:wrap; }
+  .wz3tl-help b { color:#4b5563; }
+
+  /* Сравнение участков (relative-days overlay) */
+  .wz3cmp-segments { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .wz3cmp-seg {
+    background:#fff; border:1px solid #cbd5e1; border-radius:6px;
+    padding:6px 10px; font-size:0.78rem; display:flex; gap:8px; align-items:center;
+  }
+  .wz3cmp-seg .swatch {
+    width:14px; height:14px; border-radius:3px;
+  }
+  .wz3cmp-seg button {
+    background:none; border:none; cursor:pointer; color:#dc2626;
+    font-size:0.9rem; padding:0 2px;
+  }
 </style>
 {% endblock %}
 
@@ -1466,6 +1540,301 @@
     if (v === null || v === undefined || isNaN(v)) return '—';
     return Number(v).toFixed(d);
   }
+  // ═══ Шкала шага 3 (wz3tl) — выбор периода наблюдения ═══
+  // Использует тот же /api/adaptation-report/timeline что и /customer-daily.
+  // При клике по точке этапа — заполняет wz3-from/wz3-to, переключает
+  // источник на 'manual' и запускает повторный анализ.
+  let wz3tlState = {
+    earliest: null, latest: null, earliestRaw: null,
+    windowMode: 'year', windowYear: null,
+    from: null, to: null, anchor: null,
+    zoom: 'month', data: null,
+  };
+  const _w3y = (d) => !d || isNaN(d.getTime()) ? '' :
+    [d.getFullYear(), String(d.getMonth()+1).padStart(2,'0'),
+     String(d.getDate()).padStart(2,'0')].join('-');
+  const _w3p = (s) => {
+    if (!s) return null;
+    const m = String(s).slice(0,10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? new Date(+m[1], +m[2]-1, +m[3]) : null;
+  };
+  const _w3add = (d, n) => {
+    if (!d) return null;
+    const o = new Date(d); o.setDate(o.getDate()+n); return o;
+  };
+  const _w3diff = (a, b) => !a || !b ? 0 : Math.round((b - a) / 86400000);
+  const _w3pct = (d) => {
+    if (!d || !wz3tlState.earliest || !wz3tlState.latest) return 0;
+    const t = (wz3tlState.latest - wz3tlState.earliest) || 86400000;
+    return Math.max(0, Math.min(100, ((d - wz3tlState.earliest) / t) * 100));
+  };
+  function _w3ApplyWindow() {
+    const t = wz3tlState.latest || new Date();
+    if (wz3tlState.windowMode === 'all' || !wz3tlState.earliestRaw) {
+      wz3tlState.earliest = wz3tlState.earliestRaw || _w3add(t, -365);
+      return;
+    }
+    const y = wz3tlState.windowYear || t.getFullYear();
+    wz3tlState.earliest = new Date(y, 0, 1);
+    if (y === t.getFullYear()) wz3tlState.latest = t;
+    else wz3tlState.latest = new Date(y, 11, 31);
+  }
+  function _w3RenderWindowButtons() {
+    const row = $('wz3tl-window-row');
+    if (!row) return;
+    const today = _w3p(wz3tlState.data?.today) || new Date();
+    const years = new Set([today.getFullYear()]);
+    if (wz3tlState.earliestRaw) {
+      for (let y = wz3tlState.earliestRaw.getFullYear(); y <= today.getFullYear(); y++) years.add(y);
+    }
+    const arr = Array.from(years).sort((a,b) => b-a);
+    const activeY = wz3tlState.windowMode === 'year' ? wz3tlState.windowYear : null;
+    const activeAll = wz3tlState.windowMode === 'all';
+    let html = '<span style="font-size:0.78rem;">Окно:</span>';
+    for (const y of arr) {
+      const a = y === activeY ? 'active' : '';
+      html += `<button type="button" class="wz3tl-zoom-btn ${a}" data-w3-year="${y}">
+                ${y}${y === today.getFullYear() ? ' (тек.)' : ''}</button>`;
+    }
+    html += `<button type="button" class="wz3tl-zoom-btn ${activeAll ? 'active' : ''}"
+              data-w3-all="1">Вся история</button>`;
+    row.innerHTML = html;
+    row.querySelectorAll('[data-w3-year]').forEach(b => {
+      b.addEventListener('click', () => {
+        wz3tlState.windowMode = 'year';
+        wz3tlState.windowYear = parseInt(b.dataset.w3Year, 10);
+        _w3ApplyWindow(); _w3RenderWindowButtons(); _w3Render();
+      });
+    });
+    row.querySelector('[data-w3-all]')?.addEventListener('click', () => {
+      wz3tlState.windowMode = 'all'; wz3tlState.windowYear = null;
+      _w3ApplyWindow(); _w3RenderWindowButtons(); _w3Render();
+    });
+  }
+  async function wz3tlInit() {
+    if (!state.well?.id) return;
+    try {
+      const r = await fetch('/api/adaptation-report/timeline?well_id=' + state.well.id
+                            + '&_=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) return;
+      const d = await r.json();
+      wz3tlState.data = d;
+      const cands = [];
+      if (d.customer_data?.first_date) cands.push(_w3p(d.customer_data.first_date));
+      if (d.our_data?.first_date)      cands.push(_w3p(d.our_data.first_date));
+      for (const s of (d.stages || [])) {
+        if (s.dt_start) cands.push(_w3p(s.dt_start));
+      }
+      const today = _w3p(d.today) || new Date();
+      wz3tlState.earliestRaw = cands.length
+        ? _w3add(cands.reduce((a,b) => a < b ? a : b), -7)
+        : _w3add(today, -365);
+      wz3tlState.latest = today;
+      if (!wz3tlState.windowYear) wz3tlState.windowYear = today.getFullYear();
+      _w3ApplyWindow(); _w3RenderWindowButtons();
+      // Подцепляем текущие даты wz3-from/wz3-to (могли быть выставлены источником)
+      const fStr = ($('wz3-from')?.value || '').slice(0, 10);
+      const tStr = ($('wz3-to')?.value || '').slice(0, 10);
+      wz3tlState.from = _w3p(fStr);
+      wz3tlState.to   = _w3p(tStr);
+      _w3Render(); _w3UpdateMode();
+    } catch (e) { console.warn('wz3tlInit', e); }
+  }
+  function _w3ScaleWidth() {
+    if (!wz3tlState.earliest || !wz3tlState.latest) return '100%';
+    const days = _w3diff(wz3tlState.earliest, wz3tlState.latest) + 1;
+    const px = { day:12, week:4, month:1.6, year:0.5 }[wz3tlState.zoom] || 1.6;
+    return Math.max(600, Math.round(days * px)) + 'px';
+  }
+  function _w3Render() {
+    const sc = $('wz3tl-scale');
+    if (!sc || !wz3tlState.earliest || !wz3tlState.latest) return;
+    sc.style.width = _w3ScaleWidth();
+    const d = wz3tlState.data || {};
+    const parts = [];
+    // Бары
+    if (d.customer_data?.first_date && d.customer_data?.last_date) {
+      const a = _w3pct(_w3p(d.customer_data.first_date));
+      const b = _w3pct(_w3p(d.customer_data.last_date));
+      parts.push(
+        `<div class="wz3tl-bar wz3tl-bar-customer" style="left:${a}%; width:${Math.max(b-a,0.3)}%;"
+              title="UzKorGaz: ${d.customer_data.first_date} — ${d.customer_data.last_date}"></div>`,
+        `<div class="wz3tl-bar-label" style="top:76px; color:#1e3a8a;">UzKorGaz · суточные сводки</div>`,
+        `<div class="wz3tl-bar-tip" style="left:${a}%; top:62px; transform:translateX(-50%);
+              background:#1d4ed8;">${d.customer_data.first_date}</div>`,
+        `<div class="wz3tl-bar-tip" style="left:${b}%; top:62px; transform:translateX(-50%);
+              background:#1d4ed8;">${d.customer_data.last_date}</div>`
+      );
+    }
+    if (d.our_data?.first_date && d.our_data?.last_date) {
+      const a = _w3pct(_w3p(d.our_data.first_date));
+      const b = _w3pct(_w3p(d.our_data.last_date));
+      const equipEv = (d.events || []).find(e => e.kind === 'equip');
+      const equipDt = equipEv ? _w3p(equipEv.dt) : null;
+      const ourStart = _w3p(d.our_data.first_date);
+      if (equipDt && ourStart < equipDt) {
+        const m = _w3pct(equipDt);
+        parts.push(
+          `<div class="wz3tl-bar" style="left:${a}%; width:${Math.max(m-a,0.3)}%;
+                top:102px; height:18px; background:#9ca3af; opacity:0.5; border-radius:3px;"
+                title="до установки оборудования"></div>`,
+          `<div class="wz3tl-bar wz3tl-bar-our" style="left:${m}%; width:${Math.max(b-m,0.3)}%;"
+                title="UniTool: ${equipEv.dt.slice(0,10)} — ${d.our_data.last_date}"></div>`,
+          `<div class="wz3tl-bar-label" style="top:102px; color:#065f46;">UniTool · LoRa (серый = до привязки)</div>`
+        );
+      } else {
+        parts.push(
+          `<div class="wz3tl-bar wz3tl-bar-our" style="left:${a}%; width:${Math.max(b-a,0.3)}%;"
+                title="UniTool: ${d.our_data.first_date} — ${d.our_data.last_date}"></div>`,
+          `<div class="wz3tl-bar-label" style="top:102px; color:#065f46;">UniTool · LoRa-датчики</div>`
+        );
+      }
+    }
+    // Этапы
+    (d.stages || []).filter(s => s.dt_start).forEach((s, i) => {
+      const xS = _w3pct(_w3p(s.dt_start));
+      const xE = s.dt_end ? _w3pct(_w3p(s.dt_end)) : 100;
+      const lbl = (s.label || '').slice(0, 16);
+      const ds = s.dt_start.slice(0, 10);
+      const isObs = /Наблюд/.test(s.label);
+      parts.push(
+        `<div class="wz3tl-stage-line" style="left:${xS}%; color:${s.color};"></div>`,
+        `<div class="wz3tl-stage-dot" style="left:${xS}%; color:${s.color};"
+              data-from="${_w3y(_w3p(s.dt_start))}"
+              data-to="${s.dt_end ? _w3y(_w3p(s.dt_end)) : _w3y(wz3tlState.latest)}"
+              data-is-obs="${isObs ? '1' : '0'}"
+              title="${s.label}: ${ds}${s.dt_end ? ' → ' + s.dt_end.slice(0,10) : ' → сейчас'}\nКлик — взять диапазон этапа"></div>`,
+        `<div class="wz3tl-stage-label-side" style="left:${xS}%; top:${1 + i*17}px;
+              color:${s.color}; transform:translateX(${xS > 70 ? '-100%' : '6px'});">
+          ${lbl} · ${ds}</div>`
+      );
+      if (s.dt_end) {
+        parts.push(`<div class="wz3tl-stage-line" style="left:${xE}%; color:${s.color}; opacity:0.25;"></div>`);
+      }
+    });
+    // События
+    (d.events || []).forEach(ev => {
+      if (!ev.dt) return;
+      const x = _w3pct(_w3p(ev.dt));
+      parts.push(
+        `<div class="wz3tl-event-icon" style="left:${x}%; color:${ev.color};"
+              title="${ev.label}: ${ev.dt.slice(0,16).replace('T',' ')}">${ev.icon || '●'}</div>`
+      );
+    });
+    // Range
+    if (wz3tlState.from && wz3tlState.to) {
+      const a = _w3pct(wz3tlState.from);
+      const b = _w3pct(wz3tlState.to);
+      const days = _w3diff(wz3tlState.from, wz3tlState.to) + 1;
+      parts.push(
+        `<div class="wz3tl-range" style="left:${a}%; width:${Math.max(b-a,0.3)}%;">
+          <div class="wz3tl-range-label" style="left:6px;">${_w3y(wz3tlState.from)} → ${_w3y(wz3tlState.to)} (${days} дн.)</div>
+        </div>`
+      );
+    }
+    // Ось
+    const total = _w3diff(wz3tlState.earliest, wz3tlState.latest) || 1;
+    let step;
+    if (wz3tlState.zoom === 'day') step = 7;
+    else if (wz3tlState.zoom === 'week') step = 14;
+    else if (wz3tlState.zoom === 'month') step = total > 365 ? 60 : 30;
+    else step = total > 1500 ? 180 : 90;
+    const ax = [];
+    for (let cur = new Date(wz3tlState.earliest); cur <= wz3tlState.latest; cur = _w3add(cur, step)) {
+      const x = _w3pct(cur);
+      const lbl = wz3tlState.zoom === 'day' || wz3tlState.zoom === 'week'
+        ? String(cur.getDate()).padStart(2,'0') + '.' + String(cur.getMonth()+1).padStart(2,'0')
+        : String(cur.getMonth()+1).padStart(2,'0') + '.' + String(cur.getFullYear()).slice(-2);
+      ax.push(`<div class="wz3tl-axis-tick" style="left:${x}%;">${lbl}</div>`);
+    }
+    parts.push(`<div class="wz3tl-axis">${ax.join('')}</div>`);
+    sc.innerHTML = parts.join('');
+    // Bind клики на точках этапов
+    sc.querySelectorAll('.wz3tl-stage-dot').forEach(dot => {
+      dot.addEventListener('click', ev => {
+        ev.stopPropagation();
+        const f = dot.dataset.from, t = dot.dataset.to;
+        if (!f || !t) return;
+        wz3tlState.from = _w3p(f); wz3tlState.to = _w3p(t);
+        _w3WriteToFields();
+        _w3Render(); _w3UpdateMode();
+      });
+    });
+  }
+  function _w3WriteToFields() {
+    if (!wz3tlState.from || !wz3tlState.to) return;
+    // wz3-from/to это datetime-local, формат 'YYYY-MM-DDTHH:MM'
+    const f = _w3y(wz3tlState.from) + 'T00:00';
+    const t = _w3y(wz3tlState.to) + 'T23:59';
+    if ($('wz3-from')) {
+      $('wz3-from').value = f;
+      $('wz3-from').readOnly = false;
+      $('wz3-from').style.background = '';
+    }
+    if ($('wz3-to')) {
+      $('wz3-to').value = t;
+      $('wz3-to').readOnly = false;
+      $('wz3-to').style.background = '';
+    }
+    // Переключаем источник на 'manual' (пользователь явно выбрал на шкале)
+    const d = state.steps[3].data;
+    d.from = f; d.to = t; d.source = 'manual';
+    const radio = document.querySelector('input[name="wz3-src"][value="manual"]');
+    if (radio) radio.checked = true;
+    if (typeof wz3UpdateDuration === 'function') wz3UpdateDuration();
+    if (typeof wz3MarkStale === 'function') wz3MarkStale();
+    if (typeof wz3DebouncedAnalyze === 'function') wz3DebouncedAnalyze();
+  }
+  function _w3UpdateMode() {
+    const lbl = $('wz3tl-mode');
+    const disp = $('wz3tl-period-display');
+    if (!lbl) return;
+    if (wz3tlState.from && wz3tlState.to) {
+      const days = _w3diff(wz3tlState.from, wz3tlState.to) + 1;
+      lbl.textContent = 'выбран диапазон';
+      if (disp) disp.textContent = `${_w3y(wz3tlState.from)} → ${_w3y(wz3tlState.to)} · ${days} дн.`;
+    } else if (wz3tlState.from) {
+      lbl.textContent = 'задана левая граница, кликните по правой';
+      if (disp) disp.textContent = `${_w3y(wz3tlState.from)} → …`;
+    } else {
+      lbl.textContent = 'не выбран';
+      if (disp) disp.textContent = '';
+    }
+  }
+  function _w3BindHandlers() {
+    document.querySelectorAll('.wz3tl-zoom-btn[data-zoom]').forEach(b => {
+      b.addEventListener('click', () => {
+        wz3tlState.zoom = b.dataset.zoom;
+        document.querySelectorAll('.wz3tl-zoom-btn[data-zoom]').forEach(x => {
+          x.classList.toggle('active', x === b);
+        });
+        _w3Render();
+      });
+    });
+    $('wz3tl-clear-btn')?.addEventListener('click', () => {
+      wz3tlState.from = null; wz3tlState.to = null;
+      _w3Render(); _w3UpdateMode();
+    });
+    $('wz3tl-scale')?.addEventListener('click', ev => {
+      if (ev.target.closest('.wz3tl-stage-dot')) return;
+      if (!wz3tlState.earliest || !wz3tlState.latest) return;
+      const r = ev.currentTarget.getBoundingClientRect();
+      const pct = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
+      const ms = wz3tlState.earliest.getTime() + pct * (wz3tlState.latest - wz3tlState.earliest);
+      const d = new Date(ms); d.setHours(0,0,0,0);
+      if (wz3tlState.from && wz3tlState.to) {
+        wz3tlState.from = d; wz3tlState.to = null;
+      } else if (!wz3tlState.from) {
+        wz3tlState.from = d;
+      } else {
+        if (d < wz3tlState.from) { wz3tlState.to = wz3tlState.from; wz3tlState.from = d; }
+        else { wz3tlState.to = d; }
+      }
+      _w3WriteToFields();
+      _w3Render(); _w3UpdateMode();
+    });
+  }
+
   // ═══ STEP 3: Наблюдение (B2) — полный анализ ═══
   function renderStep3(main) {
     const d = state.steps[3].data;
@@ -1526,6 +1895,40 @@
         <b>Окончание наблюдения = начало адаптации</b> — автоматически прокидывается в шаг 5.
       </div>
 
+      <!-- Шкала + сравнение (новое) -->
+      <div class="wz-section">
+        <h3>Временная шкала и выбор периода наблюдения</h3>
+        <div class="wz3tl-wrap">
+          <div class="wz3tl-headerrow">
+            Режим: <span class="wz3tl-mode" id="wz3tl-mode">не выбран</span>
+            <span id="wz3tl-period-display" style="font-family:monospace; color:#374151;
+                  font-size:0.78rem; margin-left:auto;"></span>
+          </div>
+          <div class="wz3tl-zoom-row">
+            <span>Масштаб:</span>
+            <button type="button" class="wz3tl-zoom-btn" data-zoom="day">Сутки</button>
+            <button type="button" class="wz3tl-zoom-btn" data-zoom="week">Неделя</button>
+            <button type="button" class="wz3tl-zoom-btn active" data-zoom="month">Месяц</button>
+            <button type="button" class="wz3tl-zoom-btn" data-zoom="year">Год</button>
+            <span id="wz3tl-window-row" style="margin-left:8px; display:inline-flex; gap:6px;
+                                                align-items:center; padding-left:8px;
+                                                border-left:1px solid #e5e7eb;"></span>
+            <span style="margin-left:auto;">
+              <button type="button" class="wz3tl-zoom-btn" id="wz3tl-clear-btn">✕ Сбросить</button>
+            </span>
+          </div>
+          <div class="wz3tl-scroll" id="wz3tl-scroll">
+            <div class="wz3tl-scale" id="wz3tl-scale"
+                 title="Кликните по точке этапа = взять диапазон. Клик по пустому месту: первый = «от», второй = «до»."></div>
+          </div>
+          <div class="wz3tl-help">
+            <span><b>Точки сверху</b> — этапы из журнала статусов (клик = взять диапазон)</span>
+            <span><b style="color:#1e3a8a;">Синяя полоса</b> — UzKorGaz (well_daily)</span>
+            <span><b style="color:#065f46;">Зелёная полоса</b> — UniTool (LoRa-датчики)</span>
+          </div>
+        </div>
+      </div>
+
       <div class="wz-section">
         <h3>Источник дат этапа</h3>
         ${srcHtml}
@@ -1579,6 +1982,11 @@
       ${navButtons(3)}
     `;
     bindIncludeBlock(3);
+    // Инициализация шкалы шага 3 (loadTimeline + bind кликов)
+    if (typeof wz3tlInit === 'function') {
+      _w3BindHandlers();
+      wz3tlInit().catch(e => console.warn('wz3tl init', e));
+    }
 
     // Применяем источник по умолчанию
     if (!d.from && !d.to) {

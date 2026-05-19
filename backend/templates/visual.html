@@ -698,9 +698,14 @@
       <span class="daily-stats-card__badge">{{ s.total }} событий</span>
     </div>
 
-    <div class="daily-stats-active" title="Скважины с событиями за этот период">
+    <div class="daily-stats-active" title="Скважины с событиями за этот период (актив/всего на дашборде)">
       <b>{{ s.active_wells_count }}</b> скважин с активностью
-      {% if s.status_summary %}
+      {% if status_totals %}
+        {% for st2, total2 in status_totals.items() %}
+          {% set active2 = s.status_summary.get(st2, [])|length if s.status_summary else 0 %}
+          · {{ st2 }} <b>{{ active2 }}/{{ total2 }}</b>
+        {% endfor %}
+      {% elif s.status_summary %}
         {% for st2, wl2 in s.status_summary.items() if st2 not in ['Без статуса', 'Не обслуживается'] %}
           · {{ st2 }} <b>{{ wl2|length }}</b>
         {% endfor %}
@@ -1649,10 +1654,38 @@
     window.wellsMap = map;
     window.wellMarkers = {};
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "&copy; OpenStreetMap contributors"
-    }).addTo(map);
+    const baseTopo = L.tileLayer(
+      "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
+        maxZoom: 17,
+        attribution:
+          'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, ' +
+          '<a href="http://viewfinderpanoramas.org">SRTM</a> | ' +
+          'Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> ' +
+          '(<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)',
+        subdomains: "abc"
+      });
+    const baseOSM = L.tileLayer(
+      "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors"
+      });
+    const baseSat = L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+        maxZoom: 19,
+        attribution: "Tiles &copy; Esri &mdash; Source: Esri, Earthstar Geographics"
+      });
+
+    baseTopo.addTo(map);
+
+    L.control.layers(
+      {
+        "Рельеф (OpenTopoMap)": baseTopo,
+        "OpenStreetMap": baseOSM,
+        "Спутник (Esri)": baseSat
+      },
+      null,
+      { position: "topright", collapsed: true }
+    ).addTo(map);
 
     const group = L.featureGroup();
 

@@ -1,0 +1,285 @@
+{% extends "base.html" %}
+
+{% block title %}Загрузка данных заказчика{% endblock %}
+
+{% block extra_head %}
+<style>
+  .upl-page {
+    max-width: 800px; margin: 24px auto; padding: 20px;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  .upl-page h1 {
+    margin: 0 0 4px 0; font-size: 1.3rem; color: #1f2937;
+  }
+  .upl-page .upl-hint {
+    color: #6b7280; font-size: 0.88rem; line-height: 1.5;
+  }
+  .upl-section {
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 8px;
+    padding: 18px 20px;
+  }
+  .upl-drop {
+    border: 2px dashed #94a3b8; border-radius: 8px;
+    padding: 32px 20px; text-align: center; cursor: pointer;
+    background: #f8fafc; transition: background 0.15s, border-color 0.15s;
+  }
+  .upl-drop:hover, .upl-drop.dragover {
+    background: #eff6ff; border-color: #1d4ed8;
+  }
+  .upl-drop p { margin: 4px 0; }
+  .upl-drop .hint { font-size: 0.82rem; color: #6b7280; }
+  .upl-status { margin-top: 14px; }
+  .upl-status .alert {
+    padding: 10px 14px; border-radius: 6px; font-size: 0.88rem; line-height: 1.4;
+  }
+  .upl-status .alert.info  { background: #dbeafe; border-left: 4px solid #1d4ed8; color: #1e3a8a; }
+  .upl-status .alert.error { background: #fee2e2; border-left: 4px solid #dc2626; color: #991b1b; }
+  .upl-status .alert.success { background: #d1fae5; border-left: 4px solid #10b981; color: #065f46; }
+  .upl-loader {
+    display: inline-block; width: 12px; height: 12px;
+    border: 2px solid #1d4ed8; border-radius: 50%;
+    border-top-color: transparent; animation: upl-spin 0.7s linear infinite;
+    vertical-align: middle; margin-right: 6px;
+  }
+  @keyframes upl-spin { to { transform: rotate(360deg); } }
+
+  .upl-btn {
+    display: inline-block; padding: 8px 16px; border-radius: 6px;
+    font-size: 0.88rem; text-decoration: none; cursor: pointer;
+    border: 1px solid transparent; background: #fff;
+  }
+  .upl-btn-primary   { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
+  .upl-btn-success   { background: #10b981; color: #fff; border-color: #10b981; }
+  .upl-btn-danger    { background: #dc2626; color: #fff; border-color: #dc2626; }
+  .upl-btn-secondary { background: #fff; color: #374151; border-color: #d1d5db; }
+
+  .upl-back {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: #1d4ed8; text-decoration: none; font-size: 0.9rem;
+  }
+  .upl-back:hover { text-decoration: underline; }
+
+  .upl-meta {
+    display: flex; gap: 18px; flex-wrap: wrap;
+    background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px;
+    padding: 10px 14px; font-size: 0.88rem;
+  }
+  .upl-meta .label { color: #6b7280; }
+  .upl-meta .value { font-weight: 600; color: #1f2937; }
+
+  /* Modal */
+  .upl-modal-bd {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.55); z-index: 9999;
+    align-items: center; justify-content: center; padding: 20px;
+  }
+  .upl-modal-bd.open { display: flex; }
+  .upl-modal {
+    background: #fff; border-radius: 8px; padding: 20px 24px;
+    max-width: 600px; width: 100%; max-height: 80vh; overflow-y: auto;
+  }
+  .upl-modal h3 { margin: 0 0 10px 0; font-size: 1.05rem; color: #92400e; }
+  .upl-modal .upl-dup-list {
+    max-height: 200px; overflow-y: auto;
+    background: #fef3c7; border: 1px solid #fcd34d; border-radius: 4px;
+    padding: 8px 10px; font-family: monospace; font-size: 0.8rem; line-height: 1.4;
+    margin: 10px 0;
+  }
+  .upl-modal-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="upl-page">
+  <div>
+    <a class="upl-back" href="/customer-daily{% if back_well %}?well={{ back_well }}{% endif %}">
+      ← Вернуться к анализу
+    </a>
+  </div>
+
+  <h1>📁 Загрузка данных заказчика (XLSX)</h1>
+
+  <!-- Текущее состояние хранилища -->
+  <div class="upl-section">
+    <h3 style="margin:0 0 8px 0; font-size:0.96rem;">Текущее хранилище</h3>
+    <div class="upl-meta">
+      <div><span class="label">Записей:</span> <span class="value" id="upl-meta-rows">—</span></div>
+      <div><span class="label">Скважин:</span> <span class="value" id="upl-meta-wells">—</span></div>
+      <div><span class="label">ГСП:</span> <span class="value" id="upl-meta-ggus">—</span></div>
+      <div><span class="label">Период:</span> <span class="value" id="upl-meta-period">—</span></div>
+      <div><span class="label">Последняя загрузка:</span> <span class="value" id="upl-meta-loaded">—</span></div>
+    </div>
+  </div>
+
+  <!-- Drag-drop -->
+  <div class="upl-section">
+    <div class="upl-hint" style="margin-bottom:12px;">
+      Парсятся <b>все скважины</b> и все листы файла «Суточная сводка &lt;МЕСЯЦ ГОД&gt;г.xlsx».
+      Загрузка обновляет данные для всех скважин, не только текущей.
+      При совпадении (date, ГСП, скв.) программа спросит, перезаписать или добавить только новое.
+    </div>
+    <div class="upl-drop" id="upl-drop">
+      <p style="font-size:2rem; margin:0;">📥</p>
+      <p><b>Перетащите .xlsx-файл сюда</b> или кликните для выбора</p>
+      <p class="hint">.xlsx / .xlsm</p>
+      <input type="file" id="upl-file-input" accept=".xlsx,.xlsm" style="display:none">
+    </div>
+    <div id="upl-status" class="upl-status"></div>
+  </div>
+</div>
+
+<!-- Modal: duplicates -->
+<div class="upl-modal-bd" id="upl-modal-bd">
+  <div class="upl-modal">
+    <h3>⚠ В файле есть данные, уже загруженные в БД</h3>
+    <div id="upl-modal-text" style="font-size:0.88rem; line-height:1.5;"></div>
+    <div class="upl-dup-list" id="upl-modal-list"></div>
+    <div class="upl-modal-actions">
+      <button class="upl-btn upl-btn-secondary" id="upl-modal-cancel">Отмена</button>
+      <button class="upl-btn upl-btn-success"   id="upl-modal-skip">Только новые</button>
+      <button class="upl-btn upl-btn-danger"    id="upl-modal-overwrite">Перезаписать всё</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const $ = (id) => document.getElementById(id);
+  const back_well = {{ (back_well or '')|tojson }};
+  let pendingFile = null;
+
+  function alertBox(parent, type, html) {
+    parent.innerHTML = `<div class="alert ${type}">${html}</div>`;
+    return parent.firstChild;
+  }
+  function clearChildren(el) { while (el.firstChild) el.removeChild(el.firstChild); }
+
+  // Загрузка метa текущего хранилища
+  async function loadMeta() {
+    try {
+      const r = await fetch('/api/customer-daily/meta');
+      const d = await r.json();
+      $('upl-meta-rows').textContent  = d.rows || 0;
+      $('upl-meta-wells').textContent = d.wells || 0;
+      $('upl-meta-ggus').textContent  = d.ggus || 0;
+      $('upl-meta-period').textContent = (d.date_min && d.date_max)
+        ? `${d.date_min} … ${d.date_max}` : '—';
+      $('upl-meta-loaded').textContent = d.last_loaded || '—';
+    } catch (e) {
+      console.warn('loadMeta failed', e);
+    }
+  }
+
+  // ── Drag-drop + file pick ──
+  const drop = $('upl-drop');
+  const fileInput = $('upl-file-input');
+  drop.addEventListener('click', () => fileInput.click());
+  drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('dragover'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
+  drop.addEventListener('drop', (e) => {
+    e.preventDefault();
+    drop.classList.remove('dragover');
+    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length) handleFile(e.target.files[0]);
+  });
+
+  async function handleFile(file) {
+    const status = $('upl-status');
+    clearChildren(status);
+    if (!file.name.match(/\.(xlsx|xlsm)$/i)) {
+      alertBox(status, 'error', 'Поддерживаются только .xlsx / .xlsm');
+      return;
+    }
+    pendingFile = file;
+    const a = alertBox(status, 'info',
+      `<span class="upl-loader"></span> Парсинг файла «${file.name}» (все скважины, все листы)…`);
+
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const r = await fetch('/api/customer-daily/upload-check', { method: 'POST', body: fd });
+      const d = await r.json();
+      a.remove();
+      if (!r.ok) {
+        alertBox(status, 'error', 'Ошибка: ' + (d.detail || r.status));
+        return;
+      }
+      const summary = `Распарсено: <b>${d.rows}</b> строк, ${d.wells} скв., ${d.ggus} ГСП, период ${d.date_min} … ${d.date_max}.`;
+      if (d.duplicates_count > 0) showDuplicatesModal(d, summary);
+      else                        await uploadFile(file, false, status, summary);
+    } catch (e) {
+      a.remove();
+      alertBox(status, 'error', 'Сетевая ошибка: ' + e.message);
+    }
+  }
+
+  function showDuplicatesModal(checkData, summary) {
+    $('upl-modal-text').innerHTML =
+      `${summary}<br>В БД уже есть <b>${checkData.duplicates_count}</b> ` +
+      `записей с такими же (date, ГСП, скв.).`;
+    const list = $('upl-modal-list');
+    clearChildren(list);
+    for (const d of (checkData.duplicates_sample || [])) {
+      const line = document.createElement('div');
+      line.textContent = `${d.date}  ·  ${d.ggu}  ·  скв. ${d.well}`;
+      list.appendChild(line);
+    }
+    if (checkData.duplicates_count > checkData.duplicates_sample.length) {
+      const more = document.createElement('div');
+      more.style.color = '#92400e';
+      more.textContent = `… и ещё ${checkData.duplicates_count - checkData.duplicates_sample.length}`;
+      list.appendChild(more);
+    }
+    $('upl-modal-bd').classList.add('open');
+  }
+
+  $('upl-modal-cancel').addEventListener('click', () => {
+    $('upl-modal-bd').classList.remove('open');
+    pendingFile = null;
+    clearChildren($('upl-status'));
+  });
+  $('upl-modal-skip').addEventListener('click', async () => {
+    $('upl-modal-bd').classList.remove('open');
+    if (pendingFile) await uploadFile(pendingFile, false, $('upl-status'));
+  });
+  $('upl-modal-overwrite').addEventListener('click', async () => {
+    $('upl-modal-bd').classList.remove('open');
+    if (pendingFile) await uploadFile(pendingFile, true, $('upl-status'));
+  });
+
+  async function uploadFile(file, overwrite, statusEl, prefix) {
+    clearChildren(statusEl);
+    const a = alertBox(statusEl, 'info',
+      `<span class="upl-loader"></span> Записываю в БД (${overwrite ? 'перезапись' : 'только новые'})…`);
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('overwrite', overwrite ? 'true' : 'false');
+    try {
+      const r = await fetch('/api/customer-daily/upload', { method: 'POST', body: fd });
+      const d = await r.json();
+      a.remove();
+      if (!r.ok) {
+        alertBox(statusEl, 'error', 'Ошибка: ' + (d.detail || r.status));
+        return;
+      }
+      const backUrl = '/customer-daily' + (back_well ? ('?well=' + encodeURIComponent(back_well)) : '');
+      alertBox(statusEl, 'success',
+        `${prefix || ''} Загружено: <b>${d.inserted}</b> добавлено, ` +
+        `<b>${d.updated}</b> обновлено, <b>${d.skipped}</b> пропущено. ` +
+        `Файл затрагивал <b>${d.wells}</b> скважин. ` +
+        `<a href="${backUrl}" class="upl-btn upl-btn-primary" style="margin-left:10px;">← К анализу</a>`);
+      pendingFile = null;
+      await loadMeta();
+    } catch (e) {
+      a.remove();
+      alertBox(statusEl, 'error', 'Сетевая ошибка: ' + e.message);
+    }
+  }
+
+  // Init
+  loadMeta();
+})();
+</script>
+{% endblock %}

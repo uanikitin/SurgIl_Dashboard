@@ -28,146 +28,37 @@ def _run_calculation(
     C3: float = 286.95,
     critical_ratio: float = 0.5,
     exclude_periods: str = "",
+    dp_threshold: float = 0.1,
 ) -> dict:
     """
-    Внутренняя функция: полный расчёт дебита для одной скважины.
+    Тонкая обёртка над `compute_full_flow` — единым источником истины.
+    Используется только в этом роутере; для прямого использования из
+    других сервисов импортируйте `compute_full_flow` напрямую.
 
-    Pipeline:
-    1. get_pressure_data()        — данные давления
-    2. get_choke_mm()             — диаметр штуцера
-    3. clean + smooth             — предобработка
-    4. calculate_flow_rate()      — мгновенный дебит (Q=0 при p_tube≤p_line)
-    5. calculate_purge_loss()     — потери при стравливании (предварительно)
-    6. get_purge_events()         — маркеры продувок из events
-    7. PurgeDetector.detect()     — детекция циклов продувок
-    8. recalculate_purge_loss()   — пересчёт: потери ТОЛЬКО в фазах venting
-    9. calculate_cumulative()     — накопленный дебит (после пересчёта)
-    10. detect_downtime_periods() — простои (p_tube < p_line)
-    11. build_summary()           — сводные показатели
+    Возвращает {summary, chart, downtime_periods, purge_cycles, data_points}.
     """
-    from backend.services.flow_rate.data_access import (
-        get_pressure_data,
-        get_choke_mm,
-        get_purge_events,
-    )
-    from backend.services.flow_rate.cleaning import clean_pressure, smooth_pressure
-    from backend.services.flow_rate.calculator import (
-        calculate_flow_rate,
-        calculate_cumulative,
-        calculate_purge_loss,
-    )
-    from backend.services.flow_rate.downtime import detect_downtime_periods
-    from backend.services.flow_rate.summary import build_summary
-    from backend.services.flow_rate.config import FlowRateConfig
-    from backend.services.flow_rate.purge_detector import (
-        PurgeDetector,
-        recalculate_purge_loss_with_cycles,
+    from backend.services.flow_rate.full_pipeline import (
+        compute_full_flow, build_chart_payload, downtime_periods_to_list,
     )
 
-    # 1. Данные из БД (measured_at в UTC)
-    df = get_pressure_data(well_id, dt_start, dt_end)
-    if df.empty:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Нет данных давления для well_id={well_id} "
-                   f"за период {dt_start}..{dt_end}",
-        )
-
-    choke = get_choke_mm(well_id)
-    if choke is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Штуцер (choke_diam_mm) не найден для well_id={well_id}. "
-                   f"Проверьте таблицу well_construction.",
-        )
-
-    # 2. Предобработка (индекс пока UTC — маски тоже в UTC)
-    df = clean_pressure(df)
-
-    # 2.5 Маски коррекции давления (ДО сдвига UTC→Кунград)
     try:
-        from backend.services.pressure_mask_service import load_active_masks, apply_masks as _apply_masks
-        from datetime import datetime as _dt
-        _ms = _dt.fromisoformat(dt_start) if isinstance(dt_start, str) else dt_start
-        _me = _dt.fromisoformat(dt_end) if isinstance(dt_end, str) else dt_end
-        _masks = load_active_masks(well_id, _ms, _me)
-        if _masks:
-            df, _mc = _apply_masks(df, _masks)
-            log.info("[flow-rate] well=%d applied %d pressure masks, %d points", well_id, len(_masks), _mc)
-    except Exception as e:
-        log.warning("[flow-rate] failed to apply pressure masks: %s", e)
-
-    # UTC → Кунград (+5ч) для отображения на графиках
-    df.index = df.index + timedelta(hours=5)
-
-    if smooth:
-        df = smooth_pressure(df)
-
-    # 3. Расчёт дебита (Q=0 при p_tube≤p_line — уже встроено)
-    cfg = FlowRateConfig(
-        multiplier=multiplier,
-        C1=C1,
-        C2=C2,
-        C3=C3,
-        critical_ratio=critical_ratio,
-    )
-    df = calculate_flow_rate(df, choke, cfg)
-
-    # 4. Предварительный расчёт потерь (весь p_tube<p_line — будет скорректирован)
-    df = calculate_purge_loss(df)
-
-    # 5. Детекция продувок
-    exclude_ids = set()
-    if exclude_periods:
-        exclude_ids = {s.strip() for s in exclude_periods.split(",") if s.strip()}
-
-    events_df = get_purge_events(well_id, dt_start, dt_end)
-    detector = PurgeDetector()
-    purge_cycles = detector.detect(df, events_df, exclude_ids)
-
-    # 6. Пересчёт потерь: ТОЛЬКО в фазах venting обнаруженных продувок
-    df = recalculate_purge_loss_with_cycles(df, purge_cycles)
-
-    # 7. Накопленный дебит (после пересчёта потерь)
-    df = calculate_cumulative(df)
-
-    # 8. Простои (p_tube < p_line)
-    periods = detect_downtime_periods(df)
-
-    # 9. Сводка (расширенная)
-    summary = build_summary(df, periods, well_id, choke, purge_cycles)
-
-    # 10. Данные для графика (прореженные, макс ~2000 точек)
-    step = max(1, len(df) // 2000)
-    chart_df = df.iloc[::step]
-
-    chart = {
-        "timestamps": chart_df.index.strftime("%Y-%m-%dT%H:%M:%S").tolist(),
-        "flow_rate": chart_df["flow_rate"].round(3).tolist(),
-        "cumulative_flow": chart_df["cumulative_flow"].round(3).tolist(),
-        "p_tube": chart_df["p_tube"].round(2).tolist(),
-        "p_line": chart_df["p_line"].round(2).tolist(),
-    }
-
-    # 11. Периоды простоев
-    dt_list = []
-    if not periods.empty:
-        for _, row in periods.iterrows():
-            dt_list.append({
-                "start": row["start"].isoformat(),
-                "end": row["end"].isoformat(),
-                "duration_min": row["duration_min"],
-            })
-
-    # 12. Циклы продувок
-    purge_list = [c.to_dict() for c in purge_cycles]
+        result = compute_full_flow(
+            well_id, dt_start, dt_end,
+            smooth=smooth,
+            multiplier=multiplier, C1=C1, C2=C2, C3=C3,
+            critical_ratio=critical_ratio,
+            exclude_periods=exclude_periods,
+            dp_threshold=dp_threshold,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
     return {
-        "summary": summary,
-        "chart": chart,
-        "downtime_periods": dt_list,
-        "purge_cycles": purge_list,
-        "data_points": len(df),
+        "summary": result["summary"],
+        "chart": build_chart_payload(result["df"]),
+        "downtime_periods": downtime_periods_to_list(result["downtime_periods"]),
+        "purge_cycles": [c.to_dict() for c in result["purge_cycles"]],
+        "data_points": result["data_points"],
     }
 
 
@@ -191,6 +82,9 @@ def api_calculate(
     C3: float = Query(286.95, description="Коэффициент C3"),
     critical_ratio: float = Query(0.5, description="Критическое отношение давлений"),
     exclude_periods: str = Query("", description="ID продувок для исключения (через запятую)"),
+    dp_threshold: float = Query(0.1, ge=0.0, le=2.0,
+        description="Порог простоя ΔP (атм). Точка считается простоем если "
+                    "(p_tube - p_line) < dp_threshold ИЛИ purge_flag."),
 ):
     """
     Полный расчёт дебита: summary + график + продувки + простои.
@@ -213,6 +107,7 @@ def api_calculate(
         multiplier=multiplier, C1=C1, C2=C2, C3=C3,
         critical_ratio=critical_ratio,
         exclude_periods=exclude_periods,
+        dp_threshold=dp_threshold,
     )
 
 

@@ -17,6 +17,7 @@ def build_summary(
     well_id: int,
     choke_mm: float,
     purge_cycles: list[PurgeCycle] | None = None,
+    dp_threshold: float = 0.1,
 ) -> dict:
     """
     Сводные показатели за один расчётный период.
@@ -50,7 +51,10 @@ def build_summary(
     cum_flow = float(df["cumulative_flow"].iloc[-1])
     actual_avg = cum_flow / T_obs
 
-    # Простои: сумма реальных интервалов (в минутах) с purge_flag=1
+    # ─── Простои: legacy-метрика (через purge_flag, ТОЛЬКО продувки) ───
+    # Оставляем для обратной совместимости (поле downtime_hours_purge_flag в return).
+    # Для UI/КИВ используется downtime_total_hours (через detect_downtime_periods),
+    # которое учитывает и продувки, и реальный простой p_tube < p_line + dp_threshold.
     import numpy as np
     time_idx = pd.to_datetime(df.index)
     dt_sec = np.diff(time_idx.asi8 // 10**9, prepend=time_idx.asi8[0] // 10**9)
@@ -81,25 +85,39 @@ def build_summary(
     # (cumulative уже НЕ содержит атмосферных потерь: Q=0 при p_tube < p_line)
     effective_flow = actual_avg
 
-    # КИВ — коэффициент использования времени (% активной работы)
+    # КИВ — коэффициент использования времени.
+    # Считается от ФАКТИЧЕСКОГО простоя (downtime_periods, см. ниже),
+    # который объединяет (dp < threshold) OR purge_flag.
+    # Старая метрика по purge_flag оставлена в downtime_hours для совместимости.
     total_minutes = float(dt_min_arr.sum())
-    active_minutes = total_minutes - dt_min
-    utilization_pct = (active_minutes / total_minutes * 100.0) if total_minutes > 0 else 0.0
 
     # Прогноз прироста от ТППАВ
     forecast_gain = q3_flow - median_flow
 
-    # Медианы давления
+    # Медианы и средние давлений (по точкам после масок)
+    # ΔP считается поточечно с clip(0): max(p_tube - p_line, 0).
     median_p_tube = float(df["p_tube"].median())
     median_p_line = float(df["p_line"].median())
     median_dp = max(median_p_tube - median_p_line, 0.0)
+    mean_p_tube = float(df["p_tube"].mean())
+    mean_p_line = float(df["p_line"].mean())
+    mean_dp = float((df["p_tube"] - df["p_line"]).clip(lower=0).mean())
 
-    # Статистика простоев
+    # Статистика простоев — единый источник для UI и красных зон на графиках.
+    # downtime_periods приходит из detect_downtime_periods(df, dp_threshold=...,
+    # include_purge=True), т.е. уже учитывает (dp < threshold) OR purge_flag.
     total_periods = 0
     downtime_total_hours = 0.0
     if not downtime_periods.empty:
         total_periods = len(downtime_periods)
         downtime_total_hours = float(downtime_periods["duration_min"].sum() / 60.0)
+
+    # КИВ от downtime_total_hours
+    downtime_total_minutes = downtime_total_hours * 60.0
+    utilization_pct = (
+        (total_minutes - downtime_total_minutes) / total_minutes * 100.0
+        if total_minutes > 0 else 0.0
+    )
 
     # ═══════ Метрики по продувкам ═══════
     purge_venting_count = 0
@@ -127,10 +145,11 @@ def build_summary(
         "q3_flow_rate": round(q3_flow, 3),
         "cumulative_flow": round(cum_flow, 3),
         "actual_avg_flow": round(actual_avg, 3),
-        # Простои (p_tube < p_line)
+        # Простои — единый источник: (dp < dp_threshold) OR purge_flag
+        "dp_threshold": dp_threshold,
         "downtime_total_hours": round(downtime_total_hours, 2),
-        "downtime_minutes": dt_min,
-        "downtime_hours": round(dt_hours, 2),
+        "downtime_minutes": dt_min,                # legacy: ТОЛЬКО purge_flag
+        "downtime_hours": round(dt_hours, 2),      # legacy
         "downtime_days": round(dt_days, 3),
         # Потери при продувках (стравливание)
         "purge_time_hours": round(dt_hours, 2),
@@ -149,6 +168,9 @@ def build_summary(
         "median_p_tube": round(median_p_tube, 2),
         "median_p_line": round(median_p_line, 2),
         "median_dp": round(median_dp, 2),
+        "mean_p_tube": round(mean_p_tube, 2),
+        "mean_p_line": round(mean_p_line, 2),
+        "mean_dp": round(mean_dp, 2),
         # Простои
         "total_downtime_periods": total_periods,
         # Продувки (детекция)

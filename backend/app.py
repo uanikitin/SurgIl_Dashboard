@@ -1323,6 +1323,16 @@ def visual_page(
         tiles,
         key=lambda w: status_order.get(getattr(w, "current_status_css", None), 99),
     )
+
+    # Всего скважин на дашборде по статусам (для индикации «актив/всего» в шапке)
+    _totals_raw: dict[str, int] = {}
+    for w in tiles_sorted:
+        label = getattr(w, "current_status", None)
+        if not label or label in ("Без статуса", "Не обслуживается"):
+            continue
+        _totals_raw[label] = _totals_raw.get(label, 0) + 1
+    status_totals = dict(sorted(_totals_raw.items(), key=lambda x: -x[1]))
+
     updated_at = datetime.utcnow() + timedelta(hours=5)  # Кунград UTC+5
     is_admin = bool(request.session.get("is_admin", False))
 
@@ -1826,6 +1836,7 @@ def visual_page(
             "timeline_well_statuses": timeline_well_statuses,
             "timeline_status_colors": timeline_status_colors,
             "daily_stats": daily_stats,
+            "status_totals": status_totals,
             # Давления
             "pressure_period": pressure_period,
             # Глобальная лента событий

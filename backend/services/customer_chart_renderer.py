@@ -17,8 +17,11 @@ from typing import Optional
 
 log = logging.getLogger(__name__)
 
-# Соотношение сторон страничной графики PDF (~16:6 — широкая полоса)
-DEF_FIGSIZE = (13.5, 5.0)
+# Соотношение сторон под раскладку 2×2 в PDF (~16:10 — квадратная плитка).
+# Старое значение (13.5, 5.0) было для full-width single-row layout;
+# новое — под адаптивную раскладку, где график занимает половину строки.
+# В одиночной строке (1 график) — масштабируется LaTeX-ом до ширины.
+DEF_FIGSIZE = (7.5, 4.6)
 DEF_DPI = 150
 
 
@@ -62,7 +65,9 @@ def _safe_y(values: list) -> list[float]:
 def _style_axes(ax) -> None:
     ax.grid(True, which="major", linestyle="-",
             color="#e5e7eb", linewidth=0.6, zorder=0)
-    ax.tick_params(axis="both", labelsize=8, colors="#374151", length=3)
+    # При half-width рендере (2×2 раскладка) шрифт должен быть крупнее —
+    # иначе мелкие подписи будут нечитабельны при 0.49\textwidth.
+    ax.tick_params(axis="both", labelsize=9, colors="#374151", length=3)
     for s in ax.spines.values():
         s.set_edgecolor("#9ca3af"); s.set_linewidth(0.6)
 
@@ -77,8 +82,14 @@ def _format_xdate(ax, mdates) -> None:
 def render_pressures_chart(
     payload: dict, output_path: str | Path,
     *, figsize: tuple[float, float] = DEF_FIGSIZE, dpi: int = DEF_DPI,
+    unitool_overlay: dict | None = None,
 ) -> Optional[Path]:
-    """P_тр + Затрубное + P_лин + P_статич. во времени."""
+    """P_тр + Затрубное + P_лин + P_статич. во времени.
+
+    unitool_overlay (опц.) — данные UniTool из snapshot.unitool.daily:
+        {dates: [str], p_tube: [float|None], p_line: [float|None], ...}
+    Если передан — рисуется поверх данных заказчика оранжевыми линиями.
+    """
     plt, mdates = _setup_matplotlib()
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -106,6 +117,19 @@ def render_pressures_chart(
                 markersize=3, label=label, zorder=3)
         plotted = True
 
+    # Overlay UniTool (P_tube + P_line) — поверх данных заказчика
+    if unitool_overlay:
+        u_dates = _parse_dates(unitool_overlay.get("dates") or [])
+        for u_label, u_key, u_color in [
+            ("UniTool: P_tube", "p_tube", "#ea580c"),
+            ("UniTool: P_line", "p_line", "#fb923c"),
+        ]:
+            u_ys = _safe_y(unitool_overlay.get(u_key) or [])
+            if u_dates and u_ys and not all(_is_nan(y) for y in u_ys):
+                ax.plot(u_dates, u_ys, color=u_color, linewidth=2.0,
+                        linestyle="-", alpha=0.85, label=u_label, zorder=4)
+                plotted = True
+
     if not plotted:
         plt.close(fig)
         return None
@@ -114,8 +138,9 @@ def render_pressures_chart(
     ax.set_ylabel("Давление, кгс/см²", fontsize=9, color="#374151")
     _style_axes(ax)
     _format_xdate(ax, mdates)
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.13), ncol=4,
-              fontsize=8, frameon=False)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.13),
+              ncol=4 if not unitool_overlay else 3,
+              fontsize=9, frameon=False)
 
     fig.tight_layout(pad=0.4)
     fig.savefig(output_path, dpi=dpi, bbox_inches="tight", facecolor="white")
@@ -128,6 +153,7 @@ def render_pressures_chart(
 def render_dp_chart(
     payload: dict, output_path: str | Path,
     *, figsize: tuple[float, float] = DEF_FIGSIZE, dpi: int = DEF_DPI,
+    unitool_overlay: dict | None = None,
 ) -> Optional[Path]:
     plt, mdates = _setup_matplotlib()
     output_path = Path(output_path)
@@ -141,10 +167,22 @@ def render_dp_chart(
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
     fig.patch.set_facecolor("#ffffff")
     ax.plot(dates, dp, color="#dc2626", linewidth=1.4, marker="o",
-            markersize=3, zorder=3, label="ΔP = P_уст − P_лин")
+            markersize=3, zorder=3, label="Заказчик: ΔP")
     ax.axhline(0, color="#9ca3af", linewidth=0.7, linestyle="--", zorder=1)
+    # Overlay UniTool ΔP
+    has_overlay = False
+    if unitool_overlay:
+        u_dates = _parse_dates(unitool_overlay.get("dates") or [])
+        u_dp = _safe_y(unitool_overlay.get("dp") or [])
+        if u_dates and u_dp and not all(_is_nan(y) for y in u_dp):
+            ax.plot(u_dates, u_dp, color="#ea580c", linewidth=2.0,
+                    alpha=0.85, label="UniTool: ΔP", zorder=4)
+            has_overlay = True
     ax.set_title("Перепад давления, кгс/см²", fontsize=11, color="#111827", pad=6)
     ax.set_ylabel("ΔP, кгс/см²", fontsize=9, color="#374151")
+    if has_overlay:
+        ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.13), ncol=2,
+                  fontsize=9, frameon=False)
     _style_axes(ax)
     _format_xdate(ax, mdates)
 
@@ -159,8 +197,13 @@ def render_dp_chart(
 def render_flow_downtime_chart(
     payload: dict, output_path: str | Path,
     *, figsize: tuple[float, float] = DEF_FIGSIZE, dpi: int = DEF_DPI,
+    unitool_overlay: dict | None = None,
 ) -> Optional[Path]:
-    """Q общий + рабочий (линии) + простой в мин/сут (бары, ось справа)."""
+    """Q общий + рабочий (линии) + простой в мин/сут (бары, ось справа).
+
+    unitool_overlay (опц.) — данные UniTool из snapshot.unitool.daily:
+        {dates, q}. Если есть q — рисуется поверх как оранжевая линия.
+    """
     plt, mdates = _setup_matplotlib()
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -235,6 +278,13 @@ def render_flow_downtime_chart(
         ax.plot(dates, q_wrk, color="#16a34a", linewidth=1.3, marker="o",
                 markersize=3, label="Q рабочий", zorder=4)
         _monthly_trends(q_wrk, dates, "#166534", "Q рабочий", drawn_labels)
+    # Overlay UniTool Q (расчётный дебит наших датчиков)
+    if unitool_overlay:
+        u_dates = _parse_dates(unitool_overlay.get("dates") or [])
+        u_q = _safe_y(unitool_overlay.get("q") or [])
+        if u_dates and u_q and not all(_is_nan(y) for y in u_q):
+            ax.plot(u_dates, u_q, color="#ea580c", linewidth=2.0,
+                    alpha=0.85, label="UniTool: Q (расчёт)", zorder=5)
 
     ax.set_title("Дебиты и простой (с помесячным трендом)",
                  fontsize=11, color="#111827", pad=6)
@@ -319,7 +369,7 @@ def render_monthly_bars(
     ax.set_xticklabels(labels, fontsize=8.5, color="#374151")
     _style_axes(ax)
     ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.13), ncol=4,
-              fontsize=8, frameon=False)
+              fontsize=9, frameon=False)
 
     fig.tight_layout(pad=0.4)
     fig.savefig(output_path, dpi=dpi, bbox_inches="tight", facecolor="white")

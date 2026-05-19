@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 import time as time_module
 from datetime import date, datetime
 from pathlib import Path
@@ -367,6 +368,19 @@ class CustomDatesRequest(BaseModel):
     # observation, adaptation, charts_compare, comparison.
     # Если ключ не передан → True (включён по умолчанию).
     sections: dict[str, bool] | None = None
+    # Порог простоя ΔP (атм). Точка считается простоем если
+    # (p_tube - p_line) < dp_threshold ИЛИ purge_flag.
+    # Дефолт 0.1; диапазон 0.0..1.0.
+    dp_threshold: float = 0.1
+    # ── Режимы превью (главы / отдельный блок) ──
+    # only_chapter — рендерить ТОЛЬКО одну главу (well_info | customer_data |
+    # observation | adaptation | charts_compare | comparison). Все остальные
+    # \BLOCK{ if include_sections.* } будут False, шаблон их пропустит.
+    only_chapter: str | None = None
+    # only_block_id — отфильтровать observation_blocks/adaptation_blocks до
+    # одного блока с этим customer_report_block.id. Используется вместе с
+    # only_chapter="observation"/"adaptation" для превью одной плитки.
+    only_block_id: int | None = None
 
 
 @router.post("/compute")
@@ -392,6 +406,7 @@ def compute_with_custom_dates(
         optimal_to=req.optimal_to,
         include_customer_chapter=req.include_customer_chapter,
         customer_periods=req.customer_periods,
+        dp_threshold=req.dp_threshold,
     )
     if data.get("ok") and req.with_charts:
         _attach_chart_urls(data)
@@ -884,13 +899,40 @@ _SECTION_KEYS = (
 )
 
 
-def _normalize_sections(sections: dict[str, bool] | None) -> dict[str, bool]:
-    """Пользовательский dict → полный dict с дефолтами True для всех 6 разделов.
+def _normalize_sections(
+    sections: dict[str, bool] | None,
+    only_chapter: str | None = None,
+) -> dict[str, bool]:
+    """Пользовательский dict → полный dict с дефолтами True для всех 6 глав.
 
-    Незаполненные ключи → True (раздел включён по умолчанию). Лишние ключи
-    из request игнорируются."""
+    Помимо 6 канонических chapter-level ключей пропускает любые ATOM-ключи
+    (`well_summary_table`, `obs_combined_chart`, ...), сохраняя их булевы
+    значения. Это нужно для атомарной сборки PDF в шаге 7 wizard-а: каждая
+    галочка → отдельный ключ → LaTeX-гейт `\\BLOCK{ if include_sections.KEY }`.
+    Незаполненные ключи трактуются как True (блок включён по умолчанию).
+
+    Параметр only_chapter (режим превью одной главы): если задан и совпадает
+    с одним из канонических ключей — все 6 глав = False, только выбранная True.
+    Атомарные ATOM-ключи передаются как есть (нужны для гейтов внутри главы).
+    """
     src = sections or {}
-    return {k: bool(src.get(k, True)) for k in _SECTION_KEYS}
+    if only_chapter and only_chapter in _SECTION_KEYS:
+        out: dict[str, bool] = {k: False for k in _SECTION_KEYS}
+        out[only_chapter] = True
+        # ATOM-флаги (например, gating подразделов §3) пропускаем как есть —
+        # чтобы превью главы повторяло те же подгалочки, что и финальный PDF.
+        for k, v in src.items():
+            if k not in out:
+                out[k] = bool(v)
+        return out
+    out = {k: bool(src.get(k, True)) for k in _SECTION_KEYS}
+    # Дополнительно: пропускаем все остальные ключи, не входящие в дефолтную
+    # 6-ку — это атомарные блок-флаги от UI шага 7. Не валидируем имена, чтобы
+    # каталог можно было расширять только в JS + LaTeX без правок здесь.
+    for k, v in src.items():
+        if k not in out:
+            out[k] = bool(v)
+    return out
 
 
 def _build_pdf_response(
@@ -901,8 +943,22 @@ def _build_pdf_response(
     optimal_from=None, optimal_to=None,
     include_customer_chapter=False, customer_periods=None,
     sections=None,
+    with_charts: bool = True,
+    with_reagent: bool = True,
+    only_chapter: str | None = None,
+    only_block_id: int | None = None,
 ):
-    """Общая реализация генерации preview-PDF."""
+    """Общая реализация генерации preview-PDF.
+
+    Режимы превью:
+      • only_chapter — компилировать ТОЛЬКО одну главу из 6 канонических.
+        Через include_sections все остальные ставятся False, шаблон их
+        пропустит. xelatex всё равно проходит весь файл, но контента
+        других глав в нём нет → секунды вместо десятков секунд.
+      • only_block_id — отфильтровать observation_blocks/adaptation_blocks
+        до ровно одной плитки. Используется вместе с only_chapter для
+        превью отдельного блока на странице наблюдения/адаптации.
+    """
     from datetime import datetime as _dt
     from backend.services.daily_report_service import (
         _ensure_dirs, _get_latex_env, _compile_latex, _tex_escape,
@@ -911,22 +967,66 @@ def _build_pdf_response(
 
     _ensure_dirs()
 
-    data = collect_report_data(
-        db, well_id,
-        obs_from=obs_from, obs_to=obs_to,
-        adapt_from=adapt_from, adapt_to=adapt_to,
-        render_charts=True,
-        obs_description_override=obs_description,
-        adapt_description_override=adapt_description,
-        optimal_mode=optimal_mode,
-        optimal_window_days=optimal_window_days,
-        optimal_from=optimal_from,
-        optimal_to=optimal_to,
-        include_customer_chapter=include_customer_chapter,
-        customer_periods=customer_periods,
+    # Эфемерный каталог для PNG главы 2 (плитки заказчика, сравнения,
+    # розы). Автоматически удаляется на выходе из with — PNG живут только
+    # на время одной сборки PDF и не накапливаются в static/generated/temp.
+    # См. TZ §0 п.1: «snapshot — единственное хранимое представление,
+    # PNG генерируются on-the-fly per request».
+    chapter2_tmp = tempfile.TemporaryDirectory(prefix="adapt_ch2_")
+    chapter2_dir = Path(chapter2_tmp.name)
+
+    try:
+        data = collect_report_data(
+            db, well_id,
+            obs_from=obs_from, obs_to=obs_to,
+            adapt_from=adapt_from, adapt_to=adapt_to,
+            render_charts=with_charts,
+            include_reagent_effectiveness=with_reagent,
+            obs_description_override=obs_description,
+            adapt_description_override=adapt_description,
+            optimal_mode=optimal_mode,
+            optimal_window_days=optimal_window_days,
+            optimal_from=optimal_from,
+            optimal_to=optimal_to,
+            include_customer_chapter=include_customer_chapter,
+            customer_periods=customer_periods,
+            # Гейты быстрого превью — пропускают тяжёлые расчёты глав, которые
+            # не идут в результирующий PDF.
+            fast_chapter_only=only_chapter,
+            fast_block_only=(only_block_id is not None),
+            chart_dir=chapter2_dir,
+        )
+        if not data.get("ok"):
+            raise HTTPException(status_code=400, detail=data.get("error"))
+        return _finalize_pdf_response(
+            db, data, well_id,
+            with_charts=with_charts,
+            only_chapter=only_chapter,
+            only_block_id=only_block_id,
+            sections=sections,
+        )
+    finally:
+        # TemporaryDirectory.cleanup() удаляет все PNG главы 2 разом —
+        # неважно, успешно ли скомпилировался PDF или была ошибка.
+        try:
+            chapter2_tmp.cleanup()
+        except Exception:
+            log.exception("chapter2 temp cleanup failed: %s", chapter2_dir)
+
+
+def _finalize_pdf_response(
+    db, data, well_id: int, *,
+    with_charts: bool, only_chapter: str | None,
+    only_block_id: int | None, sections: dict | None,
+):
+    """Финализация PDF после collect_report_data (вынесено из _build_pdf_response
+    чтобы избежать вложенного finally с raise HTTPException).
+    """
+    from datetime import datetime as _dt
+    from backend.services.daily_report_service import (
+        _get_latex_env, _compile_latex, _tex_escape,
     )
-    if not data.get("ok"):
-        raise HTTPException(status_code=400, detail=data.get("error"))
+    from backend.services.adaptation_report_service import KUNGRAD_OFFSET
 
     observation = _add_formatted_fields(dict(data["observation"]))
     adaptation = _add_formatted_fields(dict(data["adaptation"]))
@@ -973,10 +1073,56 @@ def _build_pdf_response(
                     d["label"] = _tex_escape(d["label"])
                 if d.get("text"):
                     d["text"] = _tex_escape(d["text"])
+            # Помесячные блоки UzKor+UniTool (для §«Развёрнутое описание»).
+            # Структура: [{label, uzkor:{text}, unitool:{available, days, lines, compat_text}}].
+            for mb in (p.get("month_descriptions_blocks") or []):
+                if mb.get("label"):
+                    mb["label"] = _tex_escape(mb["label"])
+                uz = mb.get("uzkor") or {}
+                if uz.get("text"):
+                    uz["text"] = _tex_escape(uz["text"])
+                ut = mb.get("unitool") or {}
+                if ut:
+                    ut["lines"] = [_tex_escape(s) for s in (ut.get("lines") or [])]
+                    if ut.get("compat_text"):
+                        ut["compat_text"] = _tex_escape(ut["compat_text"])
             caps = p.get("chart_captions") or {}
             for _k, _v in list(caps.items()):
                 if _v:
                     caps[_k] = _tex_escape(_v)
+            # chart_grid_rows: [[{key, path, label, caption}, ...], ...].
+            # Эскейпим caption отдельно (label — статический ru-текст без спецсимволов).
+            for _row in (p.get("chart_grid_rows") or []):
+                for _ch in _row:
+                    if _ch.get("caption"):
+                        _ch["caption"] = _tex_escape(_ch["caption"])
+
+    # Прикреплённые блоки для §3 (наблюдение) и §4 (адаптация)
+    from backend.services.adaptation_report_service import (
+        _format_observation_block, _format_adaptation_block,
+    )
+
+    obs_blocks_raw = data.get("observation_blocks") or []
+    adapt_blocks_raw = data.get("adaptation_blocks") or []
+
+    # Превью одного блока: фильтруем до ровно одного по customer_report_block.id.
+    # only_block_id может ссылаться как на observation_, так и на adaptation_-блок.
+    if only_block_id is not None:
+        obs_blocks_raw = [
+            b for b in obs_blocks_raw if b.get("block_id") == only_block_id
+        ]
+        adapt_blocks_raw = [
+            b for b in adapt_blocks_raw if b.get("block_id") == only_block_id
+        ]
+
+    observation_blocks_fmt = [
+        _format_observation_block(b, render_charts=with_charts)
+        for b in obs_blocks_raw
+    ]
+    adaptation_blocks_fmt = [
+        _format_adaptation_block(b, render_charts=with_charts)
+        for b in adapt_blocks_raw
+    ]
 
     now_kungrad = _dt.utcnow() + KUNGRAD_OFFSET
     context = {
@@ -995,14 +1141,33 @@ def _build_pdf_response(
         "conclusions": [_tex_escape(c) for c in (data.get("conclusions") or [])],
         "warnings": [_tex_escape(w) for w in (data.get("warnings") or [])],
         "customer_chapter": customer_chapter,
-        "include_sections": _normalize_sections(sections),
+        "observation_blocks": observation_blocks_fmt,
+        "adaptation_blocks": adaptation_blocks_fmt,
+        "reagent_effectiveness": data.get("reagent_effectiveness"),
+        # Плитки утверждённых baseline (для §2 / §3 по ТЗ)
+        "b2_tile": data.get("b2_tile"),
+        "b1_tile": data.get("b1_tile"),
+        "include_sections": _normalize_sections(
+            {**(sections or {}),
+             # ATOM-флаг для шаблона: при превью одного блока скрыть все
+             # подразделы главы кроме §3.4 / §4.7+ (Прикреплённые блоки).
+             **({"only_attached_blocks": True} if only_block_id is not None else {})},
+            only_chapter=only_chapter,
+        ),
     }
 
     env = _get_latex_env()
     template = env.get_template("adaptation_report.tex")
     latex_source = template.render(**context)
 
-    base_name = f"adaptation_preview_{well_id}"
+    # Имя файла различает превью главы / блока / полного отчёта — чтобы
+    # параллельные превью не затирали друг друга в TEMP_DIR.
+    if only_block_id is not None:
+        base_name = f"adaptation_preview_{well_id}_block_{only_block_id}"
+    elif only_chapter:
+        base_name = f"adaptation_preview_{well_id}_chap_{only_chapter}"
+    else:
+        base_name = f"adaptation_preview_{well_id}"
     pdf_path = _compile_latex(latex_source, base_name)
 
     # Очистка PNG
@@ -1021,12 +1186,21 @@ def _build_pdf_response(
     map_path = (well_ctx.get("map_chart_path") if isinstance(well_ctx, dict) else None)
     if map_path:
         Path(map_path).unlink(missing_ok=True)
-    # PNG диаграмм блока 2 (по 4 на каждый период)
-    if customer_chapter:
-        for _p in (customer_chapter.get("periods") or []):
-            for _path in (_p.get("chart_paths") or {}).values():
-                if _path:
-                    Path(_path).unlink(missing_ok=True)
+    # PNG главы 2 (плитки заказчика, сравнения, розы) — НЕ чистим вручную:
+    # они лежат в эфемерном TemporaryDirectory, который удаляется внешним
+    # try/finally в _build_pdf_response.
+    # PNG сравнения участков в §4.7 (adaptation_comparison)
+    for _ab in adaptation_blocks_fmt:
+        _cp = _ab.get("chart_path")
+        if _cp:
+            Path(_cp).unlink(missing_ok=True)
+    # PNG графиков §3.4 (observation_analysis): 3 PNG на каждый блок —
+    # давления, ΔP, Q. Рендерятся live через render_baseline_tile_charts.
+    for _ob in observation_blocks_fmt:
+        for _key in ("chart_pressures", "chart_dp", "chart_flow"):
+            _p = _ob.get(_key)
+            if _p:
+                Path(_p).unlink(missing_ok=True)
 
     response = FileResponse(
         path=str(pdf_path),
@@ -1084,6 +1258,10 @@ def preview_pdf_post(
         include_customer_chapter=req.include_customer_chapter,
         customer_periods=req.customer_periods,
         sections=req.sections,
+        with_charts=req.with_charts,
+        with_reagent=req.with_reagent,
+        only_chapter=req.only_chapter,
+        only_block_id=req.only_block_id,
     )
 
 

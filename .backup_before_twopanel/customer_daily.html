@@ -6,276 +6,7 @@
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 <script src="/static/js/cmp_segments.js?v={{ time() }}"></script>
 <style>
-/* ── Two-Panel layout 60/40 (ТЗ §11 этап 5) ──────────────────────── */
-/* Главный контейнер: grid с двумя колонками. Topbar и legacy-секции на всю ширину. */
-.cd-page {
-    display: grid;
-    grid-template-columns: minmax(0, 60fr) minmax(0, 40fr);
-    gap: 14px;
-    padding: 12px;
-    align-items: start;  /* секции не растягиваются по высоте друг друга */
-}
-/* Topbar и контекст-плашка занимают всю ширину */
-.cd-page > #cd-topbar,
-.cd-page > #cd-context-block,
-.cd-page > .cd-legacy-hidden {
-    grid-column: 1 / -1;
-}
-/* Левая рабочая зона — flex column, скроллится естественно */
-.cd-left {
-    grid-column: 1;
-    display: flex; flex-direction: column; gap: 12px;
-    min-width: 0;  /* чтобы Plotly-контейнеры не вылезали */
-}
-/* Правая sticky-панель (live-превью) — для этапа 7 */
-.cd-right {
-    grid-column: 2;
-    position: sticky;
-    top: 60px;   /* под верхней sticky-полосой */
-    height: calc(100vh - 80px);
-    display: flex; flex-direction: column; gap: 10px;
-    min-width: 0;
-}
-/* ── Цветовая рамка карточек блоков per-kind (ТЗ §11 этап 11.1) ──── */
-/* ═══════════════════════════════════════════════════════════════════════════
-   Карточки прикреплённых блоков — визуальная структура v2.0
-   Левая полоса 5px разного цвета: baseline=оранжевый, period=зелёный,
-   comparison=фиолетовый, criteria_rose=красный, иначе серый.
-   ═══════════════════════════════════════════════════════════════════════════ */
-.cd-attached-card {
-    border: 2px solid #e5e7eb;
-    border-left: 5px solid #9ca3af;
-    border-radius: 8px;
-    padding: 0;
-    margin-bottom: 16px;
-    background: #fafbfc;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-    cursor: grab;
-    overflow: hidden;
-}
-.cd-attached-card:hover {
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-}
-.cd-attached-card.cd-kind-baseline         { border-left-color: #d97706; }
-.cd-attached-card.cd-kind-period_analysis  { border-left-color: #16a34a; }
-.cd-attached-card.cd-kind-comparison       { border-left-color: #7c3aed; }
-.cd-attached-card.cd-kind-criteria_rose    { border-left-color: #dc2626; }
-.cd-attached-card.cd-kind-segment_analysis { border-left-color: #5b21b6; }
-
-/* Подсветка карточки при наведении ИЛИ при ховере её block в превью (этап 11.4) */
-.cd-attached-card.cd-card-highlighted {
-    box-shadow: 0 0 0 2px #fbbf24;
-    background: #fffbeb !important;
-}
-.cd-preview-block.cd-preview-highlighted {
-    box-shadow: 0 0 0 2px #fbbf24;
-    background: #fffbeb !important;
-}
-
-/* ─── Шапка карточки ─── */
-.cd-card-header {
-    background: linear-gradient(to bottom, #f8f9fa, #f1f3f5);
-    padding: 12px 14px 10px 14px;
-    border-bottom: 1px solid #e5e7eb;
-}
-.cd-card-header-top {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-    margin-bottom: 8px;
-}
-.cd-kind-badge {
-    padding: 4px 10px;
-    border-radius: 4px;
-    font-size: 0.72rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: #fff;
-}
-.cd-period-badge {
-    background: #fff;
-    border: 1px solid #d1d5db;
-    padding: 4px 10px;
-    border-radius: 4px;
-    font-size: 0.8rem;
-    font-family: 'SF Mono', 'Consolas', monospace;
-    color: #374151;
-    font-weight: 500;
-}
-.cd-card-title {
-    width: 100%;
-    padding: 7px 10px;
-    border: 1px solid #d1d5db;
-    border-radius: 4px;
-    font-size: 0.92rem;
-    font-weight: 600;
-    background: #fff;
-    color: #1f2937;
-}
-.cd-card-title:focus {
-    outline: none;
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 2px rgba(59,130,246,0.2);
-}
-
-/* ─── Автоописание блока ─── */
-.cd-card-autodesc {
-    background: #eff6ff;
-    border-left: 3px solid #3b82f6;
-    padding: 10px 14px;
-    margin: 0;
-    font-size: 0.84rem;
-    color: #1e40af;
-    line-height: 1.5;
-}
-.cd-card-autodesc-icon {
-    margin-right: 6px;
-}
-
-/* ─── Содержимое карточки ─── */
-.cd-card-body {
-    padding: 12px 14px;
-    background: #fff;
-}
-.cd-card-section-title {
-    font-size: 0.72rem;
-    font-weight: 700;
-    color: #6b7280;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    margin-bottom: 10px;
-    padding-bottom: 4px;
-    border-bottom: 1px dashed #e5e7eb;
-}
-
-/* ─── Секция редактирования (свёрнута по умолчанию) ─── */
-.cd-card-edit-section {
-    margin-top: 12px;
-    background: #f9fafb;
-    border: 1px solid #e5e7eb;
-    border-radius: 6px;
-}
-.cd-card-edit-section > summary {
-    cursor: pointer;
-    font-size: 0.84rem;
-    font-weight: 600;
-    color: #4b5563;
-    padding: 10px 12px;
-    user-select: none;
-    list-style: none;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-.cd-card-edit-section > summary::-webkit-details-marker { display: none; }
-.cd-card-edit-section > summary::before {
-    content: "▸";
-    color: #94a3b8;
-    transition: transform 0.2s;
-    font-size: 0.8rem;
-}
-.cd-card-edit-section[open] > summary::before { transform: rotate(90deg); }
-.cd-card-edit-section[open] > summary {
-    border-bottom: 1px solid #e5e7eb;
-    background: #f3f4f6;
-    border-radius: 6px 6px 0 0;
-}
-.cd-card-edit-section-body {
-    padding: 12px;
-}
-.cd-card-note-label {
-    font-size: 0.72rem;
-    font-weight: 600;
-    color: #6b7280;
-    margin-bottom: 4px;
-    display: block;
-}
-.cd-card-note {
-    width: 100%;
-    padding: 8px 10px;
-    border: 1px dashed #cbd5e1;
-    border-radius: 4px;
-    font-size: 0.82rem;
-    resize: vertical;
-    background: #fff;
-    color: #334155;
-    margin-bottom: 10px;
-}
-.cd-card-note:focus {
-    outline: none;
-    border-color: #3b82f6;
-    border-style: solid;
-}
-
-/* ─── Действия карточки ─── */
-.cd-card-actions {
-    padding: 10px 14px;
-    border-top: 1px solid #e5e7eb;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-    background: #fafbfc;
-}
-.cd-card-actions-right {
-    margin-left: auto;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-/* ─── Блок выключен из отчёта ─── */
-.cd-attached-card.cd-not-in-report {
-    opacity: 0.65;
-    border-left-color: #9ca3af !important;
-}
-.cd-attached-card.cd-not-in-report .cd-card-header {
-    background: #f3f4f6;
-}
-.cd-attached-card.cd-not-in-report .cd-kind-badge {
-    background: #9ca3af !important;
-}
-
-/* ── Аккордеоны для розы и сравнения участков (ТЗ §11 этап 6) ───── */
-/* По умолчанию свёрнуты, состояние НЕ сохраняется (см. §12 ТЗ). */
-.cd-accordion {
-    background: #fff; border: 1px solid #e5e7eb; border-radius: 8px;
-    padding: 0;  /* контент в .cd-accordion-body */
-}
-.cd-accordion > summary {
-    cursor: pointer; list-style: none;
-    padding: 12px 14px; font-size: 1.05rem; color: #1f2937;
-    font-weight: 600;
-    display: flex; align-items: center; gap: 8px;
-    border-radius: 8px;
-    user-select: none;
-}
-.cd-accordion > summary::-webkit-details-marker { display: none; }
-.cd-accordion > summary::before {
-    content: "▸"; color: #94a3b8; transition: transform 0.2s; font-size: 0.9rem;
-}
-.cd-accordion[open] > summary::before { transform: rotate(90deg); }
-.cd-accordion[open] > summary { border-bottom: 1px solid #f1f5f9; }
-.cd-accordion-body { padding: 12px 14px; }
-
-/* Responsive (этап 10) — одна колонка на узких экранах */
-@media (max-width: 1024px) {
-    .cd-page { grid-template-columns: 1fr; }
-    .cd-right {
-        position: fixed;
-        right: 0; bottom: 0; left: 0;
-        top: auto;
-        height: 75vh;
-        z-index: 95;
-        background: #fff;
-        box-shadow: 0 -2px 16px rgba(0,0,0,0.15);
-        transform: translateY(calc(100% - 44px));
-        transition: transform 0.25s ease;
-    }
-    .cd-right.cd-right-open { transform: translateY(0); }
-}
+.cd-page { display: flex; flex-direction: column; gap: 12px; padding: 12px; }
 
 .cd-section {
     background: #fff; border: 1px solid #e5e7eb; border-radius: 8px;
@@ -630,81 +361,43 @@
     </div>
   </div>
 
-  <!-- ═══ ВЕРХНЯЯ STICKY-ПОЛОСА (ТЗ §11 этап 3) ═══ -->
-  <!-- Скв. селектор + бейдж B1 + плитка загрузки + плашка-мета хранилища.    -->
-  <!-- Всегда видна сверху при скролле. Заменяет старые секции 2 (выбор скв) -->
-  <!-- и B1 (старая верхняя плашка), которые скрываются на этапе 4.          -->
-  <div id="cd-topbar" style="position:sticky; top:0; z-index:90;
-       background:#f1f5f9; border-bottom:1px solid #cbd5e1;
-       padding:8px 12px; display:flex; align-items:center; gap:12px;
-       flex-wrap:wrap; box-shadow:0 1px 4px rgba(0,0,0,0.05);">
-
-    <!-- Скважина -->
-    <div style="display:flex; align-items:center; gap:6px;">
-      <label for="cd-topbar-well" style="font-size:0.84rem; color:#475569; font-weight:500;">
-        Скв.:
-      </label>
-      <select id="cd-topbar-well"
-              style="padding:5px 10px; border:1px solid #cbd5e1; border-radius:4px;
-                     font-size:0.88rem; min-width:160px; background:#fff;">
-        <option value="">— выберите —</option>
-      </select>
+  <!-- ═══ 1. Загрузка xlsx (всегда доступна, парсит ВСЕ скважины) ═══ -->
+  <div class="cd-section">
+    <h2>1. Загрузить файл сводки заказчика</h2>
+    <div class="cd-hint" style="margin-bottom:8px;">
+      Парсятся <b>все скважины</b> и все листы файла «Суточная сводка &lt;МЕСЯЦ ГОД&gt;г.xlsx».
+      Загрузка обновляет данные для всех скважин, не только текущей.
+      При совпадении (date, ГСП, скв.) программа спросит, перезаписать или добавить только новое.
     </div>
-
-    <!-- B1 бейдж (если есть утверждённый baseline) -->
-    <div id="cd-topbar-b1" style="display:none;
-         padding:4px 10px; background:#fef3c7; border:1px solid #fcd34d;
-         border-radius:4px; font-size:0.82rem; color:#92400e; font-weight:500;
-         font-family:monospace;">
-      <span style="font-style:normal;">📌</span> <span id="cd-topbar-b1-text">—</span>
-    </div>
-
-    <!-- Прикреплено к отчёту (счётчик) — дублирует cd-attached-counter -->
-    <div id="cd-topbar-attached"
-         style="padding:4px 10px; background:#dbeafe; border:1px solid #93c5fd;
-                border-radius:4px; font-size:0.82rem; color:#1e3a8a;
-                font-weight:500; display:none;">
-      <span id="cd-topbar-attached-text">в отчёт: 0</span>
-    </div>
-
-    <!-- Плашка-мета хранилища (компактно) -->
-    <div id="cd-topbar-meta" style="margin-left:auto; display:flex; gap:10px;
-         font-size:0.78rem; color:#6b7280; flex-wrap:wrap; align-items:center;">
-      <span id="cd-topbar-meta-text">хранилище: загрузка…</span>
-    </div>
-
-    <!-- Плитка-ссылка на страницу загрузки XLSX -->
-    <a id="cd-topbar-upload"
-       href="/customer-daily/upload"
-       style="padding:6px 14px; background:#10b981; color:#fff;
-              text-decoration:none; border-radius:4px; font-size:0.84rem;
-              font-weight:500; white-space:nowrap;"
-       title="Открыть страницу загрузки XLSX-файла">
-      📁 Загрузить XLSX ↗
-    </a>
-  </div>
-
-  <!-- ═══ 1. Загрузка xlsx (СКРЫТА на этапе 4, переехала на /customer-daily/upload) ═══ -->
-  <!-- DOM-элементы остаются для совместимости с JS (drop/file-input/status), -->
-  <!-- но секция не отображается. Загрузка теперь делается на отдельной странице. -->
-  <div class="cd-section cd-legacy-hidden" style="display:none;">
-    <div class="cd-drop-zone" id="cd-drop" style="display:none;">
+    <div class="cd-drop-zone" id="cd-drop">
+      <p><b>Перетащите .xlsx-файл сюда</b> или кликните для выбора</p>
+      <p class="hint">.xlsx / .xlsm</p>
       <input type="file" id="cd-file-input" accept=".xlsx,.xlsm" style="display:none">
     </div>
     <div id="cd-upload-status"></div>
   </div>
 
-  <!-- ═══ 2. Хранилище (СКРЫТО — переехало в плашку в шапке) ═══ -->
-  <div class="cd-section cd-legacy-hidden" style="display:none;">
-    <span id="meta-rows">—</span><span id="meta-wells">—</span>
-    <span id="meta-ggus">—</span><span id="meta-period">—</span>
-    <span id="meta-loaded">—</span>
+  <!-- ═══ 2. Хранилище (общая статистика) ═══ -->
+  <div class="cd-section">
+    <h2>Хранилище данных заказчика</h2>
+    <div class="cd-stats-row">
+      <div class="cd-stat"><span class="label">Записей</span><span class="value" id="meta-rows">—</span></div>
+      <div class="cd-stat"><span class="label">Скважин</span><span class="value" id="meta-wells">—</span></div>
+      <div class="cd-stat"><span class="label">ГСП</span><span class="value" id="meta-ggus">—</span></div>
+      <div class="cd-stat"><span class="label">Период</span><span class="value" id="meta-period">—</span></div>
+      <div class="cd-stat"><span class="label">Последняя загрузка</span><span class="value" id="meta-loaded">—</span></div>
+    </div>
   </div>
 
-  <!-- ═══ 3. Выбор скважины (СКРЫТ — переехал в шапку) ═══ -->
-  <!-- cd-well-select остаётся в DOM, синхронизируется с cd-topbar-well -->
-  <div class="cd-section cd-legacy-hidden" style="display:none;">
-    <select id="cd-well-select"><option value="">—</option></select>
+  <!-- ═══ 3. Выбор скважины — что есть в БД? ═══ -->
+  <div class="cd-section">
+    <h2>2. Выбор скважины и проверка доступности</h2>
+    <div class="cd-row">
+      <label>Скважина:</label>
+      <select id="cd-well-select">
+        <option value="">— нет данных —</option>
+      </select>
+    </div>
     <div id="cd-avail-block"></div>
   </div>
 
@@ -761,9 +454,6 @@
       </div>
     </div>
   </div>
-
-  <!-- ═══ ЛЕВАЯ КОЛОНКА (60%): рабочая зона (ТЗ §11 этап 5) ═══ -->
-  <div class="cd-left">
 
   <!-- ═══ 4. Период анализа ═══ -->
   <div class="cd-section" id="cd-period-section" style="display:none;">
@@ -867,59 +557,8 @@
               style="display:none;">
         ➕ Новый период
       </button>
-      <button class="cd-btn cd-btn-secondary" id="cd-segment-btn"
-              title="Запустить сегментный анализ + ПАВ-балл для выбранного периода (тренды, переломы, признаки накопления жидкости)"
-              style="background:#ddd6fe; color:#5b21b6; border-color:#a78bfa;">
-        🔬 Сегментный анализ
-      </button>
       <span id="cd-attach-quick-status"
             style="font-size:0.82rem; color:#10b981;"></span>
-    </div>
-
-    <!-- ⚙ Аккордеон настроек порогов сегментного анализа -->
-    <details class="cd-collapsible" id="cd-segment-settings"
-             style="margin-top:8px; background:#faf5ff;
-                    border:1px solid #e9d5ff; border-radius:6px; padding:8px 12px;">
-      <summary style="cursor:pointer; font-weight:600; color:#5b21b6;">
-        ⚙ Пороги сегментного анализа
-        <span id="cd-segment-settings-badge"
-              style="font-size:0.78rem; font-weight:400; color:#6b7280; margin-left:8px;">
-          (загрузка...)
-        </span>
-      </summary>
-      <div id="cd-segment-settings-body" style="margin-top:10px;">
-        <div style="color:#6b7280; font-size:0.85rem;">Загрузка порогов…</div>
-      </div>
-      <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
-        <button id="cd-segment-settings-save"
-                class="cd-btn cd-btn-primary"
-                style="background:#7c3aed; border-color:#6d28d9;">
-          💾 Сохранить изменения
-        </button>
-        <button id="cd-segment-settings-reset"
-                class="cd-btn cd-btn-secondary">
-          🔄 Сбросить к дефолтам
-        </button>
-        <span id="cd-segment-settings-status"
-              style="font-size:0.82rem; color:#10b981; align-self:center;"></span>
-      </div>
-    </details>
-
-    <!-- Результат сегментного анализа -->
-    <div id="cd-segment-result" style="display:none; margin-top:12px;
-                                       border:1px solid #ddd6fe;
-                                       border-radius:6px; padding:14px;
-                                       background:#faf5ff;">
-      <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
-        <h3 style="margin:0; flex:1; color:#5b21b6;">🔬 Сегментный анализ</h3>
-        <button id="cd-segment-attach-btn" class="cd-btn cd-btn-success"
-                style="padding:5px 12px; font-size:0.85rem;">
-          ☑ Добавить в отчёт
-        </button>
-        <button id="cd-segment-close-btn" class="cd-btn cd-btn-secondary"
-                style="padding:5px 10px; font-size:0.82rem;">✕</button>
-      </div>
-      <div id="cd-segment-result-body"></div>
     </div>
     <details class="cd-collapsible" style="margin-top:8px;">
       <summary>Старый быстрый выбор пресетами</summary>
@@ -1012,15 +651,14 @@
     </div>
   </div>
 
-  <!-- ═══ Диагностика по критериям (роза) — аккордеон, ТЗ §11 этап 6 ═══ -->
-  <details class="cd-accordion" id="rose-section">
-    <summary>
+  <!-- ═══ 5. Диагностика по критериям (роза) ═══ -->
+  <div class="cd-section" id="rose-section">
+    <h2 style="display:flex; align-items:center; gap:8px;">
       📊 Диагностика по критериям
       <span id="rose-period-badge" style="font-size:0.72rem; font-weight:500;
             padding:2px 8px; border-radius:10px; background:#dde3ed; color:#374151;
-            font-family:monospace; margin-left:auto;"></span>
-    </summary>
-    <div class="cd-accordion-body">
+            font-family:monospace;"></span>
+    </h2>
     <div class="cd-hint" style="margin-bottom:10px;">
       6 наблюдательных критериев скважины за выбранный в шаге 4 период,
       сравнённых с собственной нормой скважины (медиана по скользящим
@@ -1121,13 +759,11 @@
          border:1px solid #fde68a; border-radius:6px; color:#92400e;">
       <span id="rose-empty-msg"></span>
     </div>
-    </div><!-- /.cd-accordion-body розы -->
-  </details>
+  </div>
 
-  <!-- ═══ Сравнение участков (drag-select) — аккордеон, ТЗ §11 этап 6 ═══ -->
-  <details class="cd-accordion" id="compare">
-    <summary>🔁 Сравнение участков (drag-select по UniTool)</summary>
-    <div class="cd-accordion-body">
+  <!-- ═══ 5. Сравнение участков (drag-select) — общий модуль cmp_segments.js ═══ -->
+  <div class="cd-section" id="compare">
+    <h2>5. Сравнение участков</h2>
     <div class="cd-hint" style="margin-bottom:8px;">
       Загрузите детальные данные UniTool — выделите интересные участки прямо
       на графиках (drag по горизонтали) — каждый станет сегментом для сравнения.
@@ -1137,8 +773,7 @@
     </div>
     <!-- Сюда вставляется HTML из cmpRenderHTML(cdcmpCtx) -->
     <div id="cdcmp-host"></div>
-    </div><!-- /.cd-accordion-body сравнения -->
-  </details>
+  </div>
 
   <!-- ═══ 6. Прикреплённые блоки отчёта ═══ -->
   <!-- Модалка предпросмотра прикреплённого блока (то что пойдёт в PDF) -->
@@ -1167,117 +802,74 @@
   <div class="cd-section" id="cd-attached-section" style="display:none;">
     <h2>6. Прикреплено к отчёту об адаптации <span id="cd-attached-count" style="color:#6b7280; font-weight:400;"></span></h2>
     <div class="cd-hint" style="margin-bottom:8px;">
-      Список блоков, которые попадут в PDF отчёта. Можно временно отключить (галочка),
-      удалить, переименовать, изменить комментарий. Перетаскивание ⇄ — поменять порядок в отчёте.
-    </div>
-    <!-- Кнопки массового сворачивания/разворачивания parts-тогглов (ТЗ §11 этап 11.3) -->
-    <div style="display:flex; gap:6px; margin-bottom:8px; align-items:center;">
-      <button type="button" id="cd-expand-all-parts" class="cd-btn cd-btn-secondary"
-              style="padding:3px 10px; font-size:0.78rem;"
-              title="Развернуть «⚙ Что включить в PDF» во всех карточках">
-        ➕ Развернуть всё
-      </button>
-      <button type="button" id="cd-collapse-all-parts" class="cd-btn cd-btn-secondary"
-              style="padding:3px 10px; font-size:0.78rem;"
-              title="Свернуть «⚙ Что включить в PDF» во всех карточках">
-        ➖ Свернуть всё
-      </button>
-      <span style="margin-left:auto; font-size:0.76rem; color:#6b7280;">
-        💡 перетаскивай карточки ↕ для изменения порядка в отчёте
-      </span>
+      Список блоков, которые попадут в PDF отчёта при нажатии «Сформировать PDF» на странице
+      отчёта об адаптации. Можно временно отключить (галочка), удалить, переименовать,
+      изменить комментарий.
     </div>
     <div id="cd-attached-list"></div>
-    <!-- Кнопка «Перейти к отчёту об адаптации» удалена (ТЗ §11 этап 4) — -->
-    <!-- навигация по этапам wizard'а есть в шапке самого wizard'а.        -->
+    <div style="margin-top:12px; text-align:right;">
+      <a href="/adaptation-report"
+         style="display:inline-block; padding:8px 18px; background:#2563eb;
+                color:#fff; border-radius:6px; text-decoration:none;
+                font-size:0.88rem; font-weight:500;">
+        Перейти к отчёту об адаптации →
+      </a>
+    </div>
   </div>
 
-  </div><!-- /.cd-left -->
-
-  <!-- ═══ ПРАВАЯ КОЛОНКА (40%): sticky live-превью главы (ТЗ §11 этап 7) ═══ -->
-  <!-- Табы: [📑 HTML] / [📄 PDF]. HTML — мгновенный JS-рендер из snapshot. -->
-  <!-- PDF — iframe + кнопка пересборки + бэдж «устарел» (этап 8).         -->
-  <div class="cd-right" id="cd-rightpanel">
-    <!-- Шапка панели -->
-    <div style="background:#fff; border:1px solid #e5e7eb; border-radius:8px 8px 0 0;
-                padding:8px 12px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
-                border-bottom:none;">
-      <b style="font-size:0.92rem; color:#1f2937;">📑 Глава «Анализ исходных данных»</b>
+  <!-- ═══ 7. Live-превью главы «Анализ исходных данных» ═══ -->
+  <div class="cd-section" id="cd-chapter-preview-section" style="display:none;">
+    <h2 style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+      📑 Предпросмотр главы «Анализ исходных данных»
       <span id="cd-chapter-preview-count"
-            style="font-size:0.75rem; color:#6b7280; font-weight:500;
-                   padding:2px 8px; background:#f3f4f6; border-radius:10px;"></span>
-      <span id="cd-chapter-pdf-badge"
-            style="display:none; font-size:0.72rem; font-weight:600;
-                   padding:2px 8px; border-radius:10px;"></span>
-      <button id="cd-rightpanel-close" type="button"
-              title="Скрыть превью (мобильный)"
-              style="margin-left:auto; background:none; border:none;
-                     font-size:1.1rem; cursor:pointer; color:#6b7280; display:none;">✕</button>
-    </div>
-    <!-- Табы -->
-    <div id="cd-rightpanel-tabs" style="background:#f9fafb;
-                border:1px solid #e5e7eb; border-top:none; border-bottom:none;
-                display:flex; gap:4px; padding:4px 8px;">
-      <button type="button" class="cd-tab cd-tab-active" data-tab="html"
-              style="background:#fff; border:1px solid #e5e7eb; border-bottom:none;
-                     padding:6px 14px; font-size:0.82rem; cursor:pointer;
-                     border-radius:6px 6px 0 0;">📑 HTML</button>
-      <button type="button" class="cd-tab" data-tab="pdf"
-              style="background:transparent; border:1px solid transparent;
-                     padding:6px 14px; font-size:0.82rem; cursor:pointer;
-                     color:#6b7280; border-radius:6px 6px 0 0;">📄 PDF</button>
-      <span style="flex:1;"></span>
-      <button id="cd-chapter-html-download" type="button"
-              title="Скачать HTML-превью главы как файл"
-              style="background:none; border:1px solid #d1d5db; cursor:pointer;
-                     font-size:0.78rem; color:#374151; padding:4px 10px;
-                     border-radius:4px; margin-right:4px;">⬇ HTML</button>
-      <button id="cd-chapter-refresh-btn" type="button"
-              title="Перерисовать HTML-превью"
-              style="background:none; border:none; cursor:pointer;
-                     font-size:0.9rem; color:#6b7280; padding:4px 8px;">🔄</button>
-    </div>
-    <!-- Контент HTML -->
-    <div id="cd-rightpanel-html" class="cd-rightpanel-pane"
-         style="flex:1; overflow-y:auto; border:1px solid #e5e7eb; border-top:none;
-                border-radius:0 0 8px 8px; background:#fff; padding:14px 18px;
-                font-family:'Times New Roman', serif; font-size:0.9rem;
-                line-height:1.45; color:#1f2937;">
-      <div id="cd-chapter-preview-content">
-        <div style="text-align:center; padding:30px; color:#9ca3af;">
-          Создай блок (период, диагностику или сравнение) — он появится здесь.
-        </div>
-      </div>
-    </div>
-    <!-- Контент PDF -->
-    <div id="cd-rightpanel-pdf" class="cd-rightpanel-pane"
-         style="display:none; flex:1; flex-direction:column; border:1px solid #e5e7eb;
-                border-top:none; border-radius:0 0 8px 8px; background:#f3f4f6; overflow:hidden;">
-      <iframe id="cd-chapter-pdf-iframe" src="about:blank"
-              style="flex:1; width:100%; border:0; background:#f3f4f6;
-                     min-height:300px;"></iframe>
-      <div style="padding:8px 10px; background:#fff; border-top:1px solid #e5e7eb;
-                  display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+            style="font-size:0.75rem; color:#6b7280; font-weight:400;"></span>
+      <span style="margin-left:auto; display:inline-flex; gap:6px; align-items:center;">
+        <button class="cd-btn cd-btn-secondary" id="cd-chapter-refresh-btn"
+                title="Перерисовать превью" style="padding:4px 10px; font-size:0.82rem;">
+          🔄 Обновить
+        </button>
         <button class="cd-btn cd-btn-primary" id="cd-chapter-pdf-btn"
                 title="Собрать PDF этой главы (xelatex, ~5-12 сек)"
-                style="padding:5px 12px; font-size:0.82rem;">🔁 Пересобрать</button>
-        <a id="cd-chapter-pdf-download" href="#" download="customer_chapter.pdf"
-           style="display:none; padding:5px 12px; background:#10b981; color:#fff;
-                  text-decoration:none; border-radius:4px; font-size:0.8rem;">⬇ Скачать</a>
-        <a id="cd-chapter-popout-btn" href="#" target="_blank"
-           style="padding:5px 12px; color:#1d4ed8; text-decoration:none;
-                  font-size:0.8rem; border:1px solid #93c5fd; border-radius:4px;">↗ В окно</a>
-        <span id="cd-chapter-pdf-status" style="font-size:0.78rem; color:#6b7280;
-              margin-left:auto;"></span>
+                style="padding:6px 14px; font-size:0.84rem;">
+          📄 Собрать PDF главы
+        </button>
+      </span>
+    </h2>
+    <div class="cd-hint" style="margin-bottom:8px;">
+      Так глава выглядит сейчас: меняй галочку «в отчёт» у блоков выше —
+      превью обновляется мгновенно (компактная сводка). Кнопка «Собрать PDF»
+      рендерит через xelatex с графиками — для финальной проверки.
+    </div>
+    <div id="cd-chapter-preview-content"
+         style="border:1px solid #e5e7eb; border-radius:6px; padding:18px 22px;
+                background:#fff; min-height:140px; font-family:'Times New Roman', serif;
+                font-size:0.92rem; line-height:1.45; color:#1f2937;">
+    </div>
+    <!-- Модалка PDF: разворачивается полностью, закрывается крестиком -->
+    <div id="cd-chapter-pdf-modal"
+         style="display:none; position:fixed; inset:0; z-index:9999;
+                background:rgba(0,0,0,0.55); padding:20px;">
+      <div style="background:#fff; height:100%; border-radius:8px;
+                  display:flex; flex-direction:column; overflow:hidden;">
+        <div style="display:flex; align-items:center; gap:10px; padding:10px 16px;
+                    border-bottom:1px solid #e5e7eb;">
+          <h3 style="margin:0; font-size:1rem; flex:1;">
+            PDF — глава «Анализ исходных данных»
+          </h3>
+          <span id="cd-chapter-pdf-status" style="font-size:0.8rem; color:#6b7280;"></span>
+          <a id="cd-chapter-pdf-download" href="#" download="customer_chapter.pdf"
+             style="display:none; padding:5px 12px; background:#10b981; color:#fff;
+                    text-decoration:none; border-radius:4px; font-size:0.82rem;">
+            ⬇ Скачать
+          </a>
+          <button id="cd-chapter-pdf-close" class="cd-btn cd-btn-secondary"
+                  style="padding:5px 12px; font-size:0.82rem;">✕ Закрыть</button>
+        </div>
+        <iframe id="cd-chapter-pdf-iframe" src="about:blank"
+                style="flex:1; width:100%; border:0; background:#f3f4f6;"></iframe>
       </div>
     </div>
   </div>
-
-  <!-- Кнопка «Открыть превью» для мобильных (<1024px) — показывается через CSS+JS -->
-  <button id="cd-rightpanel-toggle" type="button"
-          style="display:none; position:fixed; right:14px; bottom:14px; z-index:99;
-                 padding:10px 16px; background:#1d4ed8; color:#fff; border:none;
-                 border-radius:24px; cursor:pointer; font-size:0.9rem;
-                 box-shadow:0 3px 12px rgba(0,0,0,0.2);">📑 Превью главы</button>
 
 </div>
 
@@ -1346,40 +938,29 @@
   async function loadMeta() {
     const r = await fetch('/api/customer-daily/meta');
     const d = await r.json();
-    $('meta-rows') && ($('meta-rows').textContent  = d.rows || 0);
-    $('meta-wells') && ($('meta-wells').textContent = d.wells || 0);
-    $('meta-ggus') && ($('meta-ggus').textContent  = d.ggus || 0);
-    $('meta-period') && ($('meta-period').textContent = (d.date_min && d.date_max) ? `${d.date_min} … ${d.date_max}` : '—');
-    $('meta-loaded') && ($('meta-loaded').textContent = d.last_loaded || '—');
-    // top-bar мета — компактная строка
-    const tb = $('cd-topbar-meta-text');
-    if (tb) {
-      tb.textContent = (d.rows && d.date_min && d.date_max)
-        ? `хранилище: ${d.rows} строк · ${d.wells} скв. · ${d.date_min}…${d.date_max}`
-        : 'хранилище пусто';
-    }
+    $('meta-rows').textContent = d.rows || 0;
+    $('meta-wells').textContent = d.wells || 0;
+    $('meta-ggus').textContent = d.ggus || 0;
+    $('meta-period').textContent = (d.date_min && d.date_max) ? `${d.date_min} … ${d.date_max}` : '—';
+    $('meta-loaded').textContent = d.last_loaded || '—';
   }
 
   async function loadWells() {
     const r = await fetch('/api/customer-daily/wells');
     const d = await r.json();
     const sel = $('cd-well-select');
-    const tb  = $('cd-topbar-well');
     const cur = sel.value;
     clearChildren(sel);
-    if (tb) clearChildren(tb);
     const placeholder = document.createElement('option');
     placeholder.value = '';
     placeholder.textContent = (d.wells && d.wells.length)
       ? '— выберите скважину —' : '— нет данных в БД —';
     sel.appendChild(placeholder);
-    if (tb) tb.appendChild(placeholder.cloneNode(true));
     for (const w of (d.wells || [])) {
       const o = document.createElement('option');
       o.value = w.well;
       o.textContent = `№ ${w.well}  (${w.ggu || '—'}, ${w.days} сут.)`;
       sel.appendChild(o);
-      if (tb) tb.appendChild(o.cloneNode(true));
     }
     // Восстанавливаем выбор / применяем preset
     if (PRESET_WELL && Array.from(sel.options).some(o => o.value === String(PRESET_WELL))) {
@@ -1401,17 +982,6 @@
         `период отчёта <b>${PRESET_FROM.slice(0, 10)}</b> … <b>${PRESET_TO.slice(0, 10)}</b>. ` +
         `Здесь можно проанализировать любой период (не обязательно совпадающий с отчётом).`;
       $('cd-context-block').style.display = '';
-    }
-
-    // Синхронизируем top-bar select со значением основного селекта
-    if (tb) tb.value = sel.value || '';
-    // Обновляем ссылку «Загрузить XLSX» — передаём back_well, чтобы после загрузки
-    // пользователь вернулся к той же скважине
-    const uplLink = $('cd-topbar-upload');
-    if (uplLink) {
-      uplLink.href = sel.value
-        ? `/customer-daily/upload?back_well=${encodeURIComponent(sel.value)}`
-        : '/customer-daily/upload';
     }
 
     if (sel.value) onWellChange();
@@ -1472,9 +1042,6 @@
       // Список «Прикреплено к отчёту» показываем ВСЕГДА когда скважина
       // выбрана — даже пустой, чтобы пользователь видел статус накопления.
       if (currentWellId) {
-        // Автосоздание chapter_intro (раздел 1 главы — общий текст).
-        // Если у этой скв. ещё нет блока chapter_intro — создаём с дефолтным текстом.
-        await ensureChapterIntroBlock(currentWellId, well);
         await refreshAttachedBlocks();
         // Утверждённый baseline B1 — если есть, рисуем плитку наверху
         await refreshApprovedB1();
@@ -2724,10 +2291,40 @@
          </div>`
       );
 
-      // ─── Секция 3 «Совместный период» УДАЛЕНА (ТЗ §11 починка 2) ────
-      // Информация о пересечении периодов и сопоставимости — техническая
-      // деталь для оператора, в отчёте смысла нет. Сравнение на пересечении
-      // и так присутствует ниже в таблице «Строгое сравнение» (snapshot.strict_compare).
+      // ─── Секция 3: Совместный период ──────────────────────────────
+      if (oFirst && cust.date_min && cust.date_max) {
+        const interStart = oFirst > cust.date_min ? oFirst : cust.date_min;
+        const interEnd   = oLast && oLast < cust.date_max ? oLast : cust.date_max;
+        if (interStart <= interEnd) {
+          const days = Math.round((new Date(interEnd) - new Date(interStart)) / 86400000) + 1;
+          const ratio = ourDays && custDays
+            ? Math.abs(custDays - ourDays) / Math.max(custDays, ourDays) * 100 : 0;
+          const compat = ratio <= 10;
+          const compNote = compat
+            ? '<span style="color:#059669;">✓ Периоды сопоставимы (≤ 10% разницы) — сравнение в основной таблице корректно.</span>'
+            : '<span style="color:#b45309;">⚠ Периоды несопоставимы (> 10% разницы) — корректное сравнение только в таблице «Строгое сравнение» ниже.</span>';
+          out.push(
+            `<div style="margin-bottom:6px; padding:10px 12px; background:#fef3c7;
+                         border-left:4px solid #d97706; border-radius:4px;">
+               <div style="font-weight:600; color:#92400e; margin-bottom:6px; font-size:0.92rem;">
+                 🔗 Совместный период UzKorGaz ∩ UniTool
+               </div>
+               <div style="line-height:1.7;">
+                 <b>Совместных суток:</b> <b>${days}</b> (${interStart} — ${interEnd}).<br>
+                 Полные периоды: UzKorGaz <b>${custDays}</b> сут, UniTool <b>${ourDays}</b> сут (разница ${ratio.toFixed(1)}%).<br>
+                 ${compNote}
+               </div>
+             </div>`
+          );
+        } else {
+          out.push(
+            `<div style="padding:10px 12px; background:#fee2e2; border-left:4px solid #dc2626;
+                         border-radius:4px; color:#991b1b;">
+               ⚠ Совместный период отсутствует — UzKorGaz и UniTool не пересекаются по времени.
+             </div>`
+          );
+        }
+      }
     } else {
       out.push(
         `<div style="padding:10px 12px; background:#f3f4f6; border-left:4px solid #9ca3af;
@@ -3437,28 +3034,14 @@
       baseline: 'Базовый период',
       period_analysis: 'Анализ периода',
       comparison: 'Сравнение периодов',
-      criteria_rose: 'Роза критериев',
-      segment_analysis: 'Сегментный анализ',
     })[k] || k;
   }
   function _kindColor(k) {
     return ({
-      baseline: '#d97706',        // оранжевый — исходные данные
-      period_analysis: '#16a34a', // зелёный — анализ
-      comparison: '#7c3aed',      // фиолетовый — сравнение
-      criteria_rose: '#dc2626',   // красный — диагностика
-      segment_analysis: '#5b21b6',// тёмно-фиолетовый — сегментный анализ
+      baseline: '#0891b2',
+      period_analysis: '#16a34a',
+      comparison: '#a855f7',
     })[k] || '#6b7280';
-  }
-  // Автоматическое описание назначения блока — для понимания «что это»
-  function _autoDesc(k) {
-    return ({
-      baseline: '📊 Работа скважины ДО начала работ — эталон для сравнения с этапами наблюдения и адаптации.',
-      period_analysis: '📈 Анализ работы скважины за выбранный период — графики, статистика, диагностика.',
-      comparison: '🔀 Сравнение двух периодов работы скважины — A vs B, тренды, отклонения.',
-      criteria_rose: '🌹 Диагностика режимов работы — распределение критериев за период.',
-      segment_analysis: '🔬 Сегментный анализ + ПАВ-балл: переломы, тренды по сегментам, оценка кандидата на закачку ПАВ.',
-    })[k] || '';
   }
 
   // ─── Утверждённый базовый период B1 (закреплённый customer_baseline) ──
@@ -3468,10 +3051,6 @@
 
   async function refreshApprovedB1() {
     const sec = $('cd-approved-b1-section');
-    const tbB1 = $('cd-topbar-b1');
-    const tbB1Text = $('cd-topbar-b1-text');
-    // Сброс top-bar бейджа
-    if (tbB1) tbB1.style.display = 'none';
     if (!sec || !currentWellId) { if (sec) sec.style.display = 'none'; return; }
     try {
       const r = await fetch('/api/adaptation-report/baselines?well_id=' + currentWellId);
@@ -3486,11 +3065,6 @@
       approvedB1 = bl;
       _renderApprovedB1Card(bl);
       sec.style.display = '';
-      // Обновляем top-bar бейдж B1
-      if (tbB1 && tbB1Text) {
-        tbB1Text.textContent = `B1: ${bl.period_from} … ${bl.period_to}`;
-        tbB1.style.display = '';
-      }
     } catch (e) {
       console.warn('refreshApprovedB1 failed', e);
     }
@@ -3621,43 +3195,6 @@
     });
   }
 
-  // ─── Автосоздание chapter_intro (раздел 1 главы — общий текст) ───
-  // При первом заходе на скважину, если ещё нет блока chapter_intro —
-  // создаём с дефолтным текстом. sort_order = 0 (по умолчанию первый),
-  // но может быть перемещён drag-reorder'ом.
-  async function ensureChapterIntroBlock(wellId, wellNumber) {
-    if (!wellId) return;
-    try {
-      const r = await fetch('/api/customer-daily/blocks?well_id=' + wellId);
-      const d = await r.json();
-      const has = (d.blocks || []).some(b => b.kind === 'chapter_intro');
-      if (has) return;
-      const defaultText = `Анализ исходных работ скважины №${wellNumber || '?'} ` +
-                          `на основании данных УзКорГаз.`;
-      // sort_order = -1000 чтобы chapter_intro всегда был ПЕРВЫМ
-      // (но пользователь может перетащить его в любое место drag-reorder'ом)
-      const created = await fetch('/api/customer-daily/blocks', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          well_id: wellId, kind: 'chapter_intro',
-          title: 'Общий текст главы',
-          params: { text: defaultText },
-          data_snapshot: null,
-          comment: '',
-          in_report: true,
-        }),
-      }).then(r => r.json());
-      // Backend проигнорировал sort_order (нет в payload) и поставил max+1.
-      // Принудительно ставим -1000 через PUT.
-      if (created && created.id) {
-        await fetch('/api/customer-daily/blocks/' + created.id, {
-          method: 'PUT', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({sort_order: -1000}),
-        });
-      }
-    } catch (e) { console.warn('ensureChapterIntroBlock failed', e); }
-  }
-
   async function refreshAttachedBlocks() {
     if (!currentWellId) return;
     try {
@@ -3675,21 +3212,17 @@
   // ─── Per-block parts: какие элементы блока попадают в PDF ───
   // По умолчанию ВСЁ включено. Пользователь снимает галочки в карточке блока.
   const PART_LABELS = {
-    chapter_intro: [
-      ['text', '📝 Текст вступления главы'],
-    ],
     period_analysis: [
       ['prefix_note',           '↑ Вступительный текст'],
       ['intro',                 '📝 Сводка периода (динамический текст)'],
       ['description',           '✏️ Комментарий пользователя'],
-      ['key_metrics',           '🟧 Плитки «Ключевые показатели»'],
       ['pressures_chart',       '📈 График давлений'],
       ['dp_chart',              '📉 График ΔP'],
       ['flow_dt_chart',         '⚡ График Q + простой'],
       ['monthly_chart',         '📊 Помесячный график'],
       ['describe_table',        '📋 Описательная статистика'],
       ['monthly_table',         '📋 Помесячная агрегация'],
-      ['monthly_descriptions',  '📝 Помесячный анализ (UzKor + UniTool блоки)'],
+      ['monthly_descriptions',  '📝 Помесячный анализ текстом'],
       ['overlap_text',          '🔀 3 текстовых блока (UzKor/UniTool/Совм.)'],
       ['strict_compare',        '⚖ Таблица «Строгое сравнение»'],
       ['suffix_note',           '↓ Заключительный текст'],
@@ -3710,26 +3243,9 @@
       ['description',           '✏️ Комментарий пользователя'],
       ['suffix_note',           '↓ Заключительный текст'],
     ],
-    // Сегментный анализ: блок ПАВ-карточка + сегменты + переломы + описания.
-    // По умолчанию все = true (ТЗ §0 п.3).
-    segment_analysis: [
-      ['prefix_note',           '↑ Вступительный текст'],
-      ['pav_card',              '📊 ПАВ-карточка (балл + сценарий + рекомендация)'],
-      ['signs_table',           '✓✗ Признаки за/против ПАВ'],
-      ['q_segment_chart',       '📈 График Q + сегменты + переломы'],
-      ['segments_table',        '📋 Таблица сегментов'],
-      ['cp_descriptions',       '🔻 События переломов'],
-      ['descriptions',          '📝 Развёрнутые описания сегментов'],
-      ['description',           '✏️ Комментарий пользователя'],
-      ['suffix_note',           '↓ Заключительный текст'],
-    ],
   };
-  // baseline ≈ period_analysis + justification (обоснование выбора)
-  PART_LABELS.baseline = [
-    ['prefix_note',          '↑ Вступительный текст'],
-    ['justification',        '✓ Обоснование выбора B1 (описательный текст)'],
-    ...PART_LABELS.period_analysis.filter(([k]) => k !== 'prefix_note'),
-  ];
+  // baseline ≈ period_analysis
+  PART_LABELS.baseline = PART_LABELS.period_analysis;
 
   function _getPartsForBlock(b) {
     const defs = PART_LABELS[b.kind] || [];
@@ -3749,22 +3265,27 @@
     const enabledCount = Object.values(parts).filter(Boolean).length;
     const items = defs.map(([key, label]) => `
         <label style="display:inline-flex; align-items:center; gap:4px;
-                      font-size:0.78rem; padding:3px 8px;
-                      background:#fff; border:1px solid #d1d5db; border-radius:4px;
-                      cursor:pointer; user-select:none; transition: all 0.15s;">
+                      font-size:0.78rem; padding:2px 6px;
+                      background:#fff; border:1px solid #e5e7eb; border-radius:3px;
+                      cursor:pointer; user-select:none;">
           <input type="checkbox" class="atc-part" data-id="${b.id}"
                  data-part="${key}" ${parts[key] ? 'checked' : ''}>
           ${label}
         </label>`).join('');
     return `
-      <div style="margin: 12px 0;">
-        <label class="cd-card-note-label">⚙️ Что включить в PDF
-          <span style="color:#9ca3af; font-weight:400;">(${enabledCount} из ${defs.length})</span>
-        </label>
-        <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;">
+      <details style="margin-top:8px; background:#fafafa;
+                       border:1px solid #e5e7eb; border-radius:4px; padding:6px 8px;">
+        <summary style="cursor:pointer; font-size:0.8rem; color:#374151;
+                        font-weight:500; user-select:none;">
+          ⚙ Что включить в PDF
+          <span style="color:#6b7280; font-weight:400; font-size:0.76rem;">
+            (${enabledCount} из ${defs.length})
+          </span>
+        </summary>
+        <div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:6px;">
           ${items}
         </div>
-      </div>`;
+      </details>`;
   }
 
   function renderAttachedBlocks(blocks) {
@@ -3791,17 +3312,6 @@
         counter.style.color = '#10b981';
       }
     }
-    // Top-bar счётчик (ТЗ §11 этап 3) — синхронизируется с основным
-    const tbAtt = $('cd-topbar-attached');
-    const tbAttTxt = $('cd-topbar-attached-text');
-    if (tbAtt && tbAttTxt) {
-      if (blocks.length) {
-        tbAttTxt.textContent = `в отчёт: ${inReport} из ${blocks.length}`;
-        tbAtt.style.display = '';
-      } else {
-        tbAtt.style.display = 'none';
-      }
-    }
     clearChildren(list);
     if (!blocks.length) {
       const empty = document.createElement('div');
@@ -3813,35 +3323,31 @@
     for (const b of blocks) {
       const card = document.createElement('div');
       card.dataset.blockId = b.id;
-      // Цветовая рамка per-kind + класс «не в отчёте»
-      card.className = `cd-attached-card cd-kind-${b.kind}${b.in_report ? '' : ' cd-not-in-report'}`;
-      card.draggable = true;  // drag-reorder (этап 11.5)
+      card.style.cssText =
+        'border:1px solid #e5e7eb; border-radius:6px; padding:10px 12px; margin-bottom:8px; background:#fff;';
+      const periodStr = b.params && b.params.date_from
+        ? `${b.params.date_from} … ${b.params.date_to}` : '—';
+      const aPart = (b.params && b.params.A) ? `A: ${b.params.A.source}/${b.params.A.well} (${b.params.A.date_from}…${b.params.A.date_to})` : '';
+      const bPart = (b.params && b.params.B) ? ` · B: ${b.params.B.source}/${b.params.B.well} (${b.params.B.date_from}…${b.params.B.date_to})` : '';
+      const paramsLine = (b.kind === 'comparison' ? (aPart + bPart) : `Период: ${periodStr}`);
 
-      // ─── Период в шапке ───
-      const snap = b.data_snapshot;
-      const days = snap?.days || snap?.days_count || 0;
-      const dFrom = snap?.date_from || b.params?.date_from || '';
-      const dTo   = snap?.date_to   || b.params?.date_to   || '';
-      let periodBadge = '';
-      if (dFrom && dTo) {
-        periodBadge = `<span class="cd-period-badge">${dFrom} → ${dTo}${days ? ` (${days} дн.)` : ''}</span>`;
-      } else if (b.kind === 'comparison' && b.params?.A && b.params?.B) {
-        // Для сравнения — показываем оба периода
-        const aP = b.params.A, bP = b.params.B;
-        periodBadge = `<span class="cd-period-badge" style="font-size:0.72rem;">A: ${aP.date_from}→${aP.date_to} · B: ${bP.date_from}→${bP.date_to}</span>`;
-      }
-
-      // ─── Сводка характеристик периода ───
+      // Сводка характеристик периода — из data_snapshot, если есть.
+      // Рендерим в стиле плитки B1 (карточки b1-metric) — единое
+      // визуальное оформление с утверждённым baseline'ом.
       let statsHtml = '';
+      const snap = b.data_snapshot;
       if (snap && (b.kind === 'period_analysis' || b.kind === 'baseline')) {
         const fmt = (v, d=2) => (v === null || v === undefined || isNaN(v))
           ? '<span style="color:#9ca3af;">—</span>'
           : Number(v).toFixed(d);
         const sdMin = snap.shutdown_min_total || 0;
         const sdH   = sdMin ? (sdMin / 60).toFixed(1) : '0';
+        const days = snap.days || 0;
+        const dFrom = snap.date_from || (b.params && b.params.date_from) || '—';
+        const dTo   = snap.date_to   || (b.params && b.params.date_to)   || '—';
         statsHtml = `
-          <div class="cd-card-section-title">Характеристики периода</div>
-          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:8px;">
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
+                      gap:8px; margin-top:8px;">
             <div class="b1-metric">
               <div class="b1-metric-title">Q общий</div>
               <div class="b1-metric-val">${fmt(snap.q_total_avg)} <span class="b1-unit">ср.</span></div>
@@ -3862,140 +3368,77 @@
             </div>
             <div class="b1-metric">
               <div class="b1-metric-title">P устье / шлейф</div>
-              <div class="b1-metric-val">${fmt(snap.p_wellhead_median)} <span class="b1-unit">уст.</span></div>
-              <div class="b1-metric-val">${fmt(snap.p_flowline_median)} <span class="b1-unit">шл.</span></div>
+              <div class="b1-metric-val">${fmt(snap.p_wellhead_median)} <span class="b1-unit">мед. устье</span></div>
+              <div class="b1-metric-val">${fmt(snap.p_flowline_median)} <span class="b1-unit">мед. шлейф</span></div>
               <div class="b1-metric-unit">кгс/см²</div>
             </div>
             <div class="b1-metric">
               <div class="b1-metric-title">Простой</div>
-              <div class="b1-metric-val">${fmt(sdMin, 0)} <span class="b1-unit">мин</span></div>
-              <div class="b1-metric-val">${sdH} <span class="b1-unit">ч</span></div>
-              <div class="b1-metric-unit">${snap.shutdown_days_count || 0} дн. с простоем</div>
+              <div class="b1-metric-val">${fmt(sdMin, 0)} <span class="b1-unit">мин всего</span></div>
+              <div class="b1-metric-val">${sdH} <span class="b1-unit">часов</span></div>
+              <div class="b1-metric-unit">${snap.shutdown_days_count || 0} дней с простоем</div>
+            </div>
+            <div class="b1-metric">
+              <div class="b1-metric-title">Период</div>
+              <div class="b1-metric-val" style="font-family:monospace; font-size:0.85rem;">${dFrom}</div>
+              <div class="b1-metric-val" style="font-family:monospace; font-size:0.85rem;">${dTo}</div>
+              <div class="b1-metric-unit"><b>${days}</b> сут.</div>
             </div>
           </div>
         `;
       }
 
-      // ─── Кнопки действий ───
+      // Кнопка «Открыть» доступна для блоков с явным периодом
+      // (period_analysis, baseline). Для comparison кнопка не нужна,
+      // т.к. период там описывается через A/B пары.
       const hasOpen = (b.kind === 'period_analysis' || b.kind === 'baseline')
                       && b.params?.date_from && b.params?.date_to;
       const openBtn = hasOpen
         ? `<button class="cd-btn cd-btn-secondary atc-open" data-id="${b.id}" ` +
           `data-from="${b.params.date_from}" data-to="${b.params.date_to}" ` +
-          `title="Восстановить период и пересчитать графики/таблицы" ` +
-          `style="padding:4px 10px; background:#dbeafe; color:#1d4ed8; border-color:#93c5fd;">📈 Открыть</button>`
+          `title="Восстановить период этого блока в полях С/по и пересчитать графики/таблицы" ` +
+          `style="padding:3px 9px; background:#dbeafe; color:#1d4ed8; border-color:#93c5fd;">📈 Открыть</button>`
         : '';
+      // «Предпросмотр» — модалка со всем содержимым из data_snapshot
+      // (то что пойдёт в PDF: графики, таблицы, описания)
       const previewBtn = b.data_snapshot
         ? `<button class="cd-btn cd-btn-secondary atc-preview" data-id="${b.id}" ` +
-          `title="Предпросмотр содержимого для PDF" ` +
-          `style="padding:4px 10px; background:#fef3c7; color:#92400e; border-color:#fcd34d;">👁 Предпросмотр</button>`
+          `title="Открыть предпросмотр того, что попадёт в PDF-отчёт" ` +
+          `style="padding:3px 9px; background:#fef3c7; color:#92400e; border-color:#fcd34d;">👁 Предпросмотр</button>`
         : '';
-
-      // ─── Тексты примечаний ───
+      // prefix/suffix_note — пользовательский текст до/после блока (§3.6 ТЗ).
+      // Хранится в params.prefix_note и params.suffix_note. По умолчанию пусто;
+      // если пусто — в PDF не печатается (даже если parts.prefix_note=true).
       const prefixNote = (b.params && b.params.prefix_note) || '';
       const suffixNote = (b.params && b.params.suffix_note) || '';
-
-      // ─── Спец-карточка для chapter_intro (упрощённая) ───
-      if (b.kind === 'chapter_intro') {
-        const text = (b.params && b.params.text) || '';
-        card.innerHTML = `
-          <div class="cd-card-header">
-            <div class="cd-card-header-top">
-              <span class="cd-kind-badge" style="background:#6366f1;">¶ Общий текст</span>
-              <span style="font-size:0.78rem; color:#6b7280;">всегда первый в главе</span>
-            </div>
-            <input type="text" class="cd-card-title atc-title"
-                   value="${b.title.replace(/"/g, '&quot;')}" data-id="${b.id}"
-                   placeholder="Заголовок (служебно)">
-          </div>
-          <div class="cd-card-body" style="padding:8px 12px;">
-            <label class="cd-card-note-label">📝 Текст вступления главы (попадёт в PDF)</label>
-            <textarea class="cd-card-note atc-introtext" data-id="${b.id}" rows="4"
-                      placeholder="Например: «Анализ исходных работ скв. №128 на основании данных УзКорГаз»"
-                      style="width:100%; padding:8px 10px; border:1px solid #d1d5db;
-                             border-radius:4px; font-size:0.9rem; line-height:1.5; resize:vertical;
-                             font-family:inherit;">${text.replace(/</g,'&lt;')}</textarea>
-          </div>
-          <div class="cd-card-actions">
-            <div class="cd-card-actions-right">
-              <label style="font-size:0.82rem; display:flex; align-items:center; gap:5px; cursor:pointer;">
-                <input type="checkbox" class="atc-inrep" data-id="${b.id}" ${b.in_report ? 'checked' : ''}
-                       style="width:16px; height:16px;">
-                <span>в отчёт</span>
-              </label>
-              <button class="cd-btn cd-btn-secondary atc-del" data-id="${b.id}"
-                      style="padding:4px 10px; color:#dc2626;" title="Удалить блок">✕</button>
-            </div>
-          </div>
-        `;
-        list.appendChild(card);
-        continue;
-      }
-
-      // ─── Сборка HTML карточки (стандартная для остальных kinds) ───
-      card.innerHTML = `
-        <!-- ═══ ШАПКА ═══ -->
-        <div class="cd-card-header">
-          <div class="cd-card-header-top">
-            <span class="cd-kind-badge" style="background:${_kindColor(b.kind)};">${_kindLabel(b.kind)}</span>
-            ${periodBadge}
-          </div>
-          <input type="text" class="cd-card-title atc-title" value="${b.title.replace(/"/g, '&quot;')}" data-id="${b.id}"
-                 placeholder="Название блока...">
-        </div>
-
-        <!-- ═══ АВТООПИСАНИЕ ═══ -->
-        <div class="cd-card-autodesc">
-          <span class="cd-card-autodesc-icon">${_autoDesc(b.kind).slice(0, 2)}</span>
-          ${_autoDesc(b.kind).slice(2)}
-        </div>
-
-        <!-- ═══ СОДЕРЖИМОЕ ═══ -->
-        <div class="cd-card-body">
-          ${statsHtml}
-
-          <!-- Свёрнутая секция комментариев и настроек -->
-          <details class="cd-card-edit-section">
-            <summary>✏️ Комментарии и настройки PDF</summary>
-            <div class="cd-card-edit-section-body">
-              <label class="cd-card-note-label">↑ Вступление к блоку (перед содержимым в PDF)</label>
-              <textarea class="cd-card-note atc-prenote" data-id="${b.id}" rows="2"
-                        placeholder="Текст, который появится перед графиками и таблицами...">${prefixNote.replace(/</g,'&lt;')}</textarea>
-
-              <label class="cd-card-note-label">💬 Основной комментарий</label>
-              <textarea class="cd-card-note atc-comment" data-id="${b.id}" rows="2"
-                        placeholder="Комментарий аналитика к этому блоку...">${(b.comment || '').replace(/</g,'&lt;')}</textarea>
-
-              ${b.kind === 'baseline' ? `
-              <label class="cd-card-note-label">✓ Обоснование выбора B1 (попадёт в PDF)</label>
-              <textarea class="cd-card-note atc-justification" data-id="${b.id}" rows="2"
-                        placeholder="Например: «период выбран как репрезентативный, без аварийных остановок, типичный режим эксплуатации»">${((b.params && b.params.justification) || '').replace(/</g,'&lt;')}</textarea>
-              ` : ''}
-
-              ${_renderPartsToggles(b)}
-
-              <label class="cd-card-note-label">↓ Заключение к блоку (после содержимого в PDF)</label>
-              <textarea class="cd-card-note atc-postnote" data-id="${b.id}" rows="2"
-                        placeholder="Выводы, переход к следующему разделу...">${suffixNote.replace(/</g,'&lt;')}</textarea>
-            </div>
-          </details>
-        </div>
-
-        <!-- ═══ ДЕЙСТВИЯ ═══ -->
-        <div class="cd-card-actions">
-          ${openBtn}
-          ${previewBtn}
-          <div class="cd-card-actions-right">
-            <label style="font-size:0.82rem; display:flex; align-items:center; gap:5px; cursor:pointer;">
-              <input type="checkbox" class="atc-inrep" data-id="${b.id}" ${b.in_report ? 'checked' : ''}
-                     style="width:16px; height:16px;">
-              <span>в отчёт</span>
-            </label>
-            <button class="cd-btn cd-btn-secondary atc-del" data-id="${b.id}"
-                    style="padding:4px 10px; color:#dc2626;" title="Удалить блок">✕</button>
-          </div>
-        </div>
-      `;
+      const noteStyle = 'width:100%; padding:5px 8px; border:1px dashed #cbd5e1;' +
+        'border-radius:4px; font-size:0.8rem; resize:vertical;' +
+        'background:#f8fafc; font-style:italic; color:#334155;';
+      card.innerHTML =
+        // ── Pre-note (вступительный комментарий ДО содержимого блока) ──
+        `<textarea class="atc-prenote" data-id="${b.id}" rows="1" ` +
+          `placeholder="↑ Вступление к блоку (опционально; печатается в PDF перед содержимым)" ` +
+          `style="${noteStyle} margin-bottom:6px;">${prefixNote.replace(/</g,'&lt;')}</textarea>` +
+        // ── Шапка карточки ──
+        `<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">` +
+          `<span style="background:${_kindColor(b.kind)}; color:#fff; padding:2px 8px; border-radius:4px; font-size:0.7rem;">${_kindLabel(b.kind)}</span>` +
+          `<input type="text" class="atc-title" value="${b.title.replace(/"/g, '&quot;')}" data-id="${b.id}" ` +
+            `style="flex:1; min-width:200px; padding:4px 8px; border:1px solid #d1d5db; border-radius:4px; font-size:0.88rem; font-weight:500;">` +
+          openBtn + previewBtn +
+          `<label style="font-size:0.78rem; display:flex; align-items:center; gap:4px;">` +
+            `<input type="checkbox" class="atc-inrep" data-id="${b.id}" ${b.in_report ? 'checked' : ''}> в отчёт` +
+          `</label>` +
+          `<button class="cd-btn cd-btn-secondary atc-del" data-id="${b.id}" style="padding:3px 9px;">✕</button>` +
+        `</div>` +
+        `<div style="font-size:0.78rem; color:#6b7280; margin-top:6px;">${paramsLine}</div>` +
+        statsHtml +
+        `<textarea class="atc-comment" data-id="${b.id}" rows="2" placeholder="Комментарий к блоку (попадёт в PDF)..." ` +
+          `style="width:100%; margin-top:6px; padding:6px; border:1px solid #d1d5db; border-radius:4px; font-size:0.82rem; resize:vertical;">${(b.comment || '').replace(/</g,'&lt;')}</textarea>` +
+        _renderPartsToggles(b) +
+        // ── Post-note (заключительный комментарий ПОСЛЕ содержимого блока) ──
+        `<textarea class="atc-postnote" data-id="${b.id}" rows="1" ` +
+          `placeholder="↓ Заключение к блоку (опционально; печатается в PDF после содержимого)" ` +
+          `style="${noteStyle} margin-top:6px;">${suffixNote.replace(/</g,'&lt;')}</textarea>`;
       list.appendChild(card);
     }
     // Bind «Открыть» — восстанавливает период и запускает аналитику
@@ -4060,56 +3503,6 @@
         refreshAttachedBlocks();
       });
     });
-
-    // ─── 11.4 Подсветка блока в превью при наведении на карточку ───
-    // И обратное: при наведении на блок в превью — подсветка карточки.
-    list.querySelectorAll('.cd-attached-card').forEach(card => {
-      const bid = card.dataset.blockId;
-      card.addEventListener('mouseenter', () => {
-        document.querySelectorAll(`.cd-preview-block[data-block-id="${bid}"]`)
-          .forEach(el => el.classList.add('cd-preview-highlighted'));
-      });
-      card.addEventListener('mouseleave', () => {
-        document.querySelectorAll('.cd-preview-block.cd-preview-highlighted')
-          .forEach(el => el.classList.remove('cd-preview-highlighted'));
-      });
-    });
-
-    // ─── 11.5 Drag-reorder карточек блоков (sort_order в БД) ───
-    // HTML5 drag-and-drop. После перетаскивания пересохраняем порядок
-    // в БД через PUT каждой карточки с новым sort_order.
-    let _dragSrc = null;
-    list.querySelectorAll('.cd-attached-card').forEach(card => {
-      card.addEventListener('dragstart', (e) => {
-        _dragSrc = card;
-        card.style.opacity = '0.4';
-        e.dataTransfer.effectAllowed = 'move';
-      });
-      card.addEventListener('dragend', () => {
-        if (_dragSrc) _dragSrc.style.opacity = '';
-        _dragSrc = null;
-      });
-      card.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-      });
-      card.addEventListener('drop', async (e) => {
-        e.preventDefault();
-        if (!_dragSrc || _dragSrc === card) return;
-        // Вставляем _dragSrc перед card
-        card.parentNode.insertBefore(_dragSrc, card);
-        // Сохраняем новый порядок: проходим по DOM и шлём PUT для каждой карточки
-        const cards = list.querySelectorAll('.cd-attached-card');
-        for (let i = 0; i < cards.length; i++) {
-          const id = parseInt(cards[i].dataset.blockId, 10);
-          await fetch('/api/customer-daily/blocks/' + id, {
-            method: 'PUT', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({sort_order: i}),
-          });
-        }
-        refreshAttachedBlocks();
-      });
-    });
     // Pre/post-note (params.prefix_note / params.suffix_note) — debounced PUT.
     // Используем тот же приём что comment/title: merge params, отправить целиком.
     const _bindNote = (selector, field) => {
@@ -4132,10 +3525,6 @@
     };
     _bindNote('.atc-prenote',  'prefix_note');
     _bindNote('.atc-postnote', 'suffix_note');
-    // chapter_intro textarea — сохраняет params.text
-    _bindNote('.atc-introtext', 'text');
-    // baseline justification — обоснование выбора B1 (params.justification)
-    _bindNote('.atc-justification', 'justification');
 
     // Per-block parts (атомарные тогглы внутри блока). На change шлём
     // PUT с обновлённым params.parts. Берём блок из массива blocks,
@@ -4291,125 +3680,112 @@
     else card.appendChild(wrap);
   }
 
-  // ═══ Shared WYSIWYG-рендер блока period_analysis/baseline ═══════════
-  //
-  // ЕДИНЫЙ источник раскладки превью для:
-  //   • модалки snapshot-preview (_showBlockPreview, idPrefix='cd-pv-')
-  //   • live-превью правой панели (_renderBlockSummaryHtml,
-  //     idPrefix=`prev-${block.id}-`)
-  //
-  // Структура повторяет PDF (см. adaptation_report.tex § 2.N):
-  //   1. Ключевые показатели за период (5 плиток)
-  //   2. Графики динамики (2×2 grid, контейнеры по idPrefix)
-  //   3. Статистика по показателям (describe)
-  //   4. Динамика показателей по месяцам (monthly)
-  //   5. Развёрнутое описание по месяцам (UzKor+UniTool блоки)
-  //   6. Анализ периода: UzKorGaz и UniTool (overlap_html)
-  //   7. Сопоставление UzKorGaz и UniTool на совпадающих днях (strict_compare)
-  //   8. Комментарий блока (если есть)
-  //
-  // ВАЖНО: render Plotly-графиков делается ОТДЕЛЬНО через
-  // _renderPeriodSnapshotCharts(snap, idPrefix) — после insert в DOM.
-  function _buildPeriodSnapshotPreviewHtml(snap, block, idPrefix) {
-    if (!snap) return '';
+  // ═══ Модалка предпросмотра прикреплённого блока ═══════════════════
+  // Открывает полное содержимое из data_snapshot: графики, таблицы,
+  // описания — то, что попадёт в PDF.
+  function _showBlockPreview(block) {
+    const snap = block.data_snapshot;
+    if (!snap) {
+      alert('Снимок данных пуст — блок был сохранён до версии v2. ' +
+            'Удалите и пересоздайте блок чтобы получить полный набор.');
+      return;
+    }
     const fmt = (v, d=2) => (v == null || isNaN(v))
       ? '—' : Number(v).toFixed(d);
-    const dFrom = snap.date_from || (block?.params?.date_from) || '—';
-    const dTo   = snap.date_to   || (block?.params?.date_to)   || '—';
+    const dFrom = snap.date_from || (block.params?.date_from) || '—';
+    const dTo   = snap.date_to   || (block.params?.date_to)   || '—';
     const days  = snap.days || 0;
-    const hasOurOverlay = !!(snap.unitool && snap.unitool.daily
-                             && snap.unitool.daily.dates
-                             && snap.unitool.daily.dates.length);
+
+    $('cd-preview-title').textContent = block.title;
+    $('cd-preview-meta').innerHTML =
+      `${dFrom} → ${dTo} · <b>${days}</b> сут.`;
+
+    const body = $('cd-preview-body');
+    body.innerHTML = '';
+    const hasOurOverlay = !!(snap.unitool && snap.unitool.daily && snap.unitool.daily.dates && snap.unitool.daily.dates.length);
+
+    // Стиль для текстового перехода между секциями
     const intro = (text) =>
       `<p style="margin:6px 0 10px; padding:8px 12px; background:#f0f9ff;
                  border-left:3px solid #0284c7; border-radius:4px;
                  font-size:0.85rem; color:#0c4a6e; line-height:1.5;">${text}</p>`;
-    const parts = (block && typeof _getPartsForBlock === 'function')
-      ? _getPartsForBlock(block) : {};
-    const on = (key) => parts[key] !== false;  // дефолт = true
-
-    let html = '';
 
     // ─── 1. Ключевые показатели за период ────────────────────────
-    if (on('key_metrics')) {
-      html +=
-        `<h3 style="margin:0 0 6px;">Ключевые показатели за период</h3>` +
-        intro(
-          `Сводка средних и медианных значений за выбранный диапазон <b>${dFrom} → ${dTo}</b> ` +
-          `(<b>${days}</b> сут.) по данным заказчика UzKorGaz` +
-          (hasOurOverlay ? ' (наложение UniTool активно — см. графики и таблицы ниже).' : '.')
-        ) + `
-        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
-                    gap:8px; margin-bottom:18px;">
-          <div class="b1-metric"><div class="b1-metric-title">Q общий</div>
-            <div class="b1-metric-val">${fmt(snap.q_total_avg)} <span class="b1-unit">ср.</span></div>
-            <div class="b1-metric-val">${fmt(snap.q_total_median)} <span class="b1-unit">мед.</span></div>
-            <div class="b1-metric-unit">тыс.м³/сут</div></div>
-          <div class="b1-metric"><div class="b1-metric-title">Q рабочий</div>
-            <div class="b1-metric-val">${fmt(snap.q_working_avg)} <span class="b1-unit">ср.</span></div>
-            <div class="b1-metric-val">${fmt(snap.q_working_median)} <span class="b1-unit">мед.</span></div>
-            <div class="b1-metric-unit">тыс.м³/сут</div></div>
-          <div class="b1-metric"><div class="b1-metric-title">ΔP</div>
-            <div class="b1-metric-val">${fmt(snap.dp_avg)} <span class="b1-unit">ср.</span></div>
-            <div class="b1-metric-val">${fmt(snap.dp_median)} <span class="b1-unit">мед.</span></div>
-            <div class="b1-metric-unit">кгс/см²</div></div>
-          <div class="b1-metric"><div class="b1-metric-title">P устье / шлейф</div>
-            <div class="b1-metric-val">${fmt(snap.p_wellhead_median)} <span class="b1-unit">мед. устье</span></div>
-            <div class="b1-metric-val">${fmt(snap.p_flowline_median)} <span class="b1-unit">мед. шлейф</span></div>
-            <div class="b1-metric-unit">кгс/см²</div></div>
-          <div class="b1-metric"><div class="b1-metric-title">Простой</div>
-            <div class="b1-metric-val">${fmt(snap.shutdown_min_total, 0)} <span class="b1-unit">мин всего</span></div>
-            <div class="b1-metric-val">${snap.shutdown_min_total ? (snap.shutdown_min_total/60).toFixed(1) : '0'} <span class="b1-unit">часов</span></div>
-            <div class="b1-metric-unit">${snap.shutdown_days_count || 0} дней с простоем</div></div>
-        </div>`;
-    }
+    body.innerHTML +=
+      `<h3 style="margin:0 0 6px;">Ключевые показатели за период</h3>` +
+      intro(
+        `Сводка средних и медианных значений за выбранный диапазон <b>${dFrom} → ${dTo}</b> ` +
+        `(<b>${days}</b> сут.) по данным заказчика UzKorGaz` +
+        (hasOurOverlay ? ' (наложение UniTool активно — см. графики и таблицы ниже).' : '.')
+      ) + `
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
+                  gap:8px; margin-bottom:18px;">
+        <div class="b1-metric"><div class="b1-metric-title">Q общий</div>
+          <div class="b1-metric-val">${fmt(snap.q_total_avg)} <span class="b1-unit">ср.</span></div>
+          <div class="b1-metric-val">${fmt(snap.q_total_median)} <span class="b1-unit">мед.</span></div>
+          <div class="b1-metric-unit">тыс.м³/сут</div></div>
+        <div class="b1-metric"><div class="b1-metric-title">Q рабочий</div>
+          <div class="b1-metric-val">${fmt(snap.q_working_avg)} <span class="b1-unit">ср.</span></div>
+          <div class="b1-metric-val">${fmt(snap.q_working_median)} <span class="b1-unit">мед.</span></div>
+          <div class="b1-metric-unit">тыс.м³/сут</div></div>
+        <div class="b1-metric"><div class="b1-metric-title">ΔP</div>
+          <div class="b1-metric-val">${fmt(snap.dp_avg)} <span class="b1-unit">ср.</span></div>
+          <div class="b1-metric-val">${fmt(snap.dp_median)} <span class="b1-unit">мед.</span></div>
+          <div class="b1-metric-unit">кгс/см²</div></div>
+        <div class="b1-metric"><div class="b1-metric-title">P устье / шлейф</div>
+          <div class="b1-metric-val">${fmt(snap.p_wellhead_median)} <span class="b1-unit">мед. устье</span></div>
+          <div class="b1-metric-val">${fmt(snap.p_flowline_median)} <span class="b1-unit">мед. шлейф</span></div>
+          <div class="b1-metric-unit">кгс/см²</div></div>
+        <div class="b1-metric"><div class="b1-metric-title">Простой</div>
+          <div class="b1-metric-val">${fmt(snap.shutdown_min_total, 0)} <span class="b1-unit">мин всего</span></div>
+          <div class="b1-metric-val">${snap.shutdown_min_total ? (snap.shutdown_min_total/60).toFixed(1) : '0'} <span class="b1-unit">часов</span></div>
+          <div class="b1-metric-unit">${snap.shutdown_days_count || 0} дней с простоем</div></div>
+      </div>`;
 
-    // ─── 2. Графики динамики (2×2 grid) ───────────────────────────
+    // ─── 2. Графики динамики ─────────────────────────────────────
     if (snap.chart && snap.chart.dates && snap.chart.dates.length) {
-      const hasAnyChart = on('pressures_chart') || on('dp_chart')
-                       || on('flow_dt_chart')  || on('monthly_chart');
-      if (hasAnyChart) {
-        html +=
-          `<h3 style="margin:14px 0 6px;">Графики динамики показателей</h3>` +
-          intro(
-            'Суточная динамика давлений (устье / затрубное / шлейф / статическое), перепада ΔP, ' +
-            'дебитов (общий и рабочий), а также времени простоя по данным UzKorGaz.' +
-            (hasOurOverlay
-              ? ' Поверх (заливка) наложены данные UniTool с LoRa-датчиков, агрегированные посуточно.'
-              : '')
-          ) + `
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-            ${on('pressures_chart') ? `<div id="${idPrefix}pres" style="height:300px;"></div>` : ''}
-            ${on('dp_chart')        ? `<div id="${idPrefix}dp"   style="height:300px;"></div>` : ''}
-            ${on('flow_dt_chart')   ? `<div id="${idPrefix}flow" style="height:300px;"></div>` : ''}
-            ${on('monthly_chart')   ? `<div id="${idPrefix}mon"  style="height:300px;"></div>` : ''}
-          </div>`;
-      }
+      body.innerHTML +=
+        `<h3 style="margin:14px 0 6px;">Графики динамики показателей</h3>` +
+        intro(
+          'Суточная динамика давлений (устье / затрубное / шлейф / статическое), перепада ΔP, ' +
+          'дебитов (общий и рабочий), а также времени простоя по данным UzKorGaz.' +
+          (hasOurOverlay
+            ? ' Поверх (заливка) наложены данные UniTool с LoRa-датчиков, агрегированные посуточно.'
+            : '')
+        ) + `
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div id="cd-pv-pres" style="height:300px;"></div>
+          <div id="cd-pv-dp" style="height:300px;"></div>
+          <div id="cd-pv-rates" style="height:300px;"></div>
+          <div id="cd-pv-monthly" style="height:300px;"></div>
+        </div>`;
+      setTimeout(() => _renderPreviewCharts(snap), 50);
     }
 
-    // ─── 3. Статистика по показателям (describe) ─────────────────
-    if (on('describe_table') && snap.describe && snap.describe.length) {
-      html +=
+    // ─── 3. Статистика по показателям (таблица описательной) ─────
+    if (snap.describe && snap.describe.length) {
+      body.innerHTML +=
         `<h3 style="margin:18px 0 6px;">Статистика по показателям</h3>` +
         intro(
           'Сводная таблица по каждому параметру — количество измерений, среднее, ' +
           'СКО (рассеяние) и медиана. По СКО видно стабильность параметра в периоде.'
         );
+      const ds = snap.describe;
       let descHtml = `<table class="cd-table"><thead><tr>
           <th>Параметр</th><th>N</th><th>Среднее</th><th>СКО</th><th>Медиана</th>
         </tr></thead><tbody>`;
-      for (const r of snap.describe) {
+      for (const r of ds) {
         descHtml += `<tr><td>${r.label}</td>
           <td>${r.n}</td><td>${fmt(r.mean)}</td>
           <td>${fmt(r.std)}</td><td>${fmt(r.median)}</td></tr>`;
       }
       descHtml += '</tbody></table>';
-      html += descHtml;
+      body.innerHTML += descHtml;
     }
 
-    // ─── 4. Динамика показателей по месяцам (monthly) ────────────
-    if (on('monthly_table') && snap.monthly && snap.monthly.length) {
-      html +=
+    // ─── 4. Динамика по месяцам (таблица) ────────────────────────
+    if (snap.monthly && snap.monthly.length) {
+      body.innerHTML +=
         `<h3 style="margin:18px 0 6px;">Динамика показателей по месяцам</h3>` +
         intro(
           'Помесячная агрегация показателей UzKorGaz. По колонкам Q видно изменение дебита ' +
@@ -4417,6 +3793,7 @@
           'засорении призабойной зоны или ствола скважины); простой — суммарное время ' +
           'неработающего состояния скважины в среднем за день месяца.'
         );
+      const ms = snap.monthly;
       let mHtml = `<table class="cd-table"><thead><tr>
           <th>Месяц</th><th>Дней</th>
           <th>Q общ. ср.</th><th>Q общ. мед.</th>
@@ -4424,7 +3801,7 @@
           <th>ΔP ср.</th><th>ΔP мед.</th>
           <th>P уст. ср.</th><th>Простой</th>
         </tr></thead><tbody>`;
-      for (const r of snap.monthly) {
+      for (const r of ms) {
         mHtml += `<tr>
           <td>${r.month_label}</td><td>${r.days}</td>
           <td>${fmt(r.mean_q_total)}</td><td>${fmt(r.median_q_total)}</td>
@@ -4434,31 +3811,34 @@
         </tr>`;
       }
       mHtml += '</tbody></table>';
-      html += mHtml;
+      body.innerHTML += mHtml;
     }
 
-    // ─── 5. Развёрнутое описание по месяцам (UzKor + UniTool) ────
-    if (on('monthly_descriptions')
-        && ((snap.monthly_desc && snap.monthly_desc.length)
-            || (snap.unitool && snap.unitool.by_month))) {
-      html +=
+    // ─── 5. Описание изменений по месяцам (UzKorGaz + UniTool) ──
+    if ((snap.monthly_desc && snap.monthly_desc.length)
+        || (snap.unitool && snap.unitool.by_month)) {
+      body.innerHTML +=
         `<h3 style="margin:18px 0 6px;">Развёрнутое описание изменений по месяцам</h3>` +
         intro(
           'Поясняющий текст к каждому месяцу: средние значения, тренды, изменения ' +
           'по сравнению с предыдущим месяцем. Для месяцев, в которых есть данные UniTool, ' +
           'добавлен отдельный блок с метриками датчиков и оценкой расхождения с UzKorGaz.'
         );
+      const list = document.createElement('div');
+      list.className = 'cd-month-list';
       const descs = snap.monthly_desc || [];
       const ourBy = snap.unitool?.by_month || {};
       const monthsCust = snap.monthly || [];
-      let monthsHtml = '<div class="cd-month-list">';
       for (const d of descs) {
+        const wrap = document.createElement('div');
+        wrap.className = 'cd-month-item';
         const cust = `<div style="margin-top:4px; padding:8px 10px; background:#dbeafe;
                                   border-left:3px solid #1d4ed8; border-radius:4px;">
                         <div style="font-weight:600; color:#1e3a8a; font-size:0.78rem;
                                     margin-bottom:3px;">📊 UzKorGaz</div>
                         <div class="text" style="font-size:0.84rem; line-height:1.55;">${d.text}</div>
                       </div>`;
+        // UniTool — генерируем текст из ourBy[label]
         let our = '';
         const o = ourBy[d.label];
         if (o && o.days) {
@@ -4506,17 +3886,15 @@
                    ${snap.unitool.equip_dt ? `(датчик установлен ${snap.unitool.equip_dt.slice(0,10)})` : ''}
                  </div>`;
         }
-        monthsHtml += `<div class="cd-month-item">
-          <div class="label">${d.label}</div>${cust}${our}
-        </div>`;
+        wrap.innerHTML = `<div class="label">${d.label}</div>` + cust + our;
+        list.appendChild(wrap);
       }
-      monthsHtml += '</div>';
-      html += monthsHtml;
+      body.appendChild(list);
     }
 
-    // ─── 6. Анализ периода (overlap_html) ────────────────────────
-    if (on('overlap_text') && snap.overlap_html) {
-      html +=
+    // ─── 6. Анализ периода (UzKorGaz / UniTool / совмещение) ────
+    if (snap.overlap_html) {
+      body.innerHTML +=
         `<h3 style="margin:18px 0 6px;">Анализ периода: UzKorGaz и UniTool</h3>` +
         intro(
           'Развёрнутое описание выбранного периода по двум источникам — суточные сводки ' +
@@ -4525,8 +3903,8 @@
         ) + `<div>${snap.overlap_html}</div>`;
     }
 
-    // ─── 7. Сопоставление UzKor vs UniTool на совпадающих днях ───
-    if (on('strict_compare') && snap.strict_compare) {
+    // ─── 7. Сопоставление UzKorGaz и UniTool на одних и тех же днях ───
+    if (snap.strict_compare) {
       const sc = snap.strict_compare;
       const sign = (v) => v == null ? '—' : (v >= 0 ? '+' : '') + fmt(v);
       const pct = (a, b) => (a != null && b != null && b !== 0) ? (a-b)/b*100 : null;
@@ -4542,7 +3920,7 @@
           <td>${sign(dMd)}</td><td>${dMdp != null ? sign(dMdp) + '%' : '—'}</td>
         </tr>`;
       };
-      html +=
+      body.innerHTML +=
         `<h3 style="margin:18px 0 6px;">Сопоставление UzKorGaz и UniTool на совпадающих днях</h3>` +
         intro(
           `Когда периоды UzKorGaz и UniTool различаются по длине, прямое сравнение средних ` +
@@ -4570,34 +3948,31 @@
     }
 
     // ─── 8. Комментарий блока ───────────────────────────────────
-    if (block && block.comment && on('description')) {
-      html += `<h3 style="margin:18px 0 6px;">Комментарий к блоку</h3>
+    if (block.comment) {
+      body.innerHTML += `<h3 style="margin:18px 0 6px;">Комментарий к блоку</h3>
         <div style="padding:10px 12px; background:#f9fafb; border-left:3px solid #6b7280;
                     border-radius:4px; font-size:0.88rem; line-height:1.5;
-                    white-space:pre-wrap;">${String(block.comment).replace(/</g,'&lt;')}</div>`;
+                    white-space:pre-wrap;">${block.comment.replace(/</g,'&lt;')}</div>`;
     }
 
-    return html;
+    $('cd-block-preview-modal').style.display = 'block';
+    document.body.style.overflow = 'hidden';
   }
 
-  // Рендер 4 Plotly-графиков в контейнеры с префиксом idPrefix.
-  // Контейнеры (если включены тогглами): {prefix}pres, {prefix}dp, {prefix}flow, {prefix}mon.
-  // Если контейнера нет — график пропускается. Если данных нет — пропускается.
-  function _renderPeriodSnapshotCharts(snap, idPrefix) {
-    if (!window.Plotly) return;
+  function _renderPreviewCharts(snap) {
     const c = snap.chart;
     if (!c || !c.dates) return;
     const layout = { margin:{l:50,r:30,t:30,b:50}, hovermode:'x unified',
                      font:{size:10}, legend:{orientation:'h', y:-0.18} };
     const cfg = { displaylogo:false, responsive:true };
+    // Overlay UniTool из суточной агрегации (если был наложен на странице)
     const ud = snap.unitool?.daily;
     const hasOur = !!(ud && ud.dates && ud.dates.length);
     const ourColor = '#ea580c';
     const ourFill = (alpha) => `rgba(234, 88, 12, ${alpha})`;
 
     // Давления
-    const elPres = document.getElementById(`${idPrefix}pres`);
-    if (elPres) {
+    if (window.Plotly && document.getElementById('cd-pv-pres')) {
       const traces = [
         { x:c.dates, y:c.p_wellhead, name:'UzKorGaz: устье', mode:'lines+markers', line:{width:1.4} },
         { x:c.dates, y:c.p_annular,  name:'UzKorGaz: затрубное', mode:'lines+markers', line:{width:1.4} },
@@ -4612,13 +3987,10 @@
             line:{color:'#fb923c', width:2}, fill:'tozeroy', fillcolor:ourFill(0.12) },
         );
       }
-      try { Plotly.newPlot(elPres, traces, { ...layout, title:'Давления, кгс/см²' }, cfg); }
-      catch (e) { console.warn(e); }
+      Plotly.newPlot('cd-pv-pres', traces, { ...layout, title:'Давления, кгс/см²' }, cfg);
     }
-
     // ΔP
-    const elDp = document.getElementById(`${idPrefix}dp`);
-    if (elDp) {
+    if (window.Plotly && document.getElementById('cd-pv-dp')) {
       const traces = [
         { x:c.dates, y:c.dp, name:'UzKorGaz: ΔP', mode:'lines+markers', line:{color:'#dc2626', width:1.6} },
       ];
@@ -4626,13 +3998,11 @@
         traces.push({ x:ud.dates, y:ud.dp, name:'UniTool: ΔP', mode:'lines',
           line:{color:ourColor, width:2}, fill:'tozeroy', fillcolor:ourFill(0.20) });
       }
-      try { Plotly.newPlot(elDp, traces, { ...layout, title:'Перепад давления, кгс/см²' }, cfg); }
-      catch (e) { console.warn(e); }
+      Plotly.newPlot('cd-pv-dp', traces,
+        { ...layout, title:'Перепад давления, кгс/см²' }, cfg);
     }
-
     // Дебиты + простой
-    const elFlow = document.getElementById(`${idPrefix}flow`);
-    if (elFlow) {
+    if (window.Plotly && document.getElementById('cd-pv-rates')) {
       const traces = [
         { x:c.dates, y:c.q_gas_total,   name:'UzKorGaz: Q общий',   mode:'lines+markers', line:{color:'#1d4ed8', width:1.5}, yaxis:'y' },
         { x:c.dates, y:c.q_gas_working, name:'UzKorGaz: Q рабочий', mode:'lines+markers', line:{color:'#16a34a', width:1.5}, yaxis:'y' },
@@ -4642,682 +4012,24 @@
         traces.push({ x:ud.dates, y:ud.q, name:'UniTool: Q (расчёт)', mode:'lines',
           line:{color:ourColor, width:2}, fill:'tozeroy', fillcolor:ourFill(0.18), yaxis:'y' });
       }
-      try {
-        Plotly.newPlot(elFlow, traces, {
-          ...layout, title:'Дебиты и простой',
-          yaxis:{title:'Q, тыс.м³/сут'},
-          yaxis2:{title:'Простой, мин', overlaying:'y', side:'right', showgrid:false, rangemode:'tozero'},
-          barmode:'overlay'
-        }, cfg);
-      } catch (e) { console.warn(e); }
+      Plotly.newPlot('cd-pv-rates', traces, {
+        ...layout, title:'Дебиты и простой',
+        yaxis:{title:'Q, тыс.м³/сут'},
+        yaxis2:{title:'Простой, мин', overlaying:'y', side:'right', showgrid:false, rangemode:'tozero'},
+        barmode:'overlay'
+      }, cfg);
     }
-
     // Помесячно
-    const elMon = document.getElementById(`${idPrefix}mon`);
-    if (elMon && snap.monthly && snap.monthly.length) {
+    if (window.Plotly && document.getElementById('cd-pv-monthly') && snap.monthly && snap.monthly.length) {
       const m = snap.monthly;
       const x = m.map(r => r.month_label);
-      try {
-        Plotly.newPlot(elMon, [
-          { x, y:m.map(r=>r.mean_q_total),   name:'Q общ. ср.',  type:'bar', marker:{color:'#1d4ed8'} },
-          { x, y:m.map(r=>r.median_q_total), name:'Q общ. мед.', type:'bar', marker:{color:'#93c5fd'} },
-          { x, y:m.map(r=>r.mean_q_working), name:'Q раб. ср.',  type:'bar', marker:{color:'#16a34a'} },
-          { x, y:m.map(r=>r.median_q_working),name:'Q раб. мед.', type:'bar', marker:{color:'#86efac'} },
-        ], { ...layout, title:'Помесячно: Q', barmode:'group', yaxis:{title:'Q, тыс.м³/сут'} }, cfg);
-      } catch (e) { console.warn(e); }
+      Plotly.newPlot('cd-pv-monthly', [
+        { x, y:m.map(r=>r.mean_q_total),   name:'Q общ. ср.',  type:'bar', marker:{color:'#1d4ed8'} },
+        { x, y:m.map(r=>r.median_q_total), name:'Q общ. мед.', type:'bar', marker:{color:'#93c5fd'} },
+        { x, y:m.map(r=>r.mean_q_working), name:'Q раб. ср.',  type:'bar', marker:{color:'#16a34a'} },
+        { x, y:m.map(r=>r.median_q_working),name:'Q раб. мед.', type:'bar', marker:{color:'#86efac'} },
+      ], { ...layout, title:'Помесячно: Q', barmode:'group', yaxis:{title:'Q, тыс.м³/сут'} }, cfg);
     }
-  }
-
-  // ═══ Shared WYSIWYG-рендер блока segment_analysis ══════════════════
-  //
-  // Используется тремя представлениями одного snapshot (как для period_analysis):
-  //   • snapshot-preview модалка (_showBlockPreview, idPrefix='cd-sv-')
-  //   • live-превью правой панели (_renderBlockSummaryHtml,
-  //     idPrefix=`segprev-${block.id}-`)
-  //   • встроенный preview в Шаге 4 (_renderSegmentPreviewToContainer,
-  //     idPrefix='cd-segres-')
-  //
-  // Контракт snapshot — backend/services/segment_analysis_service.py::
-  //   compute_segment_block(): {ok, dual:{primary,working,common/only_*},
-  //   pav:{score,confidence,scenario,recommendation,signs_pro/con,breakdown},
-  //   well_number, date_from, date_to, days_count, n_points, thresholds_used}
-  // ═══ HTML-блок segment_analysis (PLAN A — Core Segment Analysis) ═══
-  //
-  // Структура блока строго по ТЗ §7 + §5.2 + §6 + §11:
-  //   1. Header (период, n_points, override-индикатор)
-  //   2. Основной график Q+сегменты+переломы (контейнер для Plotly, §7.2)
-  //   3. Таблица сегментов 11 колонок включая «Тип режима» (§5.2 + §6.1)
-  //   4. Описание сегментов (§6.4) — краткие параграфы
-  //   5. События переломов (§6.5) — текст cp_descriptions
-  //   6. Развёрнутое описание сегментов
-  //   7. Сравнение Q общ ↔ Q раб (§11) из dual_summary
-  //   8. Комментарий блока
-  //   9. ПАВ-блок (только если snap.include_pav_recommendation === true)
-  //      По умолчанию для главы заказчика — НЕ показывается.
-  function _buildSegmentBlockHtml(snap, block, idPrefix) {
-    if (!snap || !snap.ok) {
-      return `<div style="color:#9ca3af; padding:18px;">
-        ${(snap && snap.error) || 'Снимок данных пуст.'}</div>`;
-    }
-    const parts = (block && typeof _getPartsForBlock === 'function')
-      ? _getPartsForBlock(block) : {};
-    const on = (key) => parts[key] !== false;
-
-    // PLAN A — Core источники данных (новый формат segment_v1):
-    const segs = snap.segments_extended || [];
-    const cpMarks = snap.cp_marks || [];
-    const dualSummary = snap.dual_summary || {};
-    const descriptions = snap.descriptions || [];
-    const cpDescs = snap.cp_descriptions || [];
-    const includePav = snap.include_pav_recommendation === true;
-    const pav = (includePav && snap.pav) ? snap.pav : null;
-
-    const fmt = (v, d=2) => (v == null || isNaN(v)) ? '—' : Number(v).toFixed(d);
-    const fmtSigned = (v, d=2) => {
-      if (v == null || isNaN(v)) return '—';
-      const n = Number(v);
-      return (n > 0 ? '+' : '') + n.toFixed(d);
-    };
-    const intro = (text) =>
-      `<p style="margin:6px 0 10px; padding:8px 12px; background:#faf5ff;
-                 border-left:3px solid #7c3aed; border-radius:4px;
-                 font-size:0.85rem; color:#4c1d95; line-height:1.5;">${text}</p>`;
-
-    let html = '';
-
-    // ─── 0. Header ────────────────────────────────────────────────
-    html += `<div style="font-size:0.85rem; color:#374151; margin-bottom:8px;">
-        <b>Период:</b> ${snap.date_from} … ${snap.date_to}
-        (${snap.days_count} сут, ${snap.n_points} точек данных)
-        ${snap.thresholds_used?.has_overrides
-          ? ` <span style="color:#7c3aed; font-size:0.75rem;">⚙ пороги переопределены</span>`
-          : ''}
-      </div>`;
-
-    // ─── 1. Основной график (Plotly после insert) ─────────────────
-    // ТЗ §7.2: 6 слоёв (Q общий точки + линия, Q рабочий точки + линия,
-    // тренды Q общего сплошные, тренды Q рабочего пунктир, вертикали
-    // переломов 3 стиля, подсветка кластеров простоев, теги поворот 90°)
-    if (on('q_segment_chart') && segs.length) {
-      html += `<h3 style="margin:14px 0 6px;">📈 Дебит, точки перелома и линейные тренды по сегментам</h3>` +
-        intro(
-          'Q общий (синие кружки + линия) и Q рабочий (зелёные квадраты + линия) — ' +
-          'реальные суточные точки. Цветные сплошные линии — тренды Q общего по сегментам ' +
-          '(slope × x + intercept). Пунктирные того же цвета — тренды Q рабочего. ' +
-          'Вертикальные линии — точки перелома: ' +
-          '<b>красная сплошная толстая</b> — подтверждено обеими кривыми; ' +
-          '<b>красная пунктирная тонкая</b> — только в Q общем; ' +
-          '<b>зелёная пунктирная</b> — только в Q рабочем (фактический сдвиг). ' +
-          'Подписи рядом с вертикалями — причины переломов. ' +
-          'Розовая фоновая полоса — кластер простоев.'
-        ) +
-        `<div id="${idPrefix}qchart" style="height:480px;"></div>`;
-    }
-
-    // ─── 2. Таблица сегментов: 11 колонок (§5.2 + §6.1 «Тип режима»)
-    if (on('segments_table') && segs.length) {
-      let tbl = `<h3 style="margin:14px 0 6px;">📋 Сегменты режима (${segs.length})</h3>
-        <table class="cd-table"><thead><tr>
-          <th>№</th><th>Период</th><th>Дн</th>
-          <th>Q общ.</th><th>Q раб.</th>
-          <th>Тренд</th><th>Изм%</th>
-          <th>Прост, мин</th><th>Раб%</th><th>ΔP</th>
-          <th>Тип режима</th>
-        </tr></thead><tbody>`;
-      for (const s of segs) {
-        const chg = s.change_pct;
-        const chgColor = chg == null ? '#9ca3af'
-                       : chg > 0 ? '#28a745' : chg < 0 ? '#dc3545' : '#6b7280';
-        const chgTxt = chg == null ? '—' : (chg > 0 ? '+' : '') + chg.toFixed(0) + '%';
-        const slopeTxt = s.slope_total == null ? '—' : fmtSigned(s.slope_total);
-        tbl += `<tr>
-          <td><b>${s.num}</b></td>
-          <td style="white-space:nowrap;">${s.start}–${s.end}</td>
-          <td>${s.days}</td>
-          <td>${fmt(s.mean_q, 1)}</td>
-          <td>${fmt(s.mean_q_working, 1)}</td>
-          <td>${slopeTxt}</td>
-          <td style="color:${chgColor}; font-weight:600;">${chgTxt}</td>
-          <td>${fmt(s.mean_shutdown, 0)}</td>
-          <td>${fmt(s.working_pct, 0)}</td>
-          <td>${fmt(s.mean_dp, 2)}</td>
-          <td style="font-weight:500; color:${s.color || '#374151'};">
-            ${s.type || '—'}
-          </td>
-        </tr>`;
-      }
-      tbl += '</tbody></table>';
-      html += tbl;
-    }
-
-    // ─── 3. Описание сегментов (§6.4) — краткие параграфы ─────────
-    if (on('descriptions') && segs.length) {
-      html += `<h3 style="margin:14px 0 6px;">📝 Описание сегментов</h3>` +
-        `<div style="display:flex; flex-direction:column; gap:6px;">`;
-      segs.forEach((s, i) => {
-        const prev = i > 0 ? segs[i - 1] : null;
-        const changeLine = prev
-          ? `<br><b>Изменение vs Сег.${prev.num}:</b> Q общ ${fmtSigned(s.change_pct, 1)}%, ` +
-            `Q раб ${fmtSigned(s.change_q_working_pct, 1)}%, ` +
-            `ΔP ${fmtSigned(s.change_dp_pct, 1)}%, ` +
-            `простой ${fmtSigned(s.change_shutdown, 0)} мин` +
-            (s.change_choke != null && Math.abs(s.change_choke) > 0.01
-              ? `, штуцер ${fmtSigned(s.change_choke, 1)} мм` : '')
-          : '';
-        const causeLine = s.cause
-          ? `<br><b>Основной фактор:</b> ${_escHtml(s.cause)}`
-          : '';
-        const preshutLine = (s.preshutdown_q != null && s.preshutdown_verdict)
-          ? `<br><b>До простоя/после:</b> ${fmt(s.preshutdown_q, 1)} → ${fmt(s.mean_q, 1)} ` +
-            `(${fmtSigned(s.preshutdown_delta_pct, 0)}%). ${_escHtml(s.preshutdown_verdict)}`
-          : '';
-        const gradualLine = s.gradual_trend
-          ? `<br><b>Плавный тренд:</b> ${s.gradual_trend === 'down' ? 'спад' : 'рост'} ` +
-            `на ${fmtSigned(s.gradual_drift_pct, 1)}% за период`
-          : '';
-        html += `<div style="padding:10px 14px; background:#fff;
-                  border-left:3px solid ${s.color || '#d1d5db'}; border-radius:3px;
-                  font-size:0.86rem; line-height:1.55; color:#1f2937;">
-            <div style="font-weight:600; margin-bottom:3px;">
-              Сегмент ${s.num} · ${s.start}–${s.end} · ${s.days} дн · тип: ${s.type}
-            </div>
-            <b>Средние:</b> Q общ ${fmt(s.mean_q, 1)},
-            Q раб ${fmt(s.mean_q_working, 1)} тыс.м³/сут,
-            ΔP ${fmt(s.mean_dp, 2)} кгс/см²,
-            P уст ${fmt(s.mean_p_wellhead, 1)},
-            P шл ${fmt(s.mean_p_flowline, 1)} кгс/см²,
-            штуцер ${fmt(s.mean_choke_mm, 1)} мм,
-            раб. время ${fmt(s.working_pct, 0)}%
-            ${changeLine}
-            ${gradualLine}
-            ${preshutLine}
-            ${causeLine}
-          </div>`;
-      });
-      html += `</div>`;
-    }
-
-    // ─── 4. События переломов (§6.5) ──────────────────────────────
-    if (on('cp_descriptions') && cpDescs.length) {
-      html += `<h3 style="margin:14px 0 6px;">🔻 События переломов (${cpDescs.length})</h3>` +
-        `<div style="display:flex; flex-direction:column; gap:6px;">` +
-        cpDescs.map(t => `<div style="padding:8px 12px; background:#fff;
-                  border-left:3px solid #7c3aed; border-radius:3px;
-                  font-size:0.84rem; line-height:1.55; color:#1f2937;
-                  white-space:pre-wrap;">${(t||'').replace(/</g,'&lt;')}</div>`).join('') +
-        `</div>`;
-    }
-
-    // ─── 5. Развёрнутые описания (модульные descriptions по §6.4) ─
-    if (on('descriptions') && descriptions.length) {
-      html += `<h3 style="margin:14px 0 6px;">📑 Развёрнутые описания (из алгоритма)</h3>` +
-        `<div style="display:flex; flex-direction:column; gap:6px;">` +
-        descriptions.map(t => `<div style="padding:8px 12px; background:#fff;
-                  border-left:3px solid #d1d5db; border-radius:3px;
-                  font-size:0.84rem; line-height:1.55; color:#374151;
-                  white-space:pre-wrap;">${(t||'').replace(/</g,'&lt;')}</div>`).join('') +
-        `</div>`;
-    }
-
-    // ─── 6. Сравнение Q общий ↔ Q рабочий (§11) ───────────────────
-    // Из snap.dual_summary (формат segment_v1).
-    if (dualSummary && (dualSummary.primary_cp_count != null
-                        || dualSummary.working_cp_count != null)) {
-      const cd = dualSummary.common_dates || [];
-      const ot = dualSummary.only_total_dates || [];
-      const ow = dualSummary.only_working_dates || [];
-      html += `<h3 style="margin:14px 0 6px;">⇄ Сравнение Q общий ↔ Q рабочий</h3>` +
-        `<div style="font-size:0.85rem; line-height:1.6; color:#374151;
-                     padding:10px 14px; background:#fff; border-radius:4px;
-                     border-left:3px solid #1d4ed8;">
-          По <b>Q общему</b> найдено переломов: <b>${dualSummary.primary_cp_count || 0}</b>.
-          По <b>Q рабочему</b>: <b>${dualSummary.working_cp_count || 0}</b>.
-          <b>Подтверждено обеими кривыми:</b> <b>${dualSummary.common_count || 0}</b>${cd.length ? ` (${cd.join(', ')})` : ''}.
-          ${ow.length
-            ? `<br><b>Только в Q рабочем</b> (фактический сдвиг режима, не отражённый в паспорте): ${ow.join(', ')}.`
-            : '<br>Переломов «только в Q рабочем» нет.'}
-          ${ot.length
-            ? `<br><b>Только в Q общем</b> (вероятный артефакт паспортного Q — событие может быть скрыто): ${ot.join(', ')}.`
-            : '<br>Переломов «только в Q общем» нет.'}
-        </div>`;
-    }
-
-    // ─── 7. Комментарий блока ─────────────────────────────────────
-    if (block && block.comment && on('description')) {
-      html += `<h3 style="margin:14px 0 6px;">✏️ Комментарий к блоку</h3>
-        <div style="padding:10px 12px; background:#f9fafb; border-left:3px solid #6b7280;
-                    border-radius:4px; font-size:0.88rem; line-height:1.5;
-                    white-space:pre-wrap;">${String(block.comment).replace(/</g,'&lt;')}</div>`;
-    }
-
-    // ─── 8. ПАВ-блок — ТОЛЬКО при include_pav_recommendation=true ─
-    // PLAN A: по умолчанию для главы заказчика flag=false → блок не рисуется.
-    // Появляется если в API передано include_pav: true.
-    if (includePav && pav && on('pav_card')) {
-      const score = pav.score;
-      const scoreColor = score == null ? '#9ca3af'
-                       : score >= 65 ? '#dc2626'
-                       : score >= 35 ? '#d97706'
-                       : '#059669';
-      const scoreBg = score == null ? '#f3f4f6'
-                    : score >= 65 ? '#fee2e2'
-                    : score >= 35 ? '#fef3c7'
-                    : '#d1fae5';
-      const scoreText = score == null ? '—' : Number(score).toFixed(0);
-      html += `<div style="margin-top:14px; padding:8px 12px;
-                    background:#f3f4f6; border-radius:4px;
-                    font-size:0.76rem; color:#6b7280; font-style:italic;">
-          ⓘ ПАВ-балл — optional layer (включён в этом запросе через include_pav=true).
-          Не входит в ядро сегментного анализа. По умолчанию для главы
-          «Анализ данных заказчика» отключён.
-        </div>
-        <h3 style="margin:14px 0 6px; color:#374151;">📊 ПАВ-карточка</h3>
-        <div style="display:grid; grid-template-columns:200px 1fr; gap:12px;
-                    border:2px solid ${scoreColor}; border-radius:8px;
-                    background:${scoreBg}; padding:12px;">
-          <div style="text-align:center; border-right:1px solid ${scoreColor}66;
-                      padding-right:12px;">
-            <div style="font-size:0.78rem; color:#4b5563; font-weight:600;">
-              ПАВ-балл
-            </div>
-            <div style="font-size:2.4rem; font-weight:700; color:${scoreColor}; line-height:1;">
-              ${scoreText}<span style="font-size:0.9rem; color:#6b7280;"> / 100</span>
-            </div>
-            <div style="font-size:0.78rem; color:#6b7280; margin-top:4px;">
-              Уверенность: <b>${pav.confidence || '—'}</b>
-            </div>
-          </div>
-          <div>
-            <div style="font-size:0.95rem; font-weight:700; color:${scoreColor};
-                        margin-bottom:4px;">${pav.scenario || '—'}</div>
-            <div style="font-size:0.85rem; color:#374151; line-height:1.5;">
-              ${pav.recommendation || ''}
-            </div>
-          </div>
-        </div>`;
-      if (on('signs_table')) {
-        const sPro = pav.signs_pro || [];
-        const sCon = pav.signs_con || [];
-        const sigItem = (label, strength, color) =>
-          `<div style="display:flex; gap:8px; align-items:baseline;
-                       padding:4px 8px; background:#fff; border-radius:3px;
-                       border-left:3px solid ${color};">
-            <span style="font-size:0.75rem; font-weight:700; color:${color}; min-width:38px;">
-              ${Math.round((strength || 0) * 100)}%
-            </span>
-            <span style="font-size:0.84rem; color:#1f2937;">${label}</span>
-          </div>`;
-        html += `<h4 style="margin:10px 0 6px;">Обоснование ПАВ-балла</h4>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-            <div>
-              <div style="font-weight:600; color:#059669; margin-bottom:4px;
-                          font-size:0.85rem;">✓ Признаки В ПОЛЬЗУ ПАВ (${sPro.length})</div>
-              ${sPro.length
-                ? sPro.map(([t, s]) => sigItem(t, s, '#059669')).join('<div style="height:4px;"></div>')
-                : '<div style="color:#9ca3af; font-size:0.82rem; padding:4px 8px;">— нет —</div>'}
-            </div>
-            <div>
-              <div style="font-weight:600; color:#dc2626; margin-bottom:4px;
-                          font-size:0.85rem;">✗ Контраргументы (${sCon.length})</div>
-              ${sCon.length
-                ? sCon.map(([t, s]) => sigItem(t, s, '#dc2626')).join('<div style="height:4px;"></div>')
-                : '<div style="color:#9ca3af; font-size:0.82rem; padding:4px 8px;">— нет —</div>'}
-            </div>
-          </div>`;
-      }
-    }
-
-    return html;
-  }
-
-  // ═══ Plotly: Q-график + downtime subplot (VISUAL EXPANSION) ════
-  //
-  // Реализация по ТЗ §7.2 + Visual Expansion:
-  //   ВЕРХНИЙ SUBPLOT (y, ~76% высоты):
-  //     Слой 1: Q общий — реальные точки + линия (chart_data.q_total)
-  //     Слой 2: Q рабочий — реальные точки + линия (chart_data.q_working)
-  //     Слой 3: тренды Q общего — СПЛОШНЫЕ цветные линии per-segment,
-  //             формула y = slope_total*(x_rel) + intercept_total
-  //             (НЕ горизонтальные средние!)
-  //     Слой 3а: тренды Q рабочего — ПУНКТИРНЫЕ того же цвета,
-  //             y = slope_working*(x_rel) + intercept_working
-  //     Слой 5а: фоновая подсветка кластеров простоев (rectangle, alpha 0.10)
-  //   НИЖНИЙ SUBPLOT (y2, ~20% высоты):
-  //     Слой 7: bar chart shutdown_min — отдельная шкала, shared X
-  //             ▸ дни внутри shutdown_clusters — насыщенный красный
-  //             ▸ одиночные простои (вне кластера) — светло-розовый
-  //             ▸ tooltip без причинных выводов: «Кластер простоя» /
-  //               «Одиночный простой/остановка», только техническая подпись
-  //   СКВОЗНЫЕ (yref='paper', проходят через ОБА subplot):
-  //     Слой 4: вертикали переломов — 3 стиля:
-  //             confirmed = red solid толстая
-  //             only_total = red dashed тонкая
-  //             only_working = green dashed
-  //     Слой 6: подписи tag над вертикалями, поворот -90°, цвет #8b0000
-  //     §7.3: для confirmed префикс ✓ в подписи
-  //
-  // Shared X: xaxis2 matches: 'x' → synchronized zoom
-  // Unified hover: hovermode: 'x unified' → один tooltip на дату с Q+shutdown
-  //
-  // ВАЖНО: запрещено вводить причинные выводы («вероятная продувка»,
-  // «восстановление после жидкости» и т.п.) в подписи bars. Только
-  // техническая категория простоя.
-  //
-  // Источник данных: snap.chart_data, snap.segments_extended,
-  //                  snap.cp_marks, snap.shutdown_clusters
-  // Контейнер: `${idPrefix}qchart`
-  function _renderSegmentBlockCharts(snap, idPrefix) {
-    if (!window.Plotly) return;
-    if (!snap || !snap.ok) return;
-    const el = document.getElementById(`${idPrefix}qchart`);
-    if (!el) return;
-
-    const cd = snap.chart_data || {};
-    const segs = snap.segments_extended || [];
-    const cps = snap.cp_marks || [];
-    const clusters = snap.shutdown_clusters || [];
-
-    if (!cd.dates || !cd.dates.length || !segs.length) {
-      el.innerHTML = `<div style="padding:20px; color:#9ca3af; text-align:center;
-                                  font-size:0.85rem;">
-        ⚠ В snapshot нет данных для графика (старый формат блока).
-        Пересоздай блок чтобы получить ядро segment_v1.
-      </div>`;
-      return;
-    }
-
-    // Проверяем наличие downtime данных (graceful для старых блоков)
-    const hasDowntime = Array.isArray(cd.shutdown_min)
-                     && cd.shutdown_min.some(v => v != null && v > 0);
-
-    // Для определения «кластерный день» vs «одиночный простой» —
-    // строим set индексов дней, входящих в кластер. Если shutdown_clusters
-    // пуст — все non-zero простои считаются одиночными.
-    const clusterIdxSet = new Set();
-    clusters.forEach(cl => {
-      const s = cl.start_idx, e = cl.end_idx;
-      if (s != null && e != null) {
-        for (let i = s; i < e; i++) clusterIdxSet.add(i);
-      }
-    });
-
-    const traces = [];
-
-    // ══════ ВЕРХНИЙ SUBPLOT (yaxis='y') ══════════════════════════
-
-    // ── Слой 1: Q общий, реальные точки + линия ─────────────────
-    traces.push({
-      x: cd.dates, y: cd.q_total,
-      name: 'Q общий, факт',
-      mode: 'lines+markers',
-      marker: { size: 5, color: '#1f77b4', symbol: 'circle', opacity: 0.75 },
-      line:   { color: '#1f77b4', width: 1.2 },
-      hovertemplate: 'Q общ = %{y:.2f} тыс.м³/сут<extra></extra>',
-      xaxis: 'x', yaxis: 'y',
-    });
-
-    // ── Слой 2: Q рабочий, реальные точки + линия ───────────────
-    if (cd.q_working && cd.q_working.some(v => v != null)) {
-      traces.push({
-        x: cd.dates, y: cd.q_working,
-        name: 'Q рабочий, факт',
-        mode: 'lines+markers',
-        marker: { size: 5, color: '#2ca02c', symbol: 'square', opacity: 0.75 },
-        line:   { color: '#2ca02c', width: 1.2 },
-        hovertemplate: 'Q раб = %{y:.2f} тыс.м³/сут<extra></extra>',
-        xaxis: 'x', yaxis: 'y',
-      });
-    }
-
-    // ── Слой 3 и 3а: тренды per-segment (slope×x + intercept) ───
-    segs.forEach(s => {
-      if (s.start_idx == null || s.end_idx == null) return;
-      const x0 = s.start_date;
-      const x1 = s.end_date;
-      const span = (s.end_idx - s.start_idx - 1);
-      const color = s.color || '#666';
-
-      if (s.slope_total != null && s.intercept_total != null) {
-        const y0 = s.intercept_total;
-        const y1 = s.intercept_total + s.slope_total * span;
-        traces.push({
-          x: [x0, x1], y: [y0, y1],
-          name: `Сег ${s.num} (${s.type}): Q общ ${s.slope_total >= 0 ? '+' : ''}${s.slope_total.toFixed(3)}/сут`,
-          mode: 'lines',
-          line: { color, width: 3, dash: 'solid' },
-          hovertemplate: `Сег ${s.num}: ${s.type}<br>Тренд Q общ = ${s.slope_total >= 0 ? '+' : ''}${s.slope_total.toFixed(3)}/сут<extra></extra>`,
-          xaxis: 'x', yaxis: 'y',
-        });
-      }
-
-      if (s.slope_working != null && s.intercept_working != null) {
-        const y0 = s.intercept_working;
-        const y1 = s.intercept_working + s.slope_working * span;
-        traces.push({
-          x: [x0, x1], y: [y0, y1],
-          name: `Сег ${s.num}: Q раб ${s.slope_working >= 0 ? '+' : ''}${s.slope_working.toFixed(3)}/сут`,
-          mode: 'lines',
-          line: { color, width: 2, dash: 'dot' },
-          hovertemplate: `Сег ${s.num}<br>Тренд Q раб = ${s.slope_working >= 0 ? '+' : ''}${s.slope_working.toFixed(3)}/сут<extra></extra>`,
-          showlegend: false,
-          xaxis: 'x', yaxis: 'y',
-        });
-      }
-    });
-
-    // ══════ НИЖНИЙ SUBPLOT (yaxis='y2') — Простой, мин ═══════════
-    //
-    // Раздельный bar trace для кластерных и одиночных дней — даёт
-    // разный цвет в легенде + разные tooltip-категории (без причинных
-    // выводов, только техническая подпись).
-    if (hasDowntime) {
-      const xCluster = [];
-      const yCluster = [];
-      const xSingle  = [];
-      const ySingle  = [];
-      cd.dates.forEach((d, i) => {
-        const v = cd.shutdown_min[i];
-        if (v == null || !(v > 0)) return;
-        if (clusterIdxSet.has(i)) {
-          xCluster.push(d); yCluster.push(v);
-        } else {
-          xSingle.push(d);  ySingle.push(v);
-        }
-      });
-
-      if (xCluster.length) {
-        traces.push({
-          x: xCluster, y: yCluster,
-          name: 'Простой (кластер)',
-          type: 'bar',
-          marker: { color: 'rgba(185, 28, 28, 0.78)', line: { width: 0 } },
-          hovertemplate:
-            '<b>Кластер простоя</b><br>' +
-            'Простой = %{y:.0f} мин/сут<extra></extra>',
-          xaxis: 'x2', yaxis: 'y2',
-        });
-      }
-      if (xSingle.length) {
-        traces.push({
-          x: xSingle, y: ySingle,
-          name: 'Простой (одиночный)',
-          type: 'bar',
-          marker: { color: 'rgba(251, 113, 133, 0.65)', line: { width: 0 } },
-          hovertemplate:
-            '<b>Одиночный простой/остановка</b><br>' +
-            'Простой = %{y:.0f} мин/сут<extra></extra>',
-          xaxis: 'x2', yaxis: 'y2',
-        });
-      }
-    }
-
-    // ══════ Сквозные shapes/annotations (yref='paper') ═══════════
-    const shapes = [];
-    const annotations = [];
-
-    // Слой 5а: rectangle подсветка кластеров простоев на ВЕРХНЕМ
-    // subplot. Привязка к домену верхнего subplot — yref ссылается
-    // на y axis с domain [0.28, 1.0]. Используем paper-coords с y0/y1
-    // в верхнем диапазоне, чтобы не залить нижний subplot.
-    clusters.forEach(cl => {
-      shapes.push({
-        type: 'rect', xref: 'x', yref: 'paper',
-        x0: cl.start_date, x1: cl.end_date,
-        y0: 0.28, y1: 1.0,   // только верхний subplot
-        fillcolor: 'rgba(220, 38, 38, 0.10)',
-        line: { width: 0 },
-        layer: 'below',
-      });
-    });
-
-    // Слой 4: вертикали переломов — paper-coords [0..1] = ОБА subplot
-    cps.forEach(cp => {
-      let lineSpec;
-      if (cp.source === 'confirmed') {
-        lineSpec = { color: '#b91c1c', width: 3, dash: 'solid' };
-      } else if (cp.source === 'only_total') {
-        lineSpec = { color: '#b91c1c', width: 1, dash: 'dash' };
-      } else if (cp.source === 'only_working') {
-        lineSpec = { color: '#16a34a', width: 1.5, dash: 'dash' };
-      } else {
-        lineSpec = { color: '#b91c1c', width: 1, dash: 'dash' };
-      }
-      shapes.push({
-        type: 'line', xref: 'x', yref: 'paper',
-        x0: cp.date, x1: cp.date,
-        y0: 0, y1: 1,   // через оба subplot
-        line: lineSpec,
-      });
-
-      // Слой 6: подпись tag, поворот -90°, цвет #8b0000
-      let label = cp.tag || cp.date;
-      if (cp.source === 'confirmed') label = '✓ ' + label;
-      if (cp.source === 'only_working') label = label + ' (⚠ только в Q раб)';
-      annotations.push({
-        x: cp.date, y: 1.02, yref: 'paper',
-        text: label, showarrow: false,
-        font: { size: 10, color: '#8b0000' },
-        textangle: -90,
-        xanchor: 'right', yanchor: 'top',
-      });
-    });
-
-    // ══════ Layout: два subplot через domain + matches ═══════════
-    //
-    // Высота figure делится:
-    //   y  (Q + тренды):     domain [0.28, 1.0]   → ~72%
-    //   y2 (downtime bars):  domain [0,    0.20]  → ~20%
-    //   зазор:                                       ~8%
-    // xaxis2 matches: 'x' → synchronized zoom.
-    const layout = {
-      margin: { l: 55, r: 25, t: 40, b: 40 },
-      hovermode: 'x unified',
-      font: { size: 10 },
-      legend: { orientation: 'h', y: -0.20, font: { size: 9 } },
-      barmode: 'overlay',
-      // Верхний subplot
-      xaxis: {
-        type: 'date', anchor: 'y',
-        showticklabels: false,    // даты только на нижнем (чтобы не дублировать)
-        domain: [0, 1],
-      },
-      yaxis: {
-        title: 'Q, тыс.м³/сут', rangemode: 'tozero',
-        domain: [0.28, 1.0],
-      },
-      // Нижний subplot — shared X через matches: 'x'
-      xaxis2: {
-        type: 'date', anchor: 'y2',
-        title: 'Дата',
-        matches: 'x',
-        domain: [0, 1],
-      },
-      yaxis2: {
-        title: 'Простой, мин',
-        anchor: 'x2',
-        rangemode: 'tozero',
-        domain: [0, 0.20],
-        showgrid: false,
-      },
-      shapes, annotations,
-    };
-    const cfg = {
-      displaylogo: false, responsive: true,
-      // Включаем modebar — пользователь сможет проверить shared zoom
-      // (zoom на верхнем графике должен синхронно zoom-ить нижний).
-      displayModeBar: 'hover',
-      modeBarButtonsToRemove: ['select2d', 'lasso2d', 'autoScale2d'],
-    };
-    try {
-      Plotly.newPlot(el, traces, layout, cfg);
-    } catch (e) {
-      console.warn('_renderSegmentBlockCharts failed:', e);
-    }
-  }
-
-  // ═══ Модалка предпросмотра прикреплённого блока ═══════════════════
-  // Открывает полное содержимое из data_snapshot: графики, таблицы,
-  // описания — то, что попадёт в PDF.
-  function _showBlockPreview(block) {
-    const snap = block.data_snapshot;
-    if (!snap) {
-      alert('Снимок данных пуст — блок был сохранён до версии v2. ' +
-            'Удалите и пересоздайте блок чтобы получить полный набор.');
-      return;
-    }
-    const kind = block.kind || 'period_analysis';
-    const body = $('cd-preview-body');
-
-    // Заголовок и мета зависят от kind (у comparison/rose дат периода нет).
-    $('cd-preview-title').textContent = block.title || 'Блок';
-    if (kind === 'baseline' || kind === 'period_analysis') {
-      const dFrom = snap.date_from || (block.params?.date_from) || '—';
-      const dTo   = snap.date_to   || (block.params?.date_to)   || '—';
-      const days  = snap.days || 0;
-      $('cd-preview-meta').innerHTML = `${dFrom} → ${dTo} · <b>${days}</b> сут.`;
-    } else if (kind === 'comparison') {
-      const segs = snap.segments || [];
-      $('cd-preview-meta').innerHTML =
-        `${segs.length} сегмент(ов) · ${snap.metric_label || snap.metric || '—'}`;
-    } else if (kind === 'criteria_rose') {
-      $('cd-preview-meta').innerHTML =
-        `скв. ${snap.well_number || '—'} · ${snap.period_from || ''}…${snap.period_to || ''}` +
-        ` · ${snap.period_days || 0} сут.`;
-    } else if (kind === 'segment_analysis') {
-      $('cd-preview-meta').innerHTML =
-        `скв. ${snap.well_number || '—'} · ${snap.date_from || ''}…${snap.date_to || ''}` +
-        ` · ${snap.days_count || 0} сут. · ПАВ ${snap.pav?.score != null ? snap.pav.score.toFixed(0) : '—'}/100`;
-    } else {
-      $('cd-preview-meta').innerHTML = '';
-    }
-
-    // WYSIWYG: ветвимся по kind — у каждого типа блока свой layout.
-    // Для baseline/period_analysis ту же раскладку получает live-превью
-    // правой панели и PDF (shared-функции).
-    if (kind === 'baseline' || kind === 'period_analysis') {
-      body.innerHTML = _buildPeriodSnapshotPreviewHtml(snap, block, 'cd-pv-');
-      setTimeout(() => _renderPeriodSnapshotCharts(snap, 'cd-pv-'), 50);
-    } else if (kind === 'segment_analysis') {
-      body.innerHTML = _buildSegmentBlockHtml(snap, block, 'cd-sv-');
-      setTimeout(() => _renderSegmentBlockCharts(snap, 'cd-sv-'), 50);
-    } else if (kind === 'comparison' || kind === 'criteria_rose'
-               || kind === 'chapter_intro') {
-      // Для comparison/criteria_rose/chapter_intro переиспользуем
-      // _renderBlockSummaryHtml (тот же рендер что и в правой панели),
-      // плюс отдельные функции для Plotly-графиков (роза/сравнение).
-      body.innerHTML = _renderBlockSummaryHtml(block);
-      if (kind === 'comparison') {
-        setTimeout(() => _renderComparisonBlockChart(block), 50);
-      } else if (kind === 'criteria_rose') {
-        setTimeout(() => _renderRoseBlockCharts(block), 50);
-      }
-    } else {
-      body.innerHTML = `<div style="color:#9ca3af; padding:20px;">
-        Неизвестный тип блока: ${kind}</div>`;
-    }
-
-    $('cd-block-preview-modal').style.display = 'block';
-    document.body.style.overflow = 'hidden';
   }
 
   // Закрытие модалки
@@ -5682,29 +4394,11 @@
           : `✓ B1 #${bl.id || '?'} сохранён`;
         status.style.color = '#059669';
       }
-      // Если утверждали — обновляем плитку наверху И создаём блок baseline
-      // в customer_report_block с полным snapshot (этот блок попадает в отчёт).
-      if (bl.is_pinned) {
-        await refreshApprovedB1();
-        // Полный snapshot периода (как для period_analysis) — чтобы B1 имел
-        // те же графики/таблицы в PDF главы 2.
-        const snap = _buildPeriodSnapshot();
-        if (snap) {
-          // Сохраняем как kind='baseline' в customer_report_block
-          const params = {
-            date_from: f, date_to: t, well_number: well,
-            customer_baseline_id: bl.id,  // связь с customer_baseline
-          };
-          const block = await createBlock('baseline', name, params, notes || '', snap);
-          if (block && status) {
-            status.textContent += ` + блок отчёта #${block.id}`;
-          }
-          refreshAttachedBlocks();
-        }
-      }
+      // Если утверждали — обновляем плитку наверху
+      if (bl.is_pinned) await refreshApprovedB1();
       setTimeout(() => {
         if (status) { status.textContent = ''; status.style.color = '#10b981'; }
-      }, 7000);
+      }, 5000);
     } catch (e) {
       if (status) {
         status.textContent = '✗ Сетевая ошибка: ' + e.message;
@@ -5824,302 +4518,6 @@
     // Скроллим к шкале для следующего выбора
     const scaleEl = $('cdtl-scroll') || $('cd-period-section');
     if (scaleEl) scaleEl.scrollIntoView({behavior: 'smooth', block: 'start'});
-  });
-
-  // ═══ Сегментный анализ + ПАВ-балл (handlers) ═══════════════════════
-  //
-  // 3 группы UI-элементов:
-  //   1. Аккордеон «⚙ Пороги сегментного анализа» — форма редактирования
-  //   2. Кнопка «🔬 Сегментный анализ» — запуск preview
-  //   3. Контейнер #cd-segment-result — отображение результата
-  //
-  // Backend контракт:
-  //   GET    /api/customer-daily/segment-thresholds
-  //   PUT    /api/customer-daily/segment-thresholds  {overrides, merge}
-  //   POST   /api/customer-daily/segment-thresholds/reset
-  //   POST   /api/customer-daily/segment-analysis/preview  {well, period_from, period_to}
-
-  // Кеш дефолтов/effective порогов (заполняется при первом открытии аккордеона)
-  let _segThresholdsCache = null;
-  let _segLastSnapshot = null;  // последний preview — для «Добавить в отчёт»
-
-  // Группы порогов для UI (логическая разбивка по смыслу).
-  // Если в SEGMENT_THRESHOLDS появится новый ключ — он попадёт в группу
-  // «Прочие» (catch-all), чтобы UI не падал.
-  const _SEG_THRESHOLD_GROUPS = [
-    {title: 'Изменение Q между сегментами', keys: [
-      'q_change_notable_pct', 'q_change_notable_abs',
-      'q_change_significant_pct', 'q_change_significant_abs',
-      'q_change_dramatic_pct',
-    ]},
-    {title: 'Детекция переломов', keys: [
-      'changepoint_threshold_pct', 'changepoint_final_filter_pct',
-      'dip_drop_pct', 'dip_recovery_pct', 'dip_recovery_window_days',
-      'edge_margin_days', 'merge_close_cp_days', 'min_segment_days',
-    ]},
-    {title: 'Кластеры простоев', keys: [
-      'shutdown_min_per_day', 'shutdown_full_stop',
-      'shutdown_cluster_min_days', 'shutdown_cluster_merge_gap',
-      'q_drop_for_problem_day_pct',
-    ]},
-    {title: 'Ремонт / КРС', keys: [
-      'workover_min_days', 'workover_q_delta_pct',
-      'preshutdown_planned_pct', 'preshutdown_success_pct',
-    ]},
-    {title: 'Давления и переломы по ним', keys: [
-      'dp_abs_threshold', 'dp_rel_threshold',
-      'dp_drop_dramatic_pct', 'dp_change_in_event_pct',
-      'p_flowline_priority_threshold',
-      'pressure_cp_abs_threshold', 'pressure_cp_rel_threshold_pct',
-    ]},
-    {title: 'Изменения простоев / Q_working', keys: [
-      'shutdown_change_significant', 'shutdown_change_notable',
-      'gradual_trend_min_days', 'gradual_trend_min_drift_pct',
-      'q_working_softer_ratio',
-    ]},
-    {title: 'ПАВ-балл: веса признаков', keys: [
-      'pav_w_hysteresis', 'pav_w_choke_paradox', 'pav_w_choke_accel',
-      'pav_w_mono_drift', 'pav_w_op_purges', 'pav_w_uplift',
-      'pav_w_pw_decline', 'pav_w_divergence', 'pav_w_cyclicity',
-      'pav_w_gradual', 'pav_w_purges', 'pav_w_dp_compression',
-    ]},
-    {title: 'ПАВ-балл: нормировки и штрафы', keys: [
-      'pav_norm_hysteresis_pct', 'pav_norm_mono_drift_pct',
-      'pav_norm_op_purges_per_30', 'pav_norm_uplift_count',
-      'pav_norm_gradual_drift', 'pav_norm_pw_drop_total',
-      'pav_norm_dp_drop_rel', 'pav_norm_cycles',
-      'pav_norm_purges_per_30', 'pav_norm_divergence_rel',
-      'pav_pen_pf_rise', 'pav_pen_dom_shutdown',
-      'pav_pen_recent_workover', 'pav_pen_full_stability',
-      'pav_norm_pf_rise_total',
-      'pav_dom_shutdown_lo', 'pav_dom_shutdown_hi',
-      'pav_recent_workover_days',
-    ]},
-  ];
-
-  function _renderSegmentSettingsForm(data) {
-    // data: {defaults, overrides, effective, metadata}
-    _segThresholdsCache = data;
-    const used = new Set();
-    const body = $('cd-segment-settings-body');
-    const badge = $('cd-segment-settings-badge');
-    if (badge) {
-      const cnt = (data.overrides && Object.keys(data.overrides).length) || 0;
-      badge.textContent = cnt
-        ? `переопределено ${cnt} из ${Object.keys(data.defaults).length}`
-        : `все ${Object.keys(data.defaults).length} порогов — на дефолтах`;
-    }
-
-    let html = '';
-    for (const grp of _SEG_THRESHOLD_GROUPS) {
-      const rowsHtml = grp.keys.filter(k => k in data.defaults).map(k => {
-        used.add(k);
-        const def = data.defaults[k];
-        const eff = data.effective[k];
-        const isOverridden = (k in (data.overrides || {}));
-        const inputBg = isOverridden ? 'background:#fef3c7;' : '';
-        return `<div style="display:grid; grid-template-columns:1fr 110px 80px; gap:6px;
-                            align-items:center; padding:3px 0;">
-          <label style="font-size:0.78rem; color:#1f2937;" title="${k}">${k}</label>
-          <input type="number" step="any" data-seg-key="${k}"
-                 value="${eff}" placeholder="${def}"
-                 style="font-size:0.78rem; padding:2px 6px; border:1px solid #d1d5db;
-                        border-radius:3px; ${inputBg}">
-          <span style="font-size:0.72rem; color:#6b7280;" title="Дефолт">
-            (${def})
-          </span>
-        </div>`;
-      }).join('');
-      if (rowsHtml) {
-        html += `<details style="margin-bottom:6px;" ${grp.title.includes('ПАВ') ? '' : 'open'}>
-          <summary style="cursor:pointer; font-weight:600; color:#5b21b6; font-size:0.85rem;
-                          padding:4px 0;">${grp.title}</summary>
-          <div style="padding-left:8px;">${rowsHtml}</div>
-        </details>`;
-      }
-    }
-    // Catch-all для неупомянутых ключей
-    const leftover = Object.keys(data.defaults).filter(k => !used.has(k));
-    if (leftover.length) {
-      const rowsHtml = leftover.map(k => {
-        const def = data.defaults[k];
-        const eff = data.effective[k];
-        const isOverridden = (k in (data.overrides || {}));
-        const inputBg = isOverridden ? 'background:#fef3c7;' : '';
-        return `<div style="display:grid; grid-template-columns:1fr 110px 80px; gap:6px;
-                            align-items:center; padding:3px 0;">
-          <label style="font-size:0.78rem;" title="${k}">${k}</label>
-          <input type="number" step="any" data-seg-key="${k}"
-                 value="${eff}" placeholder="${def}"
-                 style="font-size:0.78rem; padding:2px 6px; border:1px solid #d1d5db;
-                        border-radius:3px; ${inputBg}">
-          <span style="font-size:0.72rem; color:#6b7280;">(${def})</span>
-        </div>`;
-      }).join('');
-      html += `<details style="margin-bottom:6px;">
-        <summary style="cursor:pointer; font-weight:600; color:#5b21b6; font-size:0.85rem;
-                        padding:4px 0;">Прочие</summary>
-        <div style="padding-left:8px;">${rowsHtml}</div>
-      </details>`;
-    }
-
-    body.innerHTML = html;
-  }
-
-  async function _loadSegmentSettings() {
-    const body = $('cd-segment-settings-body');
-    body.innerHTML = '<div style="color:#6b7280; font-size:0.85rem;">Загрузка…</div>';
-    try {
-      const r = await fetch('/api/customer-daily/segment-thresholds');
-      const d = await r.json();
-      if (!d.ok) { body.innerHTML = `<div style="color:#dc2626;">${d.error||'Ошибка'}</div>`; return; }
-      _renderSegmentSettingsForm(d);
-    } catch (e) {
-      body.innerHTML = `<div style="color:#dc2626;">Ошибка загрузки: ${e.message}</div>`;
-    }
-  }
-
-  // Загружаем настройки при первом раскрытии аккордеона
-  $('cd-segment-settings')?.addEventListener('toggle', () => {
-    if ($('cd-segment-settings').open && !_segThresholdsCache) {
-      _loadSegmentSettings();
-    }
-  });
-
-  $('cd-segment-settings-save')?.addEventListener('click', async () => {
-    const status = $('cd-segment-settings-status');
-    status.textContent = '⏳ Сохранение…'; status.style.color = '#6b7280';
-    // Собираем ИЗМЕНЁННЫЕ значения (отличающиеся от дефолтов)
-    const inputs = $('cd-segment-settings-body').querySelectorAll('[data-seg-key]');
-    const overrides = {};
-    inputs.forEach(inp => {
-      const k = inp.dataset.segKey;
-      const v = parseFloat(inp.value);
-      if (!isNaN(v) && _segThresholdsCache?.defaults
-          && v !== _segThresholdsCache.defaults[k]) {
-        overrides[k] = v;
-      }
-    });
-    try {
-      const r = await fetch('/api/customer-daily/segment-thresholds', {
-        method: 'PUT', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({overrides, merge: false}),
-      });
-      const d = await r.json();
-      if (d.ok) {
-        status.textContent = `✓ Сохранено: ${d.written} переопределений`;
-        status.style.color = '#10b981';
-        _segThresholdsCache = null;
-        await _loadSegmentSettings();  // перерисовка с новыми значениями
-      } else {
-        status.textContent = `✗ ${d.error || 'Ошибка'}`;
-        status.style.color = '#dc2626';
-      }
-    } catch (e) {
-      status.textContent = `✗ ${e.message}`;
-      status.style.color = '#dc2626';
-    }
-  });
-
-  $('cd-segment-settings-reset')?.addEventListener('click', async () => {
-    if (!confirm('Сбросить все пороги к дефолтным значениям?')) return;
-    const status = $('cd-segment-settings-status');
-    status.textContent = '⏳ Сброс…'; status.style.color = '#6b7280';
-    try {
-      await fetch('/api/customer-daily/segment-thresholds/reset', {method: 'POST'});
-      status.textContent = '✓ Сброшено';
-      status.style.color = '#10b981';
-      _segThresholdsCache = null;
-      await _loadSegmentSettings();
-    } catch (e) {
-      status.textContent = `✗ ${e.message}`;
-      status.style.color = '#dc2626';
-    }
-  });
-
-  // Кнопка «🔬 Сегментный анализ» — запуск preview для выбранного периода
-  $('cd-segment-btn')?.addEventListener('click', async () => {
-    const well = $('cd-well-select')?.value;
-    const dFrom = $('cd-date-from')?.value;
-    const dTo   = $('cd-date-to')?.value;
-    if (!well || !dFrom || !dTo) {
-      alert('Выберите скважину и период (поля «С» и «по»).');
-      return;
-    }
-    const btn = $('cd-segment-btn');
-    const box = $('cd-segment-result');
-    const body = $('cd-segment-result-body');
-    btn.disabled = true; btn.textContent = '⏳ Расчёт…';
-    box.style.display = '';
-    body.innerHTML = '<div style="color:#6b7280; padding:14px;">⏳ Идёт сегментный анализ и расчёт ПАВ-балла…</div>';
-    try {
-      const r = await fetch('/api/customer-daily/segment-analysis/preview', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({well: String(well), period_from: dFrom, period_to: dTo}),
-      });
-      const snap = await r.json();
-      if (!snap.ok) {
-        body.innerHTML = `<div style="color:#dc2626; padding:14px;">
-          ${snap.error || 'Не удалось выполнить анализ'}</div>`;
-        _segLastSnapshot = null;
-      } else {
-        _segLastSnapshot = snap;
-        body.innerHTML = _buildSegmentBlockHtml(snap, null, 'cd-segres-');
-        setTimeout(() => _renderSegmentBlockCharts(snap, 'cd-segres-'), 50);
-      }
-    } catch (e) {
-      body.innerHTML = `<div style="color:#dc2626; padding:14px;">${e.message}</div>`;
-      _segLastSnapshot = null;
-    } finally {
-      btn.disabled = false; btn.textContent = '🔬 Сегментный анализ';
-    }
-  });
-
-  $('cd-segment-close-btn')?.addEventListener('click', () => {
-    $('cd-segment-result').style.display = 'none';
-    _segLastSnapshot = null;
-  });
-
-  $('cd-segment-attach-btn')?.addEventListener('click', async () => {
-    if (!_segLastSnapshot) {
-      alert('Сначала запустите анализ.');
-      return;
-    }
-    if (!currentWellId) {
-      alert('Скважина не сопоставлена с wells.id.');
-      return;
-    }
-    const well = $('cd-well-select')?.value || _segLastSnapshot.well_number;
-    const score = _segLastSnapshot.pav?.score;
-    const scoreTxt = score == null ? '—' : Number(score).toFixed(0);
-    const title = `Сегментный анализ · скв.${well} · ${_segLastSnapshot.date_from}…${_segLastSnapshot.date_to} · ПАВ ${scoreTxt}/100`;
-    try {
-      const r = await fetch('/api/customer-daily/blocks', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({
-          well_id: currentWellId,
-          kind: 'segment_analysis',
-          title,
-          params: {
-            date_from: _segLastSnapshot.date_from,
-            date_to:   _segLastSnapshot.date_to,
-            well_number: well,
-          },
-          data_snapshot: _segLastSnapshot,
-          comment: '',
-          in_report: true,
-        }),
-      });
-      const d = await r.json();
-      if (d && d.id) {
-        alert(`✓ Блок сохранён в отчёт (id=${d.id}). Откройте правую панель «📑 HTML», чтобы увидеть превью.`);
-        if (typeof refreshAttachedBlocks === 'function') refreshAttachedBlocks();
-      } else {
-        alert('Ошибка сохранения: ' + JSON.stringify(d));
-      }
-    } catch (e) {
-      alert('Ошибка: ' + e.message);
-    }
   });
 
   // Быстрое прикрепление одной кнопкой (рядом с «Показать аналитику»):
@@ -6630,9 +5028,6 @@
     _stepsHint:    () => null,
     _metadataHint: () => null,
     _cmpStages:    [],
-    // Callback после сохранения блока сравнения: обновляем правую панель
-    // (список карточек + HTML-превью главы).
-    onSaved:       () => refreshAttachedBlocks(),
   };
 
   // ═══════════════════════════════════════════════════════════════════
@@ -6648,12 +5043,10 @@
   }
   function _kindBadge(kind) {
     const k = ({
-      chapter_intro:    ['¶', '#e0e7ff', '#3730a3', 'Общий текст главы'],
       baseline:         ['B1', '#fef3c7', '#92400e', 'Базовый период'],
       period_analysis:  ['§', '#dcfce7', '#166534', 'Анализ периода'],
       comparison:       ['↔', '#ede9fe', '#5b21b6', 'Сравнение участков'],
       criteria_rose:    ['◉', '#fee2e2', '#991b1b', 'Роза критериев'],
-      segment_analysis: ['🔬', '#f3e8ff', '#5b21b6', 'Сегментный анализ'],
     })[kind] || ['•', '#f3f4f6', '#374151', kind];
     return `<span title="${k[3]}" style="display:inline-block; padding:1px 7px;
             border-radius:3px; background:${k[1]}; color:${k[2]};
@@ -6661,21 +5054,18 @@
   }
 
   function renderChapterPreview(allBlocks) {
-    // Секция cd-chapter-preview-section больше не существует (этап 7) —
-    // превью живёт в правой sticky-панели #cd-rightpanel, всегда видна.
+    const sec = $('cd-chapter-preview-section');
     const content = $('cd-chapter-preview-content');
     const counter = $('cd-chapter-preview-count');
-    if (!content) return;
+    if (!sec || !content) return;
     const inReport = (allBlocks || []).filter(b => b.in_report);
     if (counter) {
       counter.textContent = inReport.length
-        ? `${inReport.length} ${inReport.length === 1 ? 'блок' : inReport.length < 5 ? 'блока' : 'блоков'} в отчёт`
-        : 'пока пусто';
+        ? `(${inReport.length} ${inReport.length === 1 ? 'блок' : inReport.length < 5 ? 'блока' : 'блоков'} в отчёт)`
+        : '(пока пусто)';
     }
-    // Помечаем PDF как устаревший только если есть что собирать (ТЗ §11 этап 8)
-    if (inReport.length && typeof markPdfStale === 'function') markPdfStale();
-    // Sync popout через BroadcastChannel (ТЗ §11 этап 9)
-    if (typeof cdBroadcastBlocks === 'function') cdBroadcastBlocks(allBlocks);
+    // Показываем секцию когда есть хоть один блок (in_report=true ИЛИ нет)
+    sec.style.display = (allBlocks || []).length ? '' : 'none';
 
     if (!inReport.length) {
       content.innerHTML = `
@@ -6689,28 +5079,11 @@
       return;
     }
 
-    // ЖЁСТКИЙ ПОРЯДОК (синхронизирован с PDF):
-    //   1. chapter_intro       (общий текст-вступление)
-    //   2. period_analysis     (анализы периодов)
-    //   3. comparison          (сравнения участков)
-    //   4. criteria_rose       (диагностика — роза критериев)
-    //   5. baseline (B1)       ← всегда последним
-    //                          («раздел заканчивается выбором базового периода и метриками»)
-    // Внутри каждой группы — по sort_order (drag-reorder в UI).
-    // PDF-сборщик применяет ровно тот же порядок (см.
-    // adaptation_report_service.py: periods_only / baseline_blocks).
-    const KIND_ORDER = {
-      chapter_intro:    1,
-      period_analysis:  2,
-      segment_analysis: 3,  // расширяет анализ периода, должно идти сразу после
-      comparison:       4,
-      criteria_rose:    5,
-      baseline:         6,  // всегда последним
-    };
+    // Сортировка как в LaTeX-шаблоне: baseline → period_analysis → criteria_rose → comparison
+    const ORDER = ['baseline', 'period_analysis', 'criteria_rose', 'comparison'];
     inReport.sort((a, b) => {
-      const ka = KIND_ORDER[a.kind] || 99;
-      const kb = KIND_ORDER[b.kind] || 99;
-      if (ka !== kb) return ka - kb;
+      const ia = ORDER.indexOf(a.kind), ib = ORDER.indexOf(b.kind);
+      if (ia !== ib) return ia - ib;
       return (a.sort_order || 0) - (b.sort_order || 0);
     });
 
@@ -6739,10 +5112,8 @@
       const sufHtml = (parts.suffix_note !== false && suf.trim())
         ? `<div style="${noteCss}">${_escHtml(suf)}</div>` : '';
       html += `
-        <div class="cd-preview-block" data-block-id="${b.id}"
-             style="margin-bottom:14px; padding:10px 12px; background:#fafafa;
-                    border-left:3px solid #6366f1; border-radius:4px;
-                    transition:box-shadow 0.15s, background 0.15s;">
+        <div style="margin-bottom:14px; padding:10px 12px; background:#fafafa;
+                    border-left:3px solid #6366f1; border-radius:4px;">
           <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
             <span style="font-weight:600; color:#374151;">${subIdx}. ${title}</span>
             ${_kindBadge(b.kind)}
@@ -6753,149 +5124,6 @@
         </div>`;
     });
     content.innerHTML = html;
-    // После установки innerHTML — рендерим Plotly-графики в каждом блоке.
-    // Контейнеры созданы с уникальными id вида "prev-{block_id}-pres" и т.п.
-    inReport.forEach(b => {
-      if (b.kind === 'baseline' || b.kind === 'period_analysis') {
-        _renderBlockChartsInline(b);
-      } else if (b.kind === 'criteria_rose') {
-        _renderRoseBlockCharts(b);
-      } else if (b.kind === 'comparison') {
-        _renderComparisonBlockChart(b);
-      } else if (b.kind === 'segment_analysis') {
-        // Live-preview сегментного блока — тот же shared-рендер
-        // что snapshot модалка, но с префиксом per-block чтобы Plotly
-        // контейнеры не конфликтовали.
-        _renderSegmentBlockCharts(b.data_snapshot || {}, `segprev-${b.id}-`);
-      }
-    });
-  }
-
-  // Рисует Plotly график сегментов сравнения (по оси «день от начала»).
-  // Использует snapshot wz3cmp_v1: segments[i].curve_x_hours / curve_y.
-  // Fallback: если curve пуст — рисуем линию тренда из slope+intercept.
-  function _renderComparisonBlockChart(b) {
-    if (!window.Plotly) return;
-    const snap = b.data_snapshot || {};
-    const segs = snap.segments || [];
-    if (!segs.length) return;
-    const bid = b.id || 'x';
-    const el = document.getElementById(`prev-${bid}-cmp`);
-    if (!el) return;
-    // Уважаем toggles из снапшота (если есть). По умолчанию — кривая+тренд.
-    const t = snap.toggles || {};
-    const showCurve    = t.showCurve    !== false;
-    const showTrend    = t.showTrend    !== false;
-    const showMean     = t.showMean     !== false;
-    const showForecast = t.showForecast === true;
-    // Прогноз — на сколько часов экстраполировать тренд за пределы сегмента.
-    // По умолчанию +20% от длительности.
-    const forecastRatio = (typeof t.forecastRatio === 'number') ? t.forecastRatio : 0.2;
-
-    const maxDur = Math.max(...segs.map(s => s.duration_hours || 0), 0);
-    const inDays = maxDur > 48;
-    const xUnit = (h) => inDays ? h / 24 : h;
-    const layout = {
-      margin:{l:50,r:20,t:6,b:36}, hovermode:'x unified',
-      font:{size:9}, legend:{orientation:'h', y:-0.22, font:{size:8}},
-      xaxis:{title: inDays ? 'Δt, дней от начала' : 'Δt, ч от начала'},
-      yaxis:{title:_escHtml(snap.metric_label || snap.metric || 'значение')},
-    };
-    const cfg = { displaylogo:false, responsive:true, displayModeBar:false };
-    const traces = [];
-    segs.forEach(s => {
-      const color = s.color || '#374151';
-      const label = s.letter || '?';
-      // 1) Кривая сегмента (если есть массивы данных в снапшоте)
-      const hasCurve = s.curve_x_hours && s.curve_y && s.curve_x_hours.length
-                       && s.curve_x_hours.length === s.curve_y.length;
-      if (showCurve && hasCurve) {
-        traces.push({
-          x: s.curve_x_hours.map(xUnit), y: s.curve_y, name: label,
-          mode: 'lines+markers', line: { color, width: 1.4 },
-          marker: { size: 3 },
-        });
-      }
-      // 2) Линия тренда — ВСЕГДА если есть slope/intercept (не только в fallback).
-      //    На предыдущей версии тренды рисовались только когда curve отсутствует,
-      //    из-за этого на превью с новыми блоками тренды не появлялись.
-      if (showTrend && s.slope_per_hour != null
-          && s.intercept != null && s.duration_hours) {
-        const x0 = 0;
-        const xEnd = s.duration_hours;
-        const xForecast = showForecast
-          ? xEnd * (1 + Math.max(0, forecastRatio))
-          : xEnd;
-        const y0 = s.intercept;
-        const yEnd = s.intercept + s.slope_per_hour * xEnd;
-        const yForecast = s.intercept + s.slope_per_hour * xForecast;
-        // Основная часть тренда (по диапазону сегмента) — плотный пунктир.
-        traces.push({
-          x: [xUnit(x0), xUnit(xEnd)], y: [y0, yEnd],
-          name: `${label} тренд`,
-          mode: 'lines', line: { color, width: 2, dash: 'dash' },
-        });
-        // Прогноз (вне сегмента) — более редкий пунктир, прозрачнее.
-        if (showForecast && xForecast > xEnd) {
-          traces.push({
-            x: [xUnit(xEnd), xUnit(xForecast)], y: [yEnd, yForecast],
-            name: `${label} прогноз`,
-            mode: 'lines', line: { color, width: 1.4, dash: 'dot' },
-            opacity: 0.7,
-          });
-        }
-      }
-      // 3) Горизонтальная линия среднего (если включён showMean и есть mean).
-      if (showMean && s.mean != null && s.duration_hours) {
-        traces.push({
-          x: [xUnit(0), xUnit(s.duration_hours)], y: [s.mean, s.mean],
-          name: `${label} среднее`,
-          mode: 'lines', line: { color, width: 1, dash: 'dot' }, opacity: 0.5,
-          showlegend: false,
-        });
-      }
-    });
-    if (traces.length) {
-      try { Plotly.newPlot(el, traces, layout, cfg); } catch (e) { console.warn(e); }
-    } else {
-      el.innerHTML = `<div style="text-align:center; padding:20px;
-          color:#9ca3af; font-size:0.85rem;">
-            ⚠ В snapshot нет данных для графика (старый блок).
-            Пересоздай блок чтобы получить кривые.
-          </div>`;
-    }
-  }
-
-  // Рисует Plotly розу + бар-чарт «вклад в балл» внутри карточки превью.
-  // Использует существующие функции roseRenderPolar / roseRenderContributions
-  // (они принимают id-контейнера), но с уникальными id под текущий блок.
-  function _renderRoseBlockCharts(b) {
-    if (!window.Plotly) return;
-    const snap = b.data_snapshot || {};
-    if (!snap.ok || !snap.ranks) return;
-    const bid = b.id || 'x';
-    const parts = _getPartsForBlock(b);
-    if (parts.rose_chart !== false && document.getElementById(`prev-${bid}-rose`)
-        && typeof roseRenderPolar === 'function') {
-      try { roseRenderPolar(`prev-${bid}-rose`, snap); } catch (e) { console.warn(e); }
-    }
-    if (parts.contributions_chart !== false && document.getElementById(`prev-${bid}-rosebar`)
-        && typeof roseRenderContributions === 'function') {
-      try { roseRenderContributions(`prev-${bid}-rosebar`, snap); } catch (e) { console.warn(e); }
-    }
-  }
-
-  // Рисует 4 Plotly-графика для одного блока period_analysis/baseline,
-  // используя данные из snapshot. Уникальные id-контейнеры — prev-{bid}-pres,
-  // prev-{bid}-dp, prev-{bid}-flow, prev-{bid}-mon. Скрытые тогглами parts —
-  // не рисуем (контейнеров в DOM нет, getElementById вернёт null).
-  function _renderBlockChartsInline(b) {
-    // WYSIWYG: используем тот же shared-рендерер, что и snapshot-preview
-    // модалка. Контейнеры — `prev-${b.id}-{pres|dp|flow|mon}` (HTML
-    // создаётся в _buildPeriodSnapshotPreviewHtml с тем же prefix).
-    const snap = b.data_snapshot || {};
-    const bid = b.id || 'x';
-    _renderPeriodSnapshotCharts(snap, `prev-${bid}-`);
   }
 
   function _renderBlockSummaryHtml(b) {
@@ -6907,111 +5135,123 @@
                                        padding:4px 8px; background:#f9fafb; border-radius:3px;">
         «${_escHtml(b.comment)}»</div>` : '';
 
-    // ─── chapter_intro: просто пользовательский текст вступления главы ───
-    if (b.kind === 'chapter_intro') {
-      const text = (p.text || '').trim();
-      if (!text) {
-        return `<div style="font-style:italic; color:#9ca3af; font-size:0.85rem;">
-                  (текст не задан)
-                </div>`;
-      }
-      return `<div style="font-size:0.95rem; line-height:1.5; color:#1f2937;
-                          white-space:pre-wrap;">${_escHtml(text)}</div>`;
-    }
-
-    // ─── segment_analysis: тот же shared-рендер что snapshot-preview ───
-    if (b.kind === 'segment_analysis') {
-      const bid = b.id || 'x';
-      return _buildSegmentBlockHtml(snap, b, `segprev-${bid}-`);
-    }
-
     if (b.kind === 'baseline' || b.kind === 'period_analysis') {
-      // WYSIWYG: используем ту же shared-функцию, что и snapshot-preview
-      // модалка (_showBlockPreview) и (через PNG) PDF. Гарантирует, что
-      // три представления одного блока РАСХОДИТЬСЯ НЕ МОГУТ.
-      // Контейнеры графиков получают уникальный prefix prev-{block.id}-
-      // → чтобы несколько блоков на странице не конфликтовали.
-      const bid = b.id || 'x';
       const dFrom = snap.date_from || p.date_from || '—';
       const dTo   = snap.date_to   || p.date_to   || '—';
       const days  = snap.days || 0;
-
-      // Описательный текст обоснования B1 (специфика baseline, раздел 4 ТЗ)
-      let baselineDescHtml = '';
-      if (b.kind === 'baseline') {
-        const just = (p.justification || '').trim();
-        const showJust = (parts.justification !== false) && just;
-        baselineDescHtml = `
-          <div style="font-size:0.9rem; color:#1f2937; margin-bottom:8px;
-                      padding:8px 10px; background:#fffbeb;
-                      border-left:3px solid #d97706; border-radius:3px;">
-            В качестве периода для сравнения и оценки эффективности работ
-            выбран период <b>${_escHtml(dFrom)} — ${_escHtml(dTo)}</b>
-            (${days} сут.).
-            ${showJust ? `<br><b>Обоснование выбора:</b> ${_escHtml(just)}` : ''}
-          </div>`;
-      }
-
-      // Shared WYSIWYG-рендер (плитки + 2×2 графики + таблицы + UzKor/UniTool блоки).
-      // Plotly-графики дорисовываются после insert в _renderBlockChartsInline,
-      // тоже через shared _renderPeriodSnapshotCharts с тем же prefix.
-      const sharedHtml = _buildPeriodSnapshotPreviewHtml(snap, b, `prev-${bid}-`);
-      return baselineDescHtml + sharedHtml;
+      const sdMin = snap.shutdown_min_total || 0;
+      const sdH   = sdMin ? (sdMin / 60).toFixed(1) : '0';
+      // Метки для отключённых частей (показываем что в PDF не пойдёт)
+      const off = (label) => `<span style="display:inline-block; margin:2px 4px;
+        padding:1px 6px; background:#f3f4f6; color:#9ca3af; border-radius:3px;
+        font-size:0.72rem; text-decoration:line-through;">${label}</span>`;
+      const offMarks = [];
+      if (parts.pressures_chart === false) offMarks.push('давления');
+      if (parts.dp_chart === false)        offMarks.push('ΔP');
+      if (parts.flow_dt_chart === false)   offMarks.push('Q + простой');
+      if (parts.monthly_chart === false)   offMarks.push('помес. график');
+      if (parts.monthly_table === false)   offMarks.push('помес. таблица');
+      if (parts.monthly_descriptions === false) offMarks.push('помес. анализ');
+      const offHtml = offMarks.length
+        ? `<div style="margin-top:4px; font-size:0.76rem; color:#9ca3af;">
+             В PDF не попадёт: ${offMarks.map(off).join('')}
+           </div>` : '';
+      const introHtml = parts.intro === false
+        ? `<div style="font-size:0.78rem; color:#9ca3af; font-style:italic;">
+             (сводка периода отключена)
+           </div>`
+        : `<div style="font-size:0.85rem; color:#374151;">
+             Период: <b>${dFrom} … ${dTo}</b> (${days} сут.)
+           </div>`;
+      const tableHtml = parts.describe_table === false
+        ? `<div style="font-size:0.78rem; color:#9ca3af; font-style:italic;">
+             (описательная статистика отключена)
+           </div>`
+        : `<table style="width:100%; margin-top:6px; font-size:0.82rem; border-collapse:collapse;">
+            <tr style="background:#f3f4f6;">
+              <th style="text-align:left; padding:3px 6px;">Показатель</th>
+              <th style="text-align:right; padding:3px 6px;">Среднее</th>
+              <th style="text-align:right; padding:3px 6px;">Медиана</th>
+            </tr>
+            <tr><td style="padding:2px 6px;">Q общий, тыс.м³/сут</td>
+                <td style="text-align:right; padding:2px 6px;">${_fmtNum(snap.q_total_avg)}</td>
+                <td style="text-align:right; padding:2px 6px;">${_fmtNum(snap.q_total_median)}</td></tr>
+            <tr><td style="padding:2px 6px;">Q рабочий, тыс.м³/сут</td>
+                <td style="text-align:right; padding:2px 6px;">${_fmtNum(snap.q_working_avg)}</td>
+                <td style="text-align:right; padding:2px 6px;">${_fmtNum(snap.q_working_median)}</td></tr>
+            <tr><td style="padding:2px 6px;">ΔP, кгс/см²</td>
+                <td style="text-align:right; padding:2px 6px;">${_fmtNum(snap.dp_avg)}</td>
+                <td style="text-align:right; padding:2px 6px;">${_fmtNum(snap.dp_median)}</td></tr>
+            <tr><td style="padding:2px 6px;">P устье / шлейф, кгс/см²</td>
+                <td style="text-align:right; padding:2px 6px;">${_fmtNum(snap.p_wellhead_median)}</td>
+                <td style="text-align:right; padding:2px 6px;">${_fmtNum(snap.p_flowline_median)}</td></tr>
+            <tr><td style="padding:2px 6px;">Простой</td>
+                <td style="text-align:right; padding:2px 6px;" colspan="2">${_fmtNum(sdMin, 0)} мин (${sdH} ч), дней с простоем — ${snap.shutdown_days_count || 0}</td></tr>
+          </table>`;
+      return introHtml + tableHtml + comment + offHtml;
     }
 
     if (b.kind === 'comparison') {
-      // WYSIWYG: Plotly график «день от начала» (parts.chart) + таблица
-      // характеристик сегментов (parts.segments_table)
-      const bid = b.id || 'x';
       const segs = snap.segments || [];
       const metric = snap.metric_label || snap.metric || '—';
       const method = snap.method === 'theil_sen' ? 'Theil-Sen' : 'МНК линейная';
-
-      const hdrHtml = `
+      let rows = '';
+      segs.forEach(s => {
+        const arrow = (s.slope_per_hour ?? 0) > 0.001 ? '↑'
+                    : (s.slope_per_hour ?? 0) < -0.001 ? '↓' : '→';
+        const dur = s.duration_hours ? `${(s.duration_hours / 24).toFixed(1)} сут` : '—';
+        rows += `<tr><td style="padding:2px 6px;"><b>${_escHtml(s.letter || '?')}</b></td>
+                     <td style="padding:2px 6px;">${_escHtml(s.source === 'customer' ? 'UzKorGaz' : 'UniTool')}</td>
+                     <td style="padding:2px 6px;">${dur}</td>
+                     <td style="text-align:right; padding:2px 6px;">${_fmtNum(s.mean)}</td>
+                     <td style="text-align:right; padding:2px 6px;">${_fmtNum(s.median)}</td>
+                     <td style="text-align:right; padding:2px 6px;">${arrow} ${_fmtNum(s.slope_per_day, 3)}/день</td></tr>`;
+      });
+      return `
         <div style="font-size:0.85rem;">
           Метрика: <b>${_escHtml(metric)}</b>, метод: <b>${_escHtml(method)}</b>,
           сегментов: <b>${segs.length}</b>
-        </div>`;
-      // Контейнер графика (Plotly newPlot после insert)
-      const chartBox = (parts.chart !== false && segs.length)
-        ? `<div id="prev-${bid}-cmp" style="height:240px; margin-top:6px;"></div>` : '';
-      // Таблица сегментов
-      let tableHtml = '';
-      if (parts.segments_table !== false) {
-        let rows = '';
-        segs.forEach(s => {
-          const arrow = (s.slope_per_hour ?? 0) > 0.001 ? '↑'
-                      : (s.slope_per_hour ?? 0) < -0.001 ? '↓' : '→';
-          const dur = s.duration_hours ? `${(s.duration_hours / 24).toFixed(1)} сут` : '—';
-          rows += `<tr><td style="padding:2px 6px;"><b style="color:${s.color || '#374151'};">${_escHtml(s.letter || '?')}</b></td>
-                       <td style="padding:2px 6px;">${_escHtml(s.source === 'customer' ? 'UzKor' : 'UniT')}</td>
-                       <td style="padding:2px 6px;">${dur}</td>
-                       <td style="text-align:right; padding:2px 6px;">${_fmtNum(s.mean)}</td>
-                       <td style="text-align:right; padding:2px 6px;">${_fmtNum(s.median)}</td>
-                       <td style="text-align:right; padding:2px 6px;">${arrow} ${_fmtNum(s.slope_per_day, 3)}/д</td></tr>`;
-        });
-        tableHtml = `
-          <table style="width:100%; margin-top:6px; font-size:0.78rem; border-collapse:collapse;">
-            <tr style="background:#f3f4f6;">
-              <th style="text-align:left; padding:3px 6px;">Сег</th>
-              <th style="text-align:left; padding:3px 6px;">Источник</th>
-              <th style="text-align:left; padding:3px 6px;">Длит.</th>
-              <th style="text-align:right; padding:3px 6px;">Среднее</th>
-              <th style="text-align:right; padding:3px 6px;">Медиана</th>
-              <th style="text-align:right; padding:3px 6px;">Тренд</th>
-            </tr>
-            ${rows || '<tr><td colspan="6" style="text-align:center; color:#9ca3af;">Сегментов нет</td></tr>'}
-          </table>`;
-      }
-      return hdrHtml + chartBox + tableHtml + comment;
+        </div>
+        <table style="width:100%; margin-top:6px; font-size:0.82rem; border-collapse:collapse;">
+          <tr style="background:#f3f4f6;">
+            <th style="text-align:left; padding:3px 6px;">Сег</th>
+            <th style="text-align:left; padding:3px 6px;">Источник</th>
+            <th style="text-align:left; padding:3px 6px;">Длит.</th>
+            <th style="text-align:right; padding:3px 6px;">Среднее</th>
+            <th style="text-align:right; padding:3px 6px;">Медиана</th>
+            <th style="text-align:right; padding:3px 6px;">Тренд</th>
+          </tr>
+          ${rows || '<tr><td colspan="6" style="text-align:center; color:#9ca3af;">Сегментов нет</td></tr>'}
+        </table>
+        ${comment}`;
     }
 
     if (b.kind === 'criteria_rose') {
-      // WYSIWYG: реальные Plotly роза + бар + таблица. Контейнеры с уникальными
-      // id, Plotly.newPlot вызывается из renderChapterPreview после insert.
-      const bid = b.id || 'x';
+      const ranks = snap.ranks || {};
+      const contrib = snap.contributions || {};
+      const labels = snap.labels || {
+        decline: 'Снижение Q', p_wh_down: 'Снижение P устья',
+        p_wh_cv: 'Волатильность P устья', p_fl_up: 'Рост P шлейфа',
+        shutdown: 'Доля простоя', freq: 'Частота простоев',
+      };
+      const KEYS = ['decline', 'p_wh_down', 'p_wh_cv', 'p_fl_up', 'shutdown', 'freq'];
+      let rows = '';
+      KEYS.forEach(k => {
+        const r = ranks[k];
+        const c = contrib[k] || {};
+        const zone = r == null ? '—'
+          : r > 75 ? '<span style="color:#dc2626; font-weight:600;">риск</span>'
+          : r > 50 ? '<span style="color:#d97706;">хуже нормы</span>'
+          : r < 50 ? '<span style="color:#16a34a;">лучше нормы</span>'
+          : 'норма';
+        rows += `<tr><td style="padding:2px 6px;">${_escHtml(labels[k] || k)}</td>
+                     <td style="text-align:right; padding:2px 6px; font-weight:600;">${r == null ? '—' : r.toFixed(0)}</td>
+                     <td style="text-align:right; padding:2px 6px;">${(c.weight ?? 0).toFixed(2)}</td>
+                     <td style="text-align:right; padding:2px 6px; color:#d62728;">${(c.actual ?? 0).toFixed(1)}</td>
+                     <td style="padding:2px 6px;">${zone}</td></tr>`;
+      });
       const h = snap.history || {};
-      const hdrHtml = `
+      return `
         <div style="font-size:0.85rem;">
           Скв. <b>${_escHtml(snap.well_number)}</b>, период <b>${_escHtml(snap.period_from)}…${_escHtml(snap.period_to)}</b>
           (${snap.period_days || '?'} сут.), штуцер <b>${h.choke_mm ?? '—'} мм</b>,
@@ -7020,60 +5260,18 @@
         </div>
         <div style="font-size:1.4rem; font-weight:700; color:#d62728; margin:4px 0;">
           Балл: ${(snap.score ?? 0).toFixed(1)} / 100
-        </div>`;
-      // Контейнеры для розы и бар-чарта
-      const roseBox = (parts.rose_chart !== false)
-        ? `<div id="prev-${bid}-rose" style="height:280px;"></div>` : '';
-      const barBox = (parts.contributions_chart !== false)
-        ? `<div id="prev-${bid}-rosebar" style="height:200px; margin-top:6px;"></div>` : '';
-      // Таблица 6 метрик
-      let tableHtml = '';
-      if (parts.metrics_table !== false) {
-        const ranks = snap.ranks || {};
-        const contrib = snap.contributions || {};
-        const labels = snap.labels || {
-          decline: 'Снижение Q', p_wh_down: 'Снижение P устья',
-          p_wh_cv: 'Волатильность P устья', p_fl_up: 'Рост P шлейфа',
-          shutdown: 'Доля простоя', freq: 'Частота простоев',
-        };
-        const KEYS = ['decline', 'p_wh_down', 'p_wh_cv', 'p_fl_up', 'shutdown', 'freq'];
-        let rows = '';
-        KEYS.forEach(k => {
-          const r = ranks[k];
-          const c = contrib[k] || {};
-          const zone = r == null ? '—'
-            : r > 75 ? '<span style="color:#dc2626; font-weight:600;">риск</span>'
-            : r > 50 ? '<span style="color:#d97706;">хуже нормы</span>'
-            : r < 50 ? '<span style="color:#16a34a;">лучше нормы</span>'
-            : 'норма';
-          rows += `<tr><td style="padding:2px 6px;">${_escHtml(labels[k] || k)}</td>
-                       <td style="text-align:right; padding:2px 6px; font-weight:600;">${r == null ? '—' : r.toFixed(0)}</td>
-                       <td style="text-align:right; padding:2px 6px;">${(c.weight ?? 0).toFixed(2)}</td>
-                       <td style="text-align:right; padding:2px 6px; color:#d62728;">${(c.actual ?? 0).toFixed(1)}</td>
-                       <td style="padding:2px 6px;">${zone}</td></tr>`;
-        });
-        tableHtml = `
-          <table style="width:100%; margin-top:6px; font-size:0.78rem; border-collapse:collapse;">
-            <tr style="background:#f3f4f6;">
-              <th style="text-align:left; padding:3px 6px;">Критерий</th>
-              <th style="text-align:right; padding:3px 6px;">Ранг</th>
-              <th style="text-align:right; padding:3px 6px;">Вес</th>
-              <th style="text-align:right; padding:3px 6px;">Вклад</th>
-              <th style="text-align:left; padding:3px 6px;">Зона</th>
-            </tr>
-            ${rows}
-          </table>`;
-      }
-      // Предупреждения
-      let warnHtml = '';
-      if (parts.warnings !== false && snap.warnings && snap.warnings.length) {
-        warnHtml = snap.warnings.map(w => `
-          <div style="margin-top:4px; padding:4px 8px; background:#fef3c7;
-               border-left:3px solid #f59e0b; font-size:0.78rem; color:#92400e;">
-            ⚠ ${_escHtml(w)}
-          </div>`).join('');
-      }
-      return hdrHtml + roseBox + barBox + tableHtml + warnHtml + comment;
+        </div>
+        <table style="width:100%; margin-top:4px; font-size:0.82rem; border-collapse:collapse;">
+          <tr style="background:#f3f4f6;">
+            <th style="text-align:left; padding:3px 6px;">Критерий</th>
+            <th style="text-align:right; padding:3px 6px;">Ранг</th>
+            <th style="text-align:right; padding:3px 6px;">Вес</th>
+            <th style="text-align:right; padding:3px 6px;">Вклад</th>
+            <th style="text-align:left; padding:3px 6px;">Зона</th>
+          </tr>
+          ${rows}
+        </table>
+        ${comment}`;
     }
 
     // Fallback для неизвестных kinds
@@ -7082,199 +5280,35 @@
             </div>${comment}`;
   }
 
-  // ───── Pop-out синхронизация через BroadcastChannel (ТЗ §11 этап 9) ─────
-  // Когда основная страница перерисовывает превью — отправляет блоки в канал.
-  // Pop-out (если открыт) слушает канал и перерисовывает свой контент.
-  let _bc = null;
-  function _ensureBC() {
-    if (_bc) return _bc;
-    const wn = $('cd-well-select')?.value || 'unknown';
-    try {
-      _bc = new BroadcastChannel('cd-chapter-' + wn);
-      _bc.onmessage = (ev) => {
-        // Pop-out может запросить начальный синк
-        if (ev.data && ev.data.type === 'request-sync') {
-          if (typeof refreshAttachedBlocks === 'function') refreshAttachedBlocks();
-        }
-      };
-    } catch (e) { _bc = null; }
-    return _bc;
-  }
-  function cdBroadcastBlocks(blocks) {
-    const ch = _ensureBC();
-    if (!ch) return;
-    try { ch.postMessage({ type: 'blocks', blocks: blocks }); } catch (e) {}
-  }
-  // При смене скважины — пересоздаём канал (другой well = другой канал)
-  $('cd-well-select')?.addEventListener('change', () => {
-    if (_bc) { try { _bc.close(); } catch (e) {} _bc = null; }
-  });
-
-  // ───── Sticky-панель: табы HTML / PDF (ТЗ §11 этап 7) ─────
-  // Переключение табов — никаких модалок. PDF iframe встроен в правую панель.
-  function switchRightTab(tab) {
-    document.querySelectorAll('#cd-rightpanel-tabs .cd-tab').forEach(t => {
-      const isActive = t.dataset.tab === tab;
-      t.classList.toggle('cd-tab-active', isActive);
-      t.style.background = isActive ? '#fff' : 'transparent';
-      t.style.borderColor = isActive ? '#e5e7eb' : 'transparent';
-      t.style.color = isActive ? '#1f2937' : '#6b7280';
-    });
-    $('cd-rightpanel-html').style.display = (tab === 'html') ? 'block' : 'none';
-    $('cd-rightpanel-pdf').style.display  = (tab === 'pdf')  ? 'flex'  : 'none';
-  }
-  document.querySelectorAll('#cd-rightpanel-tabs .cd-tab').forEach(t => {
-    t.addEventListener('click', () => switchRightTab(t.dataset.tab));
-  });
-
-  // Логика «PDF устарел» (ТЗ §11 этап 8) — бэдж в шапке + цвет
-  let pdfStale = true;  // изначально true — PDF ещё не собран
-  function markPdfStale() {
-    pdfStale = true;
-    const badge = $('cd-chapter-pdf-badge');
-    if (!badge) return;
-    badge.textContent = '⚠ PDF устарел';
-    badge.style.background = '#fee2e2';
-    badge.style.color = '#991b1b';
-    badge.style.display = '';
-  }
-  function markPdfFresh() {
-    pdfStale = false;
-    const badge = $('cd-chapter-pdf-badge');
-    if (!badge) return;
-    badge.textContent = '✓ PDF актуален';
-    badge.style.background = '#d1fae5';
-    badge.style.color = '#065f46';
-    badge.style.display = '';
-  }
-
-  // Кнопка «🔄» в шапке табов — рефреш HTML-превью
+  // Кнопка «Обновить» — заново фетчит и перерисовывает
   $('cd-chapter-refresh-btn')?.addEventListener('click', refreshAttachedBlocks);
 
-  // Кнопка «⬇ HTML» — скачать HTML-превью главы как самостоятельный файл.
-  // Берёт текущее содержимое #cd-chapter-preview-content, конвертирует
-  // Plotly-графики в статичные SVG (через Plotly.toImage SVG), вставляет
-  // их inline → файл открывается в любом браузере без сети.
-  $('cd-chapter-html-download')?.addEventListener('click', async () => {
-    const btn = $('cd-chapter-html-download');
-    const src = $('cd-chapter-preview-content');
-    if (!src) return;
-    const wellNum = $('cd-well-select')?.value || currentWellId || 'X';
-    btn.disabled = true; btn.textContent = '⏳ ...';
-    try {
-      // Клонируем DOM, чтобы не трогать живой превью.
-      const clone = src.cloneNode(true);
-
-      // Plotly графики — заменяем на статичный SVG (если есть Plotly).
-      if (window.Plotly) {
-        const liveCharts = src.querySelectorAll('.js-plotly-plot');
-        const cloneCharts = clone.querySelectorAll('.js-plotly-plot');
-        for (let i = 0; i < liveCharts.length; i++) {
-          try {
-            const dataUri = await Plotly.toImage(liveCharts[i],
-              { format: 'svg', width: 800, height: 320 });
-            // dataUri: data:image/svg+xml;utf8,<svg...>
-            const svgText = decodeURIComponent(dataUri.split(',')[1]);
-            const wrap = document.createElement('div');
-            wrap.style.cssText = 'margin:8px 0;';
-            wrap.innerHTML = svgText;
-            // Размер по родителю
-            const svg = wrap.querySelector('svg');
-            if (svg) { svg.style.width = '100%'; svg.style.height = 'auto'; }
-            cloneCharts[i].replaceWith(wrap);
-          } catch (e) {
-            console.warn('Plotly.toImage failed', e);
-            cloneCharts[i].innerHTML = '<div style="color:#9ca3af;">[график]</div>';
-          }
-        }
-      }
-
-      // Собираем самостоятельный HTML файл с inline-стилями.
-      const today = new Date().toISOString().slice(0, 10);
-      const fullHtml =
-`<!DOCTYPE html>
-<meta charset="utf-8">
-<title>Анализ исходных данных · скв. ${wellNum} · ${today}</title>
-<style>
-  body { font-family: 'Times New Roman', serif; font-size: 14px;
-         line-height: 1.5; color: #1f2937; max-width: 1100px;
-         margin: 24px auto; padding: 0 20px; background: #fff; }
-  h1, h2, h3 { color: #111827; }
-  h1 { font-size: 1.5em; border-bottom: 2px solid #e5e7eb; padding-bottom: 6px; }
-  h3 { margin: 14px 0 6px; font-size: 1.05em; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.86em;
-          margin: 8px 0; }
-  th, td { padding: 4px 8px; text-align: right; border: 1px solid #e5e7eb; }
-  th:first-child, td:first-child { text-align: left; color: #4b5563; }
-  th { background: #f9fafb; font-weight: 500; color: #6b7280; }
-  .b1-metric { background: #fff7ed; border: 1px solid #fb923c;
-               border-radius: 6px; padding: 8px 10px; text-align: center; }
-  .b1-metric-title { color: #c2410c; font-size: 0.78em; font-weight: 600;
-                     text-transform: uppercase; letter-spacing: 0.5px;
-                     margin-bottom: 4px; }
-  .b1-metric-val { font-size: 1.05em; font-weight: 700; margin: 2px 0; }
-  .b1-metric-val .b1-unit { font-size: 0.75em; font-weight: 400;
-                            color: #6b7280; margin-left: 4px; }
-  .b1-metric-unit { font-size: 0.72em; color: #6b7280; margin-top: 4px; }
-  .cd-month-list { display: flex; flex-direction: column; gap: 8px;
-                   margin: 8px 0; }
-  .cd-month-item { padding: 6px 10px; background: #fafafa;
-                   border-left: 3px solid #d1d5db; border-radius: 4px; }
-  .cd-month-item .label { font-weight: 600; margin-bottom: 4px; }
-  p { margin: 6px 0 10px; }
-  svg { max-width: 100%; height: auto; }
-</style>
-<h1>Анализ исходных данных · скв. ${wellNum}</h1>
-<p style="color:#6b7280; font-size:0.85em;">Сформировано ${today} · источник: данные заказчика UzKorGaz</p>
-${clone.innerHTML}
-`;
-      const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `customer_chapter_well${wellNum}_${today}.html`;
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => {
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }, 500);
-    } catch (e) {
-      console.error(e);
-      alert('Ошибка скачивания HTML: ' + e.message);
-    } finally {
-      btn.disabled = false; btn.textContent = '⬇ HTML';
-    }
-  });
-
-  // Кнопка «🔁 Пересобрать PDF» — генерация PDF в iframe правой панели
+  // Кнопка «Собрать PDF» — генерация полного PDF главы через xelatex
   $('cd-chapter-pdf-btn')?.addEventListener('click', async () => {
     if (!currentWellId) { alert('Скважина не определена.'); return; }
     const btn = $('cd-chapter-pdf-btn');
+    const modal = $('cd-chapter-pdf-modal');
     const iframe = $('cd-chapter-pdf-iframe');
     const status = $('cd-chapter-pdf-status');
     const dl = $('cd-chapter-pdf-download');
     btn.disabled = true;
     btn.textContent = '⏳ Рендер…';
-    if (status) { status.textContent = 'xelatex 5-12 сек…'; status.style.color = '#6b7280'; }
-    switchRightTab('pdf');
+    if (status) status.textContent = 'Запрос PDF (xelatex может занять 5-12 сек)…';
     try {
-      // Подтянем timeline для дефолтных дат obs/adapt (preview-pdf требует их).
-      // ВАЖНО: события из timeline уже содержат T...HH:MM:SS, поэтому берём только
-      // дату через slice(0,10) — иначе получим двойной T (HTTP 422).
+      // Подтянем timeline для дефолтных дат obs/adapt — preview-pdf требует их.
+      // Используем equip → reagent_first → today как фиктивные границы.
       let obsFrom, obsTo, adaptFrom, adaptTo;
       try {
         const tlR = await fetch('/api/adaptation-report/timeline?well_id=' + currentWellId);
         const tl = await tlR.json();
-        const _date = (v) => (v ? String(v).slice(0, 10) : null);
-        const equip     = _date((tl.events || []).find(e => e.kind === 'equip')?.dt);
-        const reagFirst = _date((tl.events || []).find(e => e.kind === 'reagent_first')?.dt);
-        const today     = _date(tl.today) || '2025-12-31';
-        obsFrom = (equip     || '2025-01-01') + 'T00:00';
-        obsTo   = (reagFirst || today)        + 'T23:59';
+        const equip = (tl.events || []).find(e => e.kind === 'equip')?.dt;
+        const reagFirst = (tl.events || []).find(e => e.kind === 'reagent_first')?.dt;
+        obsFrom = (equip || tl.today || '2025-01-01') + 'T00:00';
+        obsTo   = (reagFirst || tl.today || '2025-01-31') + 'T23:59';
         adaptFrom = obsTo;
-        adaptTo   = today + 'T23:59';
+        adaptTo   = (tl.today || '2025-12-31') + 'T23:59';
       } catch (e) {
+        // Полный fallback
         const today = new Date().toISOString().slice(0, 10);
         obsFrom = '2025-01-01T00:00'; obsTo = '2025-01-31T23:59';
         adaptFrom = '2025-02-01T00:00'; adaptTo = today + 'T23:59';
@@ -7293,7 +5327,7 @@ ${clone.innerHTML}
       });
       if (!resp.ok) {
         const t = await resp.text().catch(() => '');
-        if (status) { status.textContent = '✗ HTTP ' + resp.status; status.style.color = '#dc2626'; }
+        if (status) status.textContent = '✗ HTTP ' + resp.status;
         alert('Ошибка: HTTP ' + resp.status + (t ? '\n' + t.slice(0, 400) : ''));
         return;
       }
@@ -7301,46 +5335,27 @@ ${clone.innerHTML}
       const url = URL.createObjectURL(blob);
       iframe.src = url;
       if (dl) { dl.href = url; dl.style.display = ''; }
-      if (status) { status.textContent = `✓ ${(blob.size/1024).toFixed(0)} KB`; status.style.color = '#10b981'; }
-      markPdfFresh();
+      modal.style.display = '';
+      if (status) status.textContent = '✓ Готово (' + (blob.size / 1024).toFixed(0) + ' KB)';
     } catch (e) {
-      if (status) { status.textContent = '✗ ' + e.message; status.style.color = '#dc2626'; }
+      if (status) status.textContent = '✗ ' + e.message;
+      alert('Ошибка генерации PDF: ' + e.message);
     } finally {
       btn.disabled = false;
-      btn.textContent = '🔁 Пересобрать';
+      btn.textContent = '📄 Собрать PDF главы';
     }
   });
 
-  // Кнопка «↗ В окно» — открывает popout (ТЗ §11 этап 9)
-  $('cd-chapter-popout-btn')?.addEventListener('click', (ev) => {
-    ev.preventDefault();
-    if (!currentWellId) { alert('Скважина не определена.'); return; }
-    const wn = $('cd-well-select')?.value || '';
-    window.open(`/customer-daily/preview-popout?well=${encodeURIComponent(wn)}`,
-                'cd-popout-' + wn,
-                'width=900,height=1200');
+  // Закрытие модалки PDF
+  $('cd-chapter-pdf-close')?.addEventListener('click', () => {
+    const modal = $('cd-chapter-pdf-modal');
+    const iframe = $('cd-chapter-pdf-iframe');
+    if (modal) modal.style.display = 'none';
+    // Очистка iframe чтобы не висел в памяти, а также чтобы download остался валидным
+    if (iframe && iframe.src && iframe.src.startsWith('blob:')) {
+      // не удаляем blob URL сразу — кнопка «Скачать» может им пользоваться
+    }
   });
-
-  // Responsive toggle: мобильная кнопка «Открыть превью» (ТЗ §11 этап 10)
-  $('cd-rightpanel-toggle')?.addEventListener('click', () => {
-    const panel = $('cd-rightpanel');
-    panel.classList.toggle('cd-right-open');
-    const close = $('cd-rightpanel-close');
-    if (close) close.style.display = panel.classList.contains('cd-right-open') ? '' : 'none';
-  });
-  $('cd-rightpanel-close')?.addEventListener('click', () => {
-    const panel = $('cd-rightpanel');
-    panel.classList.remove('cd-right-open');
-    $('cd-rightpanel-close').style.display = 'none';
-  });
-  // Показать toggle-кнопку на узких экранах
-  function _setResponsiveToggle() {
-    const toggle = $('cd-rightpanel-toggle');
-    if (!toggle) return;
-    toggle.style.display = (window.innerWidth <= 1024) ? '' : 'none';
-  }
-  window.addEventListener('resize', _setResponsiveToggle);
-  _setResponsiveToggle();
 
   // Вставляем HTML из shared-модуля + биндим обработчики
   if (typeof window.cmpRenderHTML === 'function') {
@@ -7354,46 +5369,6 @@ ${clone.innerHTML}
   } else {
     console.warn('cmp_segments.js не загружен — секция «Сравнение участков» недоступна');
   }
-
-  // ─── Кнопки «Свернуть/Развернуть всё» для parts-тогглов (ТЗ §11 этап 11.3) ───
-  $('cd-expand-all-parts')?.addEventListener('click', () => {
-    document.querySelectorAll('#cd-attached-list details').forEach(d => d.open = true);
-  });
-  $('cd-collapse-all-parts')?.addEventListener('click', () => {
-    document.querySelectorAll('#cd-attached-list details').forEach(d => d.open = false);
-  });
-
-  // ─── Top-bar (sticky шапка, ТЗ §11 этап 3) — слушатели один раз ───
-  // Скв.-селектор в top-bar синхронизируется с основным cd-well-select.
-  $('cd-topbar-well')?.addEventListener('change', () => {
-    const v = $('cd-topbar-well').value;
-    const main = $('cd-well-select');
-    if (main && main.value !== v) {
-      main.value = v;
-      main.dispatchEvent(new Event('change'));
-    }
-    // Обновляем ссылку «Загрузить XLSX» (back_well передаём чтобы после
-    // загрузки вернуться к той же скважине)
-    const uplLink = $('cd-topbar-upload');
-    if (uplLink) {
-      uplLink.href = v
-        ? `/customer-daily/upload?back_well=${encodeURIComponent(v)}`
-        : '/customer-daily/upload';
-    }
-  });
-  // Обратная связь — при смене основного селекта обновлять top-bar
-  $('cd-well-select')?.addEventListener('change', () => {
-    const tb = $('cd-topbar-well');
-    const v = $('cd-well-select').value;
-    if (tb && tb.value !== v) tb.value = v || '';
-    // Обновим ссылку загрузки
-    const uplLink = $('cd-topbar-upload');
-    if (uplLink) {
-      uplLink.href = v
-        ? `/customer-daily/upload?back_well=${encodeURIComponent(v)}`
-        : '/customer-daily/upload';
-    }
-  });
 
   loadMeta().then(loadWells).then(syncCmpDefaults);
 })();

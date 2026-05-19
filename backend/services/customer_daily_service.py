@@ -139,7 +139,41 @@ def ensure_blocks_table(db: Session) -> None:
         raise
 
 
-VALID_BLOCK_KINDS = {"baseline", "period_analysis", "comparison"}
+VALID_BLOCK_KINDS = {
+    # Главы заказчика (исторические)
+    "baseline", "period_analysis", "comparison",
+    # Главы адаптации (Шаг 5 wizard'a): анализ периода адаптации с метриками
+    # против B1/B2, сохранённое окно R★ или сводка эффективности реагентов.
+    "adaptation_period_analysis",
+    "optimal_window",
+    "reagent_irv_summary",
+    # Сравнение участков из шага 5 (тот же инструмент cmp, но контекст
+    # «Адаптация»; попадает в главу адаптации в PDF). Шаг 3 пишет в 'comparison'.
+    "adaptation_comparison",
+    # Анализ периода НАБЛЮДЕНИЯ из шага 3 wizard'а (Q/ΔP/КИВ + графики
+    # на наших данных UniTool). Попадает в главу «Наблюдение» PDF.
+    # Создаётся кнопкой «➕ Сохранить как блок наблюдения». Отдельно от
+    # customer_baseline (source='observation') — baseline это «утверждённые
+    # значения для сравнения», блок — «отчётный материал главы».
+    "observation_analysis",
+    # Роза критериев — диагностика отклонения текущего периода от собственной
+    # истории скважины на текущем штуцере. Попадает в главу «Анализ исходных
+    # данных» (заказчик). См. customer_rose_service.
+    "criteria_rose",
+    # Общий текст-вступление главы 2 (раздел 1 главы).
+    # Автосоздаётся при первом заходе на скважину с дефолтным текстом
+    # «Анализ исходных работ скважины №N на основании данных УзКорГаз».
+    # params: { text: "..." }. Без графиков и snapshot.
+    "chapter_intro",
+    # Сегментный анализ Q (PLAN A — Core Segment Analysis).
+    # Разбиение Q-кривой на интервалы по точкам перелома, реальные линейные
+    # тренды per-segment, классификация cp (confirmed/only_total/only_working),
+    # короткие теги причин (P шл ↑, ΔP ↓, …), таблица с типами режимов,
+    # развёрнутые описания, сравнение Q общ ↔ Q раб.
+    # snapshot формата segment_v1 (см. segment_analysis_service.compute_segment_block).
+    # PDF-интеграция запланирована в PLAN B (сейчас тихо пропускается).
+    "segment_analysis",
+}
 
 
 def list_blocks(db: Session, well_id: int) -> list[dict[str, Any]]:
@@ -295,23 +329,21 @@ def get_blocks_for_report(db: Session, well_id: int) -> list[dict[str, Any]]:
     """Только активные блоки (in_report=True), отсортированы для PDF.
 
     Используется в adaptation_report → LaTeX-генерации (Этап 5).
-    Возвращает: id, kind, title, params, comment, sort_order, created_at.
-    Не включает data_snapshot — он считается при формировании PDF
-    по params (live-расчёт), потом сохраняется в БД.
+    Возвращает: id, kind, title, params, data_snapshot, comment,
+    sort_order, created_at.
+
+    `data_snapshot` отдаётся, потому что сборщик отчёта рендерит блоки
+    из снапшота (UI его уже наполнил), а не из live-расчёта по params.
     """
+    # Сортировка ТОЛЬКО по sort_order (определяется оператором drag-reorder'ом).
+    # Глава = чистый конструктор — оператор сам решает порядок блоков.
+    # Жёсткая сортировка по kind убрана (ТЗ §11 этап 2 финальной структуры главы).
     rows = db.execute(text("""
-        SELECT id, well_id, kind, title, params, comment,
+        SELECT id, well_id, kind, title, params, data_snapshot, comment,
                sort_order, created_at
         FROM customer_report_block
         WHERE well_id = :wid AND in_report = TRUE
-        ORDER BY
-            CASE kind
-                WHEN 'baseline' THEN 0
-                WHEN 'period_analysis' THEN 1
-                WHEN 'comparison' THEN 2
-                ELSE 3
-            END,
-            sort_order, created_at
+        ORDER BY sort_order, created_at
     """), {"wid": well_id}).mappings().fetchall()
     return [dict(r) for r in rows]
 
@@ -529,6 +561,201 @@ def ingest_xlsx(
         duplicates=dups,
         warnings=[],
     )
+
+
+# ─── Helper: 3 описательных блока из snapshot для LaTeX ────────────────
+# Зеркалит JS-функцию `_buildOverlapDescription` со страницы. Возвращает
+# структуру [{title, color, lines: [{label, value}]}, ...] для рендера в
+# отчёте. Использует поля snapshot которые УЖЕ есть (создаются фронтом
+# в _buildPeriodSnapshot).
+
+def _fmt_n(v: Any, d: int = 2) -> str:
+    if v is None:
+        return "—"
+    try:
+        f = float(v)
+        if math.isnan(f) or math.isinf(f):
+            return "—"
+        return f"{f:.{d}f}"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _trend_arrow(slope: float | None) -> str:
+    if slope is None:
+        return "→"
+    if slope > 0.05:
+        return "↑"
+    if slope < -0.05:
+        return "↓"
+    return "→"
+
+
+def build_overlap_blocks(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    """3 текстовых блока «Анализ UzKorGaz / UniTool / Совместный период».
+
+    Возвращает [{title, color, lines: [{label, value}]}, ...].
+    Если данных нет (snapshot пуст или нет полей) — возвращает [].
+    Источник: поля snapshot — те же что использует JS `_buildOverlapDescription`.
+    """
+    if not snapshot:
+        return []
+    blocks: list[dict[str, Any]] = []
+
+    # ─── Блок 1: Анализ UzKorGaz ───
+    cust_lines: list[dict[str, str]] = []
+    if snapshot.get("date_min") or snapshot.get("date_max"):
+        cust_lines.append({
+            "label": "Период",
+            "value": f"{snapshot.get('date_min') or '—'} — "
+                     f"{snapshot.get('date_max') or '—'} "
+                     f"({snapshot.get('days') or 0} сут)",
+        })
+    if snapshot.get("q_total_avg") is not None or snapshot.get("q_total_median") is not None:
+        cust_lines.append({
+            "label": "Q общий",
+            "value": (f"среднее {_fmt_n(snapshot.get('q_total_avg'))}, "
+                      f"медиана {_fmt_n(snapshot.get('q_total_median'))} тыс.м³/сут"),
+        })
+    if snapshot.get("q_working_avg") is not None or snapshot.get("q_working_median") is not None:
+        cust_lines.append({
+            "label": "Q рабочий",
+            "value": (f"среднее {_fmt_n(snapshot.get('q_working_avg'))}, "
+                      f"медиана {_fmt_n(snapshot.get('q_working_median'))} тыс.м³/сут"),
+        })
+    if snapshot.get("dp_avg") is not None or snapshot.get("dp_median") is not None:
+        cust_lines.append({
+            "label": "ΔP",
+            "value": (f"среднее {_fmt_n(snapshot.get('dp_avg'))}, "
+                      f"медиана {_fmt_n(snapshot.get('dp_median'))} кгс/см²"),
+        })
+    if snapshot.get("p_wellhead_median") is not None or snapshot.get("p_flowline_median") is not None:
+        cust_lines.append({
+            "label": "Давления (медиана)",
+            "value": (f"устье {_fmt_n(snapshot.get('p_wellhead_median'))}, "
+                      f"шлейф {_fmt_n(snapshot.get('p_flowline_median'))} кгс/см²"),
+        })
+    sd_min = snapshot.get("shutdown_min_total")
+    if sd_min is not None:
+        sd_h = (float(sd_min) / 60) if isinstance(sd_min, (int, float)) else 0
+        cust_lines.append({
+            "label": "Простой",
+            "value": (f"всего {_fmt_n(sd_min, 0)} мин ({sd_h:.1f} ч), "
+                      f"дней с простоем — {snapshot.get('shutdown_days_count') or 0}"),
+        })
+    q_trend = snapshot.get("q_trend") or {}
+    if q_trend.get("slope_per_day") is not None:
+        cust_lines.append({
+            "label": "Тренд Q",
+            "value": (f"{_trend_arrow(q_trend.get('slope_per_day'))} "
+                      f"{_fmt_n(q_trend.get('slope_per_day'), 3)} тыс.м³/сут (за весь период)"),
+        })
+    if cust_lines:
+        blocks.append({
+            "title": "Анализ данных UzKorGaz (well_daily)",
+            "color": "cust",
+            "lines": cust_lines,
+        })
+
+    # ─── Блок 2: Анализ UniTool (если был наложен) ───
+    unitool = snapshot.get("unitool") or None
+    if unitool:
+        our_lines: list[dict[str, str]] = []
+        if unitool.get("equip_dt"):
+            v = f"{str(unitool['equip_dt'])[:10]}"
+            if unitool.get("dropped_pre_equip"):
+                v += f" (отброшено {unitool['dropped_pre_equip']} точек до установки)"
+            our_lines.append({"label": "Установка датчика", "value": v})
+        our_lines.append({
+            "label": "Период измерений",
+            "value": (f"{unitool.get('first_date') or '—'} — "
+                      f"{unitool.get('last_date') or '—'} "
+                      f"({unitool.get('days') or 0} сут)"),
+        })
+        dmap = unitool.get("describe_map") or {}
+        q_our = dmap.get("Дебит общий, тыс.м³/сут") or {}
+        dp_our = dmap.get("ΔP, кгс/см²") or {}
+        pt_our = dmap.get("Устье, кгс/см²") or {}
+        pl_our = dmap.get("Шлейф, кгс/см²") or {}
+        if unitool.get("has_flow"):
+            our_lines.append({
+                "label": f"Q (расчёт по штуцеру {unitool.get('choke_mm') or '—'} мм)",
+                "value": (f"среднее {_fmt_n(q_our.get('mean'))}, "
+                          f"медиана {_fmt_n(q_our.get('median'))} тыс.м³/сут"),
+            })
+        else:
+            our_lines.append({
+                "label": "Q",
+                "value": "не рассчитан — нет данных по штуцеру в well_construction",
+            })
+        if dp_our.get("mean") is not None or dp_our.get("median") is not None:
+            our_lines.append({
+                "label": "ΔP",
+                "value": (f"среднее {_fmt_n(dp_our.get('mean'))}, "
+                          f"медиана {_fmt_n(dp_our.get('median'))} кгс/см²"),
+            })
+        if pt_our.get("median") is not None or pl_our.get("median") is not None:
+            our_lines.append({
+                "label": "Давления (медиана)",
+                "value": (f"устье {_fmt_n(pt_our.get('median'))}, "
+                          f"шлейф {_fmt_n(pl_our.get('median'))} кгс/см²"),
+            })
+        blocks.append({
+            "title": "Анализ данных UniTool (LoRa-датчики)",
+            "color": "our",
+            "lines": our_lines,
+        })
+
+        # ─── Блок 3: Совместный период ───
+        c_first = snapshot.get("date_min")
+        c_last = snapshot.get("date_max")
+        o_first = unitool.get("first_date")
+        o_last = unitool.get("last_date")
+        if c_first and c_last and o_first and o_last:
+            inter_start = max(c_first, o_first)
+            inter_end = min(c_last, o_last)
+            if inter_start <= inter_end:
+                try:
+                    from datetime import date as _date
+                    d1 = _date.fromisoformat(str(inter_start)[:10])
+                    d2 = _date.fromisoformat(str(inter_end)[:10])
+                    days = (d2 - d1).days + 1
+                except Exception:
+                    days = 0
+                cust_days = int(snapshot.get("days") or 0)
+                our_days = int(unitool.get("days") or 0)
+                ratio = (abs(cust_days - our_days) / max(cust_days, our_days) * 100
+                         if (cust_days and our_days) else 0)
+                compat_note = (
+                    "Периоды сопоставимы (≤ 10% разницы) — "
+                    "сравнение в основной таблице корректно."
+                    if ratio <= 10 else
+                    "Периоды несопоставимы (> 10% разницы) — "
+                    "корректное сравнение только в таблице «Строгое сравнение» ниже."
+                )
+                blocks.append({
+                    "title": "Совместный период UzKorGaz ∩ UniTool",
+                    "color": "overlap",
+                    "lines": [
+                        {"label": "Совместных суток",
+                         "value": f"{days} ({inter_start} — {inter_end})"},
+                        {"label": "Полные периоды",
+                         "value": (f"UzKorGaz {cust_days} сут, UniTool "
+                                   f"{our_days} сут (разница {ratio:.1f}%)")},
+                        {"label": "Сопоставимость", "value": compat_note},
+                    ],
+                })
+            else:
+                blocks.append({
+                    "title": "Совместный период UzKorGaz ∩ UniTool",
+                    "color": "overlap",
+                    "lines": [{
+                        "label": "Внимание",
+                        "value": "Совместный период отсутствует — "
+                                 "UzKorGaz и UniTool не пересекаются по времени.",
+                    }],
+                })
+    return blocks
 
 
 # ──────────────────────────── Чтение из БД ─────────────────────────────
@@ -1497,10 +1724,25 @@ def period_summary_text(
     """Короткая сводка по периоду (1–2 предложения) с ключевыми числами.
 
     Используется как вступительный текст к подразделу периода в PDF-отчёте.
+
+    Структура автоописания (ТЗ §3 раздел 2):
+    «Анализ периода YYYY-MM-DD … YYYY-MM-DD на основании данных заказчика.
+    N сут. Тип данных: суточные сводки. За период доступно N сут. Q общий: ...»
     """
     parts: list[str] = []
     days = analysis.get("days_count") or 0
-    parts.append(f"За период доступно {days} сут.")
+    pf = analysis.get("period_from")
+    pt = analysis.get("period_to")
+    # Шапка-описание раздела 2 (формализованный заголовок-блок)
+    if pf and pt:
+        parts.append(
+            f"Анализ периода {pf} … {pt} на основании данных заказчика "
+            f"(суточные сводки УзКорГаз, {days} сут.). "
+            f"Параметры: устьевое, затрубное, шлейфовое и статическое "
+            f"давление; общий и рабочий дебиты газа; простой."
+        )
+    else:
+        parts.append(f"За период доступно {days} сут.")
 
     if analysis.get("q_total_avg") is not None:
         q_avg = analysis["q_total_avg"]; q_med = analysis.get("q_total_median")

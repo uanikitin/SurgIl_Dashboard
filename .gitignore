@@ -23,6 +23,13 @@ backend/static/generated/pdf/
 backend/static/generated/temp/
 backend/static/generated/charts/
 
+# Persistent user-editable settings (хранится в persistent volume на
+# продакшен-сервере, рядом с БД). Дефолтные значения всегда лежат в
+# Python-константах (segment_analysis_module.SEGMENT_THRESHOLDS и т.п.)
+# и подгружаются если файла нет — потеря файла НЕ ломает систему.
+backend/data/*.json
+!backend/data/.gitkeep
+
 # Runtime logs
 logs/
 *.aux

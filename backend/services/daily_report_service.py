@@ -178,11 +178,53 @@ def _compile_latex(tex_source: str, base_name: str) -> Path:
             stdout = result.stdout.decode("utf-8", errors="ignore")
             # nonstopmode may produce PDF despite warnings — only fail if no PDF
             if not temp_pdf.exists():
-                log.error("xelatex pass %d failed (no PDF).\nSTDERR: %s\nSTDOUT (last 2000): %s",
-                           pass_num + 1, stderr[-500:], stdout[-2000:])
+                # Сохраняем артефакты для постмортема (не удаляем на выходе!).
+                # .tex и .log остаются в TEMP_DIR, рядом дублируем «снимок»
+                # в /tmp с временной меткой — чтобы reload не затёр их при
+                # следующей сборке. Эти файлы критичны для диагностики:
+                # из .log можно увидеть точную LaTeX-ошибку (line N).
+                import shutil as _sh, time as _t
+                ts = _t.strftime("%Y%m%d_%H%M%S")
+                debug_dir = Path("/tmp") / f"xelatex_fail_{ts}_{base_name}"
+                try:
+                    debug_dir.mkdir(parents=True, exist_ok=True)
+                    _sh.copy2(tex_file, debug_dir / f"{base_name}.tex")
+                    log_file = TEMP_DIR / f"{base_name}.log"
+                    if log_file.exists():
+                        _sh.copy2(log_file, debug_dir / f"{base_name}.log")
+                    (debug_dir / "stdout.txt").write_text(stdout, encoding="utf-8")
+                    (debug_dir / "stderr.txt").write_text(stderr, encoding="utf-8")
+                except Exception:
+                    log.exception("xelatex debug-dump failed")
+
+                # Из xelatex .log вытаскиваем строки с «! ...» — это и есть
+                # реальные ошибки LaTeX (в отличие от stdout, который может
+                # быть пустым при crash до парсинга).
+                err_lines: list[str] = []
+                log_file = TEMP_DIR / f"{base_name}.log"
+                if log_file.exists():
+                    try:
+                        log_text = log_file.read_text(encoding="utf-8", errors="ignore")
+                        for i, line in enumerate(log_text.split("\n")):
+                            if line.startswith("!") or "Error" in line:
+                                # +5 строк контекста после ошибки
+                                ctx = log_text.split("\n")[i:i+6]
+                                err_lines.extend(ctx)
+                                if len(err_lines) > 30:
+                                    break
+                    except Exception:
+                        pass
+
+                log.error(
+                    "xelatex pass %d failed (no PDF). Debug saved to %s\n"
+                    "LATEX ERRORS:\n%s\nSTDERR: %s\nSTDOUT (last 2000): %s",
+                    pass_num + 1, debug_dir,
+                    "\n".join(err_lines) or "(none in .log)",
+                    stderr[-500:], stdout[-2000:],
+                )
                 raise RuntimeError(
-                    f"xelatex compilation failed (pass {pass_num + 1}): "
-                    f"{stdout[-500:]}"
+                    f"xelatex compilation failed (pass {pass_num + 1}). "
+                    f"Debug: {debug_dir}\nErrors:\n" + ("\n".join(err_lines[:10]) or stdout[-500:])
                 )
             log.warning("xelatex pass %d returned non-zero but PDF exists (warnings)", pass_num + 1)
     final_pdf = PDF_DIR / f"{base_name}.pdf"

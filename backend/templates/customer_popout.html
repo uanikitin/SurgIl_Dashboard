@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+
+{% block title %}Превью главы — скв. {{ well or '?' }}{% endblock %}
+
+{% block extra_head %}
+<style>
+  body { background: #f5f7fa; margin: 0; }
+  .pop-page {
+    display: flex; flex-direction: column;
+    height: 100vh; padding: 0;
+  }
+  .pop-header {
+    background: #fff; border-bottom: 1px solid #e5e7eb;
+    padding: 8px 14px; display: flex; align-items: center; gap: 10px;
+    flex-wrap: wrap;
+  }
+  .pop-header b { font-size: 0.96rem; color: #1f2937; }
+  .pop-tabs {
+    background: #f9fafb; border-bottom: 1px solid #e5e7eb;
+    padding: 4px 10px; display: flex; gap: 4px;
+  }
+  .pop-tab {
+    background: transparent; border: 1px solid transparent;
+    padding: 6px 14px; font-size: 0.84rem; cursor: pointer;
+    color: #6b7280; border-radius: 6px 6px 0 0;
+  }
+  .pop-tab.active {
+    background: #fff; color: #1f2937; border-color: #e5e7eb; border-bottom: none;
+  }
+  .pop-content {
+    flex: 1; overflow-y: auto; background: #fff;
+    padding: 14px 22px;
+    font-family: 'Times New Roman', serif; font-size: 0.92rem; line-height: 1.45;
+    color: #1f2937;
+  }
+  #pop-pdf {
+    display: none; flex: 1; background: #f3f4f6;
+  }
+  #pop-pdf iframe { width: 100%; height: 100%; border: 0; background: #f3f4f6; }
+  .pop-empty { text-align: center; padding: 40px; color: #9ca3af; }
+  .pop-sync {
+    font-size: 0.72rem; color: #6b7280; margin-left: auto;
+    padding: 3px 8px; border-radius: 10px; background: #f3f4f6;
+  }
+  .pop-sync.connected { background: #d1fae5; color: #065f46; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pop-page">
+  <div class="pop-header">
+    <b>📑 Глава «Анализ исходных данных»</b>
+    <span id="pop-well" style="color:#6b7280; font-size:0.86rem;">
+      скв. {{ well or '—' }}
+    </span>
+    <span id="pop-count" style="font-size:0.75rem; color:#6b7280;
+          padding:2px 8px; background:#f3f4f6; border-radius:10px;">пока пусто</span>
+    <span class="pop-sync" id="pop-sync">⏳ синхронизация…</span>
+  </div>
+  <div class="pop-tabs">
+    <button type="button" class="pop-tab active" data-tab="html">📑 HTML</button>
+    <button type="button" class="pop-tab" data-tab="pdf">📄 PDF</button>
+  </div>
+
+  <div class="pop-content" id="pop-html">
+    <div class="pop-empty" id="pop-empty">
+      <div style="font-size:2rem;">📑</div>
+      <div>Открой основную страницу /customer-daily и создай блок.</div>
+      <div style="font-size:0.8rem; margin-top:6px;">
+        Изменения появятся здесь автоматически через BroadcastChannel.
+      </div>
+    </div>
+    <div id="cd-chapter-preview-content"></div>
+  </div>
+
+  <div id="pop-pdf">
+    <iframe id="pop-pdf-iframe" src="about:blank"></iframe>
+  </div>
+</div>
+
+<!-- Подключаем shared cmp-модуль (понадобится для рендера блоков сравнения) -->
+<script src="/static/js/cmp_segments.js?v={{ time() }}"></script>
+
+<script>
+(function() {
+  const $ = (id) => document.getElementById(id);
+  const WELL = {{ (well or '')|tojson }};
+  const CHANNEL = 'cd-chapter-' + (WELL || 'unknown');
+
+  // ──── BroadcastChannel: приём данных от основной страницы ────
+  let bc = null;
+  let lastBlocks = null;
+  try {
+    bc = new BroadcastChannel(CHANNEL);
+    bc.onmessage = (ev) => {
+      if (!ev.data) return;
+      if (ev.data.type === 'blocks') {
+        lastBlocks = ev.data.blocks || [];
+        renderChapterPreview(lastBlocks);
+        const sync = $('pop-sync');
+        if (sync) { sync.textContent = '✓ синхронизирован'; sync.classList.add('connected'); }
+      } else if (ev.data.type === 'pdf' && ev.data.url) {
+        $('pop-pdf-iframe').src = ev.data.url;
+      }
+    };
+    // Запросим у основной начальное состояние
+    bc.postMessage({ type: 'request-sync', from: 'popout' });
+  } catch (e) {
+    console.warn('BroadcastChannel недоступен', e);
+    const sync = $('pop-sync');
+    if (sync) sync.textContent = '✗ нет связи (BroadcastChannel не поддерживается)';
+  }
+
+  // ──── Табы ────
+  document.querySelectorAll('.pop-tab').forEach(t => {
+    t.addEventListener('click', () => {
+      document.querySelectorAll('.pop-tab').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      $('pop-html').style.display = (t.dataset.tab === 'html') ? 'block' : 'none';
+      $('pop-pdf').style.display  = (t.dataset.tab === 'pdf')  ? 'flex'  : 'none';
+    });
+  });
+
+  // ──── Render HTML-превью (упрощённая копия логики renderChapterPreview из основной страницы) ────
+  function _escHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function _fmtNum(v, d = 2) {
+    return (v == null || isNaN(v)) ? '—' : Number(v).toFixed(d);
+  }
+  function _kindBadge(kind) {
+    const k = ({
+      baseline:         ['B1', '#fef3c7', '#92400e', 'Базовый период'],
+      period_analysis:  ['§', '#dcfce7', '#166534', 'Анализ периода'],
+      comparison:       ['↔', '#ede9fe', '#5b21b6', 'Сравнение участков'],
+      criteria_rose:    ['◉', '#fee2e2', '#991b1b', 'Роза критериев'],
+    })[kind] || ['•', '#f3f4f6', '#374151', kind];
+    return `<span style="display:inline-block; padding:1px 7px; border-radius:3px;
+            background:${k[1]}; color:${k[2]}; font-size:0.72rem; font-weight:600;">${k[0]} ${k[3]}</span>`;
+  }
+
+  function renderChapterPreview(allBlocks) {
+    const empty = $('pop-empty');
+    const content = $('cd-chapter-preview-content');
+    const counter = $('pop-count');
+    if (!content) return;
+    const inReport = (allBlocks || []).filter(b => b.in_report);
+    if (counter) {
+      counter.textContent = inReport.length
+        ? `${inReport.length} в отчёт`
+        : 'пока пусто';
+    }
+    if (!inReport.length) {
+      if (empty) empty.style.display = '';
+      content.innerHTML = '';
+      return;
+    }
+    if (empty) empty.style.display = 'none';
+
+    const ORDER = ['baseline', 'period_analysis', 'criteria_rose', 'comparison'];
+    inReport.sort((a, b) => {
+      const ia = ORDER.indexOf(a.kind), ib = ORDER.indexOf(b.kind);
+      return (ia - ib) || ((a.sort_order || 0) - (b.sort_order || 0));
+    });
+
+    let html = `
+      <h3 style="margin:0 0 8px; font-size:1.05rem; color:#374151;
+                 border-bottom:1.5px solid #d1d5db; padding-bottom:4px;">
+        2. Анализ исходных данных (по данным заказчика)
+      </h3>
+      <div style="font-size:0.78rem; color:#6b7280; margin-bottom:14px;">
+        В отчёт включено: ${inReport.length} блок(а/ов).
+      </div>`;
+
+    inReport.forEach((b, i) => {
+      const title = _escHtml(b.title || `Блок #${b.id}`);
+      const pre = (b.params && b.params.prefix_note) || '';
+      const suf = (b.params && b.params.suffix_note) || '';
+      const noteCss = 'font-style:italic; color:#475569; margin:6px 0; padding:5px 8px;' +
+                     'background:#f1f5f9; border-radius:3px; border-left:2px solid #94a3b8;' +
+                     'white-space:pre-wrap;';
+      html += `
+        <div style="margin-bottom:14px; padding:10px 12px; background:#fafafa;
+                    border-left:3px solid #6366f1; border-radius:4px;">
+          <div style="display:flex; gap:8px; margin-bottom:6px;">
+            <span style="font-weight:600; color:#374151;">2.${i+1}. ${title}</span>
+            ${_kindBadge(b.kind)}
+          </div>
+          ${pre.trim() ? `<div style="${noteCss}">${_escHtml(pre)}</div>` : ''}
+          <div style="font-size:0.82rem; color:#374151;">
+            ${b.comment ? `<div style="font-style:italic; color:#6b7280;">«${_escHtml(b.comment)}»</div>` : ''}
+          </div>
+          ${suf.trim() ? `<div style="${noteCss}">${_escHtml(suf)}</div>` : ''}
+        </div>`;
+    });
+    content.innerHTML = html;
+  }
+})();
+</script>
+{% endblock %}

@@ -1,10 +1,20 @@
 """
 Детекция периодов простоя скважины.
 
-Простой = непрерывный интервал, где p_tube < p_line (газ не поступает в шлейф).
+Простой = непрерывный интервал, где (p_tube - p_line) < dp_threshold
+(газ не поступает в шлейф или поступает на грани — недостаточный перепад).
 Дебит = 0, потерь нет.
 
-Продувки детектируются отдельно в purge_detector.py.
+Параметр `dp_threshold` (атм) — настраиваемая граница «работа vs простой»:
+  0.0 → старое поведение (строго p_tube < p_line)
+  0.1 → дефолт (рабочий перепад должен быть хотя бы 0.1 атм)
+  0.2/0.3 → жёстче, больше часов в простое
+
+Если `include_purge=True` и в df есть колонка `purge_flag` — продувки
+(`purge_flag == 1`) объединяются в простой по логике OR.
+
+Ручные аннотации с фронта в эту функцию не передаются — они применяются
+в UI поверх результата (шаг 3 wizard).
 """
 from __future__ import annotations
 
@@ -13,16 +23,23 @@ import pandas as pd
 
 def detect_downtime_periods(
     df: pd.DataFrame,
+    dp_threshold: float = 0.1,
+    include_purge: bool = True,
 ) -> pd.DataFrame:
     """
-    Группировка непрерывных периодов, где p_tube < p_line.
+    Группировка непрерывных периодов простоя.
+
+    mask = (p_tube - p_line < dp_threshold) [OR purge_flag == 1, если include_purge]
 
     Returns
     -------
     DataFrame: start, end, duration_min, duration_hours, interval_hours
     Пустой DataFrame если простоев нет.
     """
-    mask = df["p_tube"] < df["p_line"]
+    dp = df["p_tube"] - df["p_line"]
+    mask = dp < dp_threshold
+    if include_purge and "purge_flag" in df.columns:
+        mask = mask | (df["purge_flag"].fillna(0).astype(bool))
 
     periods: list[dict] = []
     start = None

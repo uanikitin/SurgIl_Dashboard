@@ -7663,58 +7663,16 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
           <b>(в)</b> правьте поля «Начало / Окончание» вручную.
           <br>Синяя пунктирная полоса — диапазон <b>B2 (наблюдение)</b> для контекста.
         </div>
-        <div class="wz5tl-wrap">
-          <div class="wz5tl-headerrow">
-            Режим: <span class="wz5tl-mode" id="wz5tl-mode">не выбран</span>
-            <span id="wz5tl-period-display" style="font-family:monospace; color:#374151;
-                  font-size:0.78rem;"></span>
-            <button type="button" id="wz5tl-apply-btn" class="wz-btn wz-btn-primary"
-                    disabled style="margin-left:auto; padding:5px 14px; font-size:0.84rem;
-                                    opacity:0.5; background:#059669;">
-              ✓ Применить как период адаптации
-            </button>
-          </div>
-          <div class="wz5tl-zoom-row">
-            <span>Масштаб:</span>
-            <button type="button" class="wz5tl-zoom-btn" data-zoom="day">Сутки</button>
-            <button type="button" class="wz5tl-zoom-btn" data-zoom="week">Неделя</button>
-            <button type="button" class="wz5tl-zoom-btn active" data-zoom="month">Месяц</button>
-            <button type="button" class="wz5tl-zoom-btn" data-zoom="year">Год</button>
-            <span id="wz5tl-window-row" style="margin-left:8px; display:inline-flex; gap:6px;
-                                                align-items:center; padding-left:8px;
-                                                border-left:1px solid #e5e7eb;"></span>
-            <span style="margin-left:auto;">
-              <button type="button" class="wz5tl-zoom-btn" id="wz5tl-clear-btn">✕ Сбросить</button>
-            </span>
-          </div>
-          <!-- Быстрые кнопки сдвига второй точки от первой (показываются когда стоит только «от») -->
-          <div id="wz5tl-quick-row" class="wz5tl-zoom-row" style="display:none;
-               background:#fef9c3; border:1px solid #fde68a; border-radius:5px;
-               padding:5px 8px; margin-bottom:6px;">
-            <span style="font-size:0.76rem; color:#92400e;">
-              От точки начала <b id="wz5tl-quick-from">—</b>:
-            </span>
-            <button type="button" class="wz5tl-zoom-btn" data-tl-quick="3">+3 сут</button>
-            <button type="button" class="wz5tl-zoom-btn" data-tl-quick="7">+7 сут</button>
-            <button type="button" class="wz5tl-zoom-btn" data-tl-quick="10">+10 сут</button>
-            <button type="button" class="wz5tl-zoom-btn" data-tl-quick="30">+30 сут</button>
-            <input type="number" id="wz5tl-quick-n" min="1" max="365" step="1" placeholder="N"
-                   style="width:4.5rem; padding:3px 6px; font-size:0.78rem;
-                          border:1px solid #fcd34d; border-radius:3px; background:#fff;">
-            <button type="button" class="wz5tl-zoom-btn" id="wz5tl-quick-n-btn">+ N сут</button>
-            <span style="font-size:0.72rem; color:#92400e; margin-left:auto;">
-              ↳ выберет конец и сразу применит
-            </span>
-          </div>
-          <div class="wz5tl-scroll" id="wz5tl-scroll">
-            <div class="wz5tl-scale" id="wz5tl-scale"
-                 title="Кликните по точке этапа = взять диапазон. Клик по пустому месту: первый = «от», второй = «до»."></div>
-          </div>
-          <div class="wz5tl-help">
-            <span><b>Точки</b> — этапы и события (вбросы / продувки / equip)</span>
-            <span><b style="color:#1d4ed8;">Синяя пунктирная</b> — диапазон B2</span>
-            <span><b style="color:#059669;">Зелёная заливка</b> — выбранный диапазон адаптации</span>
-          </div>
+        <!-- ═══ TimelineBuilder контейнер (миграция с wz5tl-*) ═══ -->
+        <div id="wz5-timeline-container"></div>
+        <!-- Кнопка "Применить" вынесена отдельно -->
+        <div style="display:flex; align-items:center; gap:12px; margin-top:8px;">
+          <button type="button" id="wz5tl-apply-btn" class="wz-btn wz-btn-primary"
+                  disabled style="padding:5px 14px; font-size:0.84rem;
+                                  opacity:0.5; background:#059669;">
+            ✓ Применить как период адаптации
+          </button>
+          <span id="wz5tl-apply-hint" style="font-size:0.78rem; color:#6b7280;"></span>
         </div>
       </div>
 
@@ -7962,10 +7920,78 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
     $('wz5-analyze').addEventListener('click', wz5RunAnalysis);
     $('wz5-desc').addEventListener('input', e => { d.description = e.target.value; });
 
-    // Шкала и привязка обработчиков
+    // ═══ TimelineBuilder (миграция с wz5tlInit + _w5BindHandlers) ═══
+    if (window.TimelineBuilder && state.well?.id) {
+      const _wz5UpdateApplyBtn = (from, to) => {
+        const btn = $('wz5tl-apply-btn');
+        const hint = $('wz5tl-apply-hint');
+        const ok = !!(from && to);
+        if (btn) {
+          btn.disabled = !ok;
+          btn.style.opacity = ok ? '1' : '0.5';
+          btn.style.cursor = ok ? 'pointer' : 'not-allowed';
+        }
+        if (hint) {
+          if (ok) {
+            const f = new Date(from), t = new Date(to);
+            const days = Math.round((t - f) / 86400000) + 1;
+            hint.textContent = `${from} → ${to} · ${days} дн.`;
+          } else if (from) {
+            hint.textContent = `${from} → … (выберите конец)`;
+          } else {
+            hint.textContent = '';
+          }
+        }
+      };
+
+      window._wz5Timeline = window.TimelineBuilder.create({
+        containerId: 'wz5-timeline-container',
+        wellId: state.well.id,
+        cssPrefix: 'tl',
+        features: {
+          bars: { customer: true, sensors: true },
+          stages: true,
+          events: true,
+          yearFilter: true,
+          anchorMode: true,
+          zoom: true,
+        },
+        onChange: (from, to) => {
+          // Синхронизация с полями формы
+          if ($('wz5-from') && from) $('wz5-from').value = from + 'T00:00';
+          if ($('wz5-to') && to) $('wz5-to').value = to + 'T23:59';
+          d.from = from ? from + 'T00:00' : null;
+          d.to = to ? to + 'T23:59' : null;
+          _wz5UpdateApplyBtn(from, to);
+          _wz5UpdateQuickInfo();
+          renderTiles();
+        },
+      });
+      window._wz5Timeline.init().then(() => {
+        // Если уже есть даты в state — установить их в таймлайн
+        if (d.from && d.to) {
+          window._wz5Timeline.setSelection(d.from.slice(0, 10), d.to.slice(0, 10));
+        }
+      });
+
+      // Кнопка "Применить" — записывает период в state
+      $('wz5tl-apply-btn')?.addEventListener('click', () => {
+        const sel = window._wz5Timeline.getSelection();
+        if (sel.from && sel.to) {
+          d.from = sel.from + 'T00:00';
+          d.to = sel.to + 'T23:59';
+          if ($('wz5-from')) $('wz5-from').value = d.from;
+          if ($('wz5-to')) $('wz5-to').value = d.to;
+          _wz5UpdateQuickInfo();
+          renderTiles();
+        }
+      });
+    }
+    /* ─── LEGACY: старый код закомментирован для отката ───
     wz5tlInit().then(() => {
       _w5BindHandlers();
     });
+    ─── /LEGACY ─── */
 
     // Cmp (сравнение участков) — общий механизм с wz5cmpCtx.
     // Привязываем обработчики и рендерим текущие сегменты (если они есть).
@@ -7996,9 +8022,9 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       window._adaptChapterPanel = window.initChapterPanel({
         chapter_id:       'adaptation',
         title:            'Адаптация',
-        kinds:            ['adaptation_period_analysis', 'adaptation_comparison'],
+        kinds:            ['adaptation_period_analysis', 'adaptation_comparison', 'optimal_window', 'reagent_irv_summary'],
         client_render:    true,
-        preview_endpoint: '/api/observation/blocks',
+        preview_endpoint: '/api/customer-daily/blocks',
         pdf_endpoint:     '/api/adaptation-report/preview-pdf',
         pdf_only_chapter: 'adaptation',
         get_well_id:      () => state.well?.id || null,

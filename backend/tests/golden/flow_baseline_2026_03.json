@@ -1,0 +1,483 @@
+{
+  "period": {
+    "from": "2026-03-01T00:00:00",
+    "to": "2026-03-31T23:59:59"
+  },
+  "cases": {
+    "17": {
+      "number": 128,
+      "smooth_true": {
+        "data_points": 42856,
+        "choke_mm": 10.0,
+        "p_tube": {
+          "n": 42856,
+          "n_nan": 0,
+          "mean": 19.590007,
+          "median": 19.718026,
+          "min": 3.699755,
+          "max": 38.920363,
+          "sum": 839549.3487
+        },
+        "p_line": {
+          "n": 42856,
+          "n_nan": 0,
+          "mean": 17.12985,
+          "median": 16.885386,
+          "min": 13.994887,
+          "max": 20.184647,
+          "sum": 734116.8562
+        },
+        "dp": {
+          "n": 42856,
+          "n_nan": 0,
+          "mean": 2.460157,
+          "median": 2.413782,
+          "min": -13.332438,
+          "max": 24.665983,
+          "sum": 105432.4924
+        },
+        "flow_rate": {
+          "n": 42856,
+          "n_nan": 0,
+          "mean": 20.093785,
+          "median": 20.958659,
+          "min": 0.0,
+          "max": 49.080841,
+          "sum": 861139.2286
+        },
+        "flow_zero_count": 560,
+        "cumulative_final": 621.853,
+        "summary_cumulative_flow": 621.853,
+        "summary_median_flow": 20.959,
+        "summary_downtime_hours": 7.42,
+        "purge_cycles": 7
+      },
+      "smooth_false": {
+        "data_points": 42856,
+        "choke_mm": 10.0,
+        "p_tube": {
+          "n": 42856,
+          "n_nan": 0,
+          "mean": 19.590007,
+          "median": 19.7,
+          "min": 3.8,
+          "max": 38.8,
+          "sum": 839549.3408
+        },
+        "p_line": {
+          "n": 42856,
+          "n_nan": 0,
+          "mean": 17.12985,
+          "median": 16.9,
+          "min": 14.0,
+          "max": 20.3,
+          "sum": 734116.8454
+        },
+        "dp": {
+          "n": 42856,
+          "n_nan": 0,
+          "mean": 2.460157,
+          "median": 2.4,
+          "min": -12.9,
+          "max": 24.6,
+          "sum": 105432.4954
+        },
+        "flow_rate": {
+          "n": 42856,
+          "n_nan": 0,
+          "mean": 20.090462,
+          "median": 20.95699,
+          "min": 0.0,
+          "max": 53.844452,
+          "sum": 860996.8553
+        },
+        "flow_zero_count": 557,
+        "cumulative_final": 621.6581,
+        "summary_cumulative_flow": 621.658,
+        "summary_median_flow": 20.956,
+        "summary_downtime_hours": 7.42,
+        "purge_cycles": 7
+      }
+    },
+    "21": {
+      "number": 98,
+      "smooth_true": {
+        "data_points": 43023,
+        "choke_mm": 12.0,
+        "p_tube": {
+          "n": 43023,
+          "n_nan": 0,
+          "mean": 20.443629,
+          "median": 19.344802,
+          "min": 9.600366,
+          "max": 41.54165,
+          "sum": 879546.2575
+        },
+        "p_line": {
+          "n": 43023,
+          "n_nan": 0,
+          "mean": 16.535916,
+          "median": 16.664321,
+          "min": 13.785595,
+          "max": 41.578626,
+          "sum": 711424.6949
+        },
+        "dp": {
+          "n": 43023,
+          "n_nan": 0,
+          "mean": 3.907714,
+          "median": 2.5,
+          "min": -8.984568,
+          "max": 10.694783,
+          "sum": 168121.5626
+        },
+        "flow_rate": {
+          "n": 43023,
+          "n_nan": 0,
+          "mean": 34.150275,
+          "median": 29.750102,
+          "min": 0.0,
+          "max": 60.846294,
+          "sum": 1469247.2699
+        },
+        "flow_zero_count": 472,
+        "cumulative_final": 1055.303,
+        "summary_cumulative_flow": 1055.303,
+        "summary_median_flow": 29.751,
+        "summary_downtime_hours": 0.62,
+        "purge_cycles": 1
+      },
+      "smooth_false": {
+        "data_points": 43023,
+        "choke_mm": 12.0,
+        "p_tube": {
+          "n": 43023,
+          "n_nan": 0,
+          "mean": 20.443628,
+          "median": 19.3,
+          "min": 8.9,
+          "max": 41.9,
+          "sum": 879546.2
+        },
+        "p_line": {
+          "n": 43023,
+          "n_nan": 0,
+          "mean": 16.535915,
+          "median": 16.7,
+          "min": 13.8,
+          "max": 42.0,
+          "sum": 711424.65
+        },
+        "dp": {
+          "n": 43023,
+          "n_nan": 0,
+          "mean": 3.907713,
+          "median": 2.5,
+          "min": -9.1,
+          "max": 12.4,
+          "sum": 168121.55
+        },
+        "flow_rate": {
+          "n": 43023,
+          "n_nan": 0,
+          "mean": 34.146304,
+          "median": 29.762471,
+          "min": 0.0,
+          "max": 61.902577,
+          "sum": 1469076.4553
+        },
+        "flow_zero_count": 485,
+        "cumulative_final": 1055.2184,
+        "summary_cumulative_flow": 1055.218,
+        "summary_median_flow": 29.762,
+        "summary_downtime_hours": 0.55,
+        "purge_cycles": 1
+      }
+    },
+    "4": {
+      "number": 61,
+      "smooth_true": {
+        "data_points": 42589,
+        "choke_mm": 12.0,
+        "p_tube": {
+          "n": 42589,
+          "n_nan": 0,
+          "mean": 17.950864,
+          "median": 17.27,
+          "min": 0.837942,
+          "max": 34.269806,
+          "sum": 764509.3322
+        },
+        "p_line": {
+          "n": 42589,
+          "n_nan": 0,
+          "mean": 16.986422,
+          "median": 16.2,
+          "min": 0.303803,
+          "max": 34.271977,
+          "sum": 723434.7362
+        },
+        "dp": {
+          "n": 42589,
+          "n_nan": 0,
+          "mean": 0.964441,
+          "median": 1.075374,
+          "min": -17.309134,
+          "max": 9.556662,
+          "sum": 41074.596
+        },
+        "flow_rate": {
+          "n": 42589,
+          "n_nan": 0,
+          "mean": 18.24496,
+          "median": 19.195401,
+          "min": 0.0,
+          "max": 65.327621,
+          "sum": 777034.6018
+        },
+        "flow_zero_count": 1973,
+        "cumulative_final": 565.8491,
+        "summary_cumulative_flow": 565.849,
+        "summary_median_flow": 19.195,
+        "summary_downtime_hours": 4.53,
+        "purge_cycles": 4
+      },
+      "smooth_false": {
+        "data_points": 42589,
+        "choke_mm": 12.0,
+        "p_tube": {
+          "n": 42589,
+          "n_nan": 0,
+          "mean": 17.950863,
+          "median": 17.3,
+          "min": 1.1,
+          "max": 34.2,
+          "sum": 764509.3
+        },
+        "p_line": {
+          "n": 42589,
+          "n_nan": 0,
+          "mean": 16.986421,
+          "median": 16.2,
+          "min": 1.0,
+          "max": 34.2,
+          "sum": 723434.7
+        },
+        "dp": {
+          "n": 42589,
+          "n_nan": 0,
+          "mean": 0.964442,
+          "median": 1.1,
+          "min": -18.6,
+          "max": 10.8,
+          "sum": 41074.6
+        },
+        "flow_rate": {
+          "n": 42589,
+          "n_nan": 0,
+          "mean": 18.290119,
+          "median": 19.184592,
+          "min": 0.0,
+          "max": 67.100109,
+          "sum": 778957.8722
+        },
+        "flow_zero_count": 1714,
+        "cumulative_final": 567.4812,
+        "summary_cumulative_flow": 567.481,
+        "summary_median_flow": 19.185,
+        "summary_downtime_hours": 1.97,
+        "purge_cycles": 2
+      }
+    },
+    "24": {
+      "number": 95,
+      "smooth_true": {
+        "data_points": 40426,
+        "choke_mm": 8.0,
+        "p_tube": {
+          "n": 40426,
+          "n_nan": 0,
+          "mean": 17.596957,
+          "median": 17.405455,
+          "min": 0.105175,
+          "max": 60.946875,
+          "sum": 711374.5895
+        },
+        "p_line": {
+          "n": 40426,
+          "n_nan": 0,
+          "mean": 15.730916,
+          "median": 15.451996,
+          "min": 13.185746,
+          "max": 41.265182,
+          "sum": 635938.0201
+        },
+        "dp": {
+          "n": 40426,
+          "n_nan": 0,
+          "mean": 1.866041,
+          "median": 1.8,
+          "min": -31.423978,
+          "max": 44.854657,
+          "sum": 75436.5693
+        },
+        "flow_rate": {
+          "n": 40426,
+          "n_nan": 0,
+          "mean": 10.847471,
+          "median": 10.866578,
+          "min": 0.0,
+          "max": 60.007334,
+          "sum": 438519.8774
+        },
+        "flow_zero_count": 152,
+        "cumulative_final": 306.4289,
+        "summary_cumulative_flow": 306.429,
+        "summary_median_flow": 10.866,
+        "summary_downtime_hours": 0.58,
+        "purge_cycles": 1
+      },
+      "smooth_false": {
+        "data_points": 40426,
+        "choke_mm": 8.0,
+        "p_tube": {
+          "n": 40426,
+          "n_nan": 0,
+          "mean": 17.596903,
+          "median": 17.4,
+          "min": 1.4,
+          "max": 60.8,
+          "sum": 711372.4
+        },
+        "p_line": {
+          "n": 40426,
+          "n_nan": 0,
+          "mean": 15.730916,
+          "median": 15.5,
+          "min": 13.2,
+          "max": 41.3,
+          "sum": 635938.0
+        },
+        "dp": {
+          "n": 40426,
+          "n_nan": 0,
+          "mean": 1.865987,
+          "median": 1.8,
+          "min": -30.6,
+          "max": 44.7,
+          "sum": 75434.4
+        },
+        "flow_rate": {
+          "n": 40426,
+          "n_nan": 0,
+          "mean": 10.845624,
+          "median": 10.867267,
+          "min": 0.0,
+          "max": 59.862723,
+          "sum": 438445.1767
+        },
+        "flow_zero_count": 149,
+        "cumulative_final": 306.3581,
+        "summary_cumulative_flow": 306.358,
+        "summary_median_flow": 10.867,
+        "summary_downtime_hours": 0.58,
+        "purge_cycles": 1
+      }
+    },
+    "23": {
+      "number": 130,
+      "smooth_true": {
+        "data_points": 34111,
+        "choke_mm": 12.0,
+        "p_tube": {
+          "n": 34111,
+          "n_nan": 0,
+          "mean": 16.309019,
+          "median": 16.292365,
+          "min": 0.456622,
+          "max": 25.068077,
+          "sum": 556316.9458
+        },
+        "p_line": {
+          "n": 34111,
+          "n_nan": 0,
+          "mean": 15.714383,
+          "median": 15.684698,
+          "min": 0.076292,
+          "max": 25.078486,
+          "sum": 536033.3147
+        },
+        "dp": {
+          "n": 34111,
+          "n_nan": 0,
+          "mean": 0.594636,
+          "median": 0.401813,
+          "min": -23.114017,
+          "max": 17.423708,
+          "sum": 20283.6311
+        },
+        "flow_rate": {
+          "n": 34111,
+          "n_nan": 0,
+          "mean": 14.492986,
+          "median": 11.570829,
+          "min": 0.0,
+          "max": 44.54561,
+          "sum": 494370.2552
+        },
+        "flow_zero_count": 705,
+        "cumulative_final": 344.9624,
+        "summary_cumulative_flow": 344.962,
+        "summary_median_flow": 11.571,
+        "summary_downtime_hours": 4.53,
+        "purge_cycles": 5
+      },
+      "smooth_false": {
+        "data_points": 34111,
+        "choke_mm": 12.0,
+        "p_tube": {
+          "n": 34111,
+          "n_nan": 0,
+          "mean": 16.309044,
+          "median": 16.3,
+          "min": 1.0,
+          "max": 25.1,
+          "sum": 556317.8
+        },
+        "p_line": {
+          "n": 34111,
+          "n_nan": 0,
+          "mean": 15.714297,
+          "median": 15.7,
+          "min": 2.6,
+          "max": 25.1,
+          "sum": 536030.4
+        },
+        "dp": {
+          "n": 34111,
+          "n_nan": 0,
+          "mean": 0.594747,
+          "median": 0.4,
+          "min": -23.1,
+          "max": 14.9,
+          "sum": 20287.4
+        },
+        "flow_rate": {
+          "n": 34111,
+          "n_nan": 0,
+          "mean": 14.47381,
+          "median": 11.646826,
+          "min": 0.0,
+          "max": 49.526502,
+          "sum": 493716.1161
+        },
+        "flow_zero_count": 712,
+        "cumulative_final": 344.5856,
+        "summary_cumulative_flow": 344.586,
+        "summary_median_flow": 11.609,
+        "summary_downtime_hours": 4.53,
+        "purge_cycles": 5
+      }
+    }
+  }
+}

@@ -152,6 +152,11 @@
       C2:   parseFloat((document.getElementById('flow-coeff-C2')   || {}).value) || 4.654,
       C3:   parseFloat((document.getElementById('flow-coeff-C3')   || {}).value) || 286.95,
       Rcrit: parseFloat((document.getElementById('flow-coeff-Rcrit') || {}).value) || 0.5,
+      // Порог заполнения пропусков давления (мин). Пусто → дефолт 20. 0 = без лимита.
+      fillMax: (function () {
+        var v = (document.getElementById('flow-fill-max') || {}).value;
+        return (v === '' || v === undefined || v === null) ? 20 : parseInt(v, 10);
+      })(),
     };
   }
 
@@ -284,7 +289,8 @@
               '&C1=' + coeffs.C1 +
               '&C2=' + coeffs.C2 +
               '&C3=' + coeffs.C3 +
-              '&critical_ratio=' + coeffs.Rcrit;
+              '&critical_ratio=' + coeffs.Rcrit +
+              '&max_fill_min=' + coeffs.fillMax;
       } else {
         url = '/api/flow-rate/calculate/' + wellId +
               '?days=' + currentDays +
@@ -293,7 +299,8 @@
               '&C1=' + coeffs.C1 +
               '&C2=' + coeffs.C2 +
               '&C3=' + coeffs.C3 +
-              '&critical_ratio=' + coeffs.Rcrit;
+              '&critical_ratio=' + coeffs.Rcrit +
+              '&max_fill_min=' + coeffs.fillMax;
       }
 
       if (excludedPeriodIds.size > 0) {

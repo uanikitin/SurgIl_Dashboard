@@ -1986,6 +1986,16 @@
           <div style="font-size:10px; color:#999; margin-top:2px;">граница режимов (по умолч. 0.5)</div>
         </div>
 
+        <div>
+          <label style="font-size:11px; color:#666; font-weight:600; display:block; margin-bottom:3px;"
+            title="Короткий пропуск датчика (значение физически было) заполняется интерполяцией. Дыра длиннее порога остаётся пустой — её нельзя достоверно восстановить.">
+            Заполнение пропусков, мин
+          </label>
+          <input id="flow-fill-max" type="number" step="1" min="0" max="240" value="20"
+            style="width:100%; padding:6px 8px; border:1px solid #ffe0b2; border-radius:4px; font-size:13px; text-align:center; background:white;">
+          <div style="font-size:10px; color:#999; margin-top:2px;">≤ порога — интерполяция, длиннее — пропуск (по умолч. 20; 0 = без лимита)</div>
+        </div>
+
         <div style="display:flex; align-items:flex-end;">
           <button id="flow-apply-coeffs" type="button" style="
             width:100%; padding:8px 12px; border:none; border-radius:6px;

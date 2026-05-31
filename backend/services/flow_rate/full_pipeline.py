@@ -30,6 +30,8 @@ from typing import Optional
 
 import pandas as pd
 
+from backend.services.flow_rate.cleaning import DEFAULT_MAX_FILL_MIN
+
 log = logging.getLogger(__name__)
 
 
@@ -39,6 +41,7 @@ def compute_full_flow(
     dt_end: str | datetime,
     *,
     smooth: bool = True,
+    max_fill_min: int = DEFAULT_MAX_FILL_MIN,
     multiplier: float = 4.1,
     C1: float = 2.919,
     C2: float = 4.654,
@@ -58,6 +61,10 @@ def compute_full_flow(
         DataFrame после возврата будет в Кунградском времени (+5h).
     smooth : bool
         Применять ли фильтр Савицкого-Голая.
+    max_fill_min : int
+        Порог заполнения пропусков давления (минут). Короткие дыри
+        интерполируются, длиннее — остаются NaN. По умолчанию 20. См.
+        clean_pressure. Регулируется в дашборде (страница скважины).
 
     Возвращает
     ----------
@@ -123,8 +130,8 @@ def compute_full_flow(
             f"Проверьте таблицу well_construction."
         )
 
-    # 2. Очистка
-    df = clean_pressure(df)
+    # 2. Очистка + заполнение коротких пропусков (≤ max_fill_min мин)
+    df = clean_pressure(df, max_fill_min=max_fill_min)
 
     # 3. Verified-маски (ДО сдвига UTC → Кунград)
     try:
@@ -178,6 +185,18 @@ def compute_full_flow(
 
     # 11. Простои: (dp < dp_threshold) OR purge_flag — единое условие.
     periods = detect_downtime_periods(df, dp_threshold=dp_threshold, include_purge=True)
+
+    # 11a. Обнулить flow_rate в периодах простоя (согласованность с красными зонами).
+    # Простой = когда ΔP < порога, скважина физически не работает → дебит = 0.
+    import numpy as np
+    dp = df["p_tube"] - df["p_line"]
+    downtime_mask = dp < dp_threshold
+    if "purge_flag" in df.columns:
+        downtime_mask = downtime_mask | (df["purge_flag"].fillna(0).astype(bool))
+    df["flow_rate"] = np.where(downtime_mask, 0.0, df["flow_rate"].values)
+
+    # 11b. Пересчитать накопленный дебит после обнуления.
+    df = calculate_cumulative(df)
 
     # 12. Сводка по точкам
     summary = build_summary(

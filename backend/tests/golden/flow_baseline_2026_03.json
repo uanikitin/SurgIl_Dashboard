@@ -12,43 +12,43 @@
         "p_tube": {
           "n": 42856,
           "n_nan": 0,
-          "mean": 19.590007,
-          "median": 19.718026,
-          "min": 3.699755,
+          "mean": 19.591337,
+          "median": 19.720397,
+          "min": 3.698455,
           "max": 38.920363,
-          "sum": 839549.3487
+          "sum": 839606.337
         },
         "p_line": {
           "n": 42856,
           "n_nan": 0,
-          "mean": 17.12985,
-          "median": 16.885386,
+          "mean": 17.129826,
+          "median": 16.885111,
           "min": 13.994887,
-          "max": 20.184647,
-          "sum": 734116.8562
+          "max": 20.18459,
+          "sum": 734115.8389
         },
         "dp": {
           "n": 42856,
           "n_nan": 0,
-          "mean": 2.460157,
-          "median": 2.413782,
+          "mean": 2.461511,
+          "median": 2.414078,
           "min": -13.332438,
           "max": 24.665983,
-          "sum": 105432.4924
+          "sum": 105490.4981
         },
         "flow_rate": {
           "n": 42856,
           "n_nan": 0,
-          "mean": 20.093785,
-          "median": 20.958659,
+          "mean": 20.097802,
+          "median": 20.957832,
           "min": 0.0,
           "max": 49.080841,
-          "sum": 861139.2286
+          "sum": 861311.3974
         },
-        "flow_zero_count": 560,
-        "cumulative_final": 621.853,
-        "summary_cumulative_flow": 621.853,
-        "summary_median_flow": 20.959,
+        "flow_zero_count": 559,
+        "cumulative_final": 621.9817,
+        "summary_cumulative_flow": 621.982,
+        "summary_median_flow": 20.958,
         "summary_downtime_hours": 7.42,
         "purge_cycles": 7
       },
@@ -58,43 +58,43 @@
         "p_tube": {
           "n": 42856,
           "n_nan": 0,
-          "mean": 19.590007,
+          "mean": 19.591337,
           "median": 19.7,
           "min": 3.8,
           "max": 38.8,
-          "sum": 839549.3408
+          "sum": 839606.3178
         },
         "p_line": {
           "n": 42856,
           "n_nan": 0,
-          "mean": 17.12985,
+          "mean": 17.129826,
           "median": 16.9,
           "min": 14.0,
           "max": 20.3,
-          "sum": 734116.8454
+          "sum": 734115.8281
         },
         "dp": {
           "n": 42856,
           "n_nan": 0,
-          "mean": 2.460157,
+          "mean": 2.46151,
           "median": 2.4,
           "min": -12.9,
           "max": 24.6,
-          "sum": 105432.4954
+          "sum": 105490.4897
         },
         "flow_rate": {
           "n": 42856,
           "n_nan": 0,
-          "mean": 20.090462,
-          "median": 20.95699,
+          "mean": 20.095109,
+          "median": 20.958598,
           "min": 0.0,
           "max": 53.844452,
-          "sum": 860996.8553
+          "sum": 861195.9994
         },
-        "flow_zero_count": 557,
-        "cumulative_final": 621.6581,
-        "summary_cumulative_flow": 621.658,
-        "summary_median_flow": 20.956,
+        "flow_zero_count": 552,
+        "cumulative_final": 621.8492,
+        "summary_cumulative_flow": 621.849,
+        "summary_median_flow": 20.959,
         "summary_downtime_hours": 7.42,
         "purge_cycles": 7
       }
@@ -107,44 +107,44 @@
         "p_tube": {
           "n": 43023,
           "n_nan": 0,
-          "mean": 20.443629,
-          "median": 19.344802,
-          "min": 9.600366,
-          "max": 41.54165,
-          "sum": 879546.2575
+          "mean": 20.443652,
+          "median": 19.346417,
+          "min": 9.630425,
+          "max": 41.576835,
+          "sum": 879547.2244
         },
         "p_line": {
           "n": 43023,
           "n_nan": 0,
-          "mean": 16.535916,
+          "mean": 16.536226,
           "median": 16.664321,
           "min": 13.785595,
-          "max": 41.578626,
-          "sum": 711424.6949
+          "max": 41.60423,
+          "sum": 711438.0362
         },
         "dp": {
           "n": 43023,
           "n_nan": 0,
-          "mean": 3.907714,
+          "mean": 3.907426,
           "median": 2.5,
           "min": -8.984568,
-          "max": 10.694783,
-          "sum": 168121.5626
+          "max": 10.694777,
+          "sum": 168109.1882
         },
         "flow_rate": {
           "n": 43023,
           "n_nan": 0,
-          "mean": 34.150275,
-          "median": 29.750102,
+          "mean": 34.149394,
+          "median": 29.73869,
           "min": 0.0,
-          "max": 60.846294,
-          "sum": 1469247.2699
+          "max": 60.768679,
+          "sum": 1469209.3745
         },
-        "flow_zero_count": 472,
-        "cumulative_final": 1055.303,
-        "summary_cumulative_flow": 1055.303,
-        "summary_median_flow": 29.751,
-        "summary_downtime_hours": 0.62,
+        "flow_zero_count": 474,
+        "cumulative_final": 1055.2577,
+        "summary_cumulative_flow": 1055.258,
+        "summary_median_flow": 29.737,
+        "summary_downtime_hours": 0.63,
         "purge_cycles": 1
       },
       "smooth_false": {
@@ -153,42 +153,42 @@
         "p_tube": {
           "n": 43023,
           "n_nan": 0,
-          "mean": 20.443628,
+          "mean": 20.44365,
           "median": 19.3,
           "min": 8.9,
           "max": 41.9,
-          "sum": 879546.2
+          "sum": 879547.1668
         },
         "p_line": {
           "n": 43023,
           "n_nan": 0,
-          "mean": 16.535915,
+          "mean": 16.536224,
           "median": 16.7,
           "min": 13.8,
           "max": 42.0,
-          "sum": 711424.65
+          "sum": 711437.9866
         },
         "dp": {
           "n": 43023,
           "n_nan": 0,
-          "mean": 3.907713,
+          "mean": 3.907426,
           "median": 2.5,
           "min": -9.1,
           "max": 12.4,
-          "sum": 168121.55
+          "sum": 168109.1802
         },
         "flow_rate": {
           "n": 43023,
           "n_nan": 0,
-          "mean": 34.146304,
+          "mean": 34.146589,
           "median": 29.762471,
           "min": 0.0,
           "max": 61.902577,
-          "sum": 1469076.4553
+          "sum": 1469088.69
         },
         "flow_zero_count": 485,
-        "cumulative_final": 1055.2184,
-        "summary_cumulative_flow": 1055.218,
+        "cumulative_final": 1055.1865,
+        "summary_cumulative_flow": 1055.186,
         "summary_median_flow": 29.762,
         "summary_downtime_hours": 0.55,
         "purge_cycles": 1
@@ -202,43 +202,43 @@
         "p_tube": {
           "n": 42589,
           "n_nan": 0,
-          "mean": 17.950864,
-          "median": 17.27,
-          "min": 0.837942,
+          "mean": 17.951038,
+          "median": 17.270417,
+          "min": 0.862679,
           "max": 34.269806,
-          "sum": 764509.3322
+          "sum": 764516.7762
         },
         "p_line": {
           "n": 42589,
           "n_nan": 0,
-          "mean": 16.986422,
+          "mean": 16.987215,
           "median": 16.2,
-          "min": 0.303803,
+          "min": 0.875081,
           "max": 34.271977,
-          "sum": 723434.7362
+          "sum": 723468.5155
         },
         "dp": {
           "n": 42589,
           "n_nan": 0,
-          "mean": 0.964441,
-          "median": 1.075374,
-          "min": -17.309134,
-          "max": 9.556662,
-          "sum": 41074.596
+          "mean": 0.963823,
+          "median": 1.074778,
+          "min": -17.229071,
+          "max": 9.556746,
+          "sum": 41048.2607
         },
         "flow_rate": {
           "n": 42589,
           "n_nan": 0,
-          "mean": 18.24496,
-          "median": 19.195401,
+          "mean": 18.243761,
+          "median": 19.193649,
           "min": 0.0,
           "max": 65.327621,
-          "sum": 777034.6018
+          "sum": 776983.5179
         },
-        "flow_zero_count": 1973,
-        "cumulative_final": 565.8491,
-        "summary_cumulative_flow": 565.849,
-        "summary_median_flow": 19.195,
+        "flow_zero_count": 1978,
+        "cumulative_final": 565.6778,
+        "summary_cumulative_flow": 565.678,
+        "summary_median_flow": 19.193,
         "summary_downtime_hours": 4.53,
         "purge_cycles": 4
       },
@@ -248,45 +248,45 @@
         "p_tube": {
           "n": 42589,
           "n_nan": 0,
-          "mean": 17.950863,
+          "mean": 17.951038,
           "median": 17.3,
           "min": 1.1,
           "max": 34.2,
-          "sum": 764509.3
+          "sum": 764516.746
         },
         "p_line": {
           "n": 42589,
           "n_nan": 0,
-          "mean": 16.986421,
+          "mean": 16.987215,
           "median": 16.2,
           "min": 1.0,
           "max": 34.2,
-          "sum": 723434.7
+          "sum": 723468.4793
         },
         "dp": {
           "n": 42589,
           "n_nan": 0,
-          "mean": 0.964442,
+          "mean": 0.963823,
           "median": 1.1,
           "min": -18.6,
-          "max": 10.8,
-          "sum": 41074.6
+          "max": 17.670492,
+          "sum": 41048.2667
         },
         "flow_rate": {
           "n": 42589,
           "n_nan": 0,
-          "mean": 18.290119,
+          "mean": 18.270288,
           "median": 19.184592,
           "min": 0.0,
-          "max": 67.100109,
-          "sum": 778957.8722
+          "max": 67.280194,
+          "sum": 778113.2813
         },
-        "flow_zero_count": 1714,
-        "cumulative_final": 567.4812,
-        "summary_cumulative_flow": 567.481,
+        "flow_zero_count": 1794,
+        "cumulative_final": 566.5224,
+        "summary_cumulative_flow": 566.522,
         "summary_median_flow": 19.185,
-        "summary_downtime_hours": 1.97,
-        "purge_cycles": 2
+        "summary_downtime_hours": 3.85,
+        "purge_cycles": 3
       }
     },
     "24": {
@@ -296,43 +296,43 @@
         "choke_mm": 8.0,
         "p_tube": {
           "n": 40426,
-          "n_nan": 0,
-          "mean": 17.596957,
-          "median": 17.405455,
-          "min": 0.105175,
-          "max": 60.946875,
-          "sum": 711374.5895
+          "n_nan": 31,
+          "mean": 17.605964,
+          "median": 17.406568,
+          "min": 0.767496,
+          "max": 60.95145,
+          "sum": 711192.935
         },
         "p_line": {
           "n": 40426,
           "n_nan": 0,
-          "mean": 15.730916,
-          "median": 15.451996,
-          "min": 13.185746,
-          "max": 41.265182,
-          "sum": 635938.0201
+          "mean": 15.730955,
+          "median": 15.453496,
+          "min": 13.184196,
+          "max": 41.271382,
+          "sum": 635939.5917
         },
         "dp": {
           "n": 40426,
-          "n_nan": 0,
-          "mean": 1.866041,
+          "n_nan": 31,
+          "mean": 1.876276,
           "median": 1.8,
-          "min": -31.423978,
-          "max": 44.854657,
-          "sum": 75436.5693
+          "min": -30.876363,
+          "max": 44.859232,
+          "sum": 75792.157
         },
         "flow_rate": {
           "n": 40426,
           "n_nan": 0,
-          "mean": 10.847471,
+          "mean": 10.850507,
           "median": 10.866578,
           "min": 0.0,
-          "max": 60.007334,
-          "sum": 438519.8774
+          "max": 60.011838,
+          "sum": 438642.6019
         },
-        "flow_zero_count": 152,
-        "cumulative_final": 306.4289,
-        "summary_cumulative_flow": 306.429,
+        "flow_zero_count": 173,
+        "cumulative_final": 306.522,
+        "summary_cumulative_flow": 306.522,
         "summary_median_flow": 10.866,
         "summary_downtime_hours": 0.58,
         "purge_cycles": 1
@@ -342,43 +342,43 @@
         "choke_mm": 8.0,
         "p_tube": {
           "n": 40426,
-          "n_nan": 0,
-          "mean": 17.596903,
+          "n_nan": 15,
+          "mean": 17.606582,
           "median": 17.4,
           "min": 1.4,
           "max": 60.8,
-          "sum": 711372.4
+          "sum": 711499.5905
         },
         "p_line": {
           "n": 40426,
           "n_nan": 0,
-          "mean": 15.730916,
-          "median": 15.5,
+          "mean": 15.730955,
+          "median": 15.466667,
           "min": 13.2,
           "max": 41.3,
-          "sum": 635938.0
+          "sum": 635939.5716
         },
         "dp": {
           "n": 40426,
-          "n_nan": 0,
-          "mean": 1.865987,
+          "n_nan": 15,
+          "mean": 1.87624,
           "median": 1.8,
           "min": -30.6,
           "max": 44.7,
-          "sum": 75434.4
+          "sum": 75820.7189
         },
         "flow_rate": {
           "n": 40426,
           "n_nan": 0,
-          "mean": 10.845624,
+          "mean": 10.8525,
           "median": 10.867267,
           "min": 0.0,
           "max": 59.862723,
-          "sum": 438445.1767
+          "sum": 438723.1801
         },
-        "flow_zero_count": 149,
-        "cumulative_final": 306.3581,
-        "summary_cumulative_flow": 306.358,
+        "flow_zero_count": 161,
+        "cumulative_final": 306.5568,
+        "summary_cumulative_flow": 306.557,
         "summary_median_flow": 10.867,
         "summary_downtime_hours": 0.58,
         "purge_cycles": 1
@@ -392,45 +392,45 @@
         "p_tube": {
           "n": 34111,
           "n_nan": 0,
-          "mean": 16.309019,
-          "median": 16.292365,
-          "min": 0.456622,
-          "max": 25.068077,
-          "sum": 556316.9458
+          "mean": 16.311353,
+          "median": 16.292342,
+          "min": 0.57099,
+          "max": 25.069204,
+          "sum": 556396.5632
         },
         "p_line": {
           "n": 34111,
           "n_nan": 0,
-          "mean": 15.714383,
-          "median": 15.684698,
+          "mean": 15.714344,
+          "median": 15.685039,
           "min": 0.076292,
-          "max": 25.078486,
-          "sum": 536033.3147
+          "max": 25.082196,
+          "sum": 536031.9853
         },
         "dp": {
           "n": 34111,
           "n_nan": 0,
-          "mean": 0.594636,
-          "median": 0.401813,
-          "min": -23.114017,
+          "mean": 0.597009,
+          "median": 0.40151,
+          "min": -22.28532,
           "max": 17.423708,
-          "sum": 20283.6311
+          "sum": 20364.5779
         },
         "flow_rate": {
           "n": 34111,
           "n_nan": 0,
-          "mean": 14.492986,
-          "median": 11.570829,
+          "mean": 14.487098,
+          "median": 11.560358,
           "min": 0.0,
-          "max": 44.54561,
-          "sum": 494370.2552
+          "max": 44.601892,
+          "sum": 494169.4085
         },
-        "flow_zero_count": 705,
-        "cumulative_final": 344.9624,
-        "summary_cumulative_flow": 344.962,
-        "summary_median_flow": 11.571,
-        "summary_downtime_hours": 4.53,
-        "purge_cycles": 5
+        "flow_zero_count": 717,
+        "cumulative_final": 344.8226,
+        "summary_cumulative_flow": 344.823,
+        "summary_median_flow": 11.561,
+        "summary_downtime_hours": 5.86,
+        "purge_cycles": 6
       },
       "smooth_false": {
         "data_points": 34111,
@@ -438,42 +438,42 @@
         "p_tube": {
           "n": 34111,
           "n_nan": 0,
-          "mean": 16.309044,
+          "mean": 16.311378,
           "median": 16.3,
           "min": 1.0,
           "max": 25.1,
-          "sum": 556317.8
+          "sum": 556397.4174
         },
         "p_line": {
           "n": 34111,
-          "n_nan": 0,
-          "mean": 15.714297,
+          "n_nan": 145,
+          "mean": 15.716965,
           "median": 15.7,
           "min": 2.6,
           "max": 25.1,
-          "sum": 536030.4
+          "sum": 533842.4479
         },
         "dp": {
           "n": 34111,
-          "n_nan": 0,
-          "mean": 0.594747,
+          "n_nan": 145,
+          "mean": 0.598215,
           "median": 0.4,
-          "min": -23.1,
+          "min": -22.3,
           "max": 14.9,
-          "sum": 20287.4
+          "sum": 20318.9695
         },
         "flow_rate": {
           "n": 34111,
           "n_nan": 0,
-          "mean": 14.47381,
+          "mean": 14.432379,
           "median": 11.646826,
           "min": 0.0,
           "max": 49.526502,
-          "sum": 493716.1161
+          "sum": 492302.8869
         },
-        "flow_zero_count": 712,
-        "cumulative_final": 344.5856,
-        "summary_cumulative_flow": 344.586,
+        "flow_zero_count": 846,
+        "cumulative_final": 343.5971,
+        "summary_cumulative_flow": 343.597,
         "summary_median_flow": 11.609,
         "summary_downtime_hours": 4.53,
         "purge_cycles": 5

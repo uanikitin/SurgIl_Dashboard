@@ -29,6 +29,7 @@ def _run_calculation(
     critical_ratio: float = 0.5,
     exclude_periods: str = "",
     dp_threshold: float = 0.1,
+    max_fill_min: int = 20,
 ) -> dict:
     """
     Тонкая обёртка над `compute_full_flow` — единым источником истины.
@@ -45,6 +46,7 @@ def _run_calculation(
         result = compute_full_flow(
             well_id, dt_start, dt_end,
             smooth=smooth,
+            max_fill_min=max_fill_min,
             multiplier=multiplier, C1=C1, C2=C2, C3=C3,
             critical_ratio=critical_ratio,
             exclude_periods=exclude_periods,
@@ -85,6 +87,10 @@ def api_calculate(
     dp_threshold: float = Query(0.1, ge=0.0, le=2.0,
         description="Порог простоя ΔP (атм). Точка считается простоем если "
                     "(p_tube - p_line) < dp_threshold ИЛИ purge_flag."),
+    max_fill_min: int = Query(20, ge=0, le=240,
+        description="Порог заполнения пропусков давления (мин). Короткий "
+                    "пропуск датчика (≤ порога) заполняется интерполяцией; "
+                    "длиннее — остаётся NaN (не фабрикуем). 0 = без лимита."),
 ):
     """
     Полный расчёт дебита: summary + график + продувки + простои.
@@ -108,6 +114,7 @@ def api_calculate(
         critical_ratio=critical_ratio,
         exclude_periods=exclude_periods,
         dp_threshold=dp_threshold,
+        max_fill_min=max_fill_min,
     )
 
 

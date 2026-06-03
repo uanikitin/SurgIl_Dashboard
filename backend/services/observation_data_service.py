@@ -1,0 +1,804 @@
+"""
+Observation Data Service — единая загрузка и подготовка данных для главы
+«Наблюдение» (Step 3 wizard'а адаптационного отчёта).
+
+Используется тремя preview-сервисами: baseline, period_analysis, segment_analysis.
+
+КЛЮЧЕВОЙ ПРИНЦИП: использует существующий live-pipeline через
+`compute_full_flow()`. НЕ дублирует расчёты — обёртка над тем же кодом, что
+питает /api/flow-rate/calculate и страницу скважины.
+
+Timezone-соглашение
+-------------------
+- Входные параметры d_from / d_to  — date в «Кунградском» контексте (UTC+5).
+  Конвертируются в UTC ISO-строки для compute_full_flow / get_pressure_data.
+- DataFrame .index — Кунградское время (UTC+5). Это гарантируется full_pipeline:
+  шаг 4 «UTC → Кунград» сдвигает индекс +5h внутри compute_full_flow.
+- Все datetime в data_quality / other метаданных — naive, Кунградское время.
+"""
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
+from typing import Literal, Optional
+
+import numpy as np
+import pandas as pd
+from sqlalchemy.orm import Session
+
+log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Константы
+# ---------------------------------------------------------------------------
+
+KUNGRAD_OFFSET = timedelta(hours=5)
+
+# Правило: строка рабочая если p_tube > p_line И ΔP > 0.1 И оба не NaN/0.
+DP_THRESHOLD = 0.1
+
+# Гэп ≥ 60 мин подряд без данных считается значимым гэпом в quality check.
+GAP_MIN_MINUTES = 60
+
+# Гэп ≥ 5 суток → флаг significant_gap.
+SIGNIFICANT_GAP_DAYS = 5
+
+# Порог покрытия: меньше 80% → low_coverage.
+LOW_COVERAGE_PCT = 80.0
+
+# z-score > 3σ за окно 14 дней → suspicious spike.
+ZSCORE_WINDOW_DAYS = 14
+ZSCORE_THRESHOLD = 3.0
+
+# ---------------------------------------------------------------------------
+# Типы
+# ---------------------------------------------------------------------------
+
+AggLevel = Literal["minute", "hourly", "6h", "12h", "daily"]
+DataStatus = Literal["ok", "sparse", "gap", "suspicious", "no_data"]
+
+# Маппинг AggLevel → pandas resample rule
+_RESAMPLE_RULE: dict[str, str] = {
+    "minute": "1min",
+    "hourly": "1h",
+    "6h":     "6h",
+    "12h":    "12h",
+    "daily":  "1D",
+}
+
+
+@dataclass
+class ObservationDataResult:
+    """Результат загрузки данных для главы Наблюдение."""
+
+    well_id: int
+    period: dict  # {"from": "ISO date", "to": "ISO date"}
+    aggregation: AggLevel
+
+    # Наши данные после live-pipeline, агрегированные до запрошенной частоты.
+    # Колонки: timestamp (index, Kungrad TZ), p_tube, p_line, dp,
+    #          q (тыс.м³/сут, NaN на не-рабочих строках), shutdown_min, purge_flag
+    our_df: pd.DataFrame = field(default_factory=pd.DataFrame)
+
+    # Сырой поминутный DataFrame из compute_full_flow.
+    # Нужен сегментному анализу для агрегации с настройками smoothing_window.
+    # Колонки: flow_rate, cumulative_flow, p_tube, p_line, purge_flag, ...
+    our_raw_minute_df: pd.DataFrame = field(default_factory=pd.DataFrame)
+
+    # Метаданные нашего pipeline
+    our_meta: dict = field(default_factory=dict)
+
+    # Overlay-данные УзКорГаз из well_daily (суточные).
+    # Колонки: date, p_wellhead, p_annular, p_flowline, q_gas_total,
+    #          q_gas_working, shutdown_min, choke_mm
+    customer_df: pd.DataFrame = field(default_factory=pd.DataFrame)
+
+    # Качество данных (по нашим поминутным данным)
+    data_quality: dict = field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# ОСНОВНАЯ ФУНКЦИЯ ЗАГРУЗКИ
+# ---------------------------------------------------------------------------
+
+
+def load_observation_data(
+    db: Session,
+    well_id: int,
+    d_from: "date | str",
+    d_to: "date | str",
+    *,
+    aggregation: AggLevel = "daily",
+    smooth_minute: bool = True,
+    include_customer_overlay: bool = True,
+) -> ObservationDataResult:
+    """
+    Главная точка входа. Загружает наши данные через compute_full_flow,
+    агрегирует до запрошенной частоты, загружает overlay UzKorGaz,
+    рассчитывает quality flags.
+
+    Параметры
+    ---------
+    well_id         : id скважины (wells.id)
+    d_from, d_to    : даты периода (ISO string «YYYY-MM-DD» или date).
+                      Интерпретируются как Кунградское время;
+                      конвертируются в UTC для запроса в БД.
+    aggregation     : 'minute' / 'hourly' / '6h' / '12h' / 'daily'
+    smooth_minute   : применять ли Savitzky-Golay внутри compute_full_flow
+    include_customer_overlay : подгружать ли well_daily для overlay
+
+    Возвращает
+    ----------
+    ObservationDataResult.
+    Если данных совсем нет — возвращает результат с data_quality.status='no_data'
+    (не бросает исключение, если проблема в отсутствии данных).
+    Бросает ValueError при критических ошибках (нет штуцера и т.п.).
+
+    Timezone note
+    -------------
+    d_from / d_to — Кунградские даты. Для compute_full_flow они конвертируются
+    в UTC: d_from 00:00 Kungrad = d_from - 5h UTC = (d_from - 1 day) 19:00 UTC.
+    """
+    # 1. Нормализация дат
+    if isinstance(d_from, str):
+        d_from = date.fromisoformat(d_from)
+    if isinstance(d_to, str):
+        d_to = date.fromisoformat(d_to)
+
+    period_info = {"from": d_from.isoformat(), "to": d_to.isoformat()}
+
+    # Кунградские границы периода как datetime
+    kungrad_start = datetime(d_from.year, d_from.month, d_from.day, 0, 0, 0)
+    kungrad_end   = datetime(d_to.year,   d_to.month,   d_to.day,   23, 59, 59)
+
+    # Конвертируем в UTC ISO для compute_full_flow (внутри оно ждёт UTC)
+    utc_start = kungrad_start - KUNGRAD_OFFSET
+    utc_end   = kungrad_end   - KUNGRAD_OFFSET
+    dt_start_iso = utc_start.isoformat()
+    dt_end_iso   = utc_end.isoformat()
+
+    log.info(
+        "[obs_data] well_id=%d, period Kungrad %s..%s → UTC %s..%s, agg=%s",
+        well_id, kungrad_start, kungrad_end, utc_start, utc_end, aggregation,
+    )
+
+    # 2. Вызов compute_full_flow
+    raw_minute_df: pd.DataFrame = pd.DataFrame()
+    pipeline_meta: dict = {}
+    no_data = False
+
+    try:
+        from backend.services.flow_rate.full_pipeline import compute_full_flow
+        result = compute_full_flow(
+            well_id,
+            dt_start_iso,
+            dt_end_iso,
+            smooth=smooth_minute,
+        )
+        raw_minute_df = result["df"].copy()
+        pipeline_meta = {
+            "choke_mm":        result.get("choke_mm"),
+            "downtime_periods": result.get("downtime_periods", pd.DataFrame()),
+            "purge_cycles":    result.get("purge_cycles", []),
+            "data_points":     result.get("data_points", 0),
+            "summary":         result.get("summary", {}),
+        }
+        log.info(
+            "[obs_data] well_id=%d raw_minute_df rows=%d",
+            well_id, len(raw_minute_df),
+        )
+    except ValueError as exc:
+        # Нет данных давления или нет штуцера — помечаем no_data, не падаем.
+        log.warning("[obs_data] compute_full_flow no data: %s", exc)
+        no_data = True
+    except Exception as exc:
+        # Непредвиденная ошибка — пробрасываем.
+        log.error("[obs_data] compute_full_flow unexpected error: %s", exc)
+        raise
+
+    # 3. Агрегация
+    our_df = _aggregate_to(raw_minute_df, aggregation)
+
+    # 4. Качество данных (по поминутному df)
+    data_quality = compute_data_quality(
+        our_minute_df=raw_minute_df,
+        period_from=kungrad_start,
+        period_to=kungrad_end,
+    )
+    if no_data:
+        data_quality["status"] = "no_data"
+        data_quality.setdefault("quality_flags", [])
+        if "no_data" not in data_quality["quality_flags"]:
+            data_quality["quality_flags"].insert(0, "no_data")
+
+    # 5. Overlay УзКорГаз
+    customer_df = pd.DataFrame()
+    if include_customer_overlay and not no_data:
+        try:
+            customer_df = load_customer_overlay(db, well_id, d_from, d_to)
+            log.info(
+                "[obs_data] customer overlay rows=%d for well_id=%d",
+                len(customer_df), well_id,
+            )
+        except Exception as exc:
+            log.warning("[obs_data] customer overlay failed: %s", exc)
+
+    return ObservationDataResult(
+        well_id=well_id,
+        period=period_info,
+        aggregation=aggregation,
+        our_df=our_df,
+        our_raw_minute_df=raw_minute_df,
+        our_meta=pipeline_meta,
+        customer_df=customer_df,
+        data_quality=data_quality,
+    )
+
+
+# ---------------------------------------------------------------------------
+# АГРЕГАЦИЯ
+# ---------------------------------------------------------------------------
+
+
+def _working_mask(df: pd.DataFrame) -> pd.Series:
+    """
+    Строка считается «рабочей» (working) если:
+      - p_tube не NaN и не 0.0
+      - p_line не NaN и не 0.0
+      - p_tube > p_line
+      - (p_tube - p_line) > DP_THRESHOLD
+
+    Это применение правила ΔP-фильтрации на уровне строк (см. feedback_dp_filter).
+    """
+    if df.empty or "p_tube" not in df.columns or "p_line" not in df.columns:
+        return pd.Series(False, index=df.index)
+
+    pt = df["p_tube"].replace(0.0, np.nan)
+    pl = df["p_line"].replace(0.0, np.nan)
+    dp = pt - pl
+    mask = pt.notna() & pl.notna() & (pt > pl) & (dp > DP_THRESHOLD)
+    return mask
+
+
+def _aggregate_to(df: pd.DataFrame, level: AggLevel) -> pd.DataFrame:
+    """
+    Агрегирует поминутный df к запрошенной частоте.
+
+    Правила агрегации
+    -----------------
+    - p_tube, p_line : mean только по рабочим строкам (ΔP-фильтр на уровне строк).
+    - dp             : mean(p_tube - p_line) по рабочим строкам.
+    - q              : mean(flow_rate) по ВСЕМ строкам — full_pipeline обнуляет
+                       flow_rate при простое (step 11a), поэтому Q=0 для нерабочих
+                       строк попадает в среднее → непрерывная линия на графике.
+    - shutdown_min   : кол-во не-рабочих минут в окне.
+    - purge_flag     : any() purge_flag за окно.
+
+    Примечания
+    ----------
+    - «Минута» возвращается as-is (без агрегации).
+    - NaN-safe: пустой df → пустой df с правильными колонками.
+    """
+    EMPTY_COLS = ["p_tube", "p_line", "dp", "q", "shutdown_min", "purge_flag"]
+
+    if df.empty:
+        return pd.DataFrame(columns=EMPTY_COLS)
+
+    if level == "minute":
+        # Возвращаем поминутный df с нужными колонками
+        result = pd.DataFrame(index=df.index)
+        working = _working_mask(df)
+        result["p_tube"]      = df["p_tube"].where(working)
+        result["p_line"]      = df["p_line"].where(working)
+        result["dp"]          = (df["p_tube"] - df["p_line"]).where(working)
+
+        # Q: flow_rate как есть, БЕЗ fillna(0).
+        # - Q=0 (простой) → отображается как 0
+        # - Q=NaN (пропуск данных) → остаётся NaN (разрыв на графике = честно)
+        if "flow_rate" in df.columns:
+            result["q"] = df["flow_rate"]
+        else:
+            result["q"] = np.nan
+
+        result["shutdown_min"] = (~working).astype(float)
+        result["purge_flag"]   = (
+            df["purge_flag"].fillna(0).astype(bool) if "purge_flag" in df.columns
+            else False
+        )
+        return result
+
+    rule = _RESAMPLE_RULE.get(level, "1D")
+
+    # Создаём рабочую копию с вычисленными полями
+    work = df.copy()
+    working = _working_mask(work)
+
+    # Маскируем нерабочие строки как NaN для агрегации давлений
+    pt_working = work["p_tube"].where(working)
+    pl_working = work["p_line"].where(working)
+    dp_working = (work["p_tube"] - work["p_line"]).where(working)
+
+    # Q — flow_rate как есть, БЕЗ fillna(0).
+    # - Q=0 (реальный простой, ΔP < 0.1) → участвует в среднем
+    # - Q>0 (работа) → участвует в среднем
+    # - Q=NaN (пропуск данных с датчика) → НЕ участвует (pandas mean игнорирует NaN)
+    # Простои ДОЛЖНЫ влиять на средний Q — это критерий эффективности адаптации.
+    if "flow_rate" in work.columns:
+        q_all = work["flow_rate"]  # NaN остаётся NaN
+    else:
+        q_all = pd.Series(np.nan, index=work.index)
+
+    # Не-рабочие строки (в минутах)
+    not_working_min = (~working).astype(float)
+
+    purge_col = (
+        work["purge_flag"].fillna(0).astype(bool)
+        if "purge_flag" in work.columns
+        else pd.Series(False, index=work.index)
+    )
+
+    # Собираем interim DataFrame для resample
+    interim = pd.DataFrame({
+        "p_tube":       pt_working,
+        "p_line":       pl_working,
+        "dp":           dp_working,
+        "q":            q_all,
+        "not_working":  not_working_min,
+        "purge":        purge_col.astype(float),
+    }, index=work.index)
+
+    agg_dict = {
+        "p_tube":      "mean",
+        "p_line":      "mean",
+        "dp":          "mean",
+        "q":           "mean",
+        "not_working": "sum",
+        "purge":       "max",
+    }
+
+    resampled = interim.resample(rule).agg(agg_dict)
+
+    result = pd.DataFrame(index=resampled.index)
+    result["p_tube"]       = resampled["p_tube"]
+    result["p_line"]       = resampled["p_line"]
+    result["dp"]           = resampled["dp"]
+    result["q"]            = resampled["q"]
+    result["shutdown_min"] = resampled["not_working"]
+    result["purge_flag"]   = resampled["purge"].astype(bool)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# QUALITY FLAGS
+# ---------------------------------------------------------------------------
+
+
+def compute_data_quality(
+    our_minute_df: pd.DataFrame,
+    period_from: datetime,
+    period_to: datetime,
+) -> dict:
+    """
+    Рассчитывает quality flags по поминутному df за заданный период.
+
+    Параметры
+    ---------
+    our_minute_df : поминутный df (индекс — Кунградское время).
+                    Может быть пустым.
+    period_from, period_to : границы запрошенного периода (naive, Кунград).
+
+    Возвращает
+    ----------
+    {
+      "coverage_pct": float,           # доля минут с валидными данными
+      "gap_count": int,                # число гэпов >= 60 мин подряд
+      "max_gap_hours": float,
+      "suspicious_spikes_count": int,  # z-score > 3σ по окну 14 дней
+      "false_zero_pct": float,         # доля 0.0 в p_tube или p_line
+      "days_with_data": int,
+      "days_requested": int,
+      "status": DataStatus,
+      "quality_flags": list[str]
+    }
+
+    Приоритет status (сверху вниз):
+      no_data > suspicious > gap > sparse > ok
+    """
+    days_requested = max(1, (period_to.date() - period_from.date()).days + 1)
+
+    empty_result = {
+        "coverage_pct": 0.0,
+        "gap_count": 0,
+        "max_gap_hours": 0.0,
+        "suspicious_spikes_count": 0,
+        "false_zero_pct": 0.0,
+        "days_with_data": 0,
+        "days_requested": days_requested,
+        "status": "no_data",
+        "quality_flags": [],
+    }
+
+    if our_minute_df is None or our_minute_df.empty:
+        return empty_result
+
+    df = our_minute_df.copy()
+    if not isinstance(df.index, pd.DatetimeIndex):
+        try:
+            df.index = pd.to_datetime(df.index)
+        except Exception:
+            return empty_result
+
+    # Фильтруем до запрошенного периода
+    df = df.loc[period_from:period_to]
+    if df.empty:
+        return empty_result
+
+    total_minutes_expected = int((period_to - period_from).total_seconds() / 60) + 1
+
+    # Кол-во строк с хотя бы одним валидным давлением
+    has_valid = df.index.notna()
+    if "p_tube" in df.columns:
+        has_valid = has_valid & (
+            df["p_tube"].notna() | (df.get("p_line", pd.Series(dtype=float))).notna()
+        )
+    valid_rows = int(has_valid.sum())
+
+    coverage_pct = (
+        round(valid_rows / total_minutes_expected * 100, 2)
+        if total_minutes_expected > 0
+        else 0.0
+    )
+    coverage_pct = min(coverage_pct, 100.0)
+
+    # Дней с данными
+    days_with_data = int(df.index.normalize().nunique())
+
+    # ── Гэпы ──
+    gap_count, max_gap_hours = _detect_gaps(df, min_gap_minutes=GAP_MIN_MINUTES)
+
+    # ── Outliers (z-score) ──
+    suspicious_spikes_count = _count_suspicious_spikes(df)
+
+    # ── False zeros ──
+    false_zero_pct = _compute_false_zero_pct(df)
+
+    # ── Флаги ──
+    flags: list[str] = []
+    if coverage_pct < LOW_COVERAGE_PCT:
+        flags.append("low_coverage")
+    if max_gap_hours >= SIGNIFICANT_GAP_DAYS * 24:
+        flags.append("significant_gap")
+    if suspicious_spikes_count > 0:
+        flags.append("outlier_detected")
+    if false_zero_pct > 2.0:  # >2% false zeros — аномально много
+        flags.append("false_zero_high")
+
+    # ── Status (приоритет) ──
+    if days_with_data == 0:
+        status: DataStatus = "no_data"
+    elif suspicious_spikes_count > 0:
+        status = "suspicious"
+    elif max_gap_hours > 72:
+        status = "gap"
+    elif coverage_pct < LOW_COVERAGE_PCT:
+        status = "sparse"
+    else:
+        status = "ok"
+
+    return {
+        "coverage_pct": coverage_pct,
+        "gap_count": gap_count,
+        "max_gap_hours": round(max_gap_hours, 2),
+        "suspicious_spikes_count": suspicious_spikes_count,
+        "false_zero_pct": round(false_zero_pct, 2),
+        "days_with_data": days_with_data,
+        "days_requested": days_requested,
+        "status": status,
+        "quality_flags": flags,
+    }
+
+
+def _detect_gaps(df: pd.DataFrame, min_gap_minutes: int = 60) -> tuple[int, float]:
+    """
+    Обнаруживает гэпы в индексе (пропуски между соседними точками).
+
+    Возвращает (gap_count, max_gap_hours).
+    Пустой df → (0, 0.0).
+    """
+    if df.empty or len(df) < 2:
+        return 0, 0.0
+
+    idx = df.index.sort_values()
+    deltas_min = pd.Series(idx).diff().dt.total_seconds().dropna() / 60.0
+    gap_mask = deltas_min >= min_gap_minutes
+    gap_count = int(gap_mask.sum())
+    max_gap_min = float(deltas_min[gap_mask].max()) if gap_count > 0 else 0.0
+    return gap_count, max_gap_min / 60.0
+
+
+def _count_suspicious_spikes(df: pd.DataFrame) -> int:
+    """
+    Считает выбросы по z-score > 3σ в скользящем окне 14 дней.
+    Работает по колонке p_tube (основная метрика давления).
+    Возвращает 0 если p_tube нет или df пуст.
+    """
+    if df.empty or "p_tube" not in df.columns:
+        return 0
+
+    series = df["p_tube"].dropna().replace(0.0, np.nan).dropna()
+    if len(series) < 10:
+        return 0
+
+    window_points = ZSCORE_WINDOW_DAYS * 24 * 60  # минуты в 14 днях
+    rolling_mean = series.rolling(window=window_points, min_periods=10, center=True).mean()
+    rolling_std  = series.rolling(window=window_points, min_periods=10, center=True).std()
+
+    # Избегаем деления на 0
+    safe_std = rolling_std.replace(0.0, np.nan)
+    z_scores = (series - rolling_mean).abs() / safe_std
+
+    spike_count = int((z_scores > ZSCORE_THRESHOLD).sum())
+    return spike_count
+
+
+def _compute_false_zero_pct(df: pd.DataFrame) -> float:
+    """
+    Доля строк, где хотя бы один из датчиков (p_tube или p_line) == 0.0
+    при не-NaN значении — признак false-zero сбоя датчика.
+    """
+    total = len(df)
+    if total == 0:
+        return 0.0
+
+    count = 0
+    for col in ("p_tube", "p_line"):
+        if col not in df.columns:
+            continue
+        count += int((df[col].notna() & (df[col] == 0.0)).sum())
+
+    # Считаем уникальные строки (не сумму по двум колонкам)
+    false_zero_rows = 0
+    cols_present = [c for c in ("p_tube", "p_line") if c in df.columns]
+    if cols_present:
+        any_false_zero = pd.concat(
+            [(df[c].notna() & (df[c] == 0.0)) for c in cols_present],
+            axis=1,
+        ).any(axis=1)
+        false_zero_rows = int(any_false_zero.sum())
+
+    return round(false_zero_rows / total * 100, 2)
+
+
+# ---------------------------------------------------------------------------
+# OVERLAY UZKORGAZ
+# ---------------------------------------------------------------------------
+
+
+def load_customer_overlay(
+    db: Session,
+    well_id: int,
+    d_from: date,
+    d_to: date,
+) -> pd.DataFrame:
+    """
+    Загружает данные УзКорГаз из well_daily для overlay.
+
+    Использует `customer_daily_service.find_well()` + `load_for_well()`.
+    Если скважина не найдена в well_daily — возвращает пустой DF.
+
+    Возвращает DataFrame с колонками:
+        date, p_wellhead, p_annular, p_flowline, q_gas_total,
+        q_gas_working, shutdown_min, choke_mm
+    """
+    try:
+        from backend.services.customer_daily_service import (
+            find_well as _find_well,
+            load_for_well as _load_for_well,
+            ensure_table as _ensure_table,
+        )
+        from sqlalchemy import text
+    except ImportError as exc:
+        log.warning("[obs_data] customer_daily_service unavailable: %s", exc)
+        return pd.DataFrame()
+
+    try:
+        _ensure_table(db)
+    except Exception as exc:
+        log.warning("[obs_data] ensure_table failed: %s", exc)
+        return pd.DataFrame()
+
+    # Получаем строковый номер скважины из wells
+    try:
+        row = db.execute(
+            text("SELECT number FROM wells WHERE id = :wid"),
+            {"wid": well_id},
+        ).fetchone()
+        if not row or not row[0]:
+            log.info("[obs_data] well_id=%d not found in wells table", well_id)
+            return pd.DataFrame()
+        well_number = str(row[0]).strip()
+    except Exception as exc:
+        log.warning("[obs_data] could not get well number: %s", exc)
+        return pd.DataFrame()
+
+    # Ищем скважину в well_daily
+    well_info = _find_well(db, well_number)
+    if not well_info:
+        log.info(
+            "[obs_data] well_number=%s not found in well_daily (no overlay)",
+            well_number,
+        )
+        return pd.DataFrame()
+
+    # Загружаем ряд данных
+    try:
+        df = _load_for_well(db, well_number, d_from=d_from, d_to=d_to)
+    except Exception as exc:
+        log.warning("[obs_data] load_for_well failed: %s", exc)
+        return pd.DataFrame()
+
+    if df.empty:
+        return pd.DataFrame()
+
+    # Оставляем только нужные колонки
+    keep_cols = [
+        "date", "p_wellhead", "p_annular", "p_flowline",
+        "q_gas_total", "q_gas_working", "shutdown_min", "choke_mm",
+    ]
+    existing = [c for c in keep_cols if c in df.columns]
+    return df[existing].copy()
+
+
+# ---------------------------------------------------------------------------
+# ВЫРАВНИВАНИЕ ДЛЯ СРАВНЕНИЯ С UZKORGAZ
+# ---------------------------------------------------------------------------
+
+
+def align_our_and_customer(
+    our_daily_df: pd.DataFrame,
+    customer_df: pd.DataFrame,
+    *,
+    prefer_q_working: bool = True,
+) -> pd.DataFrame:
+    """
+    Объединяет наши суточные данные с данными УзКорГаз по дате.
+
+    Параметры
+    ---------
+    our_daily_df : суточный агрегат наших данных (индекс или колонка 'date').
+                   Ожидает колонки: p_tube, p_line, dp, q.
+    customer_df  : суточные данные УзКорГаз (колонки: date, p_wellhead,
+                   p_flowline, q_gas_working, q_gas_total).
+    prefer_q_working : использовать q_gas_working (если есть) или q_gas_total.
+
+    Возвращает
+    ----------
+    DataFrame с колонками:
+        date,
+        our_p_tube, customer_p_wellhead, diff_p_wh_abs, diff_p_wh_pct,
+        our_p_line, customer_p_flowline, diff_p_line_abs, diff_p_line_pct,
+        our_q, customer_q, diff_q_abs, diff_q_pct,
+        customer_q_source,
+        data_status
+
+    data_status per row:
+        ok           — оба значения есть, |diff_q_pct| < 25%
+        suspicious   — оба значения есть, |diff_q_pct| >= 25%
+        our_only     — только наши данные
+        customer_only — только данные заказчика
+        gap          — оба NULL/NaN
+    """
+    if our_daily_df.empty and customer_df.empty:
+        return pd.DataFrame()
+
+    # Нормализация нашего df: индекс → колонка date
+    our = our_daily_df.copy()
+    if "date" not in our.columns:
+        our = our.reset_index()
+        if "index" in our.columns:
+            our = our.rename(columns={"index": "date"})
+    our["date"] = pd.to_datetime(our["date"]).dt.normalize()
+
+    # Нормализация customer df
+    cust = customer_df.copy() if not customer_df.empty else pd.DataFrame()
+    if not cust.empty:
+        cust["date"] = pd.to_datetime(cust["date"]).dt.normalize()
+
+    # Определяем источник Q заказчика
+    q_source = "q_gas_total"
+    if prefer_q_working and not cust.empty and "q_gas_working" in cust.columns:
+        has_working = cust["q_gas_working"].notna().any()
+        if has_working:
+            q_source = "q_gas_working"
+
+    # Merge
+    if cust.empty:
+        merged = our.copy()
+        merged["customer_p_wellhead"] = np.nan
+        merged["customer_p_flowline"] = np.nan
+        merged["customer_q"] = np.nan
+        merged["customer_q_source"] = q_source
+    else:
+        cust_slim = cust[
+            ["date"]
+            + [c for c in ["p_wellhead", "p_flowline", q_source] if c in cust.columns]
+        ].copy()
+        if q_source in cust_slim.columns:
+            cust_slim = cust_slim.rename(columns={q_source: "customer_q"})
+        if "p_wellhead" in cust_slim.columns:
+            cust_slim = cust_slim.rename(columns={"p_wellhead": "customer_p_wellhead"})
+        if "p_flowline" in cust_slim.columns:
+            cust_slim = cust_slim.rename(columns={"p_flowline": "customer_p_flowline"})
+
+        merged = pd.merge(our, cust_slim, on="date", how="outer")
+        merged["customer_q_source"] = q_source
+
+    # Маппинг колонок наших → выходные
+    col_map = {"p_tube": "our_p_tube", "p_line": "our_p_line", "q": "our_q"}
+    for old, new in col_map.items():
+        if old in merged.columns:
+            merged[new] = merged[old]
+        else:
+            merged[new] = np.nan
+
+    # Ensure customer columns exist
+    for col in ("customer_p_wellhead", "customer_p_flowline", "customer_q"):
+        if col not in merged.columns:
+            merged[col] = np.nan
+
+    # Разности
+    merged["diff_p_wh_abs"]  = merged["our_p_tube"] - merged["customer_p_wellhead"]
+    merged["diff_p_line_abs"] = merged["our_p_line"] - merged["customer_p_flowline"]
+    merged["diff_q_abs"]     = merged["our_q"] - merged["customer_q"]
+
+    merged["diff_p_wh_pct"] = _safe_pct(merged["our_p_tube"],   merged["customer_p_wellhead"])
+    merged["diff_p_line_pct"] = _safe_pct(merged["our_p_line"], merged["customer_p_flowline"])
+    merged["diff_q_pct"]    = _safe_pct(merged["our_q"],        merged["customer_q"])
+
+    # data_status per row
+    merged["data_status"] = merged.apply(_row_data_status, axis=1)
+
+    # Финальный порядок колонок
+    out_cols = [
+        "date",
+        "our_p_tube", "customer_p_wellhead", "diff_p_wh_abs", "diff_p_wh_pct",
+        "our_p_line", "customer_p_flowline", "diff_p_line_abs", "diff_p_line_pct",
+        "our_q", "customer_q", "diff_q_abs", "diff_q_pct",
+        "customer_q_source", "data_status",
+    ]
+    out_cols = [c for c in out_cols if c in merged.columns]
+    result = merged[out_cols].sort_values("date").reset_index(drop=True)
+    return result
+
+
+def _safe_pct(our: pd.Series, ref: pd.Series) -> pd.Series:
+    """
+    Процентное отклонение: (our - ref) / ref * 100.
+    NaN если ref == 0 или любой из них NaN.
+    """
+    safe_ref = ref.replace(0.0, np.nan)
+    return ((our - safe_ref) / safe_ref * 100.0).round(2)
+
+
+def _row_data_status(row: pd.Series) -> str:
+    """data_status для одной строки в align_our_and_customer."""
+    our_q   = row.get("our_q")
+    cust_q  = row.get("customer_q")
+    diff_pct = row.get("diff_q_pct")
+
+    our_has  = our_q  is not None and not (isinstance(our_q, float) and np.isnan(our_q))
+    cust_has = cust_q is not None and not (isinstance(cust_q, float) and np.isnan(cust_q))
+
+    if not our_has and not cust_has:
+        return "gap"
+    if our_has and not cust_has:
+        return "our_only"
+    if not our_has and cust_has:
+        return "customer_only"
+
+    # Оба есть
+    if diff_pct is not None and not np.isnan(diff_pct) and abs(diff_pct) >= 25.0:
+        return "suspicious"
+    return "ok"

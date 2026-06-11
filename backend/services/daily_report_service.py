@@ -161,14 +161,15 @@ def _compile_latex(tex_source: str, base_name: str) -> Path:
     tex_file.write_text(tex_source, encoding="utf-8")
 
     abs_temp = str(TEMP_DIR.resolve())
-    abs_tex = str(tex_file.resolve())
+    # Use just the filename since cwd is set to the directory
+    tex_filename = f"{base_name}.tex"
 
     temp_pdf = TEMP_DIR / f"{base_name}.pdf"
 
     for pass_num in range(2):
         result = subprocess.run(
             [xelatex_bin, "-interaction=nonstopmode",
-             f"-output-directory={abs_temp}", abs_tex],
+             f"-output-directory={abs_temp}", tex_filename],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=abs_temp,
@@ -244,16 +245,32 @@ def _compile_latex(tex_source: str, base_name: str) -> Path:
 
 
 def _tex_escape(s: str) -> str:
-    """Escape LaTeX special characters."""
+    """Escape LaTeX special characters.
+
+    Не экранирует уже экранированные символы (например, \% остаётся \%).
+    """
+    import re
     if not s:
         return ""
-    for old, new in [
-        ("&", r"\&"), ("%", r"\%"), ("$", r"\$"),
-        ("#", r"\#"), ("_", r"\_"), ("{", r"\{"),
-        ("}", r"\}"), ("~", r"\textasciitilde{}"),
-        ("^", r"\textasciicircum{}"),
-    ]:
-        s = s.replace(old, new)
+    # Экранируем каждый спецсимвол, но только если он ещё не экранирован
+    # (нет backslash перед ним). Исключение: & $ # _ { } — их экранируем всегда,
+    # т.к. \&, \$ и т.д. НЕ являются стандартными LaTeX-последовательностями
+    # в пользовательском тексте (используются только в формулах/таблицах).
+    # Но \% — валидный способ вставить знак процента.
+    s = s.replace("&", r"\&")
+    s = s.replace("$", r"\$")
+    s = s.replace("#", r"\#")
+    s = s.replace("_", r"\_")
+    s = s.replace("{", r"\{")
+    s = s.replace("}", r"\}")
+    s = s.replace("~", r"\textasciitilde{}")
+    s = s.replace("^", r"\textasciicircum{}")
+    # % — только если ещё не экранирован
+    s = re.sub(r'(?<!\\)%', r'\\%', s)
+    # UTF-8 надстрочные символы → LaTeX math
+    s = s.replace("³", "$^3$")
+    s = s.replace("²", "$^2$")
+    s = s.replace("¹", "$^1$")
     return s
 
 

@@ -1,6 +1,88 @@
 # CLAUDE.md
 
+# ОБЯЗАТЕЛЬНЫЙ ПОРЯДОК РАБОТЫ (MANDATORY WORKFLOW)
+
+Все задачи выполняются ТОЛЬКО через Router.
+
+Первый шаг ВСЕГДА:
+.claude/agents/Router.md
+
+Claude не имеет права выполнять задачу напрямую.
+Он обязан сначала выполнить маршрутизацию.
+
+---
+
+# ОБЯЗАТЕЛЬНЫЙ ФОРМАТ ПЕРВОГО ОТВЕТА
+
+Claude обязан вывести:
+
+MODE: SPEC | IMPLEMENT | AUDIT
+LEAD_AGENT_FILE: путь к агенту
+HANDOFF PROMPT: готовый промпт для запуска агента
+
+После этого Claude ОСТАНАВЛИВАЕТСЯ и ждёт подтверждения запуска.
+
+---
+
+# ПРАВИЛО HANDOFF
+
+Claude НЕ выполняет задачу после маршрутизации.
+Claude НЕ пишет код.
+Claude НЕ анализирует.
+
+Он только передаёт задачу выбранному агенту.
+
+Работа продолжается только после запуска HANDOFF PROMPT.
+
+---
+
+# ЕСЛИ Claude начал выполнять задачу без Router — это ошибка.
+
+## Execution Rules (MANDATORY)
+
+Перед началом работы Claude обязан выполнить Router:
+.claude/agents/Router.md
+
+Router возвращает:
+
+MODE: SPEC | IMPLEMENT | AUDIT
+LEAD_AGENT_FILE: путь к агенту
+HANDOFF PROMPT: готовый промпт
+
+Claude НЕ выполняет задачу после маршрутизации.
+Claude ждёт запуска HANDOFF PROMPT.
+
+---
+
+### MODE meanings
+
+SPEC — только ТЗ/архитектура/план. Без кода.
+IMPLEMENT — только код/патчи. Минимальные изменения.
+AUDIT — только анализ. Без изменений.
+
+---
+
+### Routing (who leads) — кратко, полная таблица в .claude/agents/Router.md
+
+Backend FastAPI / endpoints       → APIEngineer (IMPLEMENT)
+SQL / схема БД / Alembic          → SQLArchitect
+HTML / Jinja / CSS / JS / Chart   → UIDesigner (IMPLEMENT)
+LoRa / SQLite импорт              → DataIntegration (IMPLEMENT)
+Сигналы давления / ΔP / агрегация → SignalProcessingEngineer (IMPLEMENT)
+PDF / XeLaTeX / документы         → DocumentEngineer (IMPLEMENT)
+Telegram / Email                  → NotificationsEngineer (IMPLEMENT)
+Бэкапы / восстановление           → RecoveryEngineer (IMPLEMENT)
+Валидация / контракты             → ValidationEngineer (IMPLEMENT)
+Аналитика / KPI / отчёты          → Analyst
+
+---
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+> **⚠️ ПЕРЕД ПРАВКОЙ ЛЮБОЙ ФИЧИ — читай [CODEMAP.md](CODEMAP.md).**
+> Это карта «что править вместе / какие инварианты нельзя нарушать / что не трогать».
+> Проект ломается именно от точечных правок без учёта связанных файлов и неявных
+> инвариантов (false-zeros датчиков, ΔP до агрегации, TZ +5ч, snapshot-only рендеры).
 
 ## Project Overview
 
@@ -51,6 +133,31 @@ python scripts/clean_inf_pressure.py      # Remove invalid/infinite pressure rea
 - NEVER use `alembic revision --autogenerate` — it drops existing tables and causes data loss!
 - ALWAYS create migrations manually: `alembic revision -m "description"` and write SQL by hand
 - Before any migration, backup the database
+
+**PROTECTED FILES — НЕ ИЗМЕНЯТЬ БЕЗ ПРЯМОГО УКАЗАНИЯ:**
+- `backend/templates/customer_daily.html` — страница «Заказчик», стабильная версия. Любые изменения только по явному запросу пользователя.
+
+## КРИТИЧЕСКИЙ ИНВАРИАНТ: Изоляция блоков по главам
+
+**Каждая глава отчёта работает ТОЛЬКО со своими типами блоков (kinds).**
+
+Таблица `customer_report_block` хранит блоки ВСЕХ глав. При загрузке блоков на странице ОБЯЗАТЕЛЬНО фильтровать по `kinds`:
+
+| Глава | Страница | Kinds |
+|-------|----------|-------|
+| **Заказчик** | `/customer-daily` | `chapter_intro`, `period_analysis`, `baseline`, `comparison`, `criteria_rose`, `segment_analysis` |
+| **Наблюдение** | wizard step 3 | `observation_analysis`, `segment_comparison` (+ фильтр `params.source='observation'`) |
+| **Адаптация** | wizard step 5 | `adaptation_period_analysis`, `optimal_window`, `reagent_irv_summary`, `adaptation_comparison` |
+
+**Правила:**
+1. **API вызов**: всегда передавать `&kinds=kind1,kind2,...` при запросе `/api/customer-daily/blocks`
+2. **Создание блока**: `kind` должен соответствовать главе, в которой создаётся
+3. **Отображение**: страница показывает ТОЛЬКО блоки своей главы
+4. **Превью/PDF**: рендерятся только блоки соответствующей главы
+
+**Исключение**: Шаг 7 wizard (финальная сборка PDF) — показывает ВСЕ блоки всех глав для полного отчёта.
+
+**НЕ НАРУШАТЬ**: Смешение блоков разных глав на одной странице — это баг, а не фича.
 
 ## Architecture
 

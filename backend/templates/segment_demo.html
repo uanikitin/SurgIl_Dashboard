@@ -1,0 +1,878 @@
+{% extends "base.html" %}
+
+{% block title %}Сегментный анализ — ТЕСТ{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<style>
+  .demo-page {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 1rem;
+  }
+
+  .demo-header {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .demo-header h1 {
+    margin: 0 0 0.5rem;
+    font-size: 1.3rem;
+    color: #1565c0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .demo-header h1 .badge {
+    background: #ff9800;
+    color: #fff;
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+
+  .demo-desc {
+    color: #666;
+    font-size: 0.88rem;
+    margin-bottom: 1rem;
+  }
+
+  .demo-controls {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .demo-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+
+  .demo-field label {
+    font-size: 0.8rem;
+    color: #555;
+    font-weight: 500;
+  }
+
+  .demo-field select,
+  .demo-field input {
+    padding: 0.5rem;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    font-size: 0.9rem;
+  }
+
+  .demo-field select:focus,
+  .demo-field input:focus {
+    outline: none;
+    border-color: #1976d2;
+    box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.15);
+  }
+
+  .demo-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .demo-btn {
+    padding: 0.5rem 1.2rem;
+    border: none;
+    border-radius: 5px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    transition: all 0.15s;
+  }
+
+  .demo-btn-primary {
+    background: #1976d2;
+    color: #fff;
+  }
+
+  .demo-btn-primary:hover {
+    background: #1565c0;
+  }
+
+  .demo-btn-primary:disabled {
+    background: #90caf9;
+    cursor: not-allowed;
+  }
+
+  .demo-btn-secondary {
+    background: #f5f5f5;
+    color: #333;
+    border: 1px solid #ddd;
+  }
+
+  .demo-btn-secondary:hover {
+    background: #eee;
+  }
+
+  .demo-btn-editor {
+    background: #8b5cf6;
+    color: #fff;
+  }
+
+  .demo-btn-editor:hover {
+    background: #7c3aed;
+  }
+
+  /* Config panel */
+  .demo-config {
+    background: #fafafa;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 0.8rem 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .demo-config-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #555;
+    margin-bottom: 0.6rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+  }
+
+  .demo-config-body {
+    display: none;
+  }
+
+  .demo-config.open .demo-config-body {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.8rem;
+  }
+
+  .demo-config.open .demo-config-title::after {
+    transform: rotate(180deg);
+  }
+
+  .demo-config-title::after {
+    content: "▼";
+    font-size: 0.6rem;
+    transition: transform 0.2s;
+  }
+
+  /* Results */
+  .demo-results {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .demo-results-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .demo-results-header h2 {
+    margin: 0;
+    font-size: 1.1rem;
+    color: #333;
+  }
+
+  .demo-stats {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.85rem;
+  }
+
+  .demo-stat {
+    background: #f0f7ff;
+    padding: 0.3rem 0.6rem;
+    border-radius: 4px;
+    color: #1565c0;
+  }
+
+  .demo-stat b {
+    font-weight: 600;
+  }
+
+  /* Charts */
+  .demo-charts {
+    display: grid;
+    gap: 1rem;
+  }
+
+  .demo-chart-container {
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 0.5rem;
+    background: #fafafa;
+  }
+
+  .demo-chart {
+    height: 300px;
+  }
+
+  /* Segments table */
+  .demo-segments {
+    margin-top: 1rem;
+  }
+
+  .demo-segments h3 {
+    font-size: 1rem;
+    color: #333;
+    margin: 0 0 0.6rem;
+  }
+
+  .demo-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+
+  .demo-table th,
+  .demo-table td {
+    padding: 0.5rem 0.6rem;
+    border-bottom: 1px solid #eee;
+    text-align: right;
+  }
+
+  .demo-table th:first-child,
+  .demo-table td:first-child {
+    text-align: left;
+  }
+
+  .demo-table th {
+    background: #f5f5f5;
+    font-weight: 500;
+    color: #555;
+  }
+
+  .demo-table tr:hover {
+    background: #fafafa;
+  }
+
+  .seg-type-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #fff;
+  }
+
+  /* Descriptions */
+  .demo-descriptions {
+    margin-top: 1rem;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 1rem;
+  }
+
+  .demo-descriptions h3 {
+    margin: 0 0 0.6rem;
+    font-size: 1rem;
+    color: #334155;
+  }
+
+  .demo-descriptions ul {
+    margin: 0;
+    padding-left: 1.2rem;
+    list-style: disc;
+  }
+
+  .demo-descriptions li {
+    margin-bottom: 0.4rem;
+    font-size: 0.88rem;
+    color: #475569;
+  }
+
+  /* Loading */
+  .demo-loading {
+    text-align: center;
+    padding: 3rem;
+    color: #666;
+  }
+
+  .demo-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid #eee;
+    border-top-color: #1976d2;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    display: inline-block;
+    margin-bottom: 0.5rem;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .demo-placeholder {
+    text-align: center;
+    padding: 3rem;
+    color: #999;
+    font-style: italic;
+    background: #fafafa;
+    border-radius: 8px;
+  }
+
+  .demo-error {
+    background: #ffebee;
+    border: 1px solid #ef5350;
+    border-radius: 6px;
+    padding: 1rem;
+    color: #c62828;
+    margin-bottom: 1rem;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="demo-page">
+
+  <!-- DEBUG INFO - remove after testing -->
+  <div id="debug-info" style="background:#e3f2fd;padding:8px 12px;border-radius:4px;margin-bottom:8px;font-size:11px;font-family:monospace;">
+    <strong>DEBUG v2</strong> | Page loaded: <span id="debug-time"></span> |
+    API: <span id="debug-api">pending...</span>
+    <script>
+      document.getElementById('debug-time').textContent = new Date().toLocaleTimeString();
+    </script>
+  </div>
+
+  <div class="demo-header">
+    <h1>
+      Сегментный анализ временных рядов
+      <span class="badge">ТЕСТ</span>
+    </h1>
+    <p class="demo-desc">
+      Универсальный модуль анализа данных с LoRa датчиков: детекция changepoints, сегментация, тренды.
+      Работает с давлением (P устьевое, P линии, ΔP) и расчётным дебитом.
+    </p>
+
+    <div class="demo-controls">
+      <div class="demo-field">
+        <label>Скважина</label>
+        <select id="well-select">
+          <option value="">— загрузка —</option>
+        </select>
+      </div>
+
+      <div class="demo-field">
+        <label>Дата от</label>
+        <input type="date" id="date-from" value="{{ date_from }}">
+      </div>
+
+      <div class="demo-field">
+        <label>Дата до</label>
+        <input type="date" id="date-to" value="{{ date_to }}">
+      </div>
+
+      <div class="demo-field">
+        <label>Анализируемый ряд</label>
+        <select id="series-select">
+          <option value="flow_rate">Q дебит (тыс.м³/сут)</option>
+          <option value="p_tube">P устьевое (кгс/см²)</option>
+          <option value="p_line">P линии (кгс/см²)</option>
+          <option value="dp">ΔP (кгс/см²)</option>
+          <option value="downtime_min">Простой (мин/сут)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="demo-config" id="config-panel">
+      <div class="demo-config-title" onclick="toggleConfig()">
+        Настройки порогов
+      </div>
+      <div class="demo-config-body">
+        <div class="demo-field">
+          <label>Порог changepoint (%)</label>
+          <input type="number" id="cfg-cp-threshold" value="15" min="1" max="50" step="1">
+        </div>
+        <div class="demo-field">
+          <label>Мин. дней в сегменте</label>
+          <input type="number" id="cfg-min-days" value="3" min="1" max="30" step="1">
+        </div>
+        <div class="demo-field">
+          <label>Порог изменения (%)</label>
+          <input type="number" id="cfg-change-pct" value="10" min="1" max="50" step="1">
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-actions">
+      <button class="demo-btn demo-btn-primary" id="analyze-btn" onclick="runAnalysis()">
+        Запустить анализ
+      </button>
+      <button class="demo-btn demo-btn-secondary" onclick="resetForm()">
+        Сбросить
+      </button>
+      <span style="color:#ccc; margin: 0 5px;">|</span>
+      <button class="demo-btn demo-btn-editor" onclick="openAdvancedEditor()" title="Открыть в редакторе сегментов">
+        🛠️ Редактор сегментов
+      </button>
+    </div>
+  </div>
+
+  <div id="error-container"></div>
+
+  <div id="results-container">
+    <div class="demo-placeholder">
+      Выберите скважину и период, затем нажмите «Запустить анализ»
+    </div>
+  </div>
+
+</div>
+
+<script>
+const STATE = {
+  wells: {{ wells_json | default('[]') | safe }},
+  result: null,
+  loading: false,
+};
+
+// ─── Init ───
+console.log('[segment-demo] Script loaded, v2');
+
+document.addEventListener('DOMContentLoaded', () => {
+  console.log('[segment-demo] DOMContentLoaded fired');
+  loadWells();
+});
+
+// Fallback: run on window.onload too
+window.addEventListener('load', () => {
+  console.log('[segment-demo] window.load fired');
+  const sel = document.getElementById('well-select');
+  if (sel && sel.innerHTML.includes('загрузка')) {
+    console.log('[segment-demo] Still loading, retry...');
+    loadWells();
+  }
+});
+
+function loadWells() {
+  // Данные уже загружены в STATE.wells при рендеринге страницы
+  const sel = document.getElementById('well-select');
+  const debugApi = document.getElementById('debug-api');
+  const debugDiv = document.getElementById('error-container');
+
+  console.log('[segment-demo] Using pre-loaded wells:', STATE.wells.length);
+
+  if (STATE.wells && STATE.wells.length > 0) {
+    if (debugApi) debugApi.textContent = `${STATE.wells.length} скважин`;
+
+    sel.innerHTML = '<option value="">— выберите скважину —</option>';
+    STATE.wells.forEach(w => {
+      const opt = document.createElement('option');
+      opt.value = w.id;
+      opt.textContent = `Скв ${w.number} (${w.n_days} дн.)`;
+      sel.appendChild(opt);
+    });
+
+    // Читаем параметры из URL (переданы со страницы адаптации)
+    const url = new URL(window.location);
+    const wellIdParam = url.searchParams.get('well_id');
+    const dateFromParam = url.searchParams.get('date_from');
+    const dateToParam = url.searchParams.get('date_to');
+
+    // Устанавливаем скважину
+    if (wellIdParam) {
+      sel.value = wellIdParam;
+    }
+
+    // Устанавливаем даты из URL (приоритет) или из данных скважины
+    if (dateFromParam) {
+      document.getElementById('date-from').value = dateFromParam;
+    }
+    if (dateToParam) {
+      document.getElementById('date-to').value = dateToParam;
+    }
+
+    // Если есть скважина и период — автоматически запускаем анализ
+    if (wellIdParam && dateFromParam && dateToParam) {
+      console.log('[segment-demo] Auto-running analysis...');
+      setTimeout(() => runAnalysis(), 500);
+    }
+
+  } else {
+    if (debugApi) debugApi.textContent = 'Нет данных';
+    sel.innerHTML = '<option value="">— нет данных давления —</option>';
+    debugDiv.innerHTML = '<div class="demo-error">Нет скважин с данными давления</div>';
+  }
+}
+
+document.getElementById('well-select').addEventListener('change', (e) => {
+  const wellId = parseInt(e.target.value);
+  if (wellId) autoFillDates(wellId);
+});
+
+function autoFillDates(wellId) {
+  const w = STATE.wells.find(x => x.id === wellId);
+  if (w) {
+    document.getElementById('date-from').value = w.date_min || '';
+    document.getElementById('date-to').value = w.date_max || '';
+  }
+}
+
+function toggleConfig() {
+  document.getElementById('config-panel').classList.toggle('open');
+}
+
+function resetForm() {
+  document.getElementById('well-select').value = '';
+  document.getElementById('date-from').value = '';
+  document.getElementById('date-to').value = '';
+  document.getElementById('series-select').value = 'flow_rate';
+  document.getElementById('cfg-cp-threshold').value = '15';
+  document.getElementById('cfg-min-days').value = '3';
+  document.getElementById('cfg-change-pct').value = '10';
+  document.getElementById('results-container').innerHTML =
+    '<div class="demo-placeholder">Выберите скважину и период, затем нажмите «Запустить анализ»</div>';
+  document.getElementById('error-container').innerHTML = '';
+}
+
+function openAdvancedEditor() {
+  const wellId = document.getElementById('well-select').value;
+  const dateFrom = document.getElementById('date-from').value;
+  const dateTo = document.getElementById('date-to').value;
+  const series = document.getElementById('series-select').value;
+
+  if (!wellId || !dateFrom || !dateTo) {
+    alert('Сначала выберите скважину и период');
+    return;
+  }
+
+  // Открываем страницу расширенного редактора в новом окне
+  const url = `/segment-analysis?well_id=${wellId}&date_from=${dateFrom}&date_to=${dateTo}&series=${series}&sensitivity=5`;
+  window.open(url, '_blank');
+}
+
+async function runAnalysis() {
+  const wellId = document.getElementById('well-select').value;
+  const dateFrom = document.getElementById('date-from').value;
+  const dateTo = document.getElementById('date-to').value;
+  const series = document.getElementById('series-select').value;
+
+  if (!wellId || !dateFrom || !dateTo) {
+    showError('Заполните скважину и период');
+    return;
+  }
+
+  const btn = document.getElementById('analyze-btn');
+  btn.disabled = true;
+  btn.textContent = 'Анализ...';
+
+  document.getElementById('error-container').innerHTML = '';
+  document.getElementById('results-container').innerHTML = `
+    <div class="demo-loading">
+      <div class="demo-spinner"></div>
+      <div>Загрузка данных и анализ...</div>
+    </div>
+  `;
+
+  try {
+    const payload = {
+      well_id: parseInt(wellId),
+      date_from: dateFrom,
+      date_to: dateTo,
+      primary_series: series,
+      changepoint_threshold_pct: parseFloat(document.getElementById('cfg-cp-threshold').value),
+      min_segment_days: parseInt(document.getElementById('cfg-min-days').value),
+      change_notable_pct: parseFloat(document.getElementById('cfg-change-pct').value),
+    };
+
+    const resp = await fetch('/api/segment-demo/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.detail || 'Ошибка анализа');
+    }
+
+    const result = await resp.json();
+    STATE.result = result;
+    renderResults(result);
+
+  } catch (e) {
+    showError(e.message);
+    document.getElementById('results-container').innerHTML =
+      '<div class="demo-placeholder">Ошибка анализа</div>';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Запустить анализ';
+  }
+}
+
+function showError(msg) {
+  document.getElementById('error-container').innerHTML = `
+    <div class="demo-error">${msg}</div>
+  `;
+}
+
+function renderResults(result) {
+  const container = document.getElementById('results-container');
+
+  // Display names
+  const seriesLabels = {
+    flow_rate: 'Q дебит',
+    p_tube: 'P устьевое',
+    p_line: 'P линии',
+    dp: 'ΔP',
+    downtime_min: 'Простой',
+  };
+
+  container.innerHTML = `
+    <div class="demo-results">
+      <div class="demo-results-header">
+        <h2>Скв ${result.well_number}: ${seriesLabels[result.primary_series] || result.primary_series}</h2>
+        <div class="demo-stats">
+          <span class="demo-stat"><b>${result.n_points}</b> дней</span>
+          <span class="demo-stat"><b>${result.changepoints.length}</b> переломов</span>
+          <span class="demo-stat"><b>${result.segments.length}</b> сегментов</span>
+        </div>
+      </div>
+
+      <div class="demo-charts">
+        <div class="demo-chart-container">
+          <div id="chart-primary" class="demo-chart"></div>
+        </div>
+        <div class="demo-chart-container">
+          <div id="chart-secondary" class="demo-chart"></div>
+        </div>
+      </div>
+
+      <div class="demo-segments">
+        <h3>Сегменты</h3>
+        <table class="demo-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Тип</th>
+              <th>Дней</th>
+              <th>Среднее</th>
+              <th>Slope</th>
+              <th>R²</th>
+              <th>Изм. %</th>
+              <th>Тренд</th>
+            </tr>
+          </thead>
+          <tbody id="segments-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="demo-descriptions">
+        <h3>Описания сегментов</h3>
+        <ul id="descriptions-list"></ul>
+      </div>
+    </div>
+  `;
+
+  renderCharts(result);
+  renderSegmentsTable(result);
+  renderDescriptions(result);
+}
+
+function renderCharts(result) {
+  const dates = result.chart_data.dates;
+  const primaryValues = result.chart_data.primary.values;
+  const primaryName = result.chart_data.primary.name;
+
+  // Primary chart with segments
+  const traces = [];
+
+  // Main line
+  traces.push({
+    x: dates,
+    y: primaryValues,
+    type: 'scatter',
+    mode: 'lines+markers',
+    name: primaryName,
+    line: { color: '#1976d2', width: 2 },
+    marker: { size: 4 },
+  });
+
+  // Segment backgrounds
+  const shapes = [];
+  result.segments.forEach((seg, idx) => {
+    const color = result.type_colors[seg.segment_type] || '#ccc';
+    shapes.push({
+      type: 'rect',
+      xref: 'x',
+      yref: 'paper',
+      x0: dates[seg.start_idx],
+      x1: dates[Math.min(seg.end_idx - 1, dates.length - 1)],
+      y0: 0,
+      y1: 1,
+      fillcolor: color,
+      opacity: 0.15,
+      line: { width: 0 },
+    });
+
+    // Trend line
+    if (seg.days >= 3) {
+      const trendX = [];
+      const trendY = [];
+      for (let i = seg.start_idx; i < seg.end_idx && i < dates.length; i++) {
+        trendX.push(dates[i]);
+        trendY.push(seg.slope * (i - seg.start_idx) + seg.intercept);
+      }
+      traces.push({
+        x: trendX,
+        y: trendY,
+        type: 'scatter',
+        mode: 'lines',
+        name: `Тренд #${seg.num}`,
+        line: { color: color, width: 2, dash: 'dash' },
+        showlegend: false,
+      });
+    }
+  });
+
+  // Changepoint lines
+  const annotations = [];
+  result.changepoints.forEach((cp, idx) => {
+    shapes.push({
+      type: 'line',
+      xref: 'x',
+      yref: 'paper',
+      x0: dates[cp],
+      x1: dates[cp],
+      y0: 0,
+      y1: 1,
+      line: { color: '#ef4444', width: 2, dash: 'dot' },
+    });
+    annotations.push({
+      x: dates[cp],
+      y: 1.05,
+      xref: 'x',
+      yref: 'paper',
+      text: `CP${idx + 1}`,
+      showarrow: false,
+      font: { size: 10, color: '#ef4444' },
+    });
+  });
+
+  Plotly.newPlot('chart-primary', traces, {
+    title: `${primaryName} с сегментацией`,
+    xaxis: { title: 'Дата' },
+    yaxis: { title: primaryName },
+    shapes: shapes,
+    annotations: annotations,
+    margin: { t: 40, b: 40, l: 60, r: 20 },
+    legend: { orientation: 'h', y: -0.15 },
+  }, { responsive: true });
+
+  // Secondary charts
+  const secondaryTraces = [];
+  const secondary = result.chart_data.secondary;
+
+  if (secondary.p_tube_mean) {
+    secondaryTraces.push({
+      x: dates,
+      y: secondary.p_tube_mean.values,
+      type: 'scatter',
+      mode: 'lines',
+      name: 'P устьевое',
+      line: { color: '#22c55e' },
+    });
+  }
+  if (secondary.p_line_mean) {
+    secondaryTraces.push({
+      x: dates,
+      y: secondary.p_line_mean.values,
+      type: 'scatter',
+      mode: 'lines',
+      name: 'P линии',
+      line: { color: '#f59e0b' },
+    });
+  }
+  if (secondary.dp_mean) {
+    secondaryTraces.push({
+      x: dates,
+      y: secondary.dp_mean.values,
+      type: 'scatter',
+      mode: 'lines',
+      name: 'ΔP',
+      line: { color: '#8b5cf6' },
+    });
+  }
+  if (secondary.downtime_min) {
+    secondaryTraces.push({
+      x: dates,
+      y: secondary.downtime_min.values,
+      type: 'bar',
+      name: 'Простой (мин)',
+      marker: { color: '#ef4444', opacity: 0.5 },
+      yaxis: 'y2',
+    });
+  }
+
+  if (secondaryTraces.length > 0) {
+    Plotly.newPlot('chart-secondary', secondaryTraces, {
+      title: 'Дополнительные метрики',
+      xaxis: { title: 'Дата' },
+      yaxis: { title: 'Давление (кгс/см²)' },
+      yaxis2: {
+        title: 'Простой (мин)',
+        overlaying: 'y',
+        side: 'right',
+      },
+      margin: { t: 40, b: 40, l: 60, r: 60 },
+      legend: { orientation: 'h', y: -0.15 },
+    }, { responsive: true });
+  }
+}
+
+function renderSegmentsTable(result) {
+  const tbody = document.getElementById('segments-tbody');
+  tbody.innerHTML = '';
+
+  result.segments.forEach(seg => {
+    const color = result.type_colors[seg.segment_type] || '#ccc';
+    const typeLabel = result.type_labels[seg.segment_type] || seg.segment_type;
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${seg.num}</td>
+      <td><span class="seg-type-badge" style="background:${color}">${typeLabel}</span></td>
+      <td>${seg.days}</td>
+      <td>${seg.mean_value.toFixed(2)}</td>
+      <td>${seg.slope.toFixed(4)}</td>
+      <td>${seg.r_squared.toFixed(3)}</td>
+      <td>${seg.change_pct != null ? (seg.change_pct > 0 ? '+' : '') + seg.change_pct.toFixed(1) + '%' : '—'}</td>
+      <td>${seg.trend_direction || '—'}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderDescriptions(result) {
+  const ul = document.getElementById('descriptions-list');
+  ul.innerHTML = '';
+
+  result.descriptions.forEach(desc => {
+    const li = document.createElement('li');
+    li.textContent = desc;
+    ul.appendChild(li);
+  });
+}
+</script>
+{% endblock %}

@@ -42,6 +42,96 @@ DEFAULT_ADAPT_DURATION_DAYS = 10
 
 
 # ═══════════════════════════════════════════════════════════════════
+# Обогащение событий данными из БД
+# ═══════════════════════════════════════════════════════════════════
+
+def _enrich_events_from_db(
+    db: Session,
+    events: list[dict],
+    well_number: str,
+) -> list[dict]:
+    """Обогатить события данными из таблицы events.
+
+    Для событий из snapshot, которые не содержат p_tube, p_line, reagent, qty,
+    description — подтягиваем их из БД по времени события.
+
+    Args:
+        db: SQLAlchemy session
+        events: список событий (из snapshot.adaptation.events_for_chart)
+        well_number: номер скважины (строка)
+
+    Returns:
+        Обогащённый список событий (мутирует in-place и возвращает)
+    """
+    if not events:
+        return events
+
+    # Собираем все времена событий для одного запроса
+    event_times = []
+    for ev in events:
+        t = ev.get("t") or ev.get("ts") or ev.get("event_time")
+        if t:
+            # Время в snapshot — в Kungrad-local (ISO string)
+            event_times.append(str(t)[:19])  # YYYY-MM-DDTHH:MM:SS
+
+    if not event_times:
+        return events
+
+    # Загружаем все события из БД для этой скважины и времён
+    try:
+        rows = db.execute(text("""
+            SELECT
+                TO_CHAR(event_time, 'YYYY-MM-DD"T"HH24:MI') as t,
+                event_type, reagent, qty, description, p_tube, p_line
+            FROM events
+            WHERE well = :wno
+              AND event_type IN ('purge', 'reagent', 'equip', 'other')
+        """), {"wno": well_number}).fetchall()
+
+        # Индексируем по времени (первые 16 символов: YYYY-MM-DDTHH:MM)
+        db_events = {}
+        for r in rows:
+            key = str(r[0])[:16] if r[0] else None
+            if key:
+                db_events[key] = {
+                    "event_type": r[1],
+                    "reagent": r[2],
+                    "qty": float(r[3]) if r[3] else None,
+                    "description": r[4],
+                    "p_tube": float(r[5]) if r[5] else None,
+                    "p_line": float(r[6]) if r[6] else None,
+                }
+
+        # Обогащаем события
+        for ev in events:
+            t = ev.get("t") or ev.get("ts") or ev.get("event_time")
+            if not t:
+                continue
+            key = str(t)[:16]
+            if key in db_events:
+                db_ev = db_events[key]
+                # Добавляем только отсутствующие поля
+                if ev.get("reagent") is None or ev.get("reagent") == "":
+                    ev["reagent"] = db_ev.get("reagent") or ""
+                if ev.get("qty") is None:
+                    ev["qty"] = db_ev.get("qty")
+                    ev["amount"] = db_ev.get("qty")
+                if ev.get("description") is None or ev.get("description") == "":
+                    ev["description"] = db_ev.get("description") or ""
+                if ev.get("p_tube") is None:
+                    ev["p_tube"] = db_ev.get("p_tube")
+                if ev.get("p_line") is None:
+                    ev["p_line"] = db_ev.get("p_line")
+                # Обновляем label если пустой
+                if not ev.get("label"):
+                    ev["label"] = ev.get("reagent") or ev.get("description") or ""
+    except Exception as e:
+        log.warning("_enrich_events_from_db failed: %s", e)
+
+    return events
+
+
+# ═══════════════════════════════════════════════════════════════════
 # Нормализация дат/времени
 # ═══════════════════════════════════════════════════════════════════
 
@@ -539,7 +629,7 @@ def collect_stage_stats(
         # На фронте графики используют часовое разрешение из соображений
         # производительности и консистентности с hourly-pressure.
         if not hourly.empty:
-            df_flow = _compute_hourly_flow(hourly, choke_mm)
+            df_flow = _compute_hourly_flow(hourly, choke_mm, dp_threshold=dp_threshold)
             if df_flow is not None and not df_flow.empty:
                 q_series = df_flow["flow_rate"].dropna()
                 q_working = q_series[q_series > 0]
@@ -603,13 +693,16 @@ def collect_stage_stats(
     if flow_median and downtime_hours > 0:
         downtime_loss = float(flow_median) * (downtime_hours / 24.0)
 
-    # Маркеры событий для графиков (все значимые типы)
+    # Маркеры событий для графиков (все значимые типы) — полные данные
+    # Добавлены p_tube, p_line из самого события (давления на момент фиксации)
     event_markers: list[dict] = []
     marker_rows = db.execute(text("""
-        SELECT event_time, event_type FROM events
+        SELECT event_time, event_type, reagent, qty, description, p_tube, p_line
+        FROM events
         WHERE well = :wno
           AND event_type IN ('purge', 'reagent', 'equip', 'other')
           AND event_time >= :start AND event_time <= :end
+        ORDER BY event_time
     """), {
         "wno": str(well.number), "start": local_start, "end": local_end,
     }).fetchall()
@@ -619,6 +712,11 @@ def collect_stage_stats(
             event_markers.append({
                 "time_utc": r[0] - KUNGRAD_OFFSET,
                 "event_type": r[1],
+                "reagent": r[2],
+                "qty": float(r[3]) if r[3] else None,
+                "description": r[4],
+                "p_tube": float(r[5]) if r[5] else None,
+                "p_line": float(r[6]) if r[6] else None,
             })
 
     # 4. Графики
@@ -628,13 +726,25 @@ def collect_stage_stats(
 
     combined_chart_path = None
 
-    # События в Kungrad-local (для отображения на frontend-графике)
+    # События в Kungrad-local (для отображения на frontend-графике и в таблице)
+    # Давления берём из самого события (p_tube, p_line записаны при фиксации)
     events_for_chart: list[dict] = []
     for m in event_markers:
         ts_local = m["time_utc"] + KUNGRAD_OFFSET
+        # Давления из события (уже есть в event_markers)
+        p_tube_val = round(m["p_tube"], 1) if m.get("p_tube") is not None else None
+        p_line_val = round(m["p_line"], 1) if m.get("p_line") is not None else None
+
         events_for_chart.append({
             "t": ts_local.isoformat(timespec="minutes"),
             "type": m["event_type"],
+            "label": m.get("reagent") or m.get("description") or "",
+            "reagent": m.get("reagent") or "",
+            "qty": m.get("qty"),
+            "amount": m.get("qty"),
+            "description": m.get("description") or "",
+            "p_tube": p_tube_val,
+            "p_line": p_line_val,
         })
 
     # Компактные часовые данные для интерактивных графиков (frontend)
@@ -1136,10 +1246,15 @@ def compute_monthly_stats(
     return result
 
 
-def _compute_hourly_flow(hourly: pd.DataFrame, choke_mm: float) -> pd.DataFrame:
+def _compute_hourly_flow(
+    hourly: pd.DataFrame, choke_mm: float, dp_threshold: float = 0.1,
+) -> pd.DataFrame:
     """Посчитать мгновенный дебит Q для каждой часовой точки.
 
     Использует ту же формулу, что scenario_service (критический/докритический режим).
+
+    ВАЖНО: Q = 0 при простое (dp < dp_threshold), согласовано с full_pipeline step 11a
+    и красными зонами на графике.
     """
     from backend.services.flow_rate.config import DEFAULT_FLOW as cfg
 
@@ -1147,11 +1262,17 @@ def _compute_hourly_flow(hourly: pd.DataFrame, choke_mm: float) -> pd.DataFrame:
     q_values = []
     for _, row in hourly.iterrows():
         pt, pl = row["p_tube"], row["p_line"]
-        if pd.isna(pt) or pd.isna(pl) or pt <= 0 or pt <= pl:
+        # NaN для отсутствующих данных
+        if pd.isna(pt) or pd.isna(pl) or pt <= 0:
             q_values.append(np.nan)
             continue
         pt, pl = float(pt), float(pl)
-        ratio = (pt - pl) / pt
+        dp = pt - pl
+        # Простой: ΔP < порога — Q = 0 (согласовано с красными зонами)
+        if dp < dp_threshold:
+            q_values.append(0.0)
+            continue
+        ratio = dp / pt
         if ratio < cfg.critical_ratio:
             q = cfg.C1 * choke_sq * pt * (1.0 - ratio / 1.5) * (ratio / cfg.C3) ** 0.5
         else:
@@ -1868,7 +1989,7 @@ def generate_conclusions(
     ddp_pct = comparison["delta_dp_pct"]
     if ddp is not None:
         if ddp > 0.5:
-            pct_str = f" ({ddp_pct:+.1f}%)" if ddp_pct is not None else ""
+            pct_str = f" ({ddp_pct:+.1f}\\%)" if ddp_pct is not None else ""  # \\% для LaTeX
             out.append(
                 f"Перепад давления ΔP увеличился на {ddp:+.2f} кгс/см²{pct_str} — "
                 f"реагент вспенивает флюид, облегчая вынос воды "
@@ -2275,6 +2396,88 @@ def _build_observation_intro(
     }
 
 
+def _build_adaptation_intro(
+    db: Session, well_id: int, well_number: str,
+    adapt_from: datetime, adapt_to: datetime,
+) -> dict[str, Any]:
+    """Сводка для §4.1: введение в этап адаптации с информацией о датчиках.
+
+    Возвращает dict:
+      {
+        "sensors": [{serial, model, position_label}, ...],
+        "date_from_fmt": "DD.MM.YYYY",
+        "date_to_fmt": "DD.MM.YYYY",
+        "intro_text": "...",   # готовая фраза целиком
+        "intro_text_tex": "...",  # LaTeX-escaped версия
+      }
+    """
+    sensors: list[dict[str, Any]] = []
+    try:
+        rows = db.execute(text("""
+            SELECT e.serial_number, e.name, ls.csv_column
+            FROM equipment_installation ei
+            JOIN equipment e ON e.id = ei.equipment_id
+            LEFT JOIN lora_sensors ls ON ls.serial_number = e.serial_number
+            WHERE ei.well_id = :wid
+              AND ei.installed_at <= :adapt_to
+              AND (ei.removed_at IS NULL OR ei.removed_at >= :adapt_from)
+              AND e.name ILIKE '%SMOD%'
+            ORDER BY ei.installed_at ASC
+        """), {
+            "wid": well_id, "adapt_from": adapt_from, "adapt_to": adapt_to,
+        }).fetchall()
+    except Exception:
+        log.exception("adaptation-intro sensor query failed for well %s", well_id)
+        rows = []
+
+    sensor_serials = []
+    sensor_model = None
+    for serial, name, csv_col in rows:
+        position_label = "устье" if csv_col == "Ptr" else "шлейф" if csv_col else "—"
+        sensors.append({
+            "serial": serial,
+            "model": name,
+            "position_label": position_label,
+        })
+        sensor_serials.append(serial)
+        if not sensor_model and name:
+            sensor_model = name
+
+    date_from_fmt = adapt_from.strftime("%d.%m.%Y")
+    date_to_fmt = adapt_to.strftime("%d.%m.%Y")
+
+    # Формируем текст введения
+    if sensors:
+        serials_str = ", ".join(sensor_serials)
+        model_str = sensor_model or "SMOD"
+        intro_text = (
+            f"В период с {date_from_fmt} по {date_to_fmt} с целью адаптации технологии "
+            f"к условиям скважины №{well_number} проводились работы по выбору "
+            f"оптимального реагента, оптимальной концентрации и периода дозирования. "
+            f"Параметры работы скважины фиксировались в режиме реального времени "
+            f"датчиками {model_str} (серийные номера: {serials_str}). "
+            f"Частота опроса — 1 измерение в минуту."
+        )
+    else:
+        intro_text = (
+            f"В период с {date_from_fmt} по {date_to_fmt} с целью адаптации технологии "
+            f"к условиям скважины №{well_number} проводились работы по выбору "
+            f"оптимального реагента, оптимальной концентрации и периода дозирования."
+        )
+
+    # LaTeX-версия
+    from backend.services.daily_report_service import _tex_escape
+    intro_text_tex = _tex_escape(intro_text)
+
+    return {
+        "sensors": sensors,
+        "date_from_fmt": date_from_fmt,
+        "date_to_fmt": date_to_fmt,
+        "intro_text": intro_text,
+        "intro_text_tex": intro_text_tex,
+    }
+
+
 def _build_monthly_uzkor_unitool_blocks(
     month_descriptions: list[dict],
     months: list[dict],
@@ -2324,7 +2527,7 @@ def _build_monthly_uzkor_unitool_blocks(
             f = float(v)
             if f != f:
                 return ""
-            return ("+" if f >= 0 else "") + f"{f:.1f}%"
+            return ("+" if f >= 0 else "") + f"{f:.1f}\\%"  # \\% для LaTeX
         except (TypeError, ValueError):
             return ""
 
@@ -2332,9 +2535,17 @@ def _build_monthly_uzkor_unitool_blocks(
     has_unitool_overlay = bool(unitool_by_month) or bool(unitool_meta)
     out: list[dict] = []
 
+    def _escape_pct(s: str) -> str:
+        """Экранирует % как \\% для LaTeX, если ещё не экранировано."""
+        import re
+        # Заменяем % на \%, но не трогаем уже экранированные \%
+        return re.sub(r'(?<!\\)%', r'\\%', s)
+
     for d in month_descriptions or []:
         label = d.get("label") or ""
-        item: dict = {"label": label, "uzkor": {"text": d.get("text") or ""}}
+        # Экранируем % в тексте из snapshot (старые снимки могут содержать голый %)
+        raw_text = d.get("text") or ""
+        item: dict = {"label": label, "uzkor": {"text": _escape_pct(raw_text)}}
 
         if not has_unitool_overlay:
             out.append(item)
@@ -2396,10 +2607,10 @@ def _build_monthly_uzkor_unitool_blocks(
 
             compat_text = (
                 f"Сопоставимо с UzKorGaz ({cust_days} сут): "
-                f"разница {cmp_ratio:.1f}% ≤ 10%."
+                f"разница {cmp_ratio:.1f}\\% ≤ 10\\%."  # \\% для LaTeX
                 if compat else
                 f"⚠ Несопоставимо с UzKorGaz ({cust_days} сут): "
-                f"разница {cmp_ratio:.1f}% > 10%."
+                f"разница {cmp_ratio:.1f}\\% > 10\\%."  # \\% для LaTeX
             )
 
             item["unitool"] = {
@@ -2940,14 +3151,29 @@ def collect_report_data(
             blocks = []
         for b in blocks:
             kind = b.get("kind")
+            p = b.get("params") or {}
             if kind == "observation_analysis":
                 observation_blocks.append({
                     "block_id":      b.get("id"),
                     "well_id":       well.id,
                     "title":         b.get("title"),
                     "comment":       b.get("comment"),
-                    "params":        b.get("params") or {},
+                    "params":        p,
                     "data_snapshot": b.get("data_snapshot") or {},
+                })
+            elif kind == "segment_analysis" and (p.get("chapter") == "observation" or p.get("source") == "observation"):
+                # segment_analysis из wizard'а Наблюдения → observation_blocks
+                observation_blocks.append({
+                    "block_id":      b.get("id"),
+                    "well_id":       well.id,
+                    "kind":          "segment_analysis",
+                    "title":         b.get("title"),
+                    "comment":       b.get("comment"),
+                    "params":        p,
+                    "data_snapshot": b.get("data_snapshot") or {},
+                    "parts":         p.get("parts") or {},
+                    "prefix_note":   p.get("prefix_note") or "",
+                    "suffix_note":   p.get("suffix_note") or "",
                 })
             elif kind in ("adaptation_period_analysis", "adaptation_comparison",
                           "optimal_window", "reagent_irv_summary"):
@@ -2957,9 +3183,38 @@ def collect_report_data(
                     "kind":          kind,
                     "title":         b.get("title"),
                     "comment":       b.get("comment"),
-                    "params":        b.get("params") or {},
+                    "params":        p,
                     "data_snapshot": b.get("data_snapshot") or {},
                 })
+
+        # Форматирование блоков для fast path (превью одного блока)
+        observation_blocks_fmt = []
+        for ob in observation_blocks:
+            kind = ob.get("kind")
+            if kind == "segment_analysis":
+                observation_blocks_fmt.append(
+                    _format_segment_analysis_for_observation(ob, render_charts=render_charts)
+                )
+            elif kind == "segment_comparison":
+                observation_blocks_fmt.append(
+                    _format_segment_comparison_for_observation(ob, render_charts=render_charts)
+                )
+            else:
+                observation_blocks_fmt.append(
+                    _format_observation_block(ob, render_charts=render_charts)
+                )
+
+        adaptation_blocks_fmt = []
+        for ab in adaptation_blocks:
+            kind = ab.get("kind")
+            if kind == "segment_analysis":
+                adaptation_blocks_fmt.append(
+                    _format_segment_block(ab, render_charts=render_charts, chart_dir=None)
+                )
+            else:
+                adaptation_blocks_fmt.append(
+                    _format_adaptation_block(ab, render_charts=render_charts, db=db)
+                )
 
         return {
             "ok": True,
@@ -2979,8 +3234,8 @@ def collect_report_data(
             "adapt_vs_baseline": None, "obs_vs_baseline": None,
             "conclusions": [], "reagent_effectiveness": None,
             "customer_chapter": None,
-            "observation_blocks": observation_blocks,
-            "adaptation_blocks": adaptation_blocks,
+            "observation_blocks": observation_blocks_fmt,
+            "adaptation_blocks": adaptation_blocks_fmt,
             "b2_tile": None, "b1_tile": None,
         }
 
@@ -3034,6 +3289,16 @@ def collect_report_data(
         if adapt_description_override is not None
         else adapt_note
     )
+
+    # Вступление к §4.1: период адаптации + датчики SMOD.
+    try:
+        adapt_stats["intro"] = _build_adaptation_intro(
+            db, well.id, str(well.number),
+            _to_dt(adapt_from, False), _to_dt(adapt_to, True),
+        )
+    except Exception:
+        log.exception("adaptation intro build failed for well %s", well.id)
+        adapt_stats["intro"] = None
 
     if optimal_mode != "off" and _need_optimal:
 
@@ -3203,20 +3468,69 @@ def collect_report_data(
                 "parts":         p.get("parts") or {},
             })
         elif kind == "segment_analysis":
-            # PLAN B: Core Segment Analysis интегрирован в PDF главы 2.
-            # Собираем blocks; формирование (через _format_segment_block) —
-            # ниже, в общем блоке формирования customer_chapter.
-            segment_blocks_input.append({
-                "block_id":      b.get("id"),
-                "title":         b.get("title"),
-                "comment":       b.get("comment"),
-                "params":        p,
-                "data_snapshot": snap,
-                "parts":         p.get("parts") or {},
-                "prefix_note":   p.get("prefix_note") or "",
-                "suffix_note":   p.get("suffix_note") or "",
-            })
+            # Блоки из wizard'а Наблюдения (chapter=observation) → глава 3 (Наблюдение)
+            # Блоки из wizard'а Адаптации (chapter=adaptation) → глава 4 (Адаптация)
+            # Остальные segment_analysis → глава 2 (Заказчик)
+            if p.get("chapter") == "observation" or p.get("source") == "observation":
+                observation_blocks.append({
+                    "block_id":      b.get("id"),
+                    "well_id":       well.id,
+                    "kind":          "segment_analysis",  # для выбора форматтера
+                    "title":         b.get("title"),
+                    "comment":       b.get("comment"),
+                    "params":        p,
+                    "data_snapshot": snap,
+                    "parts":         p.get("parts") or {},
+                    "prefix_note":   p.get("prefix_note") or "",
+                    "suffix_note":   p.get("suffix_note") or "",
+                })
+            elif p.get("chapter") == "adaptation":
+                # Сегментный анализ для главы Адаптация
+                adaptation_blocks.append({
+                    "block_id":      b.get("id"),
+                    "well_id":       well.id,
+                    "kind":          "segment_analysis",
+                    "title":         b.get("title"),
+                    "comment":       b.get("comment"),
+                    "params":        p,
+                    "data_snapshot": snap,
+                    "parts":         p.get("parts") or {},
+                    "prefix_note":   p.get("prefix_note") or "",
+                    "suffix_note":   p.get("suffix_note") or "",
+                })
+            else:
+                # PLAN B: Core Segment Analysis интегрирован в PDF главы 2.
+                segment_blocks_input.append({
+                    "block_id":      b.get("id"),
+                    "title":         b.get("title"),
+                    "comment":       b.get("comment"),
+                    "params":        p,
+                    "data_snapshot": snap,
+                    "parts":         p.get("parts") or {},
+                    "prefix_note":   p.get("prefix_note") or "",
+                    "suffix_note":   p.get("suffix_note") or "",
+                })
+        elif kind == "segment_comparison":
+            # segment_comparison из wizard'а Наблюдения → observation_blocks
+            if p.get("chapter") == "observation" or p.get("source") == "observation":
+                observation_blocks.append({
+                    "block_id":      b.get("id"),
+                    "well_id":       well.id,
+                    "kind":          "segment_comparison",
+                    "title":         b.get("title"),
+                    "comment":       b.get("comment"),
+                    "params":        p,
+                    "data_snapshot": snap,
+                    "parts":         p.get("parts") or {},
+                    "prefix_note":   p.get("prefix_note") or "",
+                    "suffix_note":   p.get("suffix_note") or "",
+                })
         elif kind == "observation_analysis":
+            # Обогащаем события в snapshot данными из БД
+            if snap and snap.get("adaptation"):
+                evts = snap["adaptation"].get("events_for_chart")
+                if evts:
+                    _enrich_events_from_db(db, evts, str(well.number))
             observation_blocks.append({
                 "block_id":      b.get("id"),
                 "well_id":       well.id,
@@ -3231,6 +3545,11 @@ def collect_report_data(
             "optimal_window",
             "reagent_irv_summary",
         ):
+            # Обогащаем события в snapshot данными из БД (p_tube, p_line, reagent, qty, description)
+            if snap and snap.get("adaptation"):
+                evts = snap["adaptation"].get("events_for_chart")
+                if evts:
+                    _enrich_events_from_db(db, evts, str(well.number))
             adaptation_blocks.append({
                 "block_id":      b.get("id"),
                 "well_id":       well.id,
@@ -3246,7 +3565,7 @@ def collect_report_data(
     #   б) в БД есть хотя бы один блок period_analysis/comparison/baseline
     #      (флаг от фронта может быть False, если форма Шага 2 пустая —
     #      но блоки в БД сами по себе должны попадать в PDF).
-    _has_customer_blocks = bool(periods_input or comparisons_input or rose_blocks_input or chapter_intros_input)
+    _has_customer_blocks = bool(periods_input or comparisons_input or rose_blocks_input or chapter_intros_input or segment_blocks_input)
     try:
         from backend.services import customer_baseline_service as bsvc
         _has_baselines = bool(bsvc.list_baselines(db, well.id))
@@ -3516,6 +3835,45 @@ def collect_report_data(
     # и только когда §1 нужна — карта тяжёлая, для превью других глав пропускаем).
     well_tech = _collect_well_tech_data(db, well, render_map=_need_map)
 
+    # ── Форматирование observation_blocks для LaTeX ──
+    # Блоки segment_analysis / segment_comparison требуют генерации PNG.
+    observation_blocks_fmt = []
+    for ob in observation_blocks:
+        kind = ob.get("kind")
+        if kind == "segment_analysis":
+            observation_blocks_fmt.append(
+                _format_segment_analysis_for_observation(ob, render_charts=render_charts)
+            )
+        elif kind == "segment_comparison":
+            observation_blocks_fmt.append(
+                _format_segment_comparison_for_observation(ob, render_charts=render_charts)
+            )
+        else:
+            # observation_analysis и другие
+            observation_blocks_fmt.append(
+                _format_observation_block(ob, render_charts=render_charts)
+            )
+
+    # ── Форматирование adaptation_blocks для LaTeX ──
+    # Блоки segment_analysis требуют генерации PNG через _format_segment_block.
+    # Остальные kind (adaptation_period_analysis, optimal_window, etc.)
+    # форматируются через _format_adaptation_block.
+    adaptation_blocks_fmt = []
+    for ab in adaptation_blocks:
+        kind = ab.get("kind")
+        if kind == "segment_analysis":
+            # Сегментный анализ главы Адаптация — рендер PNG + форматирование
+            adaptation_blocks_fmt.append(
+                _format_segment_block(
+                    ab, render_charts=render_charts, chart_dir=chart_dir,
+                )
+            )
+        else:
+            # adaptation_period_analysis, adaptation_comparison, optimal_window, etc.
+            adaptation_blocks_fmt.append(
+                _format_adaptation_block(ab, render_charts=render_charts, db=db)
+            )
+
     return {
         "ok": True,
         "warnings": warnings,
@@ -3544,8 +3902,8 @@ def collect_report_data(
         "conclusions": conclusions,
         "reagent_effectiveness": reagent_effectiveness,
         "customer_chapter": customer_chapter,
-        "observation_blocks": observation_blocks,
-        "adaptation_blocks": adaptation_blocks,
+        "observation_blocks": observation_blocks_fmt,
+        "adaptation_blocks": adaptation_blocks_fmt,
         # ── Плитки утверждённых baseline для §2 / §3 PDF ──
         # B2 нужна на §3 (наблюдение); B1 — на §2 (заказчик).
         # render_charts на B2 = тяжёлый рендер 3 PNG → выключаем при превью
@@ -3617,15 +3975,15 @@ def _fmt_num(val, decimals: int = 2, suffix: str = "") -> str:
         return str(val)
 
 
-def _fmt_signed(val, decimals: int = 2) -> str:
-    """Форматирование числа со знаком (+/-)."""
+def _fmt_signed(val, decimals: int = 2, suffix: str = "") -> str:
+    """Форматирование числа со знаком (+/-) и опциональным суффиксом."""
     if val is None:
         return "---"
     try:
         fv = float(val)
         if np.isnan(fv) or np.isinf(fv):
             return "---"
-        return f"{fv:+.{decimals}f}"
+        return f"{fv:+.{decimals}f}{suffix}"
     except (TypeError, ValueError):
         return "---"
 
@@ -4107,16 +4465,23 @@ def _format_rose_block(
 # Никаких diagnostic/causal формулировок («диагностический признак»,
 # «возможная интерпретация», «требует проверки») — это отдельный этап.
 
-_DEFAULT_SEGMENT_PARTS = (
-    "prefix_note",
-    "q_segment_chart",
-    "segments_table",
-    "segment_describes",
-    "cp_descriptions",
-    "dual_comparison",
-    "description",
-    "suffix_note",
+#  PART_LABELS контракт — см. docs/contracts/segment_snapshot_contract.md §5
+#  и backend/constants/segment_parts.py.
+#
+#  Источник правды для ключей чекбоксов — HTML PART_LABELS.segment_analysis
+#  (backend/templates/customer_daily.html). Этот список должен оставаться
+#  симметричным HTML, за исключением PAV-частей, которые намеренно
+#  ИСКЛЮЧЕНЫ из PDF по scope PB-V2 (SEGMENT_ANALYSIS_PDF_EXCLUDED_PARTS).
+#  dual_comparison не управляется чекбоксом — см.
+#  SEGMENT_ANALYSIS_ALWAYS_ON_PARTS (выводится всегда).
+#
+#  При добавлении нового ключа: обновить и shared constant, и HTML, и
+#  LaTeX-подсекцию `adaptation_report.tex` (см. контракт §9).
+from backend.constants.segment_parts import (
+    SEGMENT_ANALYSIS_RENDER_PARTS,
+    SEGMENT_SNAPSHOT_SCHEMA_VERSION_SUPPORTED,
 )
+_DEFAULT_SEGMENT_PARTS = SEGMENT_ANALYSIS_RENDER_PARTS
 
 
 def _format_segment_block(
@@ -4149,30 +4514,64 @@ def _format_segment_block(
     p = b.get("params") or {}
     block_id = b.get("block_id") or "x"
 
+    # ── Soft schema_version check (см. контракт §7) ────────────────
+    # Legacy snapshot без schema_version трактуется как v=1.
+    # Версия выше поддерживаемой не приводит к падению — рендер
+    # продолжается best-effort, в лог пишется warning. В пользовательский
+    # PDF никаких diagnostic-вставок не добавляем.
+    try:
+        _raw_v = snap.get("schema_version")
+        _snap_v = int(_raw_v) if _raw_v is not None else 1
+    except (TypeError, ValueError):
+        _snap_v = 1
+    if _snap_v > SEGMENT_SNAPSHOT_SCHEMA_VERSION_SUPPORTED:
+        log.warning(
+            "segment snapshot schema_version=%s > supported=%s "
+            "(block_id=%s) — рендерю best-effort",
+            _snap_v, SEGMENT_SNAPSHOT_SCHEMA_VERSION_SUPPORTED, block_id,
+        )
+
     # ── PNG figure (только если render_charts=True и snapshot валиден) ──
+    # Поддерживаем оба индикатора: ok=True (segment_v1) и block_status="ok" (obs_segment)
     chart_q_path: str | None = None
-    if render_charts and snap.get("ok"):
-        try:
-            from backend.services.segment_chart_renderer import (
-                render_segment_q_chart,
+    is_valid = snap.get("ok") or snap.get("block_status") == "ok"
+    if render_charts:
+        if not is_valid:
+            log.warning(
+                "segment block %s: skipping chart (ok=%s, block_status=%s)",
+                block_id, snap.get("ok"), snap.get("block_status"),
             )
-            from backend.services.daily_report_service import _ensure_dirs, TEMP_DIR
-            if chart_dir is not None:
-                chart_dir.mkdir(parents=True, exist_ok=True)
-                png_path = (chart_dir / f"segment_q_{block_id}.png").resolve()
-            else:
-                _ensure_dirs()
-                png_path = (TEMP_DIR / f"segment_q_{block_id}.png").resolve()
-            result = render_segment_q_chart(snap, png_path)
-            chart_q_path = str(result) if result else None
-        except Exception:
-            log.exception(
-                "render_segment_q_chart failed for block %s", block_id,
-            )
+        else:
+            try:
+                from backend.services.segment_chart_renderer import (
+                    render_segment_q_chart,
+                )
+                from backend.services.daily_report_service import _ensure_dirs, TEMP_DIR
+                if chart_dir is not None:
+                    chart_dir.mkdir(parents=True, exist_ok=True)
+                    png_path = (chart_dir / f"segment_q_{block_id}.png").resolve()
+                else:
+                    _ensure_dirs()
+                    png_path = (TEMP_DIR / f"segment_q_{block_id}.png").resolve()
+                result = render_segment_q_chart(snap, png_path)
+                chart_q_path = str(result) if result else None
+                if result is None:
+                    log.warning(
+                        "segment block %s: render_segment_q_chart returned None "
+                        "(check logs for details: dates=%d, segments=%d)",
+                        block_id,
+                        len((snap.get("chart_data") or {}).get("dates") or []),
+                        len(snap.get("segments_extended") or snap.get("segments") or []),
+                    )
+            except Exception:
+                log.exception(
+                    "render_segment_q_chart failed for block %s", block_id,
+                )
 
     # ── Подготовка таблицы сегментов (11 колонок § PLAN B 3.3) ──
+    # Поддерживаем оба формата: segments_extended (segment_v1) и segments (obs_segment)
     segments_rows = []
-    for s in snap.get("segments_extended") or []:
+    for s in snap.get("segments_extended") or snap.get("segments") or []:
         change_pct = s.get("change_pct")
         # change_pct это число, например -9.0. Форматируем как «-9» + LaTeX-эскейпленный %.
         if change_pct is None:
@@ -4210,13 +4609,26 @@ def _format_segment_block(
             "type_tex":      _tex_escape(str(s.get("type") or "—")),
         })
 
-    # ── Компактные ФАКТИЧЕСКИЕ выводы по сегментам (без causal) ──
-    # Только числа из snapshot. Никаких «диагностический признак».
-    segment_engineering_notes = _build_factual_segment_notes(
+    # ── Богатое «Описание сегментов» (HTML §6.4 эквивалент) ────
+    # Использует cause / preshutdown_verdict / gradual_trend /
+    # change_q_working_pct / mean_p_wellhead / mean_p_flowline /
+    # mean_choke_mm / change_shutdown / change_dp_pct.
+    # ВАЖНО: cause/preshutdown_verdict/gradual_trend — описания факта
+    # из segment_analysis_module (разрешены diagnostic-policy).
+    rich_segment_describes = _build_rich_segment_describes(
         snap.get("segments_extended") or [],
     )
 
-    # ── События переломов (короткие bullets) ───────────────────
+    # ── Развёрнутые описания из алгоритма (snap.descriptions[]) ─
+    descriptions_lines = _build_descriptions_lines(
+        snap.get("descriptions") or [],
+    )
+
+    # ── События переломов: предпочитаем snap.cp_descriptions[] ─
+    # Fallback на короткие cp_bullets (legacy snapshot без cp_descriptions).
+    cp_descriptions_lines = _build_descriptions_lines(
+        snap.get("cp_descriptions") or [],
+    )
     cp_bullets = _build_cp_bullets(
         snap.get("cp_marks") or [],
         snap.get("segments_extended") or [],
@@ -4252,6 +4664,7 @@ def _format_segment_block(
 
     return {
         "block_id":       block_id,
+        "kind":           "segment_analysis",
         "title":          _tex_escape(str(b.get("title") or "Сегментный анализ")),
         "well_number":    _tex_escape(str(snap.get("well_number") or "")),
         "date_from":      _tex_escape(str(snap.get("date_from") or "")),
@@ -4265,13 +4678,19 @@ def _format_segment_block(
         "suffix_note_tex": _tex_escape(_suf) if _suf else "",
         "chart_q_path":   chart_q_path,
         "segments_rows":  segments_rows,
-        "segment_engineering_notes": segment_engineering_notes,
+        # HTML-эквивалент «Описание сегментов» (§6.4 — rich).
+        "rich_segment_describes": rich_segment_describes,
+        # HTML-эквивалент «Развёрнутые описания из алгоритма»
+        "descriptions_lines": descriptions_lines,
+        # HTML-эквивалент «События переломов» (snap.cp_descriptions).
+        # Если пуст — fallback на cp_bullets из cp_marks (legacy snapshot).
+        "cp_descriptions_lines": cp_descriptions_lines,
         "cp_bullets":     cp_bullets,
         "dual_summary_tex": dual_summary_tex,
         "parts":          parts,
         "has_data":       bool(
-            snap.get("ok")
-            and (snap.get("segments_extended") or [])
+            (snap.get("ok") or snap.get("block_status") == "ok")
+            and (snap.get("segments_extended") or snap.get("segments") or [])
         ),
     }
 
@@ -4327,6 +4746,161 @@ def _build_factual_segment_notes(segments_extended: list) -> list[dict]:
             "num":   str(s.get("num", "")),
             "lines": [_tex_escape(ln) for ln in lines],
         })
+    return out
+
+
+def _build_rich_segment_describes(segments_extended: list) -> list[dict]:
+    """Точный эквивалент HTML «📝 Описание сегментов» (§6.4).
+
+    Источник: customer_daily.html `_buildSegmentBlockHtml`, ветка
+    `on('descriptions') && segs.length` (карточка на сегмент).
+
+    Использует поля из segments_extended:
+      mean_q, mean_q_working, mean_dp, mean_p_wellhead,
+      mean_p_flowline, mean_choke_mm, working_pct, type, color,
+      change_pct, change_q_working_pct, change_dp_pct, change_shutdown,
+      change_choke, gradual_trend, gradual_drift_pct,
+      preshutdown_q, preshutdown_delta_pct, preshutdown_verdict, cause.
+
+    cause / preshutdown_verdict / gradual_trend — описания факта
+    (см. policy в feedback_diagnostic_interpretation_style.md). НИКАКИХ
+    новых diagnostic-формулировок здесь НЕ добавляется.
+
+    Returns: [{num, header, lines: [str, ...]}, ...] — каждая строка
+        уже эскейплена через _tex_escape.
+    """
+    from backend.services.daily_report_service import _tex_escape
+    out = []
+    for i, s in enumerate(segments_extended):
+        prev = segments_extended[i - 1] if i > 0 else None
+        num = str(s.get("num", ""))
+        seg_type = str(s.get("type") or "—")
+        # Шапка сегмента (как в HTML: «Сегмент N · DD.MM.YYYY–DD.MM.YYYY · X дн · тип: ...»)
+        header_plain = (
+            f"Сегмент {num} · "
+            f"{s.get('start','')}–{s.get('end','')} · "
+            f"{s.get('days','—')} дн · тип: {seg_type}"
+        )
+
+        lines: list[str] = []
+
+        # Строка 1 — Средние. ВАЖНО: пишем чистый '%', _tex_escape сам в \%.
+        l1 = (
+            f"Средние: Q общ {_fmt_num(s.get('mean_q'), 1)}, "
+            f"Q раб {_fmt_num(s.get('mean_q_working'), 1)} тыс.м³/сут, "
+            f"ΔP {_fmt_num(s.get('mean_dp'), 2)} кгс/см², "
+            f"P уст {_fmt_num(s.get('mean_p_wellhead'), 1)}, "
+            f"P шл {_fmt_num(s.get('mean_p_flowline'), 1)} кгс/см², "
+            f"штуцер {_fmt_num(s.get('mean_choke_mm'), 1)} мм, "
+            f"раб. время {_fmt_num(s.get('working_pct'), 0)}%."
+        )
+        lines.append(l1)
+
+        # Строка 2 — Изменение vs предыдущий (если есть prev).
+        if prev is not None:
+            chg_q   = s.get("change_pct")
+            chg_qw  = s.get("change_q_working_pct")
+            chg_dp  = s.get("change_dp_pct")
+            chg_sd  = s.get("change_shutdown")
+            chg_ch  = s.get("change_choke")
+            parts2: list[str] = []
+            if chg_q is not None:
+                parts2.append(f"Q общ {_fmt_signed(chg_q, 1)}%")
+            if chg_qw is not None:
+                parts2.append(f"Q раб {_fmt_signed(chg_qw, 1)}%")
+            if chg_dp is not None:
+                parts2.append(f"ΔP {_fmt_signed(chg_dp, 1)}%")
+            if chg_sd is not None:
+                parts2.append(f"простой {_fmt_signed(chg_sd, 0)} мин")
+            if chg_ch is not None and abs(chg_ch) > 0.01:
+                parts2.append(f"штуцер {_fmt_signed(chg_ch, 1)} мм")
+            if parts2:
+                lines.append(
+                    f"Изменение vs Сег.{prev.get('num','—')}: "
+                    + ", ".join(parts2) + "."
+                )
+
+        # Строка 3 — Плавный тренд (если есть).
+        gt = s.get("gradual_trend")
+        if gt:
+            gt_word = "спад" if gt == "down" else "рост"
+            drift = s.get("gradual_drift_pct")
+            lines.append(
+                f"Плавный тренд: {gt_word} на {_fmt_signed(drift, 1)}% за период."
+            )
+
+        # Строка 4 — До простоя / после.
+        psh_q = s.get("preshutdown_q")
+        psh_v = s.get("preshutdown_verdict")
+        if psh_q is not None and psh_v:
+            psh_delta = s.get("preshutdown_delta_pct")
+            lines.append(
+                f"До простоя/после: {_fmt_num(psh_q, 1)} → "
+                f"{_fmt_num(s.get('mean_q'), 1)} "
+                f"({_fmt_signed(psh_delta, 0)}%). {psh_v}"
+            )
+
+        # Строка 5 — Основной фактор (cause, §6.2: описание факта).
+        cause = s.get("cause")
+        if cause:
+            lines.append(f"Основной фактор: {cause}")
+
+        out.append({
+            "num":    num,
+            "color":  str(s.get("color") or "#666666"),
+            "header": _tex_escape(header_plain),
+            "lines":  [_tex_escape(ln) for ln in lines],
+        })
+    return out
+
+
+def _safe_tex_full(s: str) -> str:
+    """_tex_escape + защита от backslash.
+
+    _tex_escape не покрывает '\\' (он не в списке). Чтобы текст из
+    snap.descriptions[] / cp_descriptions[] не ронял xelatex на словах
+    типа 'C:\\Users' или regexp-литералах, экранируем backslash вручную.
+
+    Подход: сначала заменить '\\' на сентинель (любой символ,
+    который точно не может встретиться), затем _tex_escape (он не
+    тронет сентинель), затем сентинель → '\\textbackslash{}'.
+    Так не возникает повторного эскейпа после первого прохода.
+    """
+    from backend.services.daily_report_service import _tex_escape
+    if not s:
+        return ""
+    SENT = "\x00BS\x00"
+    s = s.replace("\\", SENT)
+    s = _tex_escape(s)
+    return s.replace(SENT, r"\textbackslash{}")
+
+
+def _build_descriptions_lines(items: list) -> list[str]:
+    """Эскейпит и нормализует список текстовых описаний.
+
+    Используется для:
+      • snap.descriptions[]    — «📑 Развёрнутые описания (из алгоритма)»
+      • snap.cp_descriptions[] — «🔻 События переломов»
+
+    Каждый элемент:
+      • приводится к str;
+      • пропускается _safe_tex_full (% & _ # $ { } ~ ^ \\);
+      • '\\n' → ' \\\\ ' (мягкий перенос внутри одного абзаца);
+      • '\\r' удаляется;
+      • пустые элементы пропускаются.
+    """
+    out: list[str] = []
+    for raw in items or []:
+        if raw is None:
+            continue
+        s = str(raw).replace("\r", "")
+        if not s.strip():
+            continue
+        # Сначала экранируем (символы \n остаются), потом конвертируем \n.
+        escaped = _safe_tex_full(s)
+        # \n → '\\\\' (force linebreak в LaTeX без новой строки в исходнике)
+        escaped = escaped.replace("\n", " \\\\ ")
+        out.append(escaped)
     return out
 
 
@@ -4425,6 +4999,7 @@ def _format_observation_block(b: dict, *, render_charts: bool = True) -> dict:
     return {
         "block_id":   b.get("block_id"),
         "title":      _tex_escape(str(b.get("title") or "")),
+        "is_b2":      snap.get("is_b2", False),  # флаг B2-блока для спец.стилизации
         "comment":    _tex_escape(desc_raw),  # совместимость с прежним шаблоном
         "description_paragraphs": description_paragraphs,
         "date_from":  _tex_escape(str(snap.get("date_from") or p.get("date_from") or "—")),
@@ -4451,7 +5026,105 @@ def _format_observation_block(b: dict, *, render_charts: bool = True) -> dict:
     }
 
 
-def _format_adaptation_block(b: dict, *, render_charts: bool = True) -> dict:
+def _format_segment_analysis_for_observation(b: dict, *, render_charts: bool = True) -> dict:
+    """Готовит блок kind='segment_analysis' под LaTeX для §3.4.
+
+    Использует render_segment_analysis() из observation_chapter_renderer,
+    который генерирует и HTML, и LaTeX. Возвращаем LaTeX для вставки в шаблон.
+    """
+    from backend.services.daily_report_service import _tex_escape, TEMP_DIR, _ensure_dirs
+    from backend.services.observation_chapter_renderer import (
+        render_segment_analysis, RenderContext,
+    )
+
+    snap = b.get("data_snapshot") or {}
+    p = b.get("params") or {}
+    block_id = b.get("block_id") or 0
+
+    # Директория для PNG графиков
+    _ensure_dirs()
+    output_dir = str(TEMP_DIR)
+
+    # Контекст для рендера
+    ctx = RenderContext(
+        output_dir=output_dir,
+        block_id=block_id,
+        title=str(b.get("title") or ""),
+        block_status="ok",
+        skip_figures=not render_charts,
+        parts=p.get("parts") or {},
+        prefix_note=p.get("prefix_note") or "",
+        suffix_note=p.get("suffix_note") or "",
+        comment=str(b.get("comment") or ""),
+    )
+
+    # Рендер через observation_chapter_renderer
+    try:
+        result = render_segment_analysis(snap, ctx)
+        latex_content = result.latex
+        chart_paths = [fig.absolute_path for fig in result.figures]
+    except Exception:
+        log.exception("segment_analysis render failed for block %s", block_id)
+        latex_content = f"\\textit{{Ошибка рендера блока {block_id}}}"
+        chart_paths = []
+
+    return {
+        "block_id": block_id,
+        "title": _tex_escape(str(b.get("title") or "")),
+        "kind": "segment_analysis",
+        "latex_content": latex_content,
+        "_chart_paths": chart_paths,  # для cleanup после генерации PDF
+    }
+
+
+def _format_segment_comparison_for_observation(b: dict, *, render_charts: bool = True) -> dict:
+    """Готовит блок kind='segment_comparison' под LaTeX для §3.4.
+
+    Использует render_segment_comparison() из observation_chapter_renderer.
+    """
+    from backend.services.daily_report_service import _tex_escape, TEMP_DIR, _ensure_dirs
+    from backend.services.observation_chapter_renderer import (
+        render_segment_comparison, RenderContext,
+    )
+
+    snap = b.get("data_snapshot") or {}
+    p = b.get("params") or {}
+    block_id = b.get("block_id") or 0
+
+    _ensure_dirs()
+    output_dir = str(TEMP_DIR)
+
+    ctx = RenderContext(
+        output_dir=output_dir,
+        block_id=block_id,
+        title=str(b.get("title") or ""),
+        block_status="ok",
+        skip_figures=not render_charts,
+        parts=p.get("parts") or {},
+        prefix_note=p.get("prefix_note") or "",
+        suffix_note=p.get("suffix_note") or "",
+        comment=str(b.get("comment") or ""),
+    )
+
+    try:
+        result = render_segment_comparison(snap, ctx)
+        latex_content = result.latex
+        chart_paths = [fig.absolute_path for fig in result.figures]
+    except Exception:
+        log.exception("segment_comparison render failed for block %s", block_id)
+        latex_content = f"\\textit{{Ошибка рендера блока {block_id}}}"
+        chart_paths = []
+
+    return {
+        "block_id": block_id,
+        "title": _tex_escape(str(b.get("title") or "")),
+        "kind": "segment_comparison",
+        "latex_content": latex_content,
+        "_chart_paths": chart_paths,
+    }
+
+
+def _format_adaptation_block(b: dict, *, render_charts: bool = True, db=None) -> dict:
     """Готовит блок одного из видов §4 под LaTeX.
 
     Поддерживаемые kind:
@@ -4462,9 +5135,10 @@ def _format_adaptation_block(b: dict, *, render_charts: bool = True) -> dict:
       • reagent_irv_summary        — { injections_total, irv_count,
         scores, best_reagent }
 
-    Параметр render_charts зарезервирован под симметрию с
-    _format_observation_block (на adaptation_period_analysis позже
-    подключим тот же live-рендер давлений/ΔP/Q).
+    При render_charts=True для adaptation_period_analysis — рендерит 3 PNG
+    (давления / ΔP / Q) из данных снапшота chart_data.
+
+    Параметр db: SQLAlchemy session для запроса датчиков SMOD (если intro нет в снапшоте).
     """
     from backend.services.daily_report_service import _tex_escape
     kind = b.get("kind")
@@ -4478,6 +5152,37 @@ def _format_adaptation_block(b: dict, *, render_charts: bool = True) -> dict:
         "date_from":  _tex_escape(str(p.get("date_from") or "—")),
         "date_to":    _tex_escape(str(p.get("date_to")   or "—")),
     }
+
+    # ── Рендер 3 графиков ИЗ ДАННЫХ СНАПШОТА (не из БД!) ──
+    chart_pressures = chart_dp = chart_flow = None
+    if render_charts and kind == "adaptation_period_analysis":
+        try:
+            from backend.services.block_chart_renderer import render_adaptation_charts_from_snapshot
+            from backend.services.daily_report_service import _ensure_dirs, TEMP_DIR
+            _ensure_dirs()
+
+            well_id = b.get("well_id")
+            block_id = b.get("block_id") or "x"
+            adapt = snap.get("adaptation") or {}
+
+            # Берём данные из снапшота — это то, что было проанализировано
+            chart_data = adapt.get("chart_data") or []
+            events = adapt.get("events_for_chart") or []
+
+            if chart_data:
+                prefix = (TEMP_DIR / f"adapt_block_{block_id}_w{well_id}").resolve()
+                paths = render_adaptation_charts_from_snapshot(chart_data, events, prefix)
+                chart_pressures = paths.get("pressures")
+                chart_dp = paths.get("dp")
+                chart_flow = paths.get("flow")
+        except Exception:
+            log.exception("adaptation block charts failed for block %s", b.get("block_id"))
+
+    base.update({
+        "chart_pressures": chart_pressures,
+        "chart_dp": chart_dp,
+        "chart_flow": chart_flow,
+    })
 
     if kind == "adaptation_comparison":
         cmp_fmt = _format_comparison_block(b)
@@ -4525,22 +5230,446 @@ def _format_adaptation_block(b: dict, *, render_charts: bool = True) -> dict:
         })
         return base
 
-    # adaptation_period_analysis (или другое — компактная сводка)
+    # adaptation_period_analysis (полная сводка с 15+ полями)
     adapt = snap.get("adaptation") or {}
     obs = snap.get("observation") or {}
+    b1 = snap.get("b1") or {}
     cmp_ = snap.get("comparison") or {}
+    opt = snap.get("optimal") or {}
+    seg = snap.get("segment_analysis") or {}
+
+    # ─── Сегментный анализ (динамическое обогащение) ───
+    # Если segment_analysis пуст и есть db — вычисляем из данных ДАТЧИКОВ
+    # (как на странице «Наблюдение», не из well_daily)
+    if db is not None and not seg.get("cp_marks") and not seg.get("segments"):
+        try:
+            from backend.services.observation_segment_service import compute_segment_preview
+
+            well_id = b.get("well_id")
+            date_from = adapt.get("date_from") or p.get("date_from") or ""
+            date_to = adapt.get("date_to") or p.get("date_to") or ""
+
+            if date_from and date_to and well_id:
+                seg_data = compute_segment_preview(
+                    db=db,
+                    well_id=well_id,
+                    d_from=str(date_from)[:10],
+                    d_to=str(date_to)[:10],
+                    aggregation="daily",
+                    sensitivity="medium",
+                    include_raw_chart=True,
+                )
+
+                if seg_data:
+                    segments = seg_data.get("segments") or []
+                    changepoints = seg_data.get("changepoints") or []
+                    raw = seg_data.get("raw") or {}
+                    chart_payload = raw.get("chart_payload") or {}
+
+                    # Генерируем cp_marks
+                    cp_marks = []
+                    for i, cp in enumerate(changepoints):
+                        cp_marks.append({
+                            "idx": cp.get("idx"),
+                            "tag": f"CP{i+1}",
+                            "date": cp.get("date") or "",
+                            "source": cp.get("source") or "total",
+                        })
+
+                    # Генерируем описания
+                    descriptions = []
+                    for s in segments:
+                        direction = s.get("direction") or "stable"
+                        direction_ru = {"stable": "стабильный", "up": "рост", "down": "снижение"}.get(direction, direction)
+                        q_mean = s.get("mean_q")
+                        start = s.get("start_date") or ""
+                        end = s.get("end_date") or ""
+                        if q_mean is not None:
+                            descriptions.append(f"{start}–{end}: {direction_ru}, Q = {q_mean:.2f}")
+                        else:
+                            descriptions.append(f"{start}–{end}: {direction_ru}")
+
+                    n_seg = len(segments)
+                    n_cp = len(changepoints)
+                    summary = f"Выделено {n_seg} сегментов и {n_cp} точек изменения режима."
+
+                    seg = {
+                        "period": seg_data.get("period") or {"from": str(date_from)[:10], "to": str(date_to)[:10]},
+                        "date_from": str(date_from)[:10],
+                        "date_to": str(date_to)[:10],
+                        "n_points": len(chart_payload.get("dates") or []),
+                        "changepoints": changepoints,
+                        "cp_marks": cp_marks,
+                        "segments": segments,
+                        "chart_data": chart_payload,
+                        "interpretation": {
+                            "summary": summary,
+                            "descriptions": descriptions,
+                        },
+                    }
+        except Exception:
+            log.exception("segment_analysis enrichment failed for block %s", b.get("block_id"))
+
+    # ─── Intro (введение с датчиками) ───
+    # Если intro есть в снапшоте — используем. Иначе формируем из дат + датчиков SMOD.
+    intro = adapt.get("intro") or {}
+    intro_text = intro.get("intro_text_tex") or intro.get("intro_text") or ""
+
+    if not intro_text and db is not None:
+        # Формируем intro динамически из снапшота + БД
+        try:
+            from datetime import datetime as _dt
+            well_id = b.get("well_id")
+            date_from = adapt.get("date_from") or p.get("date_from") or ""
+            date_to = adapt.get("date_to") or p.get("date_to") or ""
+
+            # Форматируем даты
+            try:
+                df_dt = _dt.fromisoformat(str(date_from)[:19].replace("Z", ""))
+                date_from_fmt = df_dt.strftime("%d.%m.%Y")
+            except:
+                date_from_fmt = str(date_from)[:10]
+            try:
+                dt_dt = _dt.fromisoformat(str(date_to)[:19].replace("Z", ""))
+                date_to_fmt = dt_dt.strftime("%d.%m.%Y")
+            except:
+                date_to_fmt = str(date_to)[:10]
+
+            # Получаем номер скважины
+            well_number = "—"
+            if well_id:
+                row = db.execute(text("SELECT number FROM wells WHERE id = :wid"), {"wid": well_id}).fetchone()
+                if row:
+                    well_number = str(row[0])
+
+            # Получаем датчики SMOD
+            sensors_info = []
+            sensor_serials = []
+            sensor_model = None
+            if well_id and date_from and date_to:
+                rows = db.execute(text("""
+                    SELECT e.serial_number, e.name
+                    FROM equipment_installation ei
+                    JOIN equipment e ON e.id = ei.equipment_id
+                    WHERE ei.well_id = :wid
+                      AND ei.installed_at <= :dt_to
+                      AND (ei.removed_at IS NULL OR ei.removed_at >= :dt_from)
+                      AND e.name ILIKE '%SMOD%'
+                    ORDER BY ei.installed_at ASC
+                """), {"wid": well_id, "dt_from": date_from, "dt_to": date_to}).fetchall()
+                for serial, name in rows:
+                    sensor_serials.append(serial)
+                    if not sensor_model and name:
+                        sensor_model = name
+
+            # Формируем текст введения по ТЗ
+            if sensor_serials:
+                serials_str = ", ".join(sensor_serials)
+                model_str = sensor_model or "SMOD"
+                intro_text = (
+                    f"В период с {date_from_fmt} по {date_to_fmt} с целью адаптации технологии "
+                    f"к условиям скважины №{well_number} проводились работы по выбору "
+                    f"оптимального реагента, оптимальной концентрации и периода дозирования. "
+                    f"Параметры работы скважины фиксировались в режиме реального времени "
+                    f"датчиками {model_str} (серийные номера: {serials_str}). "
+                    f"Частота опроса — 1 измерение в минуту."
+                )
+            else:
+                intro_text = (
+                    f"В период с {date_from_fmt} по {date_to_fmt} с целью адаптации технологии "
+                    f"к условиям скважины №{well_number} проводились работы по выбору "
+                    f"оптимального реагента, оптимальной концентрации и периода дозирования."
+                )
+        except Exception:
+            log.exception("adaptation block intro generation failed for block %s", b.get("block_id"))
+
     base.update({
-        "adapt_dp_median_fmt":     _fmt_num(adapt.get("dp_median"),       2),
+        "intro_text":       _tex_escape(str(intro_text)[:2000]),
+        "has_intro":        bool(intro_text),
+        "sensors":          [_tex_escape(s) for s in (intro.get("sensors") or [])],
+    })
+
+    # ─── Adaptation (R) метрики ───
+    base.update({
         "adapt_flow_median_fmt":   _fmt_num(adapt.get("flow_median"),     2),
         "adapt_flow_avg_fmt":      _fmt_num(adapt.get("flow_avg"),        2),
+        "adapt_dp_median_fmt":     _fmt_num(adapt.get("dp_median"),       2),
+        "adapt_p_tube_fmt":        _fmt_num(adapt.get("p_tube_median"),   2),
+        "adapt_p_line_fmt":        _fmt_num(adapt.get("p_line_median"),   2),
         "adapt_utilization_fmt":   _fmt_num(adapt.get("utilization_pct"), 1),
-        "obs_dp_median_fmt":       _fmt_num(obs.get("dp_median"),         2),
-        "obs_flow_median_fmt":     _fmt_num(obs.get("flow_median"),       2),
-        "delta_flow_median_fmt":   _fmt_signed(cmp_.get("delta_flow_median"), 2),
-        "delta_dp_fmt":            _fmt_signed(cmp_.get("delta_dp"),           2),
-        "has_data":                bool(adapt or obs or cmp_),
+        "adapt_working_hours_fmt": _fmt_num(adapt.get("working_hours"),   1),
+        "adapt_duration_days":     adapt.get("duration_days") or 0,
+        "adapt_purge_count":       adapt.get("purge_count") or 0,
+        "adapt_reagent_count":     adapt.get("reagent_count") or 0,
     })
+
+    # ─── Observation (B2) метрики ───
+    base.update({
+        "obs_flow_median_fmt":     _fmt_num(obs.get("flow_median"),       2),
+        "obs_flow_avg_fmt":        _fmt_num(obs.get("flow_avg"),          2),
+        "obs_dp_median_fmt":       _fmt_num(obs.get("dp_median"),         2),
+        "obs_p_tube_fmt":          _fmt_num(obs.get("p_tube_median"),     2),
+        "obs_p_line_fmt":          _fmt_num(obs.get("p_line_median"),     2),
+        "obs_utilization_fmt":     _fmt_num(obs.get("utilization_pct"),   1),
+        "obs_duration_days":       obs.get("duration_days") or 0,
+        "obs_purge_count":         obs.get("purge_count") or 0,
+        "obs_reagent_count":       obs.get("reagent_count") or 0,
+        "has_observation":         bool(obs.get("flow_median") or obs.get("p_tube_median")),
+    })
+
+    # ─── B1 (Базовый период заказчика) метрики ───
+    # B1 может иметь другую структуру ключей (q_total_median vs flow_median)
+    b1_flow = b1.get("flow_median") or b1.get("q_total_median")
+    b1_flow_avg = b1.get("flow_avg") or b1.get("q_total_avg")
+    b1_p_tube = b1.get("p_tube_median") or b1.get("p_wellhead_median")
+    b1_p_line = b1.get("p_line_median") or b1.get("p_flowline_median")
+    base.update({
+        "b1_flow_median_fmt":      _fmt_num(b1_flow,                      2),
+        "b1_flow_avg_fmt":         _fmt_num(b1_flow_avg,                  2),
+        "b1_dp_median_fmt":        _fmt_num(b1.get("dp_median"),          2),
+        "b1_p_tube_fmt":           _fmt_num(b1_p_tube,                    2),
+        "b1_p_line_fmt":           _fmt_num(b1_p_line,                    2),
+        "b1_duration_days":        b1.get("duration_days") or b1.get("days_count") or 0,
+        "has_b1":                  bool(b1_flow or b1_p_tube),
+    })
+
+    # ─── Comparison (Δ) метрики ───
+    base.update({
+        "delta_flow_median_fmt":   _fmt_signed(cmp_.get("delta_flow_median"),   2),
+        "delta_flow_median_pct":   _fmt_signed(cmp_.get("delta_flow_median_pct"), 1, suffix=r"\%"),
+        "delta_flow_avg_fmt":      _fmt_signed(cmp_.get("delta_flow_avg"),      2),
+        "delta_dp_fmt":            _fmt_signed(cmp_.get("delta_dp"),            2),
+        "delta_dp_pct":            _fmt_signed(cmp_.get("delta_dp_pct"),        1, suffix=r"\%"),
+        "delta_p_tube_fmt":        _fmt_signed(cmp_.get("delta_p_tube"),        2),
+        "delta_p_line_fmt":        _fmt_signed(cmp_.get("delta_p_line"),        2),
+        "delta_utilization_fmt":   _fmt_signed(cmp_.get("delta_utilization_pct"), 1, suffix=r"\%"),
+        "delta_purge_count":       cmp_.get("delta_purge_count") or 0,
+        "delta_reagent_count":     cmp_.get("delta_reagent_count") or 0,
+    })
+
+    # ─── Trends (Q, ΔP, P труб, P лин) ───
+    q_trend = adapt.get("q_trend") or {}
+    dp_trend = adapt.get("dp_trend") or {}
+    p_tube_trend = adapt.get("p_tube_trend") or {}
+    p_line_trend = adapt.get("p_line_trend") or {}
+    base.update({
+        "q_trend_dir":         q_trend.get("direction") or "—",
+        "q_trend_slope_fmt":   _fmt_signed(q_trend.get("slope_per_day"), 3),
+        "q_trend_sig":         "да" if q_trend.get("mk_significant") else "нет",
+        "dp_trend_dir":        dp_trend.get("direction") or "—",
+        "dp_trend_slope_fmt":  _fmt_signed(dp_trend.get("slope_per_day"), 4),
+        "p_tube_trend_dir":    p_tube_trend.get("direction") or "—",
+        "p_tube_trend_slope_fmt": _fmt_signed(p_tube_trend.get("slope_per_day"), 3),
+        "p_line_trend_dir":    p_line_trend.get("direction") or "—",
+        "p_line_trend_slope_fmt": _fmt_signed(p_line_trend.get("slope_per_day"), 3),
+        "has_trends":          bool(q_trend or dp_trend or p_tube_trend or p_line_trend),
+    })
+
+    # ─── Optimal (R★) окно ───
+    base.update({
+        "opt_date_from":       _tex_escape(str(opt.get("date_from") or "—")[:10]),
+        "opt_date_to":         _tex_escape(str(opt.get("date_to") or "—")[:10]),
+        "opt_flow_median_fmt": _fmt_num(opt.get("flow_median"), 2),
+        "opt_flow_avg_fmt":    _fmt_num(opt.get("flow_avg"),    2),
+        "opt_dp_median_fmt":   _fmt_num(opt.get("dp_median"),   2),
+        "opt_p_tube_fmt":      _fmt_num(opt.get("p_tube_median"), 2),
+        "opt_p_line_fmt":      _fmt_num(opt.get("p_line_median"), 2),
+        "opt_utilization_fmt": _fmt_num(opt.get("utilization_pct"), 1),
+        "opt_duration_days":   opt.get("duration_days") or 0,
+        "opt_score_fmt":       _fmt_num(opt.get("score"),       1),
+        "opt_duration_label":  _tex_escape(str(opt.get("duration_label") or "")),
+        "has_optimal":         bool(opt.get("flow_median") or opt.get("score")),
+    })
+
+    # ─── Narrative ───
+    narr = str(adapt.get("narrative") or "")
+    base.update({
+        "narrative":      _tex_escape(narr[:2000]) if narr else "",
+        "has_narrative":  bool(narr.strip()),
+    })
+
+    # ─── Events (таблица событий) ───
+    events_raw = adapt.get("events_for_chart") or []
+    events_fmt = []
+    for ev in events_raw[:50]:  # лимит 50 событий для PDF
+        ev_type = ev.get("type") or "—"
+        # Логика типов и описаний:
+        # - reagent → Тип: "Вброс реагента", Описание: название реагента
+        # - other → Тип: "Прочее", Описание: description из события
+        # - purge → Тип: "Продувка", Описание: —
+        if ev_type == "purge":
+            type_label = "Продувка"
+            descr = "—"
+        elif ev_type == "reagent":
+            type_label = "Вброс реагента"
+            descr = ev.get("reagent") or "—"
+        elif ev_type == "other":
+            type_label = "Прочее"
+            descr = ev.get("description") or ev.get("label") or "—"
+        else:
+            type_label = ev_type
+            descr = ev.get("label") or "—"
+        events_fmt.append({
+            "ts":          _tex_escape(str(ev.get("t") or ev.get("ts") or "—")[:16]),
+            "type":        _tex_escape(str(type_label)[:50]),
+            "label":       _tex_escape(str(descr)[:80]),  # увеличен лимит для description
+            "qty":         _fmt_num(ev.get("qty") or ev.get("amount"), 1) if ev.get("qty") or ev.get("amount") else "—",
+            "p_tube":      _fmt_num(ev.get("p_tube"), 1) if ev.get("p_tube") is not None else "—",
+            "p_line":      _fmt_num(ev.get("p_line"), 1) if ev.get("p_line") is not None else "—",
+        })
+    reagent_events = [e for e in events_raw if e.get("type") == "reagent"]
+    purge_events = [e for e in events_raw if e.get("type") == "purge"]
+    base.update({
+        "events":           events_fmt,
+        "events_count":     len(events_raw),
+        "reagent_count_ev": len(reagent_events),
+        "reagent_qty_sum":  _fmt_num(adapt.get("reagent_qty"), 1) if adapt.get("reagent_qty") else "—",
+        "purge_count_ev":   len(purge_events),
+        "has_events":       bool(events_raw),
+    })
+
+    # ─── Segment analysis (сегментный анализ) ───
+    interp = seg.get("interpretation") or {}
+    cp_marks = seg.get("cp_marks") or []
+    descriptions = interp.get("descriptions") or []
+
+    # Рендер графика сегментов Q (PNG)
+    segment_chart_path = None
+    if render_charts and seg.get("chart_data"):
+        try:
+            from backend.services.observation_chart_renderer import render_segment_analysis_chart
+            from backend.services.daily_report_service import _ensure_dirs, TEMP_DIR
+            _ensure_dirs()
+
+            block_id = b.get("block_id") or "x"
+            well_id_seg = b.get("well_id") or 0
+            png_path = (TEMP_DIR / f"adapt_seg_{block_id}_w{well_id_seg}.png").resolve()
+
+            # Передаём snapshot в формате, который ожидает render_segment_analysis_chart
+            seg_snapshot = {
+                "chart_data": seg.get("chart_data") or {},
+                "segments_extended": seg.get("segments_extended") or seg.get("segments") or [],
+                "cp_marks": seg.get("cp_marks") or [],
+            }
+            render_segment_analysis_chart(seg_snapshot, str(png_path))
+            if png_path.exists():
+                segment_chart_path = str(png_path)
+        except Exception:
+            log.exception("adaptation segment chart failed for block %s", b.get("block_id"))
+
+    base.update({
+        "segment_summary":     _tex_escape(str(interp.get("summary") or "")[:1500]),
+        "segment_descriptions": [_tex_escape(str(d)[:200]) for d in descriptions[:12]],
+        "segment_cp_count":    len(seg.get("changepoints") or seg.get("cp_marks") or []),
+        "segment_cp_marks":    [{"tag": _tex_escape(cp.get("tag") or ""), "date": _tex_escape(str(cp.get("date") or "")[:16])} for cp in cp_marks[:10]],
+        "has_segments":        bool(seg.get("changepoints") or seg.get("cp_marks") or interp),
+        "segment_chart_path":  segment_chart_path,
+    })
+
+    base["has_data"] = bool(adapt or obs or cmp_)
     return base
+
+
+def _build_observation_chapter_latex(db: Session, well_id: int) -> str:
+    """g-fix-1: Загрузить observation-блоки (in_report=true) и собрать LaTeX-фрагмент.
+
+    Renderer (F) — snapshot-only. Блоки загружаются через C3
+    `load_and_validate_snapshot` (single gateway, RFC §10a).
+    При отсутствии блоков возвращает пустую строку — Jinja2 placeholder
+    раскрывается в пустоту, PDF компилируется без главы.
+
+    Args:
+        db: SQLAlchemy session
+        well_id: id скважины
+
+    Returns:
+        LaTeX-фрагмент (str). Пустая строка если нет блоков с in_report=true
+        или произошла ошибка загрузки (graceful, не падает).
+    """
+    from sqlalchemy import text as _sql_text
+    from backend.services.observation_chapter_renderer import (
+        render_observation_chapter_latex,
+    )
+    from backend.services.observation_snapshot_service import (
+        load_and_validate_snapshot,
+    )
+
+    try:
+        rows = db.execute(_sql_text("""
+            SELECT id, title, params, comment FROM customer_report_block
+            WHERE well_id = :wid
+              AND params->>'source' = 'observation'
+              AND in_report = true
+            ORDER BY sort_order, created_at
+        """), {"wid": well_id}).fetchall()
+    except Exception as e:
+        log.warning("[observation_chapter] failed to load blocks for well %s: %s",
+                    well_id, e)
+        return ""
+
+    if not rows:
+        return ""
+
+    blocks_for_render: list[dict] = []
+    for row in rows:
+        block_id = row[0]
+        title = row[1] or ""
+        params = row[2] if isinstance(row[2], dict) else {}
+        comment = row[3] or ""
+        try:
+            sanitized = load_and_validate_snapshot(db, block_id)
+        except ValueError as e:
+            log.warning("[observation_chapter] block %s skipped: %s", block_id, e)
+            continue
+        except Exception as e:
+            log.warning("[observation_chapter] block %s validation error: %s",
+                        block_id, e)
+            continue
+
+        blocks_for_render.append({
+            "block_id": block_id,
+            "kind": sanitized.expected_kind,
+            "title": title,
+            "snapshot": sanitized.snapshot,
+            "block_status": sanitized.block_status,
+            "sort_order": 0,  # уже отсортировано через SQL
+            # Phase O1 — parts/notes/comment для гейтинга в renderer (PDF).
+            "params": params,
+            "comment": comment,
+        })
+
+    if not blocks_for_render:
+        # g-fix-5: явный warning при аномалии — блоки в БД были (rows непустой),
+        # но НИ ОДИН не прошёл валидацию. Это потенциальный silent production failure.
+        if rows:
+            log.warning(
+                "[observation_chapter] well %s: %d observation-блок(ов) с in_report=true, "
+                "но НИ ОДИН не прошёл C3-валидацию — глава будет пустой в PDF",
+                well_id, len(rows),
+            )
+        return ""
+
+    try:
+        latex = render_observation_chapter_latex(
+            blocks_for_render,
+            skip_figures=False,  # PDF mode — нужны PNG
+        )
+    except Exception as e:
+        # g-fix-5: render-ошибка не должна быть silent — это блокирующая
+        # проблема для PDF главы. Логируем на уровне error.
+        log.error(
+            "[observation_chapter] well %s: render_observation_chapter_latex "
+            "FAILED для %d блок(ов) — глава НЕ попадёт в PDF: %s",
+            well_id, len(blocks_for_render), e,
+        )
+        return ""
+
+    if not latex.strip():
+        log.warning(
+            "[observation_chapter] well %s: renderer вернул пустой LaTeX "
+            "для %d блок(ов)", well_id, len(blocks_for_render),
+        )
+    return latex
 
 
 def generate_adaptation_report_pdf(doc, db: Session) -> str:
@@ -4600,6 +5729,11 @@ def generate_adaptation_report_pdf(doc, db: Session) -> str:
     _meta_sections = (meta.get("sections") or {})
     include_sections = {k: bool(_meta_sections.get(k, True)) for k in _SEC_KEYS}
 
+    # g-fix-1: observation chapter (главa «Наблюдение») — LaTeX-фрагмент
+    # из observation-блоков (kind=observation_baseline/period/segment).
+    # Renderer (F) — snapshot-only; читаем блоки через C3 sanitization gateway.
+    observation_chapter_latex = _build_observation_chapter_latex(db, int(well_id))
+
     context = {
         "doc_number": _tex_escape(doc.doc_number or f"ID{doc.id}"),
         "generated_at": now_kungrad.strftime("%d.%m.%Y %H:%M"),
@@ -4612,6 +5746,7 @@ def generate_adaptation_report_pdf(doc, db: Session) -> str:
         "conclusions": [_tex_escape(c) for c in (data.get("conclusions") or [])],
         "warnings": warnings_list,
         "include_sections": include_sections,
+        "observation_chapter_latex": observation_chapter_latex,
     }
 
     env = _get_latex_env()

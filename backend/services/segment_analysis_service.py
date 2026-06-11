@@ -193,7 +193,132 @@ def _build_chart_data(df) -> dict:
     }
 
 
-def _build_segments_extended(strip_segments: list, df) -> list[dict]:
+# ─── R1: Phase R1 — Promote Q_working changepoints to segment boundaries ─
+#
+# Управляющий флаг (default OFF, безопасно для legacy):
+#   • False (default): поведение PB-V2 без изменений — segments_extended
+#     строятся ТОЛЬКО на primary.changepoints (Q общий).
+#   • True: only_working changepoints, которые НЕ совпадают с primary
+#     (по dual.only_working) и не лежат внутри shutdown_cluster, ПРОМОУТЯТСЯ
+#     до границ сегментов; near-confirmed (working CP в окне merge_close
+#     от primary) — primary CP помечается как confirmed, не дублируется.
+#
+# Параметр не входит в SEGMENT_THRESHOLDS (он не «порог», а флаг режима
+# fusion), передаётся через compute_segment_block(..., promote_only_working=...).
+PROMOTE_ONLY_WORKING_DEFAULT: bool = False
+
+
+def _extract_cps_idx(changepoints: list) -> list[tuple[int, str]]:
+    """Из списка `[{date: 'DD.MM.YYYY', idx: int}, ...]` → `[(idx, date), ...]`,
+    отсортированно по idx. Дропает записи без idx."""
+    out: list[tuple[int, str]] = []
+    for cp in changepoints or []:
+        idx = cp.get("idx")
+        if idx is None:
+            continue
+        out.append((int(idx), str(cp.get("date") or "")))
+    out.sort(key=lambda t: t[0])
+    return out
+
+
+def _compute_final_boundaries(
+    dual: dict,
+    df,
+    *,
+    promote_only_working: bool,
+    merge_close_days: int = 5,
+) -> tuple[list[int], set[int], dict[int, str]]:
+    """R1 — fusion слой границ сегментов.
+
+    Возвращает tuple:
+      • final_idx          — sorted list[int] финальных boundary-индексов
+                              (без 0 и без n).
+      • promoted_idx_set   — set индексов, добавленных из only_working
+                              (используется для cp_marks tagging).
+      • near_confirmed_map — {primary_idx: working_date_dd_mm_yyyy} —
+                              primary CPs, рядом с которыми оказался
+                              working CP (становятся `confirmed` в cp_marks).
+
+    Поведение:
+      • Если promote_only_working=False → возвращаем только primary
+        boundaries (legacy-режим), promoted/near = {}.
+      • Если True:
+          1) Берём primary changepoints.
+          2) Из working changepoints отбираем те, что:
+             — не входят в primary (по близости |Δidx| ≤ merge_close_days),
+             — не лежат внутри shutdown_cluster,
+             — не находятся в edge-зоне (расстояние до краёв ≥ edge_margin).
+          3) При близости primary↔working — оставляем primary, фиксируем
+             pair в near_confirmed_map.
+          4) Дедуп между промоутами тоже по merge_close.
+    """
+    import numpy as np
+
+    primary = (dual or {}).get("primary") or {}
+    working = (dual or {}).get("working") or {}
+
+    primary_pairs = _extract_cps_idx(primary.get("changepoints") or [])
+    working_pairs = _extract_cps_idx(working.get("changepoints") or [])
+
+    primary_idx_list = [i for (i, _) in primary_pairs]
+    primary_idx_set = set(primary_idx_list)
+
+    if not promote_only_working:
+        return (sorted(primary_idx_set), set(), {})
+
+    # Найдём shutdown_clusters для фильтрации
+    d = df.sort_values("date").reset_index(drop=True)
+    q_total = d["q_gas_total"].to_numpy(dtype=float)
+    shutdown = (
+        d["shutdown_min"].to_numpy(dtype=float)
+        if "shutdown_min" in d.columns else np.zeros_like(q_total)
+    )
+    clusters = sam._find_shutdown_clusters(
+        shutdown, q_total,
+        min_days=2, shutdown_threshold_min=600.0,
+        q_drop_threshold_pct=50.0,
+    )
+
+    n = len(d)
+    edge_margin = int(sam._segth("edge_margin_days"))
+
+    def _in_cluster(idx: int) -> bool:
+        return any(start < idx < end for (start, end) in clusters)
+
+    def _in_edge(idx: int) -> bool:
+        return idx < edge_margin or idx > n - edge_margin
+
+    near_confirmed_map: dict[int, str] = {}
+    promoted_idx_set: set[int] = set()
+
+    # Перебираем working CPs; для каждого решаем — near-confirmed / promote / drop
+    for w_idx, w_date in working_pairs:
+        if _in_cluster(w_idx) or _in_edge(w_idx):
+            continue
+        # Ближайший primary CP
+        if primary_idx_list:
+            closest_p = min(primary_idx_list, key=lambda p: abs(p - w_idx))
+            if abs(closest_p - w_idx) <= merge_close_days:
+                # near-confirmed → не дублируем, помечаем существующий primary
+                near_confirmed_map[closest_p] = w_date
+                continue
+        # Дедуп между промоутами
+        if promoted_idx_set:
+            closest_prom = min(promoted_idx_set, key=lambda p: abs(p - w_idx))
+            if abs(closest_prom - w_idx) <= merge_close_days:
+                continue
+        promoted_idx_set.add(w_idx)
+
+    final_idx = sorted(primary_idx_set | promoted_idx_set)
+    return (final_idx, promoted_idx_set, near_confirmed_map)
+
+
+def _build_segments_extended(
+    strip_segments: list,
+    df,
+    *,
+    override_cps_idx: list[int] | None = None,
+) -> list[dict]:
     """Объединение strip-сегментов с extended-полями (slope_total/intercept_total/
     slope_working/intercept_working/start_idx/end_idx).
 
@@ -205,9 +330,17 @@ def _build_segments_extended(strip_segments: list, df) -> list[dict]:
     из extended: start_idx, end_idx, slope_total, intercept_total,
     slope_working, slope_dp. Пересчитываем intercept_working локально
     через _linreg_full (модуль теряет его в _segment_trends_extended).
+
+    R1: если передан `override_cps_idx` — extended-сегменты строятся по
+    этому списку boundaries (а НЕ через повторный детектор). Strip-сегменты
+    при этом используются только как источник post-process метаданных
+    (cause/gradual/preshutdown_verdict) для тех extended-сегментов, чьи
+    start-даты совпадают со старыми primary-сегментами. Новые подсегменты
+    (созданные промоутом) останутся без causes/preshutdown — это
+    приемлемо по контракту (поля optional).
     """
     import numpy as np
-    if not strip_segments:
+    if not strip_segments and override_cps_idx is None:
         return []
 
     d = df.sort_values("date").reset_index(drop=True)
@@ -234,21 +367,19 @@ def _build_segments_extended(strip_segments: list, df) -> list[dict]:
         if "choke_mm" in d.columns else None
     )
 
-    # Восстановим changepoints idx из strip
-    # (strip-changepoints — список {date, idx}; для extended нужны idx-ы)
-    # Тут strip_segments[*].start_idx уже есть... но мы передали strip из dual,
-    # который проходит через стрипп. Стрипп НЕ сохраняет start_idx/end_idx.
-    # Вызываем _segment_trends_extended параллельно.
-    # Для этого нужны cps_idx. Восстанавливаем из dual.primary.changepoints.
-    # Но dual.primary.changepoints мы тут не получаем — он отдельно.
-    # Делаем простой путь: запускаем _detect_changepoints_extended на тех же
-    # данных и порогах, что внутри _segment_analysis_dual.
-    cps_idx = sam._detect_changepoints_extended(
-        q_total, shutdown, min_segment=3, threshold_pct=15.0,
-        p_flowline=p_fl if np.isfinite(p_fl).any() else None,
-        dp=dp if np.isfinite(dp).any() else None,
-        choke=choke,
-    )
+    # R1: если задан override_cps_idx — используем его (post-process fusion);
+    # иначе — запускаем детектор повторно (legacy путь).
+    if override_cps_idx is not None:
+        cps_idx = sorted({int(i) for i in override_cps_idx if 0 < int(i) < len(q_total)})
+    else:
+        # Делаем простой путь: запускаем _detect_changepoints_extended на тех же
+        # данных и порогах, что внутри _segment_analysis_dual.
+        cps_idx = sam._detect_changepoints_extended(
+            q_total, shutdown, min_segment=3, threshold_pct=15.0,
+            p_flowline=p_fl if np.isfinite(p_fl).any() else None,
+            dp=dp if np.isfinite(dp).any() else None,
+            choke=choke,
+        )
     shutdown_clusters_idx = sam._find_shutdown_clusters(
         shutdown, q_total,
         min_days=2, shutdown_threshold_min=600.0,
@@ -260,86 +391,147 @@ def _build_segments_extended(strip_segments: list, df) -> list[dict]:
         p_wellhead=p_wh, p_flowline=p_fl, choke=choke,
     )
 
-    # Защита: количество extended может отличаться от strip только при
-    # сегментах с days < 2 (strip их фильтрует). Сопоставляем по start_date.
-    # Если не сматчилось — вернём strip + предупреждение в логе.
-    ext_by_start = {pd.Timestamp(s["start_date"]).strftime("%d.%m.%Y"): s
-                    for s in extended}
+    # Сопоставление extended ↔ strip по start_date (DD.MM.YYYY).
+    # При R1-promote часть extended-сегментов НЕ имеет соответствия в strip
+    # (они появились после промоута only_working CP) — для таких post-process
+    # поля (cause/preshutdown_verdict/gradual/is_workover) остаются None,
+    # это соответствует контракту (поля optional).
+    strip_by_start = {s.get("start"): s for s in (strip_segments or [])}
 
     out: list[dict] = []
-    prev_seg = None
-    for i, s in enumerate(strip_segments):
-        ext = ext_by_start.get(s.get("start"))
-        merged = dict(s)
-        if ext is not None:
-            merged["start_idx"] = int(ext.get("start_idx"))
-            merged["end_idx"]   = int(ext.get("end_idx"))
-            merged["slope_total"]     = ext.get("slope")           # модуль использует "slope"=slope_total
-            merged["intercept_total"] = ext.get("intercept")
-            merged["slope_working"]   = ext.get("slope_working")
-            merged["slope_dp"]        = ext.get("slope_dp")
-            # intercept_working — модуль не сохраняет; пересчитываем
-            start_idx = int(ext["start_idx"])
-            end_idx   = int(ext["end_idx"])
-            seg_qw = q_working[start_idx:end_idx]
-            x_days = np.arange(end_idx - start_idx, dtype=float)
-            slope_w, intercept_w = sam._linreg_full(x_days, seg_qw)
-            merged["intercept_working"] = float(intercept_w) \
-                if np.isfinite(intercept_w) else None
-        else:
-            log.warning(
-                "segment_analysis: extended-сегмент не найден для start=%s",
-                s.get("start"))
-            merged["start_idx"] = None
-            merged["end_idx"]   = None
-            merged["slope_total"] = s.get("slope")
-            merged["intercept_total"] = None
-            merged["slope_working"] = None
-            merged["intercept_working"] = None
-            merged["slope_dp"] = None
+    prev_seg_strip = None
+    for i, ext in enumerate(extended):
+        start_dm = pd.Timestamp(ext["start_date"]).strftime("%d.%m.%Y")
+        s_strip = strip_by_start.get(start_dm)
 
-        # ISO даты (start/end в strip — DD.MM.YYYY)
-        merged["start_date"] = _ddmmyyyy_to_iso(s.get("start"))
-        merged["end_date"]   = _ddmmyyyy_to_iso(s.get("end"))
+        if s_strip is not None:
+            # Перенесём только post-process метаданные strip (cause,
+            # preshutdown_*, gradual_*, is_workover, is_shutdown_cluster).
+            # ВСЁ ОСТАЛЬНОЕ (start/end/days/mean_q/change_*/…) перезаписывается
+            # ниже из extended, потому что при override_cps_idx boundaries
+            # сегмента в strip могут не совпадать с новыми extended.
+            merged = {
+                "is_workover":           bool(s_strip.get("is_workover")),
+                "is_shutdown_cluster":   bool(s_strip.get("is_shutdown_cluster")),
+                "gradual_trend":         s_strip.get("gradual_trend"),
+                "gradual_drift_pct":     s_strip.get("gradual_drift_pct"),
+                "preshutdown_q":         s_strip.get("preshutdown_q"),
+                "preshutdown_delta_pct": s_strip.get("preshutdown_delta_pct"),
+                "preshutdown_verdict":   s_strip.get("preshutdown_verdict"),
+                "cause":                 s_strip.get("cause"),
+            }
+        else:
+            # Neutral strip-stub для нового сегмента (promoted by R1).
+            merged = {
+                "is_workover":           False,
+                "is_shutdown_cluster":   False,
+                "gradual_trend":         None,
+                "gradual_drift_pct":     None,
+                "preshutdown_q":         None,
+                "preshutdown_delta_pct": None,
+                "preshutdown_verdict":   None,
+                "cause":                 None,
+            }
+
+        # Boundary fields — ВСЕГДА из extended (источник правды).
+        merged["start"] = start_dm
+        merged["end"]   = pd.Timestamp(ext["end_date"]).strftime("%d.%m.%Y")
+        merged["days"]  = int(ext.get("days") or 0)
+        merged["start_idx"] = int(ext.get("start_idx"))
+        merged["end_idx"]   = int(ext.get("end_idx"))
+        merged["slope_total"]     = ext.get("slope")
+        merged["intercept_total"] = ext.get("intercept")
+        merged["slope_working"]   = ext.get("slope_working")
+        merged["slope_dp"]        = ext.get("slope_dp")
+        # intercept_working — модуль не сохраняет; пересчитываем
+        si = int(ext["start_idx"]); ei = int(ext["end_idx"])
+        seg_qw = q_working[si:ei]
+        x_days = np.arange(ei - si, dtype=float)
+        slope_w, intercept_w = sam._linreg_full(x_days, seg_qw)
+        merged["intercept_working"] = float(intercept_w) \
+            if np.isfinite(intercept_w) else None
+
+        # Перекрываем числовые поля значениями extended (extended авторитетнее
+        # по boundaries при override_cps_idx). _segment_trends_extended
+        # называет общий дебит `mean_q_total`, в snapshot контракте — `mean_q`,
+        # поэтому делаем явный mapping.
+        if "mean_q_total" in ext:
+            merged["mean_q"] = ext.get("mean_q_total")
+        elif "mean_q" in ext:
+            merged["mean_q"] = ext.get("mean_q")
+        for ext_field in ("mean_q_working", "mean_dp",
+                          "mean_shutdown", "working_pct",
+                          "mean_p_wellhead", "mean_p_flowline", "mean_choke_mm",
+                          "change_pct", "change_q_working_pct",
+                          "change_dp_pct", "change_shutdown", "change_choke"):
+            if ext_field in ext:
+                merged[ext_field] = ext.get(ext_field)
+        # numbering — пересоберём по новой нумерации (1-based)
+        merged["num"] = i + 1
+
+        # ISO даты
+        merged["start_date"] = _ddmmyyyy_to_iso(merged.get("start"))
+        merged["end_date"]   = _ddmmyyyy_to_iso(merged.get("end"))
 
         # Цвет: кластер простоев → красный; остальные — палитра
-        if s.get("is_shutdown_cluster"):
+        if merged.get("is_shutdown_cluster"):
             merged["color"] = SHUTDOWN_CLUSTER_COLOR
         else:
             merged["color"] = SEGMENT_COLORS[i % len(SEGMENT_COLORS)]
 
-        # Тип режима по §6.1
-        merged["type"] = _classify_segment_type(s, prev_seg)
+        # Тип режима по §6.1 — относительно предыдущего strip-сегмента
+        # (для promoted-сегментов prev может быть None — это OK).
+        merged["type"] = _classify_segment_type(merged, prev_seg_strip)
 
         out.append(merged)
-        prev_seg = s
+        # prev_seg_strip — для классификации следующего; используем merged
+        # (он несёт all необходимые поля независимо от того, был ли strip-match).
+        prev_seg_strip = merged
 
     return out
 
 
-def _build_cp_marks(strip_changepoints: list, ext_segments: list,
-                    dual: dict) -> list[dict]:
+_PROMOTED_TAG_SUFFIX = " (только в Q рабочем — фактический сдвиг режима)"
+
+
+def _build_cp_marks(
+    strip_changepoints: list,
+    ext_segments: list,
+    dual: dict,
+    *,
+    promoted_idx_set: set[int] | None = None,
+    near_confirmed_map: dict[int, str] | None = None,
+) -> list[dict]:
     """Точки перелома + классификация (confirmed/only_total/only_working)
     + короткий тег причины (§6.3).
 
     Используются:
       • _changepoint_short_tag(curr, prev) из модуля — для tag
       • dual.common_dates / only_total / only_working — для source
+
+    R1:
+      • promoted_idx_set — индексы, продвинутые из only_working до boundaries:
+        для них синтезируется отдельная запись cp_marks (source="only_working"),
+        даже если такой даты не было в strip_changepoints. Tag получает
+        пояснительный суффикс «только в Q рабочем — фактический сдвиг режима».
+      • near_confirmed_map — {primary_idx: working_date_dd_mm_yyyy}:
+        primary CP, рядом с которым нашёлся working CP, переклассифицируется
+        на source="confirmed" (даже если dual не отметил его в common_dates).
     """
-    if not strip_changepoints:
-        return []
+    promoted_idx_set = set(promoted_idx_set or [])
+    near_confirmed_map = dict(near_confirmed_map or {})
 
     # dual.* — даты в формате DD.MM.YYYY
-    common_set = set(dual.get("common_dates") or [])
-    only_total_set = set(dual.get("only_total") or [])
-    only_working_set = set(dual.get("only_working") or [])
+    common_set = set((dual or {}).get("common_dates") or [])
+    only_total_set = set((dual or {}).get("only_total") or [])
+    only_working_set = set((dual or {}).get("only_working") or [])
 
-    # Сопоставление cp ↔ extended-segment: cp[i] = граница между segment[i-1] и segment[i]
-    # strip-changepoints в strip формате [{date, idx}, ...].
-    # Связь: после changepoint начинается следующий сегмент.
     out: list[dict] = []
-    for i, cp in enumerate(strip_changepoints):
-        cp_date_dm = cp.get("date")          # "DD.MM.YYYY"
+    seen_idx: set[int] = set()
+
+    # ── 1. Существующие primary changepoints (как было) ─────────────
+    for i, cp in enumerate(strip_changepoints or []):
+        cp_date_dm = cp.get("date")
         cp_idx    = cp.get("idx")
         # Найти сегмент curr (начинается в cp_idx) и prev (заканчивается в cp_idx)
         curr_seg = None
@@ -349,7 +541,6 @@ def _build_cp_marks(strip_changepoints: list, ext_segments: list,
                 curr_seg = s
             if s.get("end_idx") == cp_idx:
                 prev_seg = s
-        # Если не нашли — пробуем по индексу в массиве ext_segments
         if curr_seg is None and i + 1 < len(ext_segments):
             curr_seg = ext_segments[i + 1]
         if prev_seg is None and i < len(ext_segments):
@@ -364,17 +555,21 @@ def _build_cp_marks(strip_changepoints: list, ext_segments: list,
                 log.exception("_changepoint_short_tag failed at cp %s", cp_date_dm)
                 tag = ""
 
-        # Source classification по dual.*
-        if cp_date_dm in common_set:
+        # Source classification
+        if cp_idx is not None and int(cp_idx) in near_confirmed_map:
+            # R1 near-confirmed: primary CP подтверждён близким working CP.
+            source = "confirmed"
+        elif cp_date_dm in common_set:
             source = "confirmed"
         elif cp_date_dm in only_total_set:
             source = "only_total"
         elif cp_date_dm in only_working_set:
             source = "only_working"
         else:
-            # cp есть в primary, но не размечена в dual? — считаем only_total
-            # (детектирована только в первичном Q общем)
             source = "only_total"
+
+        if cp_idx is not None:
+            seen_idx.add(int(cp_idx))
 
         out.append({
             "idx":    int(cp_idx) if cp_idx is not None else None,
@@ -382,7 +577,245 @@ def _build_cp_marks(strip_changepoints: list, ext_segments: list,
             "tag":    tag,
             "source": source,
         })
+
+    # ── 2. R1: promoted only_working boundaries ─────────────────────
+    # Для каждого promoted_idx — синтезируем запись cp_marks. Сегменты
+    # curr/prev определяются через ext_segments по start_idx/end_idx.
+    for p_idx in sorted(promoted_idx_set):
+        if p_idx in seen_idx:
+            continue
+        curr_seg = None
+        prev_seg = None
+        for s in ext_segments:
+            if s.get("start_idx") == p_idx:
+                curr_seg = s
+            if s.get("end_idx") == p_idx:
+                prev_seg = s
+        if curr_seg is None or prev_seg is None:
+            # Не нашли соответствие в extended — пропускаем (граница
+            # отфильтрована, например из-за shutdown_cluster).
+            continue
+        try:
+            tag_core = sam._changepoint_short_tag(curr_seg, prev_seg) or ""
+        except Exception:
+            tag_core = ""
+        # Дата = start_date нового сегмента, формат DD.MM.YYYY → ISO
+        cp_date_dm = pd.Timestamp(curr_seg["start_date"]).strftime("%d.%m.%Y")
+        tag_full = (tag_core + _PROMOTED_TAG_SUFFIX).strip()
+        out.append({
+            "idx":    int(p_idx),
+            "date":   _ddmmyyyy_to_iso(cp_date_dm),
+            "tag":    tag_full,
+            "source": "only_working",
+        })
+        seen_idx.add(p_idx)
+
+    # Финальная сортировка по idx (если есть), иначе по date
+    out.sort(key=lambda m: (m.get("idx") is None, m.get("idx") or 0, m.get("date") or ""))
     return out
+
+
+# ───────────────────────────────────────────────────────────────────────
+#  FIX-A + FIX-C: достроить descriptions/cp_descriptions для R1-promoted
+#  extended-сегментов и only_working CPs, которые отсутствуют в strip.
+#
+#  Принципы:
+#   • Используем существующие формулировки и существующие поля snapshot.
+#   • НЕ создаём новый interpretation engine.
+#   • Текст для only_working — осторожный, с фразой «требуется сверка
+#     с журналом технологических операций».
+#   • Запрещены пластовые формулировки (приток / продуктивность / истощение).
+# ───────────────────────────────────────────────────────────────────────
+
+def _fmt_pct(v) -> str:
+    if v is None:
+        return "—"
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return "—"
+    if not (x == x):  # NaN
+        return "—"
+    sign = "+" if x > 0 else ""
+    return f"{sign}{x:.1f}%"
+
+
+def _fmt_num1(v) -> str:
+    if v is None:
+        return "—"
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return "—"
+    if not (x == x):
+        return "—"
+    return f"{x:.1f}"
+
+
+def _augment_descriptions_for_r1(
+    primary_descriptions: list,
+    primary_cp_descriptions: list,
+    segments_extended: list,
+    cp_marks: list,
+    strip_segments: list,
+    promoted_idx_set: set | None,
+) -> tuple[list, list]:
+    """FIX-A + FIX-C — синхронизировать descriptions/cp_descriptions с
+    segments_extended/cp_marks после R1 promotion.
+
+    Возвращает (descriptions_full, cp_descriptions_full).
+
+    Логика:
+      • Сначала копируем primary descriptions/cp_descriptions как есть
+        (не трогаем работающие формулировки strip-pipeline — FIX-B/AC5).
+      • Для extended-сегментов, чья start-дата отсутствует в strip
+        (т.е. R1-promoted), синтезируем строку description через шаблон.
+      • Для cp_marks, чья дата отсутствует в strip changepoints
+        (т.е. only_working promoted), синтезируем строку cp_description.
+    """
+    primary_descriptions = list(primary_descriptions or [])
+    primary_cp_descriptions = list(primary_cp_descriptions or [])
+    promoted_idx_set = set(promoted_idx_set or [])
+
+    strip_start_dates = {s.get("start") for s in (strip_segments or [])}
+
+    # ─── FIX-A: descriptions для R1-promoted ext-сегментов ────────────
+    # Для определения «куда вставить» строим новый список, идущий по
+    # порядку segments_extended; primary descriptions переносим по
+    # совпадению start-даты.
+    primary_desc_by_start: dict[str, str] = {}
+    for s, d in zip(strip_segments or [], primary_descriptions):
+        if isinstance(s, dict) and s.get("start"):
+            primary_desc_by_start[s["start"]] = d
+
+    descriptions_full: list[str] = []
+    prev_ext = None
+    for ext in segments_extended:
+        start_dm = ext.get("start")
+        existing = primary_desc_by_start.get(start_dm)
+        if existing:
+            descriptions_full.append(existing)
+        else:
+            # R1-promoted сегмент — синтезируем осторожную строку.
+            descriptions_full.append(_synthesize_promoted_description(ext, prev_ext))
+        prev_ext = ext
+
+    # ─── FIX-C: cp_descriptions для only_working promoted CPs ─────────
+    # Сохраняем все primary cp_descriptions «как есть» (порядок и состав).
+    # Для каждого cp_mark с source='only_working' и idx ∈ promoted_idx_set —
+    # добавляем синтезированную осторожную строку в конец.
+    cp_descriptions_full: list[str] = list(primary_cp_descriptions)
+    for cp in cp_marks:
+        idx = cp.get("idx")
+        src = cp.get("source")
+        if src != "only_working":
+            continue
+        if idx is None or int(idx) not in promoted_idx_set:
+            continue
+        # Найдём ext-сегмент, начинающийся в этом idx
+        curr_ext = next(
+            (e for e in segments_extended if e.get("start_idx") == int(idx)),
+            None,
+        )
+        prev_ext = next(
+            (e for e in segments_extended if e.get("end_idx") == int(idx)),
+            None,
+        )
+        cp_descriptions_full.append(
+            _synthesize_only_working_cp_description(cp, curr_ext, prev_ext)
+        )
+    return descriptions_full, cp_descriptions_full
+
+
+def _synthesize_promoted_description(ext: dict, prev_ext: dict | None) -> str:
+    """FIX-A: осторожный текст для R1-promoted ext-сегмента.
+
+    Использует только числовые поля snapshot. Не вызывает analytics.
+    Содержит фразу «требуется сверка с журналом технологических операций»
+    для соответствия diagnostic interpretation policy.
+    """
+    start = ext.get("start", "—")
+    end = ext.get("end", "—")
+    days = ext.get("days", "—")
+    q_t = _fmt_num1(ext.get("mean_q"))
+    q_w = _fmt_num1(ext.get("mean_q_working"))
+    dp  = _fmt_num1(ext.get("mean_dp"))
+    sd  = _fmt_num1(ext.get("mean_shutdown"))
+
+    lines: list[str] = []
+    lines.append(
+        f"**{start}–{end}** ({days} дн.): Фактический сдвиг режима эксплуатации, "
+        f"выявленный по Q рабочему. "
+        f"Q общий={q_t}, Q рабочий={q_w} тыс.м³/сут, ΔP={dp} кгс/см², "
+        f"простой ≈{sd} мин/сут."
+    )
+    # Изменения относительно предыдущего ext-сегмента (если есть)
+    if prev_ext is not None:
+        chg_q  = ext.get("change_pct")
+        chg_qw = ext.get("change_q_working_pct")
+        chg_dp = ext.get("change_dp_pct")
+        chg_sd = ext.get("change_shutdown")
+        change_parts: list[str] = []
+        if chg_q is not None:
+            change_parts.append(f"Q общий {_fmt_pct(chg_q)}")
+        if chg_qw is not None:
+            change_parts.append(f"Q рабочий {_fmt_pct(chg_qw)}")
+        if chg_dp is not None:
+            change_parts.append(f"ΔP {_fmt_pct(chg_dp)}")
+        if chg_sd is not None and abs(float(chg_sd)) >= 10:
+            sign = "+" if float(chg_sd) > 0 else ""
+            change_parts.append(f"простой {sign}{float(chg_sd):.0f} мин/сут")
+        if change_parts:
+            lines.append(
+                "Изменение vs предыдущего сегмента: " + ", ".join(change_parts) + "."
+            )
+    lines.append(
+        "Событие не полностью выражено в Q общем. Требуется сверка с журналом "
+        "технологических операций (изменение штуцера, простои, продувки, "
+        "оперативные переключения режима работы скважины)."
+    )
+    return " ".join(lines)
+
+
+def _synthesize_only_working_cp_description(
+    cp: dict, curr_ext: dict | None, prev_ext: dict | None,
+) -> str:
+    """FIX-C: осторожный текст для only_working CP, продвинутого R1.
+
+    Совпадает по тону с _synthesize_promoted_description. Использует только
+    данные cp_marks/segments_extended. Не вызывает analytics.
+    """
+    cp_date_iso = cp.get("date") or "—"
+    # Преобразуем ISO → DD.MM.YYYY для консистентности с primary cp_descriptions.
+    try:
+        from datetime import datetime as _dt
+        cp_date = _dt.fromisoformat(str(cp_date_iso)[:10]).strftime("%d.%m.%Y")
+    except Exception:
+        cp_date = cp_date_iso
+
+    prev_q  = _fmt_num1(prev_ext.get("mean_q")) if prev_ext else "—"
+    curr_q  = _fmt_num1(curr_ext.get("mean_q")) if curr_ext else "—"
+    prev_qw = _fmt_num1(prev_ext.get("mean_q_working")) if prev_ext else "—"
+    curr_qw = _fmt_num1(curr_ext.get("mean_q_working")) if curr_ext else "—"
+    chg_q   = curr_ext.get("change_pct") if curr_ext else None
+    chg_qw  = curr_ext.get("change_q_working_pct") if curr_ext else None
+
+    parts: list[str] = []
+    parts.append(
+        f"↘ **{cp_date}**: Фактический сдвиг режима эксплуатации, "
+        f"выявленный по Q рабочему."
+    )
+    parts.append(
+        f"Q общий: {prev_q} → {curr_q} тыс.м³/сут ({_fmt_pct(chg_q)}). "
+        f"Q рабочий: {prev_qw} → {curr_qw} тыс.м³/сут ({_fmt_pct(chg_qw)})."
+    )
+    parts.append(
+        "Событие не полностью выражено в Q общем. Для уточнения причины "
+        "требуется сверка с журналом технологических операций, изменением "
+        "штуцера, простоями, продувками и оперативными переключениями "
+        "режима работы скважины."
+    )
+    return " ".join(parts)
 
 
 def _build_shutdown_clusters(df) -> list[dict]:
@@ -420,6 +853,7 @@ def compute_segment_block(
     d_to: date,
     *,
     include_pav: bool = False,
+    promote_only_working: bool | None = None,
 ) -> dict[str, Any]:
     """PLAN A — Core Segment Analysis для главы «Анализ данных заказчика».
 
@@ -511,14 +945,44 @@ def compute_segment_block(
         strip_segments = primary.get("segments") or []
         strip_cps = primary.get("changepoints") or []
 
+        # R1: fusion слой — определяем эффективное значение promote.
+        # promote_only_working=None → используется PROMOTE_ONLY_WORKING_DEFAULT
+        # (по умолчанию False = legacy behavior).
+        _promote = (
+            PROMOTE_ONLY_WORKING_DEFAULT
+            if promote_only_working is None
+            else bool(promote_only_working)
+        )
         try:
-            segments_extended = _build_segments_extended(strip_segments, df)
+            final_idx, promoted_idx_set, near_confirmed_map = (
+                _compute_final_boundaries(
+                    dual, df,
+                    promote_only_working=_promote,
+                )
+            )
+        except Exception:
+            log.exception("_compute_final_boundaries failed for well=%s", well)
+            final_idx, promoted_idx_set, near_confirmed_map = (
+                [cp.get("idx") for cp in strip_cps if cp.get("idx") is not None],
+                set(),
+                {},
+            )
+
+        try:
+            segments_extended = _build_segments_extended(
+                strip_segments, df,
+                override_cps_idx=final_idx if _promote else None,
+            )
         except Exception:
             log.exception("_build_segments_extended failed for well=%s", well)
             segments_extended = []
 
         try:
-            cp_marks = _build_cp_marks(strip_cps, segments_extended, dual)
+            cp_marks = _build_cp_marks(
+                strip_cps, segments_extended, dual,
+                promoted_idx_set=promoted_idx_set if _promote else None,
+                near_confirmed_map=near_confirmed_map if _promote else None,
+            )
         except Exception:
             log.exception("_build_cp_marks failed for well=%s", well)
             cp_marks = []
@@ -529,6 +993,24 @@ def compute_segment_block(
             log.exception("_build_shutdown_clusters failed for well=%s", well)
             shutdown_clusters = []
 
+        # FIX-A + FIX-C: достроить descriptions/cp_descriptions для R1-promoted
+        # сегментов и only_working CPs (которых нет в strip-pipeline).
+        # При promote_only_working=False примarie совпадают с segments_extended
+        # 1-в-1 и augment ничего не добавляет — legacy поведение сохраняется.
+        try:
+            descriptions_full, cp_descriptions_full = _augment_descriptions_for_r1(
+                primary_descriptions   = primary.get("descriptions") or [],
+                primary_cp_descriptions = primary.get("cp_descriptions") or [],
+                segments_extended      = segments_extended,
+                cp_marks               = cp_marks,
+                strip_segments         = strip_segments,
+                promoted_idx_set       = promoted_idx_set if _promote else set(),
+            )
+        except Exception:
+            log.exception("_augment_descriptions_for_r1 failed for well=%s", well)
+            descriptions_full    = list(primary.get("descriptions") or [])
+            cp_descriptions_full = list(primary.get("cp_descriptions") or [])
+
         dual_summary = {
             "primary_cp_count":   len(strip_cps),
             "working_cp_count":   len((dual.get("working") or {}).get("changepoints", [])
@@ -537,6 +1019,11 @@ def compute_segment_block(
             "common_dates":       list(dual.get("common_dates") or []),
             "only_total_dates":   list(dual.get("only_total") or []),
             "only_working_dates": list(dual.get("only_working") or []),
+            # R1 trace (новые optional поля; legacy clients их игнорируют)
+            "r1_promote_enabled":  bool(_promote),
+            "r1_promoted_count":   int(len(promoted_idx_set or set())),
+            "r1_near_confirmed_count": int(len(near_confirmed_map or {})),
+            "r1_final_boundary_count": int(len(final_idx or [])),
         }
 
         # ── Optional PAV layer ────────────────────────────────────
@@ -573,8 +1060,8 @@ def compute_segment_block(
         "cp_marks":          cp_marks,
         "shutdown_clusters": shutdown_clusters,
         "dual_summary":      dual_summary,
-        "descriptions":      primary.get("descriptions") or [],
-        "cp_descriptions":   primary.get("cp_descriptions") or [],
+        "descriptions":      descriptions_full,
+        "cp_descriptions":   cp_descriptions_full,
 
         # ── Полный dual для совместимости (модалка/legacy) ───────
         "dual": dual,

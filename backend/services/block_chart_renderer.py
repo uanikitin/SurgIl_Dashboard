@@ -271,3 +271,177 @@ def render_baseline_tile_charts(
             log.warning("baseline tile: flow plot failed: %s", exc)
 
     return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Рендер графиков из данных снапшота (не из БД!)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def render_adaptation_charts_from_snapshot(
+    chart_data: list[dict],
+    events: list[dict] | None,
+    output_prefix: str | Path,
+    *, dpi: int = DEF_DPI,
+) -> dict[str, Optional[str]]:
+    """Рендерит 3 PNG из данных снапшота adaptation_period_analysis.
+
+    Данные берутся из snap.adaptation.chart_data и snap.adaptation.events_for_chart,
+    НЕ из базы данных. Это обеспечивает идентичность PDF тому, что было
+    проанализировано и сохранено в снапшоте.
+
+    Args:
+        chart_data: список точек [{t, p_tube, p_line, dp, q}, ...]
+        events: список событий [{t, type: 'purge'|'reagent', ...}, ...]
+        output_prefix: префикс пути для PNG файлов
+
+    Returns:
+        {'pressures': path|None, 'dp': path|None, 'flow': path|None}
+    """
+    from datetime import datetime
+    import numpy as np
+    plt = _setup_matplotlib()
+    import matplotlib.dates as mdates
+
+    out: dict[str, Optional[str]] = {"pressures": None, "dp": None, "flow": None}
+
+    if not chart_data:
+        log.warning("render_adaptation_charts_from_snapshot: chart_data is empty")
+        return out
+
+    output_prefix = Path(output_prefix)
+    output_prefix.parent.mkdir(parents=True, exist_ok=True)
+
+    # Парсим данные снапшота
+    dates = []
+    p_tube_vals = []
+    p_line_vals = []
+    dp_vals = []
+    q_vals = []
+
+    for pt in chart_data:
+        t_str = pt.get("t") or pt.get("ts") or pt.get("timestamp")
+        if not t_str:
+            continue
+        try:
+            if isinstance(t_str, str):
+                dt = datetime.fromisoformat(t_str.replace("Z", "+00:00"))
+            else:
+                dt = t_str
+            dates.append(dt)
+            p_tube_vals.append(float(pt.get("p_tube") or 0))
+            p_line_vals.append(float(pt.get("p_line") or 0))
+            dp_vals.append(float(pt.get("dp") or max(0, p_tube_vals[-1] - p_line_vals[-1])))
+            q_vals.append(float(pt.get("q") or pt.get("flow_rate") or 0))
+        except (ValueError, TypeError):
+            continue
+
+    if len(dates) < 2:
+        log.warning("render_adaptation_charts_from_snapshot: not enough data points (%d)", len(dates))
+        return out
+
+    dates = np.array(dates)
+    p_tube = np.array(p_tube_vals)
+    p_line = np.array(p_line_vals)
+    dp = np.array(dp_vals)
+    q = np.array(q_vals)
+
+    # Парсим события для маркеров
+    purge_dates = []
+    reagent_dates = []
+    if events:
+        for ev in events:
+            ev_t = ev.get("t") or ev.get("ts")
+            ev_type = ev.get("type")
+            if not ev_t:
+                continue
+            try:
+                if isinstance(ev_t, str):
+                    ev_dt = datetime.fromisoformat(ev_t.replace("Z", "+00:00"))
+                else:
+                    ev_dt = ev_t
+                if ev_type == "purge":
+                    purge_dates.append(ev_dt)
+                elif ev_type == "reagent":
+                    reagent_dates.append(ev_dt)
+            except (ValueError, TypeError):
+                continue
+
+    def _add_event_markers(ax, y_data):
+        """Добавляет маркеры событий на график."""
+        y_max = np.nanmax(y_data) if len(y_data) > 0 else 1
+        # Продувки — вертикальные линии
+        for pd in purge_dates:
+            ax.axvline(pd, color="#7c3aed", linewidth=1.0, linestyle="--", alpha=0.7, zorder=5)
+        # Вбросы реагента — точки сверху
+        for rd in reagent_dates:
+            ax.scatter([rd], [y_max * 0.98], color="#22c55e", s=30, marker="v", zorder=6, alpha=0.8)
+
+    # ── График давлений (P tube + P line) ──
+    try:
+        fig, ax = plt.subplots(figsize=(11.5, 3.5), dpi=dpi)
+        ax.plot(dates, p_tube, color="#2563eb", linewidth=0.7, label="P трубное")
+        ax.plot(dates, p_line, color="#dc2626", linewidth=0.7, label="P линейное")
+        _add_event_markers(ax, np.concatenate([p_tube, p_line]))
+        ax.set_title("Давления за период адаптации", fontsize=10, color="#374151")
+        ax.set_ylabel("кгс/см²", fontsize=8, color="#374151")
+        ax.grid(True, color="#e5e7eb", linewidth=0.5)
+        ax.tick_params(axis="both", labelsize=7, colors="#374151")
+        for sp in ax.spines.values():
+            sp.set_edgecolor("#9ca3af"); sp.set_linewidth(0.5)
+        ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=5, maxticks=10))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%d.%m"))
+        ax.legend(loc="best", fontsize=7, frameon=True, framealpha=0.85)
+        fig.tight_layout()
+        path = (output_prefix.parent / f"{output_prefix.name}_pressures.png").resolve()
+        fig.savefig(path, dpi=dpi, bbox_inches="tight", facecolor="white", edgecolor="none")
+        plt.close(fig)
+        out["pressures"] = str(path)
+    except Exception as exc:
+        log.warning("snapshot chart pressures failed: %s", exc)
+
+    # ── График ΔP ──
+    try:
+        fig, ax = plt.subplots(figsize=(11.5, 3.0), dpi=dpi)
+        ax.plot(dates, dp, color="#ea580c", linewidth=0.7, label="ΔP")
+        ax.fill_between(dates, dp, alpha=0.15, color="#ea580c")
+        _add_event_markers(ax, dp)
+        ax.set_title("Перепад давления ΔP", fontsize=10, color="#374151")
+        ax.set_ylabel("кгс/см²", fontsize=8, color="#374151")
+        ax.grid(True, color="#e5e7eb", linewidth=0.5)
+        ax.tick_params(axis="both", labelsize=7, colors="#374151")
+        for sp in ax.spines.values():
+            sp.set_edgecolor("#9ca3af"); sp.set_linewidth(0.5)
+        ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=5, maxticks=10))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%d.%m"))
+        fig.tight_layout()
+        path = (output_prefix.parent / f"{output_prefix.name}_dp.png").resolve()
+        fig.savefig(path, dpi=dpi, bbox_inches="tight", facecolor="white", edgecolor="none")
+        plt.close(fig)
+        out["dp"] = str(path)
+    except Exception as exc:
+        log.warning("snapshot chart dp failed: %s", exc)
+
+    # ── График Q (дебит) ──
+    try:
+        fig, ax = plt.subplots(figsize=(11.5, 3.0), dpi=dpi)
+        ax.plot(dates, q, color="#16a34a", linewidth=0.7, label="Q")
+        ax.fill_between(dates, q, alpha=0.15, color="#16a34a")
+        _add_event_markers(ax, q)
+        ax.set_title("Расчётный дебит Q", fontsize=10, color="#374151")
+        ax.set_ylabel("тыс.м³/сут", fontsize=8, color="#374151")
+        ax.grid(True, color="#e5e7eb", linewidth=0.5)
+        ax.tick_params(axis="both", labelsize=7, colors="#374151")
+        for sp in ax.spines.values():
+            sp.set_edgecolor("#9ca3af"); sp.set_linewidth(0.5)
+        ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=5, maxticks=10))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%d.%m"))
+        fig.tight_layout()
+        path = (output_prefix.parent / f"{output_prefix.name}_flow.png").resolve()
+        fig.savefig(path, dpi=dpi, bbox_inches="tight", facecolor="white", edgecolor="none")
+        plt.close(fig)
+        out["flow"] = str(path)
+    except Exception as exc:
+        log.warning("snapshot chart flow failed: %s", exc)
+
+    log.info("Adaptation charts from snapshot: %s", out)
+    return out

@@ -1,0 +1,219 @@
+/*
+ * chapter_tiles.css — стили каталога видов анализа (плитки)
+ * и fullscreen-модалки анализа.
+ *
+ * Классы с префиксом .cat- — плитки каталога.
+ * Классы с префиксом .amodal- — fullscreen-dialog.
+ *
+ * Визуальный стиль согласован с chapter_panel.css и wz5-стилями.
+ */
+
+/* ── Каталог плиток ── */
+.cat-tiles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.cat-tile {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.cat-tile:hover {
+  border-color: #059669;
+  box-shadow: 0 1px 4px rgba(5, 150, 105, 0.10);
+}
+
+/* Вложенная плитка — отступ слева */
+.cat-tile--child {
+  margin-left: 22px;
+  border-left: 3px solid #d1fae5;
+  background: #f9fafb;
+}
+.cat-tile--child:hover {
+  border-color: #6ee7b7;
+  border-left-color: #34d399;
+}
+
+/* Заблокированная плитка */
+.cat-tile--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.cat-tile__icon {
+  font-size: 1.2rem;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.cat-tile__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.cat-tile__label {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 3px;
+}
+
+.cat-tile__desc {
+  font-size: 0.78rem;
+  color: #6b7280;
+  line-height: 1.4;
+}
+
+/* ── Fullscreen-модалка ── */
+.amodal {
+  border: none;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  max-height: 100%;
+  background: transparent;
+  overflow: hidden;
+  position: fixed;
+  inset: 0;
+}
+/* КРИТИЧНО: показывать ТОЛЬКО когда диалог открыт. Без [open] браузерное
+   `dialog:not([open]){display:none}` перекрывалось бы и модалка оставалась бы
+   видимой после close() — «выход не работает». */
+.amodal[open] {
+  display: flex;
+  flex-direction: column;
+}
+.amodal:not([open]) { display: none; }
+.amodal > * { box-sizing: border-box; }
+
+.amodal::backdrop {
+  background: rgba(15, 23, 42, 0.55);
+}
+
+/* Шапка */
+.amodal__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+  flex-shrink: 0;
+}
+.amodal__head-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+.amodal__badge { flex-shrink: 0; }
+.amodal__title {
+  font-size: 0.96rem;
+  font-weight: 600;
+  color: #1f2937;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.amodal__close {
+  flex-shrink: 0;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  font-size: 1.15rem;
+  color: #374151;
+  cursor: pointer;
+  padding: 5px 12px;
+  border-radius: 6px;
+  line-height: 1;
+}
+.amodal__close:hover { color: #374151; background: #f3f4f6; }
+
+/* Тело — скролл */
+.amodal__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+  background: #fff;
+  min-height: 0;
+}
+
+/* Состояние загрузки в теле */
+.amodal__loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+  padding: 40px;
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+.amodal__spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 3px solid #e5e7eb;
+  border-top-color: #059669;
+  border-radius: 50%;
+  animation: amodal-spin 0.9s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes amodal-spin { to { transform: rotate(360deg); } }
+
+/* Футер */
+.amodal__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: #f9fafb;
+  border-top: 1px solid #e5e7eb;
+  flex-shrink: 0;
+}
+.amodal__foot-right {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+/* Кнопки футера */
+.amodal__btn {
+  padding: 6px 16px;
+  font-size: 0.85rem;
+  border-radius: 5px;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 500;
+  transition: background 0.12s;
+}
+.amodal__btn--attach {
+  background: #059669;
+  color: #fff;
+}
+.amodal__btn--attach:hover { background: #047857; }
+.amodal__btn--close {
+  background: #fff;
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+.amodal__btn--close:hover { background: #f3f4f6; }
+.amodal__btn--recalc {
+  background: #fff;
+  color: #1e40af;
+  border: 1px solid #93c5fd;
+}
+.amodal__btn--recalc:hover { background: #eff6ff; }

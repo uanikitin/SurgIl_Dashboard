@@ -1,0 +1,178 @@
+{#
+  _chapter_panel.html — универсальный каркас главы отчёта.
+
+  Layout 60/40: левая колонка (рабочая область главы) + правая колонка
+  (превью HTML/PDF). Переиспользуется для любой главы (Заказчик,
+  Наблюдение, Адаптация и т.д.).
+
+  Два макроса:
+    chapter_panel_styles()              — CSS, вызывать один раз в extra_head
+    chapter_panel(chapter_id, title)    — разметка; левый контент через {% call %}
+
+  Все id с префиксом chp-<chapter_id>- — изоляция от других страниц.
+  Поведение (табы, refresh, PDF) — backend/static/js/chapter_preview.js
+  через initChapterPanel(config).
+
+  НЕ зависит от customer_daily.html. НЕ трогает существующие страницы.
+#}
+
+{% macro chapter_panel_styles() %}
+<style>
+/* ── Универсальный каркас главы: layout 60/40 ── */
+.chp-page {
+    display: grid;
+    grid-template-columns: minmax(0, 60fr) minmax(0, 40fr);
+    gap: 14px;
+    padding: 12px;
+    align-items: start;
+}
+@media (max-width: 1024px) {
+    .chp-page { grid-template-columns: 1fr; }
+}
+.chp-left  { min-width: 0; }
+.chp-right { min-width: 0; display: flex; flex-direction: column; }
+
+/* ── Правая панель: шапка ── */
+.chp-rp-head {
+    background: #fff; border: 1px solid #e5e7eb;
+    border-radius: 8px 8px 0 0; border-bottom: none;
+    padding: 8px 12px; display: flex; align-items: center;
+    gap: 10px; flex-wrap: wrap;
+}
+.chp-rp-title { font-size: 0.92rem; color: #1f2937; font-weight: 600; }
+.chp-rp-count {
+    font-size: 0.75rem; color: #6b7280; font-weight: 500;
+    padding: 2px 8px; background: #f3f4f6; border-radius: 10px;
+}
+.chp-rp-badge {
+    display: none; font-size: 0.72rem; font-weight: 600;
+    padding: 2px 8px; border-radius: 10px;
+}
+
+/* ── Табы HTML / PDF ── */
+.chp-tabs {
+    background: #f9fafb; border: 1px solid #e5e7eb;
+    border-top: none; border-bottom: none;
+    display: flex; gap: 4px; padding: 4px 8px;
+}
+.chp-tab {
+    background: transparent; border: 1px solid transparent;
+    padding: 6px 14px; font-size: 0.82rem; cursor: pointer;
+    color: #6b7280; border-radius: 6px 6px 0 0;
+}
+.chp-tab.chp-tab-active {
+    background: #fff; border: 1px solid #e5e7eb;
+    border-bottom: none; color: #1f2937;
+}
+.chp-tabs .chp-spacer { flex: 1; }
+.chp-tab-btn {
+    background: none; border: 1px solid #d1d5db; cursor: pointer;
+    font-size: 0.78rem; color: #374151; padding: 4px 10px;
+    border-radius: 4px;
+}
+.chp-tab-btn.chp-icon-only { border: none; font-size: 0.9rem; color: #6b7280; }
+
+/* ── Pane HTML ── */
+.chp-pane-html {
+    flex: 1; overflow-y: auto;
+    border: 1px solid #e5e7eb; border-top: none;
+    border-radius: 0 0 8px 8px; background: #fff;
+    padding: 14px 18px;
+    font-family: 'Times New Roman', serif; font-size: 0.9rem;
+    line-height: 1.45; color: #1f2937;
+    min-height: 320px;
+}
+.chp-empty { text-align: center; padding: 30px; color: #9ca3af; }
+
+/* ── Pane PDF ── */
+.chp-pane-pdf {
+    display: none; flex: 1; flex-direction: column;
+    border: 1px solid #e5e7eb; border-top: none;
+    border-radius: 0 0 8px 8px; background: #f3f4f6; overflow: hidden;
+}
+.chp-pdf-iframe {
+    flex: 1; width: 100%; border: 0; background: #f3f4f6; min-height: 320px;
+}
+.chp-pdf-bar {
+    padding: 8px 10px; background: #fff; border-top: 1px solid #e5e7eb;
+    display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+}
+.chp-btn-primary {
+    padding: 5px 12px; font-size: 0.82rem; cursor: pointer;
+    background: #2563eb; color: #fff; border: none; border-radius: 4px;
+}
+.chp-btn-primary:disabled { opacity: 0.6; cursor: default; }
+.chp-pdf-status { font-size: 0.78rem; color: #6b7280; margin-left: auto; }
+
+/* ── Блоки в HTML-превью ── */
+.chp-block { margin-bottom: 14px; padding-bottom: 10px;
+             border-bottom: 1px dashed #e5e7eb; }
+.chp-block-title { font-weight: 600; color: #1f2937; }
+.chp-block-warn { color: #b45309; font-size: 0.82rem; }
+.chp-block-corrupt { color: #991b1b; font-size: 0.82rem; }
+</style>
+{% endmacro %}
+
+
+{% macro chapter_panel(chapter_id, title) %}
+<div class="chp-page" id="chp-{{ chapter_id }}-page" data-chapter-id="{{ chapter_id }}">
+
+  {# ── ЛЕВАЯ КОЛОНКА (60%) — рабочая область главы ── #}
+  <div class="chp-left" id="chp-{{ chapter_id }}-left">
+    {{ caller() }}
+  </div>
+
+  {# ── ПРАВАЯ КОЛОНКА (40%) — превью HTML/PDF ── #}
+  <div class="chp-right" id="chp-{{ chapter_id }}-right">
+
+    <div class="chp-rp-head">
+      <span class="chp-rp-title">📑 Глава «{{ title }}»</span>
+      <span class="chp-rp-count" id="chp-{{ chapter_id }}-count"></span>
+      <span class="chp-rp-badge" id="chp-{{ chapter_id }}-pdf-badge"></span>
+    </div>
+
+    <div class="chp-tabs" id="chp-{{ chapter_id }}-tabs">
+      <button type="button" class="chp-tab chp-tab-active"
+              data-tab="html">📑 HTML</button>
+      <button type="button" class="chp-tab"
+              data-tab="pdf">📄 PDF</button>
+      <span class="chp-spacer"></span>
+      <button type="button" class="chp-tab-btn"
+              id="chp-{{ chapter_id }}-html-download"
+              title="Скачать HTML-превью файлом">⬇ HTML</button>
+      <button type="button" class="chp-tab-btn chp-icon-only"
+              id="chp-{{ chapter_id }}-refresh"
+              title="Перерисовать HTML-превью">🔄</button>
+    </div>
+
+    {# ── Pane HTML ── #}
+    <div class="chp-pane-html" id="chp-{{ chapter_id }}-pane-html">
+      <div id="chp-{{ chapter_id }}-html-content">
+        <div class="chp-empty">Создай блок — он появится здесь.</div>
+      </div>
+    </div>
+
+    {# ── Pane PDF ── #}
+    <div class="chp-pane-pdf" id="chp-{{ chapter_id }}-pane-pdf">
+      <iframe class="chp-pdf-iframe" id="chp-{{ chapter_id }}-pdf-iframe"
+              src="about:blank"></iframe>
+      <div class="chp-pdf-bar">
+        <button type="button" class="chp-btn-primary"
+                id="chp-{{ chapter_id }}-pdf-rebuild"
+                title="Собрать PDF главы (xelatex)">🔁 Пересобрать</button>
+        <a id="chp-{{ chapter_id }}-pdf-download" href="#"
+           download="chapter.pdf"
+           style="display:none; padding:5px 12px; background:#10b981;
+                  color:#fff; text-decoration:none; border-radius:4px;
+                  font-size:0.8rem;">⬇ Скачать</a>
+        <a id="chp-{{ chapter_id }}-pdf-popout" href="#" target="_blank"
+           style="padding:5px 12px; color:#1d4ed8; text-decoration:none;
+                  font-size:0.8rem; border:1px solid #93c5fd;
+                  border-radius:4px;">↗ В окно</a>
+        <span class="chp-pdf-status" id="chp-{{ chapter_id }}-pdf-status"></span>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endmacro %}

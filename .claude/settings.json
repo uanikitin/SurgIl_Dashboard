@@ -63,5 +63,17 @@
         "/Users/volodymyrnikitin/Documents/PythonFiles/SurgIl_Dashboard/scripts/mcp_postgres_ro.sh"
       ]
     }
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/graph_freshness_hook.sh\""
+          }
+        ]
+      }
+    ]
   }
 }

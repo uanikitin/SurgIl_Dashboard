@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% from "components/_chapter_panel.html" import chapter_panel_styles, chapter_panel %}
+
+{% block title %}DEV · Каркас главы 60/40{% endblock %}
+
+{% block extra_head %}
+{{ chapter_panel_styles() }}
+{% endblock %}
+
+{% block content %}
+<div style="padding:8px 12px; background:#fef9c3; border:1px solid #fde047;
+            border-radius:6px; margin:12px; font-size:0.85rem;">
+  ⚠ <b>DEV-страница.</b> Изолированная проверка универсального каркаса
+  60/40 + панель HTML/PDF. Не связана с реальной главой «Наблюдение».
+  Скважина: <b>{{ demo_well_id }}</b> (меняется через <code>?well_id=N</code>).
+</div>
+
+{% call chapter_panel("demo", "Демо-глава") %}
+  {# Левая колонка (60%) — заглушка рабочей области главы #}
+  <div style="background:#f9fafb; border:1px solid #e5e7eb;
+              border-radius:8px; padding:20px; min-height:320px;">
+    <h3 style="margin-top:0; color:#374151;">Рабочая область главы (заглушка)</h3>
+    <p style="color:#6b7280; font-size:0.9rem;">
+      Здесь будут инструменты конкретной главы — выбор периода,
+      анализ, создание блоков. Для проверки каркаса панель не нужна.
+    </p>
+    <p style="color:#6b7280; font-size:0.9rem;">
+      Справа (40%) — переиспользуемая панель: табы HTML/PDF,
+      превью главы, пересборка PDF.
+    </p>
+  </div>
+{% endcall %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/js/chapter_preview.js?v={{ time() }}"></script>
+<script>
+  // Демо-конфиг каркаса. Для реальной главы значения будут другими.
+  initChapterPanel({
+    chapter_id:       "demo",
+    title:            "Демо-глава",
+    // На demo-этапе показываем блоки заказчика — просто чтобы панель
+    // имела что отрисовать. kinds=null → все блоки скважины.
+    kinds:            null,
+    preview_endpoint: "/api/chapter/preview",
+    pdf_endpoint:     "/api/adaptation-report/preview-pdf",
+    // DEMO: only_chapter='customer_data' — проверяем только работу
+    // кнопки/iframe. Поддержка observation — отдельная задача.
+    pdf_only_chapter: "customer_data",
+    get_well_id:      () => {{ demo_well_id }},
+    // preview-pdf требует obs/adapt даты — даём дефолты.
+    pdf_extra_body: {
+      obs_from: "2025-01-01T00:00", obs_to: "2025-01-31T23:59",
+      adapt_from: "2025-02-01T00:00", adapt_to: "2025-12-31T23:59",
+      with_charts: false, with_reagent: false,
+      include_customer_chapter: false, customer_periods: [],
+    },
+  });
+</script>
+{% endblock %}

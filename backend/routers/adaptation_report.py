@@ -15,7 +15,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -381,6 +381,43 @@ class CustomDatesRequest(BaseModel):
     # одного блока с этим customer_report_block.id. Используется вместе с
     # only_chapter="observation"/"adaptation" для превью одной плитки.
     only_block_id: int | None = None
+
+    @field_validator("obs_from", "obs_to", "adapt_from", "adapt_to", mode="before")
+    @classmethod
+    def _parse_date_str(cls, v):
+        """Parse date string without time (e.g. '2026-02-02') as datetime."""
+        if v is None:
+            return v
+        if isinstance(v, datetime):
+            return v
+        if isinstance(v, date):
+            return datetime.combine(v, datetime.min.time())
+        if isinstance(v, str):
+            # Try ISO datetime first
+            for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d"):
+                try:
+                    return datetime.strptime(v, fmt)
+                except ValueError:
+                    continue
+        return v  # Let Pydantic raise validation error
+
+    @field_validator("optimal_from", "optimal_to", mode="before")
+    @classmethod
+    def _parse_optional_date_str(cls, v):
+        """Parse optional date string without time as datetime."""
+        if v is None:
+            return v
+        if isinstance(v, datetime):
+            return v
+        if isinstance(v, date):
+            return datetime.combine(v, datetime.min.time())
+        if isinstance(v, str):
+            for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d"):
+                try:
+                    return datetime.strptime(v, fmt)
+                except ValueError:
+                    continue
+        return v
 
 
 @router.post("/compute")
@@ -1100,6 +1137,8 @@ def _finalize_pdf_response(
     # Прикреплённые блоки для §3 (наблюдение) и §4 (адаптация)
     from backend.services.adaptation_report_service import (
         _format_observation_block, _format_adaptation_block,
+        _format_segment_analysis_for_observation,
+        _format_segment_comparison_for_observation,
     )
 
     obs_blocks_raw = data.get("observation_blocks") or []
@@ -1115,12 +1154,33 @@ def _finalize_pdf_response(
             b for b in adapt_blocks_raw if b.get("block_id") == only_block_id
         ]
 
-    observation_blocks_fmt = [
-        _format_observation_block(b, render_charts=with_charts)
-        for b in obs_blocks_raw
-    ]
+    # B2-блоки (is_b2=true) исключаем из §3.4 — они уже показаны в §3.3 (b2_tile).
+    # Исключение 1: превью конкретного блока (only_block_id) — тогда показываем.
+    # Исключение 2: если b2_tile=None (baseline не зафиксирован в БД), НЕ фильтруем —
+    #               иначе B2-блок не появится нигде (ни в §3.3, ни в §3.4).
+    def _is_b2_block(b: dict) -> bool:
+        snap = b.get("data_snapshot") or {}
+        return snap.get("is_b2", False)
+
+    obs_blocks_for_pdf = obs_blocks_raw
+    has_b2_tile = data.get("b2_tile") is not None
+    if only_block_id is None and has_b2_tile:
+        # Полный отчёт + есть b2_tile: исключаем B2-блоки (они в §3.3)
+        obs_blocks_for_pdf = [b for b in obs_blocks_raw if not _is_b2_block(b)]
+    # Иначе: показываем все блоки включая B2 (fallback если b2_tile не создан)
+
+    # Выбор форматтера по kind блока
+    def _format_obs_block(b: dict) -> dict:
+        kind = b.get("kind")
+        if kind == "segment_analysis":
+            return _format_segment_analysis_for_observation(b, render_charts=with_charts)
+        if kind == "segment_comparison":
+            return _format_segment_comparison_for_observation(b, render_charts=with_charts)
+        return _format_observation_block(b, render_charts=with_charts)
+
+    observation_blocks_fmt = [_format_obs_block(b) for b in obs_blocks_for_pdf]
     adaptation_blocks_fmt = [
-        _format_adaptation_block(b, render_charts=with_charts)
+        _format_adaptation_block(b, render_charts=with_charts, db=db)
         for b in adapt_blocks_raw
     ]
 
@@ -1147,6 +1207,7 @@ def _finalize_pdf_response(
         # Плитки утверждённых baseline (для §2 / §3 по ТЗ)
         "b2_tile": data.get("b2_tile"),
         "b1_tile": data.get("b1_tile"),
+        # observation_chapter_latex убран — observation-блоки рендерятся через observation_blocks в §3.4
         "include_sections": _normalize_sections(
             {**(sections or {}),
              # ATOM-флаг для шаблона: при превью одного блока скрыть все
@@ -1196,11 +1257,16 @@ def _finalize_pdf_response(
             Path(_cp).unlink(missing_ok=True)
     # PNG графиков §3.4 (observation_analysis): 3 PNG на каждый блок —
     # давления, ΔP, Q. Рендерятся live через render_baseline_tile_charts.
+    # Для segment_analysis — PNG из render_segment_analysis (в _chart_paths).
     for _ob in observation_blocks_fmt:
         for _key in ("chart_pressures", "chart_dp", "chart_flow"):
             _p = _ob.get(_key)
             if _p:
                 Path(_p).unlink(missing_ok=True)
+        # segment_analysis: cleanup PNG графиков из render_segment_analysis
+        for _cp in (_ob.get("_chart_paths") or []):
+            if _cp:
+                Path(_cp).unlink(missing_ok=True)
 
     response = FileResponse(
         path=str(pdf_path),

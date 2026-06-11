@@ -153,6 +153,14 @@ from backend.routers.reagent_analysis import pages_router as reagent_analysis_pa
 app.include_router(reagent_analysis_router)
 app.include_router(reagent_analysis_pages_router)
 
+# DEV: демо универсального каркаса главы 60/40 (chapter_demo — временный)
+from backend.routers.chapter_demo import router as chapter_demo_router
+app.include_router(chapter_demo_router)
+
+# Глава «Наблюдение»: preview блоков + HTML-рендер главы
+from backend.routers.observation import router as observation_router
+app.include_router(observation_router)
+
 # Widget API (SwiftBar, etc.)
 from backend.routers.widget_api import router as widget_api_router
 app.include_router(widget_api_router)
@@ -197,6 +205,12 @@ from backend.routers.admin_map import router as admin_map_api_router
 from backend.routers.admin_map import pages_router as admin_map_pages_router
 app.include_router(admin_map_api_router)
 app.include_router(admin_map_pages_router)
+
+# Сегментный анализ — ТЕСТ (универсальный модуль)
+from backend.routers.segment_demo import router as segment_demo_router
+from backend.routers.segment_demo import pages_router as segment_demo_pages_router
+app.include_router(segment_demo_router)
+app.include_router(segment_demo_pages_router)
 
 # ------------------------------------------------------------
 # 1) SAFE helpers: FormData -> string

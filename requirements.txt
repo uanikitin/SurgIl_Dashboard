@@ -25,3 +25,10 @@ scipy==1.14.1
 contextily==1.7.0
 pyproj==3.7.2
 
+# Тестирование
+pytest==9.0.3
+
+
+anthropic>=0.40
+opencv-python-headless>=4.9
+pytesseract>=0.3.10

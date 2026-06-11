@@ -1318,6 +1318,12 @@
   }
 
   // ─── Customer-блоки: индикатор «прикреплено N» возле кнопки ───
+  // Kinds, принадлежащие главе «Данные заказчика»
+  const CUSTOMER_CHAPTER_KINDS = [
+    'chapter_intro', 'period_analysis', 'baseline',
+    'comparison', 'criteria_rose', 'segment_analysis'
+  ];
+
   async function refreshCustomerBlocks() {
     const badge = $('cust-blocks-badge');
     const summary = $('cust-blocks-summary');
@@ -1326,7 +1332,9 @@
     summary.innerHTML = '';
     if (!currentWellId) return;
     try {
-      const r = await fetch('/api/customer-daily/blocks?well_id=' + currentWellId);
+      // Фильтруем на уровне API — только блоки главы «Заказчик»
+      const kindsParam = CUSTOMER_CHAPTER_KINDS.join(',');
+      const r = await fetch('/api/customer-daily/blocks?well_id=' + currentWellId + '&kinds=' + kindsParam);
       if (!r.ok) return;
       const d = await r.json();
       const blocks = (d.blocks || []).filter(b => b.in_report);

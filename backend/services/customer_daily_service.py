@@ -173,19 +173,358 @@ VALID_BLOCK_KINDS = {
     # snapshot формата segment_v1 (см. segment_analysis_service.compute_segment_block).
     # PDF-интеграция запланирована в PLAN B (сейчас тихо пропускается).
     "segment_analysis",
+    # Сравнение сегментов — overlay нескольких сегментов на одном графике,
+    # таблица различий (diff_table), интерпретация сравнения.
+    # snapshot формата segment_comparison_v1.
+    "segment_comparison",
 }
 
 
-def list_blocks(db: Session, well_id: int) -> list[dict[str, Any]]:
-    """Все блоки скважины, отсортированы по sort_order, потом по created_at."""
-    rows = db.execute(text("""
+def _enrich_adaptation_intro(
+    db: Session,
+    block: dict[str, Any],
+) -> dict[str, Any]:
+    """Обогащение adaptation_period_analysis блока динамическим intro.
+
+    Если snapshot.adaptation.intro.intro_text отсутствует, генерирует его из:
+    - дат периода (snapshot.adaptation.date_from/date_to или params)
+    - номера скважины (из БД)
+    - датчиков SMOD (из equipment_installation)
+
+    Модифицирует block in-place и возвращает его.
+    """
+    if block.get("kind") != "adaptation_period_analysis":
+        return block
+
+    snap = block.get("data_snapshot") or {}
+    adapt = snap.get("adaptation") or {}
+    intro = adapt.get("intro") or {}
+    p = block.get("params") or {}
+
+    # Если intro_text уже есть — ничего не делаем
+    if intro.get("intro_text"):
+        return block
+
+    try:
+        well_id = block.get("well_id")
+        date_from = adapt.get("date_from") or p.get("date_from") or ""
+        date_to = adapt.get("date_to") or p.get("date_to") or ""
+
+        if not date_from or not date_to or not well_id:
+            return block
+
+        # Форматируем даты
+        from datetime import datetime as _dt
+        try:
+            df = _dt.fromisoformat(str(date_from)[:10])
+            date_from_fmt = df.strftime("%d.%m.%Y")
+        except Exception:
+            date_from_fmt = str(date_from)[:10]
+        try:
+            dt = _dt.fromisoformat(str(date_to)[:10])
+            date_to_fmt = dt.strftime("%d.%m.%Y")
+        except Exception:
+            date_to_fmt = str(date_to)[:10]
+
+        # Номер скважины
+        row = db.execute(
+            text("SELECT number FROM wells WHERE id = :wid"),
+            {"wid": well_id},
+        ).fetchone()
+        well_number = row[0] if row else well_id
+
+        # Датчики SMOD установленные в период
+        sensors_rows = db.execute(text("""
+            SELECT e.serial_number, e.name
+            FROM equipment_installation ei
+            JOIN equipment e ON e.id = ei.equipment_id
+            WHERE ei.well_id = :wid
+              AND ei.installed_at <= :dt_to
+              AND (ei.removed_at IS NULL OR ei.removed_at >= :dt_from)
+              AND e.name ILIKE '%SMOD%'
+            ORDER BY e.serial_number
+        """), {"wid": well_id, "dt_from": date_from, "dt_to": date_to}).fetchall()
+
+        if sensors_rows:
+            serials = [r[0] for r in sensors_rows if r[0]]
+            names = [r[1] for r in sensors_rows if r[1]]
+            model = names[0] if names else "SMOD"
+            serials_str = ", ".join(serials) if serials else "—"
+
+            intro_text = (
+                f"В период с {date_from_fmt} по {date_to_fmt} с целью адаптации технологии "
+                f"к условиям скважины №{well_number} проводились работы по выбору "
+                f"оптимального реагента, оптимальной концентрации и периода дозирования. "
+                f"Параметры работы скважины фиксировались в режиме реального времени "
+                f"датчиками {model} (серийные номера: {serials_str}). "
+                f"Частота опроса — 1 измерение в минуту."
+            )
+        else:
+            intro_text = (
+                f"В период с {date_from_fmt} по {date_to_fmt} с целью адаптации технологии "
+                f"к условиям скважины №{well_number} проводились работы по выбору "
+                f"оптимального реагента, оптимальной концентрации и периода дозирования."
+            )
+
+        # Модифицируем snapshot in-place
+        if "data_snapshot" not in block or block["data_snapshot"] is None:
+            block["data_snapshot"] = {}
+        if "adaptation" not in block["data_snapshot"]:
+            block["data_snapshot"]["adaptation"] = {}
+        if "intro" not in block["data_snapshot"]["adaptation"]:
+            block["data_snapshot"]["adaptation"]["intro"] = {}
+        block["data_snapshot"]["adaptation"]["intro"]["intro_text"] = intro_text
+
+    except Exception:
+        log.exception("_enrich_adaptation_intro failed for block %s", block.get("id"))
+
+    return block
+
+
+def _enrich_adaptation_segment_analysis(
+    db: Session,
+    block: dict[str, Any],
+) -> dict[str, Any]:
+    """Обогащение adaptation_period_analysis блока сегментным анализом.
+
+    Если snapshot.segment_analysis отсутствует или пуст, вычисляет его через
+    compute_segment_preview из observation_segment_service (данные ДАТЧИКОВ,
+    как на странице «Наблюдение»).
+
+    Модифицирует block in-place и возвращает его.
+    """
+    if block.get("kind") != "adaptation_period_analysis":
+        return block
+
+    snap = block.get("data_snapshot") or {}
+    seg = snap.get("segment_analysis") or {}
+
+    # Если сегментный анализ уже есть (cp_marks или segments) — пропускаем
+    if seg.get("cp_marks") or seg.get("segments"):
+        return block
+
+    try:
+        from backend.services.observation_segment_service import compute_segment_preview
+
+        well_id = block.get("well_id")
+        adapt = snap.get("adaptation") or {}
+        p = block.get("params") or {}
+        date_from = adapt.get("date_from") or p.get("date_from") or ""
+        date_to = adapt.get("date_to") or p.get("date_to") or ""
+
+        if not date_from or not date_to or not well_id:
+            return block
+
+        # Вычисляем сегментный анализ из данных датчиков (как на «Наблюдение»)
+        seg_data = compute_segment_preview(
+            db=db,
+            well_id=well_id,
+            d_from=str(date_from)[:10],
+            d_to=str(date_to)[:10],
+            aggregation="daily",
+            sensitivity="medium",
+            include_raw_chart=True,
+        )
+
+        if not seg_data:
+            return block
+
+        # Формируем данные в формате spec §4.9
+        # obs_segment_v1 возвращает: segments, changepoints, shutdown_clusters, diagnostics, raw
+        segments = seg_data.get("segments") or []
+        changepoints = seg_data.get("changepoints") or []
+        raw = seg_data.get("raw") or {}
+        chart_payload = raw.get("chart_payload") or {}
+
+        # Генерируем cp_marks из changepoints
+        cp_marks = []
+        for i, cp in enumerate(changepoints):
+            cp_marks.append({
+                "idx": cp.get("idx"),
+                "tag": f"CP{i+1}",
+                "date": cp.get("date") or "",
+                "source": cp.get("source") or "total",
+            })
+
+        # Генерируем описания сегментов
+        descriptions = []
+        for s in segments:
+            direction = s.get("direction") or "stable"
+            direction_ru = {"stable": "стабильный", "up": "рост", "down": "снижение"}.get(direction, direction)
+            q_mean = s.get("mean_q")
+            start = s.get("start_date") or ""
+            end = s.get("end_date") or ""
+            slope = s.get("slope_q_per_day")
+            if q_mean is not None:
+                slope_str = f", тренд {slope:+.3f}/сут" if slope else ""
+                descriptions.append(f"**{start}–{end}**: {direction_ru}, Q = {q_mean:.2f} тыс.м³/сут{slope_str}")
+            else:
+                descriptions.append(f"**{start}–{end}**: {direction_ru}")
+
+        # Сводка
+        n_seg = len(segments)
+        n_cp = len(changepoints)
+        summary = f"Выделено {n_seg} сегментов и {n_cp} точек изменения режима."
+
+        segment_analysis = {
+            "period": seg_data.get("period") or {"from": str(date_from)[:10], "to": str(date_to)[:10]},
+            "date_from": str(date_from)[:10],
+            "date_to": str(date_to)[:10],
+            "n_points": len(chart_payload.get("dates") or []),
+            "changepoints": changepoints,
+            "cp_marks": cp_marks,
+            "segments": segments,
+            "chart_data": chart_payload,
+            "interpretation": {
+                "summary": summary,
+                "descriptions": descriptions,
+            },
+        }
+
+        # Модифицируем snapshot in-place
+        if "data_snapshot" not in block or block["data_snapshot"] is None:
+            block["data_snapshot"] = {}
+        block["data_snapshot"]["segment_analysis"] = segment_analysis
+
+    except Exception:
+        log.exception("_enrich_adaptation_segment_analysis failed for block %s", block.get("id"))
+
+    return block
+
+
+def _enrich_events_from_db(
+    db: Session,
+    block: dict,
+) -> dict:
+    """Обогащает события в snapshot данными из таблицы events.
+
+    Для событий которые не содержат p_tube, p_line, reagent, qty, description —
+    подтягиваем их из БД по времени события.
+    """
+    snap = block.get("data_snapshot") or {}
+    adapt = snap.get("adaptation") or {}
+    events = adapt.get("events_for_chart")
+    if not events:
+        return block
+
+    well_id = block.get("well_id")
+    if not well_id:
+        return block
+
+    # Получаем номер скважины
+    try:
+        well_row = db.execute(text(
+            "SELECT number FROM wells WHERE id = :wid"
+        ), {"wid": well_id}).fetchone()
+        if not well_row:
+            return block
+        well_number = str(well_row[0])
+    except Exception:
+        return block
+
+    # Загружаем все события из БД для этой скважины
+    try:
+        rows = db.execute(text("""
+            SELECT
+                TO_CHAR(event_time, 'YYYY-MM-DD"T"HH24:MI') as t,
+                event_type, reagent, qty, description, p_tube, p_line
+            FROM events
+            WHERE well = :wno
+              AND event_type IN ('purge', 'reagent', 'equip', 'other')
+        """), {"wno": well_number}).fetchall()
+
+        # Индексируем по времени (первые 16 символов: YYYY-MM-DDTHH:MM)
+        db_events = {}
+        for r in rows:
+            key = str(r[0])[:16] if r[0] else None
+            if key:
+                db_events[key] = {
+                    "event_type": r[1],
+                    "reagent": r[2],
+                    "qty": float(r[3]) if r[3] else None,
+                    "description": r[4],
+                    "p_tube": float(r[5]) if r[5] else None,
+                    "p_line": float(r[6]) if r[6] else None,
+                }
+
+        # Обогащаем события
+        for ev in events:
+            t = ev.get("t") or ev.get("ts") or ev.get("event_time")
+            if not t:
+                continue
+            key = str(t)[:16]
+            if key in db_events:
+                db_ev = db_events[key]
+                # Добавляем только отсутствующие поля
+                if ev.get("reagent") is None or ev.get("reagent") == "":
+                    ev["reagent"] = db_ev.get("reagent") or ""
+                if ev.get("qty") is None:
+                    ev["qty"] = db_ev.get("qty")
+                    ev["amount"] = db_ev.get("qty")
+                if ev.get("description") is None or ev.get("description") == "":
+                    ev["description"] = db_ev.get("description") or ""
+                if ev.get("p_tube") is None:
+                    ev["p_tube"] = db_ev.get("p_tube")
+                if ev.get("p_line") is None:
+                    ev["p_line"] = db_ev.get("p_line")
+                # Обновляем label если пустой
+                if not ev.get("label"):
+                    ev["label"] = ev.get("reagent") or ev.get("description") or ""
+    except Exception:
+        log.exception("_enrich_events_from_db failed for block %s", block.get("id"))
+
+    return block
+
+
+def list_blocks(
+    db: Session,
+    well_id: int,
+    chapter: str | None = None,
+    kinds: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Все блоки скважины, отсортированы по sort_order, потом по created_at.
+
+    Фильтры (можно комбинировать):
+    - chapter: фильтрует по params->>'chapter' == chapter
+    - kinds: фильтрует по kind IN (список)
+
+    Для adaptation_period_analysis блоков автоматически генерирует:
+    - intro_text с датчиками SMOD (если его нет в snapshot)
+    - segment_analysis (если его нет в snapshot)
+    """
+    # Строим запрос с фильтрами
+    conditions = ["well_id = :wid"]
+    params_dict: dict = {"wid": well_id}
+
+    if chapter:
+        conditions.append("params->>'chapter' = :chapter")
+        params_dict["chapter"] = chapter
+
+    if kinds:
+        # Для безопасности используем параметризованный запрос с ANY
+        conditions.append("kind = ANY(:kinds)")
+        params_dict["kinds"] = kinds
+
+    where_clause = " AND ".join(conditions)
+    query = f"""
         SELECT id, well_id, kind, title, params, data_snapshot, comment,
                in_report, sort_order, created_at, updated_at
         FROM customer_report_block
-        WHERE well_id = :wid
+        WHERE {where_clause}
         ORDER BY sort_order, created_at
-    """), {"wid": well_id}).mappings().fetchall()
-    return [dict(r) for r in rows]
+    """
+    rows = db.execute(text(query), params_dict).mappings().fetchall()
+
+    result = []
+    for r in rows:
+        block = dict(r)
+        # Обогащаем adaptation блоки динамическим intro и segment_analysis
+        block = _enrich_adaptation_intro(db, block)
+        block = _enrich_adaptation_segment_analysis(db, block)
+        # Обогащаем события данными из таблицы events (p_tube, p_line, reagent, qty, description)
+        block = _enrich_events_from_db(db, block)
+        result.append(block)
+    return result
 
 
 def create_block(
@@ -200,6 +539,12 @@ def create_block(
     if kind not in VALID_BLOCK_KINDS:
         raise ValueError(f"Invalid block kind: {kind}")
     params = dict(params or {})
+
+    # Защита от misuse: для observation_analysis принудительно устанавливаем
+    # source и chapter независимо от переданных значений.
+    if kind == "observation_analysis":
+        params["source"] = "observation"
+        params["chapter"] = "observation"
     if sort_order is None:
         row = db.execute(text("""
             SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order
@@ -741,7 +1086,7 @@ def build_overlap_blocks(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
                          "value": f"{days} ({inter_start} — {inter_end})"},
                         {"label": "Полные периоды",
                          "value": (f"UzKorGaz {cust_days} сут, UniTool "
-                                   f"{our_days} сут (разница {ratio:.1f}%)")},
+                                   f"{our_days} сут (разница {ratio:.1f}\\%)")},  # \\% для LaTeX
                         {"label": "Сопоставимость", "value": compat_note},
                     ],
                 })
@@ -1606,7 +1951,7 @@ def monthly_description(months: list[dict[str, Any]]) -> list[dict[str, str]]:
         diff = curr - prev
         if prev:
             pct = diff / prev * 100.0
-            return f"{name} {diff:+.1f}{unit} ({pct:+.1f}%)"
+            return f"{name} {diff:+.1f}{unit} ({pct:+.1f}\\%)"  # \\% для LaTeX
         return f"{name} {diff:+.1f}{unit}"
 
     def _trend_txt(slope: float | None, unit_per_day: str) -> str:
@@ -1832,4 +2177,181 @@ def well_chart_payload(df: pd.DataFrame) -> dict[str, Any]:
         "q_gas_working": _col("q_gas_working"),
         "shutdown_min":  _col("shutdown_min"),
         "dp":            [_fmt_float(v) for v in dp.to_list()],
+    }
+
+
+# ─────────────────────────── Chapter-preview ───────────────────────────
+#
+# Возвращает структурированное JSON-описание блоков главы для правой
+# панели «live-превью» (НЕ LaTeX/PDF, только данные).
+#
+# Контракт выхода:
+#   {
+#     "ok": True,
+#     "well_id": int,
+#     "blocks": [
+#       {
+#         "block_id": int,
+#         "kind": str,
+#         "title": str,
+#         "sort_order": int,
+#         "in_report": bool,
+#         "is_corrupted": bool,       — True если data_snapshot отсутствует
+#                                       или не прошёл минимальную валидацию
+#         "warnings": [str, ...],     — непустой только при is_corrupted=True
+#         "summary": {                — краткое текстовое описание для правой
+#                                       панели (не данные для рендера графика)
+#           "date_from": str | None,
+#           "date_to": str | None,
+#           "n_points": int | None,
+#           "n_segments": int | None, — для kind=segment_analysis
+#           "score": float | None,    — для kind=criteria_rose
+#           "text": str | None,       — для kind=chapter_intro
+#         }
+#       }, ...
+#     ],
+#     "total": int,
+#     "in_report_count": int,
+#     "corrupted_count": int,
+#   }
+#
+# ГАРАНТИЯ: эта функция не делает INSERT/UPDATE/DELETE — только SELECT.
+# Проверяется тестом test_no_db_writes_from_preview.
+
+_SNAPSHOT_REQUIRED_KEY = "_v"  # любой корректный snapshot должен иметь _v
+
+
+def _validate_snapshot(snap: Any) -> tuple[bool, list[str]]:
+    """Проверяет минимальную корректность data_snapshot.
+
+    Возвращает (is_ok: bool, warnings: list[str]).
+    Не бросает исключений — некорректный snapshot = corrupted, не ошибка.
+    """
+    if snap is None:
+        return False, ["data_snapshot отсутствует — блок не заполнен данными"]
+    if not isinstance(snap, dict):
+        return False, ["data_snapshot не является объектом (ожидается dict)"]
+    if _SNAPSHOT_REQUIRED_KEY not in snap:
+        return False, [
+            f"data_snapshot не содержит ключ '{_SNAPSHOT_REQUIRED_KEY}' — "
+            "структура несовместима с текущей версией"
+        ]
+    return True, []
+
+
+def _extract_block_summary(kind: str, params: Any, snap: Any) -> dict[str, Any]:
+    """Извлекает краткое текстовое summary из params / snap для правой панели.
+
+    Не бросает исключений.
+    """
+    summary: dict[str, Any] = {
+        "date_from": None,
+        "date_to": None,
+        "n_points": None,
+        "n_segments": None,
+        "score": None,
+        "text": None,
+    }
+    # params может быть dict или None
+    p = params if isinstance(params, dict) else {}
+    s = snap if isinstance(snap, dict) else {}
+
+    # date_from / date_to: сначала из snap, потом из params
+    for field in ("date_from", "date_to"):
+        summary[field] = s.get(field) or p.get(field)
+
+    # kind-специфичные поля
+    if kind == "chapter_intro":
+        summary["text"] = p.get("text") or s.get("text")
+    elif kind == "segment_analysis":
+        segs = s.get("segments_extended") or []
+        summary["n_points"] = s.get("n_points")
+        summary["n_segments"] = len(segs) if isinstance(segs, list) else None
+    elif kind == "criteria_rose":
+        summary["score"] = s.get("score")
+        summary["n_points"] = s.get("n_points")
+    else:
+        # baseline / period_analysis / comparison / observation_analysis / etc.
+        summary["n_points"] = s.get("n_points") or s.get("days")
+
+    return summary
+
+
+def build_chapter_preview(
+    db: Session,
+    well_id: int,
+    kinds: list[str] | None = None,
+) -> dict[str, Any]:
+    """Построить JSON-превью главы для правой панели.
+
+    Читает customer_report_block для well_id (отсортировано по
+    sort_order, created_at). Для каждого блока:
+      • валидирует data_snapshot (есть / корректный формат → is_corrupted=False)
+      • извлекает краткое summary
+      • возвращает is_corrupted + warnings при проблемах
+
+    Args:
+        db: SQLAlchemy session
+        well_id: id скважины
+        kinds: опциональный фильтр по kind. None → все блоки скважины
+               (поведение по умолчанию, обратно совместимо). Список →
+               только блоки с kind из списка (для разделения по главам).
+
+    НЕ делает ни одной записи в БД.
+    Thread-safe: только SELECT, никаких мутаций.
+    """
+    sql = """
+        SELECT id, well_id, kind, title, params, data_snapshot, comment,
+               in_report, sort_order, created_at, updated_at
+        FROM customer_report_block
+        WHERE well_id = :wid
+    """
+    bind: dict[str, Any] = {"wid": well_id}
+    if kinds:
+        # = ANY(:kinds) с list — IN :param с tuple не работает в text()
+        sql += " AND kind = ANY(:kinds)"
+        bind["kinds"] = list(kinds)
+    sql += " ORDER BY sort_order, created_at"
+    rows = db.execute(text(sql), bind).mappings().fetchall()
+
+    blocks_out: list[dict[str, Any]] = []
+    corrupted_count = 0
+    in_report_count = 0
+
+    for row in rows:
+        # Используем .get() напрямую по ключу — безопасно и для ORM Row,
+        # и для мок-объектов в тестах (не зависим от dict(row)).
+        kind = row.get("kind") or ""
+        snap = row.get("data_snapshot")
+        params_val = row.get("params")
+        in_report_flag = bool(row.get("in_report", True))
+
+        if in_report_flag:
+            in_report_count += 1
+
+        is_ok, warnings = _validate_snapshot(snap)
+        is_corrupted = not is_ok
+        if is_corrupted:
+            corrupted_count += 1
+
+        summary = _extract_block_summary(kind, params_val, snap)
+
+        blocks_out.append({
+            "block_id":   int(row["id"]),
+            "kind":       kind,
+            "title":      row.get("title") or "",
+            "sort_order": int(row.get("sort_order") or 0),
+            "in_report":  in_report_flag,
+            "is_corrupted": is_corrupted,
+            "warnings":   warnings,
+            "summary":    summary,
+        })
+
+    return {
+        "ok": True,
+        "well_id": well_id,
+        "blocks": blocks_out,
+        "total": len(blocks_out),
+        "in_report_count": in_report_count,
+        "corrupted_count": corrupted_count,
     }

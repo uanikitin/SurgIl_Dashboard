@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import Optional
 
 import openpyxl
+from openpyxl.worksheet.worksheet import Worksheet
 import pandas as pd
 
 log = logging.getLogger("parse_daily_wells")
@@ -262,6 +263,10 @@ def parse_workbook(xlsx_path: Path) -> pd.DataFrame:
 
     for sheet_name in wb.sheetnames:
         ws = wb[sheet_name]
+        # Пропускаем листы-диаграммы (Chartsheet) — у них нет ячеек с данными
+        if not isinstance(ws, Worksheet):
+            log.debug("Пропускаю лист %r: не является Worksheet (возможно, Chartsheet)", sheet_name)
+            continue
         sheet_date = extract_date(ws)
         if sheet_date is None:
             log.warning("Пропускаю лист %r: не удалось определить дату", sheet_name)

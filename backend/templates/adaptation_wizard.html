@@ -14,6 +14,9 @@
 <script src="/static/js/observation_segment_widget.js?v={{ time() }}"></script>
 <script src="/static/js/segment_blocks_widget.js?v={{ time() }}"></script>
 <link rel="stylesheet" href="/static/css/chapter_panel.css?v={{ time() }}">
+<link rel="stylesheet" href="/static/css/step5_adaptation.css?v={{ time() }}">
+<link rel="stylesheet" href="/static/css/chapter_tiles.css?v={{ time() }}">
+<script src="/static/js/chapter_analysis_modal.js?v={{ time() }}"></script>
 <script src="/static/js/chapter_preview.js?v={{ time() }}"></script>
 <script src="/static/js/chapter_render.js?v={{ time() }}"></script>
 <style>
@@ -661,253 +664,6 @@
   }
   .wz-pill:hover { background:#ffedd5; }
   .wz-pill.active { background:#ea580c; color:#fff; border-color:#c2410c; }
-
-  /* ─── Step 5 timeline (wz5tl-) — копия wz3tl с зелёным акцентом ─── */
-  .wz5tl-wrap { background:#fafafa; border:1px solid #e5e7eb; border-radius:6px;
-                padding:10px 12px; margin-bottom:12px; }
-  .wz5tl-headerrow { display:flex; align-items:center; gap:10px;
-                     font-size:0.84rem; color:#374151; flex-wrap:wrap; margin-bottom:8px; }
-  .wz5tl-mode { color:#059669; font-weight:500; }
-  .wz5tl-zoom-row { display:flex; align-items:center; gap:8px; margin-bottom:6px;
-                    font-size:0.78rem; color:#6b7280; flex-wrap:wrap; }
-  .wz5tl-zoom-btn { padding:3px 10px; font-size:0.76rem; background:#fff;
-                    border:1px solid #d1d5db; border-radius:999px; cursor:pointer;
-                    color:#374151; }
-  .wz5tl-zoom-btn:hover { background:#ecfdf5; border-color:#6ee7b7; }
-  .wz5tl-zoom-btn.active { background:#059669; color:#fff; border-color:#047857; }
-  .wz5tl-scroll { width:100%; overflow-x:auto; overflow-y:hidden;
-                  background:#fff; border:1px solid #e5e7eb; border-radius:4px;
-                  padding:6px 0; margin-bottom:4px; }
-  .wz5tl-scale { position:relative; height:160px; min-width:100%;
-                 cursor:crosshair; user-select:none; }
-  .wz5tl-bar { position:absolute; height:18px; border-radius:3px; pointer-events:none; }
-  .wz5tl-bar-customer { top:76px; background:#93c5fd; }
-  .wz5tl-bar-our      { top:102px; background:#6ee7b7; }
-  .wz5tl-bar-label { position:absolute; left:6px; font-size:0.7rem;
-                     color:rgba(0,0,0,0.7); line-height:18px; pointer-events:none; }
-  .wz5tl-stage-line { position:absolute; top:12px; height:130px; width:2px;
-                      background:currentColor; opacity:0.45;
-                      transform:translateX(-50%); pointer-events:none; }
-  .wz5tl-stage-dot { position:absolute; top:6px; width:14px; height:14px;
-                     border-radius:50%; background:currentColor;
-                     box-shadow:0 0 0 2px #fff, 0 1px 4px rgba(0,0,0,0.2);
-                     transform:translateX(-50%); cursor:pointer; pointer-events:auto; }
-  .wz5tl-stage-dot:hover { transform:translateX(-50%) scale(1.4); }
-  .wz5tl-stage-label-side { position:absolute; font-size:0.66rem; font-weight:600;
-                            background:#fff; padding:1px 4px; border-radius:2px;
-                            border:1px solid currentColor; white-space:nowrap;
-                            pointer-events:none; line-height:14px; }
-  .wz5tl-event-icon { position:absolute; top:100px; transform:translateX(-50%);
-                      font-size:13px; line-height:13px; background:#fff;
-                      border-radius:50%; padding:1px 2px;
-                      box-shadow:0 0 0 1px currentColor, 0 1px 3px rgba(0,0,0,0.15);
-                      pointer-events:auto; cursor:help; }
-  .wz5tl-range { position:absolute; top:70px; height:60px;
-                 background:rgba(5,150,105,0.12);
-                 border-left:2px solid rgba(5,150,105,0.65);
-                 border-right:2px solid rgba(5,150,105,0.65); pointer-events:none; }
-  .wz5tl-range-label { position:absolute; top:-2px; background:rgba(5,150,105,0.9);
-                       color:#fff; font-size:0.66rem; font-weight:600;
-                       padding:1px 5px; border-radius:2px; white-space:nowrap; }
-  .wz5tl-obs-band { position:absolute; top:70px; height:60px;
-                    background:rgba(59,130,246,0.08);
-                    border-left:2px dashed rgba(59,130,246,0.5);
-                    border-right:2px dashed rgba(59,130,246,0.5); pointer-events:none; }
-  .wz5tl-obs-band-label { position:absolute; top:-2px; background:rgba(59,130,246,0.85);
-                          color:#fff; font-size:0.62rem; font-weight:600;
-                          padding:1px 4px; border-radius:2px; }
-  .wz5tl-axis { position:absolute; bottom:0; left:0; right:0; height:16px;
-                pointer-events:none; }
-  .wz5tl-axis-tick { position:absolute; top:0; font-size:0.62rem; color:#6b7280;
-                     transform:translateX(-50%); white-space:nowrap; }
-  .wz5tl-axis-tick::before { content:""; display:block; width:1px; height:4px;
-                             background:#9ca3af; margin:0 auto 1px; }
-  .wz5tl-help { font-size:0.7rem; color:#9ca3af; margin-top:4px;
-                display:flex; gap:12px; flex-wrap:wrap; }
-  .wz5tl-help b { color:#4b5563; }
-
-  /* ─── Шаг 5: сравнительная таблица Адапт vs B2 vs B1 ─── */
-  .wz5cmp-wrap {
-    background:#fff; border:2px solid #047857; border-radius:8px;
-    padding:14px 16px; margin-bottom:12px;
-    box-shadow:0 2px 8px rgba(5,150,105,0.08);
-  }
-  .wz5cmp-title {
-    font-size:1.05rem; font-weight:600; color:#065f46;
-    margin:0 0 4px 0; display:flex; align-items:center; gap:8px;
-  }
-  .wz5cmp-subtitle {
-    font-size:0.78rem; color:#6b7280; margin-bottom:10px;
-  }
-  .wz5cmp-table { width:100%; border-collapse:collapse; font-size:0.84rem; }
-  .wz5cmp-table th, .wz5cmp-table td {
-    padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;
-  }
-  .wz5cmp-table th:first-child, .wz5cmp-table td:first-child {
-    text-align:left; color:#374151; font-weight:500;
-  }
-  .wz5cmp-table th {
-    background:#f9fafb; font-size:0.74rem; font-weight:600;
-    text-transform:uppercase; letter-spacing:0.03em; color:#6b7280;
-  }
-  .wz5cmp-table th.col-b1   { background:#fffbeb; color:#92400e; }
-  .wz5cmp-table th.col-b2   { background:#ecfdf5; color:#065f46; }
-  .wz5cmp-table th.col-r    { background:#eff6ff; color:#1e40af; }
-  .wz5cmp-table th.col-rstar{ background:#fef3c7; color:#92400e; }
-  .wz5cmp-table th.col-d    { background:#f5f5f5; }
-  .wz5cmp-table td.col-b1   { background:rgba(255,251,235,0.4); }
-  .wz5cmp-table td.col-b2   { background:rgba(236,253,245,0.4); }
-  .wz5cmp-table td.col-r    { background:rgba(239,246,255,0.4); }
-  .wz5cmp-table td.col-rstar{ background:rgba(254,243,199,0.5); font-weight:600; }
-  .wz5cmp-table td.dpos { color:#15803d; font-weight:500; }
-  .wz5cmp-table td.dneg { color:#b91c1c; font-weight:500; }
-  .wz5cmp-table td.dflat { color:#6b7280; }
-  .wz5cmp-table tr:hover td { background:#f9fafb; }
-  .wz5cmp-section-row td {
-    background:#f3f4f6 !important; font-size:0.72rem; font-weight:600;
-    color:#4b5563; text-transform:uppercase; letter-spacing:0.04em;
-    text-align:left !important; padding:4px 8px;
-  }
-  .wz5cmp-empty {
-    padding:16px; background:#f9fafb; border:1px dashed #d1d5db;
-    border-radius:6px; color:#6b7280; font-size:0.86rem; text-align:center;
-  }
-
-  /* ─── Шаг 5: сводные карточки результата ─── */
-  .wz5-cards {
-    display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
-    gap:10px; margin-bottom:12px;
-  }
-  .wz5-card {
-    background:#fff; border:1px solid #e5e7eb; border-radius:8px;
-    padding:10px 12px; border-left:4px solid #d1d5db;
-  }
-  .wz5-card.r       { border-left-color:#3b82f6; background:#eff6ff; }
-  .wz5-card.b2      { border-left-color:#059669; background:#ecfdf5; }
-  .wz5-card.b1      { border-left-color:#d97706; background:#fffbeb; }
-  .wz5-card.rstar   { border-left-color:#f59e0b; background:linear-gradient(120deg,#fef3c7,#fde68a); }
-  .wz5-card-title {
-    font-size:0.74rem; font-weight:600; text-transform:uppercase;
-    letter-spacing:0.04em; color:#6b7280; margin-bottom:4px;
-  }
-  .wz5-card.r .wz5-card-title    { color:#1e40af; }
-  .wz5-card.b2 .wz5-card-title   { color:#065f46; }
-  .wz5-card.b1 .wz5-card-title   { color:#92400e; }
-  .wz5-card.rstar .wz5-card-title{ color:#92400e; }
-  .wz5-card-period { font-size:0.72rem; color:#6b7280; margin-bottom:6px; }
-  .wz5-card-grid {
-    display:grid; grid-template-columns:1fr 1fr; gap:4px 10px;
-    font-size:0.78rem;
-  }
-  .wz5-card-grid .lbl { color:#6b7280; }
-  .wz5-card-grid .val { color:#1f2937; font-weight:600; text-align:right; }
-
-  /* ─── Шаг 5: события / ИРВ ─── */
-  .wz5-events-table, .wz5-irv-table {
-    width:100%; border-collapse:collapse; font-size:0.82rem;
-  }
-  .wz5-events-table th, .wz5-events-table td,
-  .wz5-irv-table th, .wz5-irv-table td {
-    padding:5px 8px; border-bottom:1px solid #e5e7eb; text-align:right;
-  }
-  .wz5-events-table th, .wz5-irv-table th {
-    background:#f9fafb; font-size:0.72rem; color:#6b7280; font-weight:600;
-    text-transform:uppercase; letter-spacing:0.03em; text-align:left;
-  }
-  .wz5-events-table th:first-child, .wz5-events-table td:first-child,
-  .wz5-irv-table th:first-child, .wz5-irv-table td:first-child {
-    text-align:left;
-  }
-  .wz5-irv-score {
-    display:inline-block; padding:2px 8px; border-radius:10px;
-    font-weight:600; font-size:0.78rem; min-width:40px; text-align:center;
-  }
-  .wz5-irv-score.lvl-1 { background:#fee2e2; color:#991b1b; }
-  .wz5-irv-score.lvl-2 { background:#ffedd5; color:#9a3412; }
-  .wz5-irv-score.lvl-3 { background:#fef3c7; color:#854d0e; }
-  .wz5-irv-score.lvl-4 { background:#d1fae5; color:#065f46; }
-  .wz5-irv-score.lvl-5 { background:#dcfce7; color:#14532d; }
-  .wz5-evt-pill {
-    display:inline-block; padding:1px 8px; border-radius:10px;
-    font-size:0.72rem; font-weight:500;
-  }
-  .wz5-evt-pill.reagent { background:#ede9fe; color:#5b21b6; }
-  .wz5-evt-pill.purge   { background:#fce7f3; color:#9d174d; }
-  .wz5-evt-pill.equip   { background:#dbeafe; color:#1e40af; }
-  .wz5-evt-pill.other   { background:#f3f4f6; color:#4b5563; }
-
-  /* ─── Шаг 5: R★ кандидаты ─── */
-  .wz5-rstar-grid {
-    display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));
-    gap:10px; margin-bottom:8px;
-  }
-  .wz5-rstar-card {
-    background:#fff; border:1.5px solid #fcd34d; border-radius:8px;
-    padding:10px 12px; cursor:pointer; transition:all 0.15s;
-  }
-  .wz5-rstar-card:hover { border-color:#f59e0b; transform:translateY(-1px);
-                          box-shadow:0 4px 12px rgba(0,0,0,0.08); }
-  .wz5-rstar-card.selected {
-    background:linear-gradient(120deg,#fef3c7,#fde68a);
-    border-color:#d97706; box-shadow:0 0 0 3px rgba(251,191,36,0.25);
-  }
-  .wz5-rstar-rank {
-    display:inline-block; width:22px; height:22px; line-height:22px;
-    border-radius:50%; background:#f59e0b; color:#fff; text-align:center;
-    font-weight:700; font-size:0.78rem; margin-right:6px;
-  }
-  .wz5-rstar-card.selected .wz5-rstar-rank { background:#d97706; }
-  .wz5-rstar-period { font-size:0.74rem; color:#6b7280; margin-bottom:6px; }
-  .wz5-rstar-metrics { display:grid; grid-template-columns:1fr 1fr; gap:3px 8px;
-                       font-size:0.78rem; }
-  .wz5-rstar-metrics .lbl { color:#6b7280; }
-  .wz5-rstar-metrics .val { color:#1f2937; font-weight:600; text-align:right; }
-
-  /* ─── Шаг 5: блок-карточка прикреплённого периода ─── */
-  .wz5-attached-tile {
-    background:#fff; border:1px solid #d1d5db; border-radius:6px;
-    padding:8px 12px; display:flex; gap:10px; align-items:center;
-  }
-  .wz5-attached-tile .kind {
-    padding:2px 8px; border-radius:10px; font-size:0.72rem; font-weight:500;
-    background:#eff6ff; color:#1e40af; flex-shrink:0;
-  }
-  .wz5-attached-tile .kind.optimal_window  { background:#fef3c7; color:#92400e; }
-  .wz5-attached-tile .kind.reagent_irv_summary { background:#ede9fe; color:#5b21b6; }
-  .wz5-attached-tile .meta { flex:1; min-width:0; font-size:0.82rem; color:#374151; }
-  .wz5-attached-tile .meta .ttl { font-weight:500; color:#1f2937; }
-  .wz5-attached-tile .meta .sub { font-size:0.72rem; color:#6b7280;
-                                  font-family:monospace; }
-  .wz5-attached-tile button {
-    border:none; background:transparent; cursor:pointer; color:#9ca3af;
-    font-size:0.95rem; padding:2px 4px;
-  }
-  .wz5-attached-tile button:hover { color:#dc2626; }
-
-  /* ─── Шаг 5: загрузка / пустые состояния ─── */
-  .wz5-loading {
-    display:flex; align-items:center; gap:8px; padding:18px;
-    color:#6b7280; font-size:0.86rem; justify-content:center;
-  }
-  .wz5-empty {
-    padding:14px; background:#f9fafb; border:1px dashed #d1d5db;
-    border-radius:6px; color:#6b7280; font-size:0.84rem; text-align:center;
-  }
-  .wz5-error {
-    padding:10px 12px; background:#fee2e2; color:#991b1b;
-    border-left:3px solid #dc2626; border-radius:4px;
-    font-size:0.86rem; margin:8px 0;
-  }
-  .wz5-info {
-    padding:8px 12px; background:#eff6ff; color:#1e3a8a;
-    border-left:3px solid #2563eb; border-radius:4px;
-    font-size:0.82rem; margin:6px 0;
-  }
-  .wz5-warn {
-    padding:8px 12px; background:#fef3c7; color:#854d0e;
-    border-left:3px solid #f59e0b; border-radius:4px;
-    font-size:0.82rem; margin:6px 0;
-  }
 
   /* ─── Шаг 7: атомарная сборка отчёта ─── */
   .wz7-chapter {
@@ -4851,6 +4607,7 @@
       window._obsSegmentWidget = new window.ObservationSegmentWidget({
         apiBase: '/api/customer-daily',
         blocksApiBase: '/api/customer-daily/blocks',
+        chapter: 'observation',  // Блоки сохраняются в главу Наблюдение
         getWellId: () => state.well?.id || null,
         getWellNumber: () => state.well?.number || state.well?.well_number || null,
         getPeriodFrom: () => document.getElementById('obs-seg-from')?.value || null,
@@ -4932,6 +4689,7 @@
         // /criteria_rose) — у них своя глава. Если observation-блоков нет —
         // панель пустая, это правильно (не подтягивать чужое).
         kinds:            ['observation_analysis', 'observation_baseline', 'observation_period', 'observation_segment', 'segment_analysis', 'segment_comparison'],
+        chapter_filter:   'observation',  // Показывать только блоки с chapter='observation'
         // HTML строит общий движок window.renderChapter (chapter_render.js) —
         // тот же, что глава «Заказчик». Блоки берём с снапшотами.
         client_render:    true,
@@ -7722,8 +7480,20 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
         </div>
       </div>
 
-      <!-- 3. Параметры расчёта и запуск -->
+      <!-- ═══ ЗОНА 2: виды анализа (плитки в ряд) ═══ -->
       <div class="wz-section">
+        <h3>Виды анализа</h3>
+        <div class="wz-step-hint" style="margin-bottom:8px;">
+          Выберите анализ — откроется окно с параметрами и результатом.
+          Готовый результат добавляется плиткой в отчёт ниже.
+        </div>
+        <div id="wz5-method-tiles" class="wz5m-row"></div>
+      </div>
+      <!-- Скрытый стэш: тяжёлые секции живут здесь и переносятся в модалку по клику -->
+      <div id="wz5-modal-stash" style="display:none;"></div>
+
+      <!-- 3. Параметры расчёта и запуск -->
+      <div class="wz-section" id="wz5-sec-params">
         <h3>Параметры расчёта и запуск</h3>
 
         <!-- Порог простоя ΔP — единый параметр для красных зон и КИВ -->
@@ -7762,6 +7532,80 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
         </div>
       </div>
 
+      <!-- 3.5. Сегментный анализ периода адаптации (observation_segment_widget.js) -->
+      <div class="wz-section" id="wz5-sec-segment" style="background:#f0fdf4; border:1px solid #86efac; border-radius:8px; padding:16px; margin:12px 0;">
+        <div class="adapt-seg-widget" id="adapt-seg-container" style="border:none; padding:0; background:transparent;">
+          <h4 style="margin:0 0 10px; font-size:1rem; font-weight:600; color:#166534; display:flex; align-items:center; gap:8px;">
+            <span style="font-size:1.15rem;">📊</span> Сегментный анализ периода адаптации
+            <span id="adapt-seg-well-badge" style="font-size:0.75rem; padding:2px 8px; background:#dcfce7; color:#166534; border-radius:4px; font-weight:500;"></span>
+          </h4>
+          <div class="wz-step-hint" style="margin-bottom:12px; color:#166534; font-size:0.85rem;">
+            Анализ выявляет сегменты с разным режимом работы скважины.
+            Даты синхронизируются с выбранным периодом адаптации выше.
+            Результат можно сохранить как блок в главу «Адаптация» PDF.
+          </div>
+
+          <div class="adapt-seg-period-row" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <label style="font-size:0.85rem; font-weight:500; color:#374151;">Период:</label>
+            <input type="date" id="adapt-seg-from" style="width:140px; padding:6px 10px; border:1px solid #86efac; border-radius:5px; font-size:0.85rem;">
+            <span style="color:#6b7280;">—</span>
+            <input type="date" id="adapt-seg-to" style="width:140px; padding:6px 10px; border:1px solid #86efac; border-radius:5px; font-size:0.85rem;">
+
+            <span style="margin-left:12px; display:flex; align-items:center; gap:6px;">
+              <label style="font-size:0.85rem; font-weight:500; color:#374151;" title="Чувствительность определения точек перелома (1-10)">Чувств.:</label>
+              <input type="range" id="adapt-seg-sensitivity" min="1" max="10" value="5" style="width:80px; cursor:pointer;"
+                     title="1 = меньше сегментов, 10 = больше сегментов">
+              <span id="adapt-seg-sensitivity-val" style="font-size:0.82rem; color:#6b7280; min-width:20px;">5</span>
+            </span>
+
+            <button type="button" id="adapt-seg-calc-btn"
+                    style="padding:7px 16px; background:#16a34a; color:#fff; border:none; border-radius:5px; font-size:0.85rem; font-weight:500; cursor:pointer;">
+              ▶ Рассчитать
+            </button>
+            <button type="button" id="adapt-seg-full-btn"
+                    style="padding:7px 16px; background:#059669; color:#fff; border:none; border-radius:5px; font-size:0.85rem; font-weight:500; cursor:pointer; margin-left:8px;"
+                    title="Открыть полный анализ с редактированием, сравнением и ручным режимом">
+              🔬 Полный анализ
+            </button>
+            <span id="adapt-seg-status" style="font-size:0.82rem; margin-left:8px;"></span>
+          </div>
+
+          <!-- Результат расчёта -->
+          <div id="adapt-seg-result" class="adapt-seg-result" style="display:none;">
+            <div id="adapt-seg-chart" class="adapt-seg-chart"></div>
+            <div id="adapt-seg-table"></div>
+          </div>
+
+          <!-- Блок сохранения -->
+          <div id="adapt-seg-save-block" class="adapt-seg-save-block" style="display:none;">
+            <h5 style="margin:12px 0 8px; color:#166534;">💾 Сохранить анализ в отчёт «Адаптация»</h5>
+            <div class="adapt-seg-save-row" style="margin-bottom:6px;">
+              <label style="font-size:0.84rem;">Название:</label>
+              <input type="text" id="adapt-seg-save-title" placeholder="Напр.: «Сегментный анализ адаптации»"
+                     style="width:100%; padding:6px 10px; border:1px solid #86efac; border-radius:5px; font-size:0.85rem;">
+            </div>
+            <div class="adapt-seg-save-row" style="margin-bottom:8px;">
+              <label style="font-size:0.84rem;">Комментарий:</label>
+              <textarea id="adapt-seg-save-comment" rows="2" placeholder="Необязательно"
+                        style="width:100%; padding:6px 10px; border:1px solid #86efac; border-radius:5px; font-size:0.85rem;"></textarea>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <button type="button" id="adapt-seg-save-btn"
+                      style="padding:7px 16px; background:#16a34a; color:#fff; border:none; border-radius:5px; font-size:0.85rem; font-weight:500; cursor:pointer;">
+                💾 Сохранить в отчёт
+              </button>
+              <span id="adapt-seg-save-status" style="font-size:0.82rem;"></span>
+            </div>
+          </div>
+
+          <!-- Сохранённые блоки сегментного анализа -->
+          <div id="adapt-seg-blocks-panel" class="adapt-seg-blocks-panel" style="display:none;">
+            <h5 style="margin:12px 0 8px; color:#166534;">📦 Сохранённые блоки сегментного анализа (глава Адаптация)</h5>
+            <div id="adapt-seg-blocks-grid" class="adapt-seg-blocks-grid" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+          </div>
+        </div>
+      </div>
+
       <!-- 4-9. Динамические блоки результата (заполняются wz5RunAnalysis) -->
       <div id="wz5-result"></div>
 
@@ -7774,7 +7618,7 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       </div>
 
       <!-- 10.5. Сравнение участков (общий cmp-механизм через wz5cmpCtx) -->
-      ${cmpRenderHTML(wz5cmpCtx)}
+      <div id="wz5-sec-cmp">${cmpRenderHTML(wz5cmpCtx)}</div>
 
       <!-- 11. Прикреплённые блоки (kind='adaptation_period_analysis') -->
       <div class="wz-section">
@@ -7965,6 +7809,11 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
           _wz5UpdateApplyBtn(from, to);
           _wz5UpdateQuickInfo();
           renderTiles();
+          // Синхронизация дат виджета сегментного анализа
+          const segFrom = document.getElementById('adapt-seg-from');
+          const segTo = document.getElementById('adapt-seg-to');
+          if (segFrom && from) segFrom.value = from;
+          if (segTo && to) segTo.value = to;
         },
       });
       window._wz5Timeline.init().then(() => {
@@ -7984,6 +7833,11 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
           if ($('wz5-to')) $('wz5-to').value = d.to;
           _wz5UpdateQuickInfo();
           renderTiles();
+          // Синхронизация дат виджета сегментного анализа
+          const segFrom = document.getElementById('adapt-seg-from');
+          const segTo = document.getElementById('adapt-seg-to');
+          if (segFrom) segFrom.value = sel.from;
+          if (segTo) segTo.value = sel.to;
         }
       });
     }
@@ -8022,7 +7876,11 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       window._adaptChapterPanel = window.initChapterPanel({
         chapter_id:       'adaptation',
         title:            'Адаптация',
-        kinds:            ['adaptation_period_analysis', 'adaptation_comparison', 'optimal_window', 'reagent_irv_summary'],
+        kinds:            ['adaptation_period_analysis', 'adaptation_comparison', 'optimal_window', 'reagent_irv_summary', 'segment_analysis', 'segment_comparison'],
+        chapter_filter:   'adaptation',  // legacy fallback (используется только без block_filter)
+        // ЕДИНЫЙ предикат отбора — тот же, что у левого списка блоков.
+        // Гарантирует «блоки = разделы отчёта»: левый список и HTML идентичны.
+        block_filter:     wz5IsAdaptationBlock,
         client_render:    true,
         preview_endpoint: '/api/customer-daily/blocks',
         pdf_endpoint:     '/api/adaptation-report/preview-pdf',
@@ -8041,6 +7899,214 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
     if (d.lastResult) {
       wz5RenderResult(d.lastResult);
     }
+
+    // ═══ Сегментный анализ для главы «Адаптация» (переиспользуем ObservationSegmentWidget) ═══
+    if (typeof window.ObservationSegmentWidget === 'function') {
+      // Синхронизация дат виджета с полями периода адаптации (wz5-from/wz5-to)
+      const _syncAdaptSegDates = () => {
+        const mainFrom = $('wz5-from');
+        const mainTo = $('wz5-to');
+        const segFrom = document.getElementById('adapt-seg-from');
+        const segTo = document.getElementById('adapt-seg-to');
+        if (mainFrom && segFrom && mainFrom.value) {
+          segFrom.value = mainFrom.value.slice(0, 10);
+        }
+        if (mainTo && segTo && mainTo.value) {
+          segTo.value = mainTo.value.slice(0, 10);
+        }
+      };
+      _syncAdaptSegDates();
+
+      // Обновление отображения значения чувствительности
+      const sensSlider = document.getElementById('adapt-seg-sensitivity');
+      const sensVal = document.getElementById('adapt-seg-sensitivity-val');
+      if (sensSlider && sensVal) {
+        sensSlider.addEventListener('input', () => {
+          sensVal.textContent = sensSlider.value;
+        });
+      }
+
+      window._adaptSegmentWidget = new window.ObservationSegmentWidget({
+        apiBase: '/api/customer-daily',
+        blocksApiBase: '/api/customer-daily/blocks',
+        chapter: 'adaptation',  // Блоки сохраняются в главу Адаптация
+        getWellId: () => state.well?.id || null,
+        getWellNumber: () => state.well?.number || state.well?.well_number || null,
+        getPeriodFrom: () => document.getElementById('adapt-seg-from')?.value || null,
+        getPeriodTo: () => document.getElementById('adapt-seg-to')?.value || null,
+        getSensitivity: () => parseInt(document.getElementById('adapt-seg-sensitivity')?.value || '5', 10),
+        selectors: {
+          container: '#adapt-seg-container',
+          periodFrom: '#adapt-seg-from',
+          periodTo: '#adapt-seg-to',
+          calcBtn: '#adapt-seg-calc-btn',
+          saveBtn: '#adapt-seg-save-btn',
+          status: '#adapt-seg-status',
+          chartContainer: '#adapt-seg-chart',
+          segmentsTable: '#adapt-seg-table',
+          resultContainer: '#adapt-seg-result',
+          saveBlock: '#adapt-seg-save-block',
+          saveTitle: '#adapt-seg-save-title',
+          saveComment: '#adapt-seg-save-comment',
+          saveStatus: '#adapt-seg-save-status',
+          blocksPanel: '#adapt-seg-blocks-panel',
+          blocksGrid: '#adapt-seg-blocks-grid',
+          fullAnalysisBtn: '#adapt-seg-full-btn',
+        },
+        onBlockSaved: (block) => {
+          console.log('[Step5] Segment block saved:', block);
+          // Обновляем панель прикреплённых блоков
+          wz5LoadAttachedBlocks().catch(e => console.warn('wz5 attached reload', e));
+          // Обновляем правую панель превью
+          if (window._adaptChapterPanel && typeof window._adaptChapterPanel.refresh === 'function') {
+            window._adaptChapterPanel.refresh();
+          }
+        },
+      });
+      window._adaptSegmentWidget.init();
+      console.log('[Step5] AdaptSegmentWidget initialized');
+
+      // Подписаться на изменение основных полей периода адаптации
+      $('wz5-from')?.addEventListener('change', _syncAdaptSegDates);
+      $('wz5-to')?.addEventListener('change', _syncAdaptSegDates);
+
+      // Показать текущую скважину в бейдже
+      const wellBadge = document.getElementById('adapt-seg-well-badge');
+      if (wellBadge && state.well) {
+        wellBadge.textContent = `Скв. ${state.well.number || state.well.id || '—'}`;
+      }
+    }
+
+    // ═══ ЗОНА 2: плитки видов анализа + перенос тяжёлых секций в модалку ═══
+    wz5SetupTiles();
+  }
+
+  // ─── Плитки видов анализа (Зона 2) + fullscreen-модалка ───
+  // Тяжёлые секции (параметры+результат, сегментный виджет, сравнение) — те же
+  // DOM-узлы, переносятся в стэш и в модалку по appendChild (обработчики
+  // сохраняются). Снапшот-логика (wz5RunAnalysis/wz5AttachBlock) не меняется.
+  function wz5SetupTiles() {
+    const tilesBox = document.getElementById('wz5-method-tiles');
+    const stash = document.getElementById('wz5-modal-stash');
+    if (!tilesBox || !stash) return;
+
+    const secParams  = document.getElementById('wz5-sec-params');
+    const secResult  = document.getElementById('wz5-result');
+    const secSegment = document.getElementById('wz5-sec-segment');
+    const secCmp     = document.getElementById('wz5-sec-cmp');
+
+    // Переносим тяжёлые секции в стэш (один раз). Узлы сохраняют все обработчики.
+    [secParams, secResult, secSegment, secCmp].forEach(n => { if (n) stash.appendChild(n); });
+
+    const hasResult = () => !!(state.steps[5].data && state.steps[5].data.lastResult);
+
+    const badge = (text, bg, fg) =>
+      `<span style="display:inline-block;padding:2px 9px;border-radius:10px;`
+      + `font-size:0.74rem;font-weight:600;background:${bg};color:${fg};">${text}</span>`;
+
+    // Компактный редактор периода для шапки модалки. Синхронизирован с полями
+    // Зоны 1 (#wz5-from/#wz5-to) и state — чтобы менять условия и перезапускать
+    // анализ, не выходя из окна. Создаётся заново при каждом открытии.
+    function wz5BuildPeriodControl() {
+      const d = state.steps[5].data;
+      const wrap = document.createElement('div');
+      wrap.className = 'wz5-modal-period';
+      wrap.innerHTML =
+        `<span class="lbl">📅 Период:</span>`
+        + `<input type="datetime-local" id="wz5-modal-from" value="${d.from || ''}">`
+        + `<span>→</span>`
+        + `<input type="datetime-local" id="wz5-modal-to" value="${d.to || ''}">`
+        + `<span class="hint">измените период и нажмите ▶ Проанализировать ниже</span>`;
+      const sync = () => {
+        const f = wrap.querySelector('#wz5-modal-from').value;
+        const t = wrap.querySelector('#wz5-modal-to').value;
+        d.from = f; d.to = t;
+        const z1f = document.getElementById('wz5-from'); if (z1f) z1f.value = f;
+        const z1t = document.getElementById('wz5-to');   if (z1t) z1t.value = t;
+        _wz5UpdateQuickInfo();
+      };
+      wrap.querySelector('#wz5-modal-from').addEventListener('change', sync);
+      wrap.querySelector('#wz5-modal-to').addEventListener('change', sync);
+      return wrap;
+    }
+
+    // Открыть набор узлов в fullscreen-модалке; вернуть их в стэш при закрытии.
+    // extraTopEl — необязательный transient-узел над секциями (напр. период).
+    function openPane(nodes, title, badgeHtml, extraTopEl) {
+      const wrap = document.createElement('div');
+      if (extraTopEl) wrap.appendChild(extraTopEl);
+      nodes.forEach(n => { if (n) wrap.appendChild(n); });  // вынимает из стэша
+      window.openAnalysisModal({
+        title, kindBadgeHtml: badgeHtml, bodyEl: wrap, mode: 'view',
+        onClose: () => { nodes.forEach(n => { if (n) stash.appendChild(n); }); },
+      });
+    }
+
+    const openFull = () => openPane([secParams, secResult],
+      'Полный анализ адаптации', badge('🔬 адаптация', '#dcfce7', '#166534'),
+      wz5BuildPeriodControl());
+
+    // Плитки в ряд
+    const tiles = [
+      {
+        icon: '🔬', title: 'Полный анализ адаптации',
+        desc: 'Сравнение R / R★ с B2 (наблюдение) и B1 (заказчик) за период. Внутри — окно R★ и сводка ИРВ.',
+        onClick: openFull,
+        children: [
+          { icon: '⭐', label: 'Окно R★', enabled: hasResult, onClick: openFull,
+            hint: 'Доступно после полного анализа' },
+          { icon: '🧪', label: 'ИРВ реагентов', enabled: hasResult, onClick: openFull,
+            hint: 'Доступно после полного анализа' },
+        ],
+      },
+      {
+        icon: '📊', title: 'Сегментный анализ',
+        desc: 'Сегменты rise / plateau / decay по сглаженной ΔP с метриками по каждому.',
+        onClick: () => openPane([secSegment], 'Сегментный анализ',
+          badge('📊 сегменты', '#f3e8ff', '#5b21b6')),
+      },
+      {
+        icon: '🔀', title: 'Сравнение участков',
+        desc: 'Сравнение двух выбранных участков по ключевым метрикам.',
+        onClick: () => openPane([secCmp], 'Сравнение участков',
+          badge('🔀 сравнение', '#ede9fe', '#5b21b6')),
+      },
+    ];
+
+    tilesBox.innerHTML = '';
+    tiles.forEach(t => {
+      const el = document.createElement('div');
+      el.className = 'wz5m-tile';
+      let childrenHtml = '';
+      if (t.children && t.children.length) {
+        childrenHtml = '<div class="wz5m-tile-children">' + t.children.map((c, i) =>
+          `<span class="wz5m-chip${c.enabled() ? '' : ' disabled'}" data-child="${i}"`
+          + `${c.enabled() ? '' : ` title="${c.hint || ''}"`}>${c.icon} ${c.label}</span>`
+        ).join('') + '</div>';
+      }
+      el.innerHTML =
+        `<div class="wz5m-tile-head"><span class="wz5m-tile-icon">${t.icon}</span>`
+        + `<span class="wz5m-tile-title">${t.title}</span></div>`
+        + `<div class="wz5m-tile-desc">${t.desc}</div>`
+        + childrenHtml;
+      // Клик по плитке (не по чипу) → основной анализ
+      el.addEventListener('click', (e) => {
+        if (e.target.closest('.wz5m-chip')) return;
+        t.onClick();
+      });
+      // Клики по дочерним чипам
+      if (t.children) {
+        el.querySelectorAll('.wz5m-chip').forEach(chip => {
+          const c = t.children[parseInt(chip.dataset.child, 10)];
+          chip.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (!c.enabled()) return;
+            c.onClick();
+          });
+        });
+      }
+      tilesBox.appendChild(el);
+    });
   }
 
   // Установить длительность = N сут от начала, обновить поле `to`,
@@ -8069,6 +8135,11 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
     if (key === 'custom_days' && $('wz5-days-input')) $('wz5-days-input').value = n;
     _wz5UpdateQuickInfo();
     renderTiles();
+    // Синхронизация дат виджета сегментного анализа
+    const segFrom = document.getElementById('adapt-seg-from');
+    const segTo = document.getElementById('adapt-seg-to');
+    if (segFrom && d.from) segFrom.value = d.from.slice(0, 10);
+    if (segTo && d.to) segTo.value = d.to.slice(0, 10);
   }
 
   // Переключить активный radio без полной перерисовки страницы
@@ -8276,15 +8347,21 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
   // ─── Рендер всех блоков результата ───
   function wz5RenderResult(r) {
     const box = $('wz5-result');
-    box.innerHTML = `
-      <div id="wz5-cards-block"></div>
-      <div id="wz5-cmp-block"></div>
-      <div id="wz5-charts-block"></div>
-      <div id="wz5-events-block"></div>
-      <div id="wz5-irv-block"></div>
-      <div id="wz5-rstar-block"></div>
-      <div id="wz5-actions-block"></div>
-    `;
+    // F8: результат — сворачиваемые подразделы (аккордеон) против «стены».
+    // Графики открыты по умолчанию (Plotly/Chart.js в скрытом <details> имели бы
+    // нулевую ширину); длинные таблицы (события/ИРВ/R★) свёрнуты. Рендер-функции
+    // не меняются — наполняют те же #wz5-*-block по id.
+    const sec = (id, title, open) =>
+      `<details class="wz5-acc"${open ? ' open' : ''}>`
+      + `<summary>${title}</summary><div id="${id}"></div></details>`;
+    box.innerHTML =
+      sec('wz5-cards-block',  '🟧 Карточки метрик (R / R★ / B2 / B1)', true)
+      + sec('wz5-cmp-block',  '📋 Таблица сравнения (Наблюдение → Адаптация)', true)
+      + sec('wz5-charts-block', '📈 Графики (P, ΔP, Q) + события', true)
+      + sec('wz5-events-block', '📋 Таблица событий', false)
+      + sec('wz5-irv-block',    '🧪 ИРВ реагентов', false)
+      + sec('wz5-rstar-block',  '⭐ Окно R★ (кандидаты)', false)
+      + '<div id="wz5-actions-block"></div>';
     wz5RenderCards(r);
     wz5RenderCompare(r);
     wz5RenderCharts(r);
@@ -8292,6 +8369,30 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
     wz5RenderIRV(r);
     wz5RenderRStar(r);
     wz5RenderActions(r);
+    // Скрыть пустые подразделы (например, нет ИРВ/R★ для периода)
+    ['wz5-cards-block', 'wz5-cmp-block', 'wz5-charts-block',
+     'wz5-events-block', 'wz5-irv-block', 'wz5-rstar-block'].forEach(id => {
+      const el = document.getElementById(id);
+      const det = el && el.closest('details.wz5-acc');
+      if (det && (!el.innerHTML || !el.innerHTML.trim())) det.style.display = 'none';
+    });
+    // При раскрытии подраздела — уведомить графики о размере (страховка).
+    box.querySelectorAll('details.wz5-acc').forEach(det => {
+      det.addEventListener('toggle', () => {
+        if (!det.open) return;
+        try { window.dispatchEvent(new Event('resize')); } catch (e) { /* no-op */ }
+        if (window.Plotly && window.Plotly.Plots) {
+          det.querySelectorAll('.js-plotly-plot').forEach(p => {
+            try { window.Plotly.Plots.resize(p); } catch (e) { /* no-op */ }
+          });
+        }
+      });
+    });
+    // Результат есть → активировать вложенные чипы R★/ИРВ в плитке «Полный анализ»
+    document.querySelectorAll('#wz5-method-tiles .wz5m-chip.disabled').forEach(ch => {
+      ch.classList.remove('disabled');
+      ch.removeAttribute('title');
+    });
   }
 
   // ─── 4 карточки: R / R★ / B2 / B1 ───
@@ -8846,19 +8947,43 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
         <thead><tr>
           <th>Время</th>
           <th>Тип</th>
-          <th>Метка</th>
-          <th>Дет.</th>
+          <th>Описание</th>
+          <th>Кол-во</th>
+          <th>P устье</th>
+          <th>P линия</th>
         </tr></thead><tbody>`;
     for (const ev of events) {
       const t = (ev.t || ev.event_time || '').replace('T', ' ').slice(0, 16);
-      const detail = ev.reagent
-        ? `${ev.reagent}${ev.qty != null ? ' · ' + ev.qty + ' шт' : ''}`
-        : (ev.note || '—');
+      // Логика типов и описаний:
+      // - reagent → Тип: "Вброс реагента", Описание: название реагента
+      // - other → Тип: "Прочее", Описание: description из события
+      // - purge → Тип: "Продувка", Описание: —
+      let typeLabel, descr;
+      if (ev.type === 'purge') {
+        typeLabel = 'Продувка';
+        descr = '—';
+      } else if (ev.type === 'reagent') {
+        typeLabel = 'Вброс реагента';
+        descr = ev.reagent || '—';
+      } else if (ev.type === 'other') {
+        typeLabel = 'Прочее';
+        descr = ev.description || ev.label || '—';
+      } else {
+        typeLabel = labelByType[ev.type] || ev.type || '—';
+        descr = ev.label || '—';
+      }
+      // Количество
+      const qty = ev.qty != null ? ev.qty : '—';
+      // Давления
+      const pTube = ev.p_tube != null ? ev.p_tube.toFixed(1) : '—';
+      const pLine = ev.p_line != null ? ev.p_line.toFixed(1) : '—';
       html += `<tr>
         <td style="font-family:monospace;">${t}</td>
-        <td><span class="wz5-evt-pill ${ev.type || 'other'}">${labelByType[ev.type] || ev.type || '—'}</span></td>
-        <td>${ev.label || labelByType[ev.type] || '—'}</td>
-        <td>${detail}</td>
+        <td><span class="wz5-evt-pill ${ev.type || 'other'}">${typeLabel}</span></td>
+        <td>${descr}</td>
+        <td style="text-align:right;">${qty}</td>
+        <td style="text-align:right;">${pTube}</td>
+        <td style="text-align:right;">${pLine}</td>
       </tr>`;
     }
     html += '</tbody></table></div></div>';
@@ -9217,6 +9342,43 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
     return many;
   }
 
+  // Генерация сводки сегментного анализа (для §4.9)
+  function _buildSegmentSummary(segData) {
+    const segs = segData.segments_extended || [];
+    const n = segs.length;
+    if (!n) return '';
+
+    // Считаем типы сегментов
+    const typeCounts = {};
+    const typeNames = {
+      initial: 'Начальный', stable: 'Стабильный', rise: 'Рост', decline: 'Снижение',
+      sharp_rise: 'Резкий рост', sharp_decline: 'Резкое снижение',
+    };
+    segs.forEach(s => {
+      const t = s.type || 'unknown';
+      typeCounts[t] = (typeCounts[t] || 0) + 1;
+    });
+    const typeStr = Object.entries(typeCounts)
+      .map(([k, v]) => `${typeNames[k] || k} — ${v}`)
+      .join(', ');
+
+    // Расчёт общей динамики
+    let dynamicsStr = '';
+    if (segs.length >= 2) {
+      const first = segs[0];
+      const last = segs[segs.length - 1];
+      const firstQ = first.mean_q_total || first.mean_q_working;
+      const lastQ = last.mean_q_total || last.mean_q_working;
+      if (firstQ && lastQ && firstQ > 0) {
+        const changePct = ((lastQ - firstQ) / firstQ * 100).toFixed(1);
+        const dir = lastQ > firstQ ? 'выросло' : 'снизилось';
+        dynamicsStr = `Общая динамика за период: среднее значение ${dir} на ${Math.abs(changePct)}% (с ${firstQ.toFixed(2)} до ${lastQ.toFixed(2)}).`;
+      }
+    }
+
+    return `За анализируемый период выделено ${n} ${_w5Plural(n, 'сегмент', 'сегмента', 'сегментов')}: ${typeStr}. ${dynamicsStr}`.trim();
+  }
+
   // ─── R★ кандидаты (top-3 кликабельные карточки) ───
   function wz5RenderRStar(r) {
     const box = $('wz5-rstar-block');
@@ -9324,14 +9486,63 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
 
     let title = '';
     let snapshot = {};
-    let params = { date_from: d.from, date_to: d.to };
+    // chapter='adaptation' — чтобы блок однозначно принадлежал главе (принцип
+    // «блок = раздел отчёта»; единый предикат wz5IsAdaptationBlock).
+    let params = { date_from: d.from, date_to: d.to, chapter: 'adaptation' };
 
     if (kind === 'adaptation_period_analysis') {
       title = `Адаптация ${(d.from || '').slice(0,10)} → ${(d.to || '').slice(0,10)}`;
+      // Snapshot должен содержать все данные для рендера главы §4
+      // Структура соответствует ТЗ ADAPTATION_CHAPTER_SPEC.md
       snapshot = {
-        adaptation: a, observation: r.observation, b1: r.b1,
-        comparison: r.comparison, optimal: o,
+        adaptation: a,
+        observation: r.observation,
+        b1: r.b1,
+        comparison: r.comparison,
+        optimal: o,
       };
+
+      // ═══ Сегментный анализ (§4.9 по спецификации) ═══
+      // Вычисляем отдельно через /api/customer-daily/segment-analysis/preview
+      const statusSeg = $('wz5-attach-status');
+      if (statusSeg) statusSeg.textContent = '⏳ Сегментный анализ...';
+      try {
+        const segResp = await fetch('/api/customer-daily/segment-analysis/preview', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            well: state.well.number,
+            period_from: (d.from || '').slice(0, 10),
+            period_to: (d.to || '').slice(0, 10),
+            include_pav: false,
+          }),
+        });
+        const segData = await segResp.json();
+        if (segData.ok !== false && (segData.cp_marks || segData.segments_extended)) {
+          // Формируем данные в формате spec §4.9
+          // API возвращает cp_marks [{idx, date, tag, source}]
+          // changepoints — массив индексов точек перелома
+          const cpMarks = segData.cp_marks || [];
+          snapshot.segment_analysis = {
+            period: { from: segData.date_from, to: segData.date_to },
+            date_from: segData.date_from,
+            date_to: segData.date_to,
+            days_count: segData.days_count || segData.n_points,
+            n_points: segData.n_points,
+            changepoints: cpMarks.map(cp => cp.idx).filter(x => x != null),
+            cp_marks: cpMarks,
+            chart_data: segData.chart_data || {},
+            segments_extended: segData.segments_extended || [],
+            interpretation: {
+              summary: _buildSegmentSummary(segData),
+              descriptions: segData.descriptions || [],
+            },
+          };
+        }
+      } catch (segErr) {
+        console.warn('segment_analysis fetch failed:', segErr);
+        // Продолжаем без сегментного анализа
+      }
     } else if (kind === 'optimal_window') {
       if (!selected) { alert('R★ не выбран'); return; }
       title = `R★ ${(selected.start || '').slice(0,10)} → ${(selected.end || '').slice(0,10)}`;
@@ -9341,10 +9552,18 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
     } else if (kind === 'reagent_irv_summary') {
       const irv = r.irv;
       title = `Реагенты ${(d.from || '').slice(0,10)} → ${(d.to || '').slice(0,10)}`;
+      // Полнота: сохраняем ВСЕ артефакты живого анализа ИРВ как данные
+      // (не картинки) — чтобы блок/отчёт рендерили то же, что «Полный анализ».
       snapshot = {
-        injections_total: irv.injections_total,
-        irv_count: irv.irv_results?.length || 0,
-        scores: irv.scores, best_reagent: irv.best_reagent,
+        irv_results:       irv.irv_results || [],
+        scores:            irv.scores || [],
+        injections_total:  irv.injections_total,
+        merged_injections: irv.merged_injections,
+        irv_count:         irv.irv_results?.length || 0,
+        choke_mm:          irv.choke_mm,
+        best_reagent:      irv.best_reagent,   // объект {reagent, score, level_name, …}
+        warnings:          irv.warnings || [],
+        period:            { from: d.from, to: d.to },
       };
     }
 
@@ -9362,29 +9581,145 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       const j = await resp.json();
       if (!resp.ok) throw new Error(j.detail || 'Ошибка');
       if (status) status.textContent = '✓ Прикреплено';
-      setTimeout(() => { if (status) status.textContent = ''; }, 2000);
-      wz5LoadAttachedBlocks();
+      await wz5LoadAttachedBlocks();
+      // R4: «добавил → окно закрывается → плитка». Обновляем правый превью.
+      if (window._adaptChapterPanel && typeof window._adaptChapterPanel.refresh === 'function') {
+        window._adaptChapterPanel.refresh();
+      }
+      if (window.closeAnalysisModal) window.closeAnalysisModal();
     } catch (e) {
       console.warn('attach', e);
       if (status) status.textContent = '⚠ ' + e.message;
+      else alert('Ошибка прикрепления: ' + e.message);
     }
   }
 
   // ─── Прикреплённые блоки шага 5 ───
+  // Kinds, уникальные для главы «Адаптация» (не используются в других главах).
+  const ADAPT_UNIQUE_KINDS = [
+    'adaptation_period_analysis', 'optimal_window', 'reagent_irv_summary',
+    'adaptation_comparison',
+  ];
+  // Kinds, общие с другими главами (Заказчик/Наблюдение). Для изоляции глав
+  // (CLAUDE.md) показываем их в адаптации ТОЛЬКО при params.chapter='adaptation'.
+  const ADAPT_SHARED_KINDS = ['segment_analysis', 'segment_comparison'];
+
+  // ЕДИНЫЙ предикат «блок принадлежит главе Адаптация». Используется И левым
+  // списком прикреплённых блоков, И правым HTML-превью (block_filter) — поэтому
+  // «блоки = разделы отчёта»: оба набора идентичны по построению.
+  function wz5IsAdaptationBlock(b) {
+    if (!b || !b.kind) return false;
+    if (ADAPT_UNIQUE_KINDS.indexOf(b.kind) !== -1) return true;
+    if (ADAPT_SHARED_KINDS.indexOf(b.kind) !== -1) {
+      return !!(b.params && b.params.chapter === 'adaptation');
+    }
+    return false;
+  }
+
+  // Реестр артефактов блока (что попадает в отчёт). Зеркало PART_LABELS
+  // в chapter_render.js — рендер главы уважает params.parts (default = true).
+  const ADAPT_PART_LABELS = {
+    adaptation_period_analysis: [
+      ['intro',            '📋 Введение'],
+      ['charts',           '📈 Графики (P, ΔP, Q)'],
+      ['events_table',     '📋 Таблица событий'],
+      ['metrics_cards',    '🟧 Карточки метрик'],
+      ['comparison_table', '📋 Таблица сравнения'],
+      ['trends',           '📉 Тренды'],
+      ['segment_analysis', '🔍 Сегментный анализ'],
+      ['description',      '✏️ Комментарий'],
+    ],
+    optimal_window: [
+      ['regime_summary',   '📊 Сводка окна R★'],
+      ['metrics_table',    '📋 Таблица метрик'],
+      ['description',      '✏️ Комментарий'],
+    ],
+    reagent_irv_summary: [
+      ['cards',            '🟧 Карточки (лучший / вбросы / расход)'],
+      ['narrative',        '📖 Описание словами'],
+      ['scores_table',     '📋 Шкала эффективности реагентов'],
+      ['charts',           '📈 Графики (вбросы / Score)'],
+      ['detailed',         '🔻 Детально по ИРВ'],
+      ['description',      '✏️ Комментарий'],
+    ],
+    segment_analysis: [
+      ['pav_card',         '📊 ПАВ-карточка'],
+      ['signs_table',      '✓✗ Признаки ПАВ'],
+      ['q_segment_chart',  '📈 График Q + сегменты'],
+      ['segments_table',   '📋 Таблица сегментов'],
+      ['cp_descriptions',  '🔻 События переломов'],
+      ['descriptions',     '📝 Описания сегментов'],
+      ['description',      '✏️ Комментарий'],
+    ],
+    segment_comparison: [
+      ['chart',            '📈 Overlay-график'],
+      ['diff_table',       '📋 Таблица различий'],
+      ['interpretation',   '📝 Интерпретация'],
+      ['description',      '✏️ Комментарий'],
+    ],
+  };
+
+  // Текущее состояние частей блока (default = всё включено)
+  function _wz5PartsOf(b) {
+    const defs = ADAPT_PART_LABELS[b.kind] || [];
+    const saved = (b.params && b.params.parts) || {};
+    const out = {};
+    for (const [key] of defs) out[key] = (key in saved) ? !!saved[key] : true;
+    return out;
+  }
+
+  // HTML галочек «что попадёт в отчёт» для карточки-результата
+  function _wz5RenderPartsToggles(b) {
+    const defs = ADAPT_PART_LABELS[b.kind];
+    if (!defs || !defs.length) return '';
+    const parts = _wz5PartsOf(b);
+    const on = Object.values(parts).filter(Boolean).length;
+    const items = defs.map(([key, label]) =>
+      `<label class="wz5-part-lbl${parts[key] ? '' : ' off'}">
+        <input type="checkbox" data-part-block="${b.id}" data-part-key="${key}"
+               ${parts[key] ? 'checked' : ''}>
+        <span>${label}</span>
+      </label>`).join('');
+    return `<div class="wz5-parts-box">
+      <div class="wz5-parts-title">⚙️ Что попадёт в отчёт (${on} из ${defs.length})</div>
+      <div class="wz5-parts-grid">${items}</div>
+    </div>`;
+  }
+
+  // Сохранить переключение части. ВАЖНО: customer-daily PUT намеренно не
+  // обновляет params (защита снапшота), поэтому шлём params (как делает
+  // страница «Заказчик»), обновляем локальный блок и client-render превью.
+  async function _wz5TogglePart(blocks, blockId, partKey, checked) {
+    const block = blocks.find(b => String(b.id) === String(blockId));
+    if (!block) return;
+    const params = Object.assign({}, block.params || {});
+    params.parts = Object.assign({}, params.parts || {}, { [partKey]: checked });
+    block.params = params;  // локально — чтобы превью увидело свежие данные
+    try {
+      await fetch('/api/customer-daily/blocks/' + blockId, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ params }),
+      });
+    } catch (e) { console.warn('toggle part', e); }
+    if (window._adaptChapterPanel && typeof window._adaptChapterPanel.refresh === 'function') {
+      window._adaptChapterPanel.refresh();
+    }
+  }
+
   async function wz5LoadAttachedBlocks() {
     if (!state.well?.id) return;
     const list = $('wz5-attached-list');
     const cnt  = $('wz5-attached-count');
     if (!list) return;
     try {
-      const r = await fetch('/api/customer-daily/blocks?well_id=' + state.well.id);
+      // Запрашиваем уникальные + общие kinds, затем общие фильтруем по
+      // chapter='adaptation' на клиенте (изоляция глав: иначе утащим
+      // segment_analysis главы Заказчик/Наблюдение).
+      const kindsParam = ADAPT_UNIQUE_KINDS.concat(ADAPT_SHARED_KINDS).join(',');
+      const r = await fetch('/api/customer-daily/blocks?well_id=' + state.well.id + '&kinds=' + kindsParam);
       const j = await r.json();
-      const blocks = (j.blocks || []).filter(b =>
-        b.kind === 'adaptation_period_analysis'
-        || b.kind === 'optimal_window'
-        || b.kind === 'reagent_irv_summary'
-        || b.kind === 'adaptation_comparison'
-      );
+      // ТОТ ЖЕ предикат, что у правого HTML-превью → списки идентичны.
+      let blocks = (j.blocks || []).filter(wz5IsAdaptationBlock);
       if (cnt) cnt.textContent = blocks.length ? `(${blocks.length})` : '';
       if (!blocks.length) {
         list.innerHTML = '<div class="wz5-empty">Блоки пока не прикреплены.</div>';
@@ -9395,19 +9730,24 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
         optimal_window:             '⭐ Окно R★',
         reagent_irv_summary:        '🧪 Сводка реагентов',
         adaptation_comparison:      '🔁 Сравнение участков',
+        segment_comparison:         '🔁 Сравнение участков',
+        segment_analysis:           '🔬 Сегментный анализ',
       };
       let html = '';
       for (const b of blocks) {
         const kind = b.kind;
         const period = (b.params && b.params.date_from)
           ? `${b.params.date_from} → ${b.params.date_to}` : '';
-        html += `<div class="wz5-attached-tile">
+        html += `<div class="wz5-attached-tile" data-tile-id="${b.id}">
           <span class="kind ${kind}">${labelByKind[kind] || kind}</span>
-          <div class="meta">
+          <div class="meta" data-view-id="${b.id}" style="cursor:pointer;" title="Открыть блок">
             <div class="ttl">${b.title}</div>
             <div class="sub">${period}${b.comment ? ' · ' + b.comment : ''}</div>
           </div>
+          <button class="wz5-tile-view" data-view-id="${b.id}" title="Открыть / просмотреть"
+                  style="color:#059669;">👁</button>
           <button data-block-id="${b.id}" title="Удалить">✕</button>
+          ${_wz5RenderPartsToggles(b)}
         </div>`;
       }
       list.innerHTML = html;
@@ -9418,9 +9758,52 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
           wz5LoadAttachedBlocks();
         });
       });
+      // R7a: клик по плитке (глаз или область заголовка) → просмотр блока из снапшота
+      list.querySelectorAll('[data-view-id]').forEach(el => {
+        el.addEventListener('click', () => {
+          const blk = blocks.find(x => String(x.id) === String(el.dataset.viewId));
+          if (blk) wz5OpenBlockView(blk);
+        });
+      });
+      // Галочки артефактов «что попадёт в отчёт»
+      list.querySelectorAll('input[data-part-block]').forEach(cb => {
+        cb.addEventListener('change', () => {
+          const lbl = cb.closest('.wz5-part-lbl');
+          if (lbl) lbl.classList.toggle('off', !cb.checked);
+          _wz5TogglePart(blocks, cb.dataset.partBlock, cb.dataset.partKey, cb.checked);
+          // обновить счётчик «N из M»
+          const box = cb.closest('.wz5-parts-box');
+          if (box) {
+            const all = box.querySelectorAll('input[data-part-block]').length;
+            const on  = box.querySelectorAll('input[data-part-block]:checked').length;
+            const ttl = box.querySelector('.wz5-parts-title');
+            if (ttl) ttl.textContent = `⚙️ Что попадёт в отчёт (${on} из ${all})`;
+          }
+        });
+      });
     } catch (e) {
       console.warn('wz5LoadAttachedBlocks', e);
     }
+  }
+
+  // R7a: просмотр блока — рендер из снапшота (snapshot-only, тот же движок,
+  // что и глава). in_report принудительно true, чтобы показать именно этот блок.
+  function wz5OpenBlockView(block) {
+    if (!window.openAnalysisModal || !window.renderChapter) return;
+    const wrap = document.createElement('div');
+    wrap.id = 'wz5-block-view-body';
+    window.openAnalysisModal({
+      title: block.title || 'Блок отчёта',
+      kindBadgeHtml: '',
+      bodyEl: wrap,
+      mode: 'view',
+    });
+    // Уникальный id для просмотра: иначе id графиков (adapt-${id}-…, segprev-…)
+    // столкнутся с теми же в правой панели → Plotly нарисует туда, окно пусто.
+    window.renderChapter(
+      [Object.assign({}, block, { id: String(block.id) + '-view', in_report: true })],
+      { containerId: 'wz5-block-view-body', chapterTitle: '' },
+    );
   }
   // ═══ STEP 6: Сводное сравнение ═══
   function renderStep6(main) {

@@ -365,6 +365,10 @@ class SegmentPreviewRequest(_RoseBM):
     # «Анализ данных заказчика» (ядро = тренды/переломы/описания).
     # При True — будет вычислен _compute_pav_score и snapshot.pav заполнен.
     include_pav: bool = False
+    # R1: experimental opt-in флаг — продвижение only_working CPs до boundaries.
+    # Default OFF. Не применяется внутри shutdown_cluster и у краёв периода.
+    # См. docs/contracts/segment_snapshot_contract.md и R1-VISUAL отчёт.
+    promote_only_working: bool = False
 
 
 @router.post("/segment-analysis/preview")
@@ -376,6 +380,11 @@ def api_segment_preview(
 
     PLAN A: ПАВ-балл по умолчанию ОТКЛЮЧЁН (include_pav=False).
     Чтобы включить ПАВ-карточку — передать `include_pav: true` в теле POST.
+
+    R1 (experimental): promote_only_working (default False). При True
+    only_working changepoints (Q_working) промоутятся до boundaries сегментов
+    при условии, что они не лежат внутри shutdown_cluster и не в edge-зоне.
+    Trace сохраняется в dual_summary.r1_*.
 
     Не сохраняет результат — только возвращает snapshot. Сохранение
     происходит через POST /api/customer-daily/blocks с kind='segment_analysis'
@@ -396,11 +405,14 @@ def api_segment_preview(
             d_from=req.period_from,
             d_to=req.period_to,
             include_pav=bool(req.include_pav),
+            promote_only_working=bool(req.promote_only_working),
         )
     except Exception as e:
         log.exception(
-            "segment-analysis/preview failed for well=%s period=%s..%s include_pav=%s",
-            req.well, req.period_from, req.period_to, req.include_pav,
+            "segment-analysis/preview failed for well=%s period=%s..%s "
+            "include_pav=%s promote_only_working=%s",
+            req.well, req.period_from, req.period_to,
+            req.include_pav, req.promote_only_working,
         )
         return {"ok": False, "error": f"Внутренняя ошибка: {e}"}
 
@@ -485,21 +497,60 @@ class BlockCreate(_BM):
 
 
 class BlockUpdate(_BM):
+    # Разрешены к изменению: метаданные карточки + частичное обновление params
+    # по whitelist (parts / prefix_note / suffix_note). data_snapshot и прочие
+    # ключи params (kind/source/chapter/date_*) НЕ изменяются через PUT
+    # (защита снапшота). Для пересоздания блока — DELETE + POST.
     title: str | None = None
-    params: dict[str, _Any] | None = None
     comment: str | None = None
     in_report: bool | None = None
     sort_order: int | None = None
-    data_snapshot: dict[str, _Any] | None = None
+    params: dict[str, _Any] | None = None
+
+
+# Единственные ключи params, разрешённые к изменению через PUT (whitelist).
+# Зеркало backend/routers/observation.py::_ALLOWED_PARAM_KEYS.
+_ALLOWED_PARAM_KEYS = frozenset({"parts", "prefix_note", "suffix_note"})
+
+
+def _merge_block_params(existing: dict | None, incoming: dict) -> dict:
+    """Частичное обновление params по whitelist. parts сливается по ключам
+    (per-key), prefix/suffix — заменяются. Прочие ключи incoming игнорируются
+    (защита kind/source/chapter/date_*). data_snapshot не входит в params."""
+    merged = dict(existing) if isinstance(existing, dict) else {}
+    for key in ("prefix_note", "suffix_note"):
+        if key in incoming:
+            val = incoming[key]
+            if val is not None and not isinstance(val, str):
+                raise HTTPException(400, f"params.{key} должен быть строкой")
+            merged[key] = val or ""
+    if "parts" in incoming:
+        parts_in = incoming["parts"]
+        if not isinstance(parts_in, dict):
+            raise HTTPException(400, "params.parts должен быть объектом {part: bool}")
+        for k, v in parts_in.items():
+            if not isinstance(v, bool):
+                raise HTTPException(400, f"params.parts.{k} должен быть boolean")
+        cur_parts = merged.get("parts") if isinstance(merged.get("parts"), dict) else {}
+        merged["parts"] = {**cur_parts, **parts_in}
+    return merged
 
 
 @router.get("/blocks")
 def api_list_blocks(
     well_id: int = Query(...),
+    chapter: str | None = Query(None, description="Фильтр по главе (например, 'observation')"),
+    kinds: str | None = Query(None, description="Фильтр по типам блоков, через запятую (например, 'period_analysis,baseline')"),
     db: Session = Depends(get_db_with_blocks),
 ):
-    """Все блоки скважины для отчёта об адаптации."""
-    return {"blocks": svc.list_blocks(db, well_id)}
+    """Все блоки скважины для отчёта об адаптации.
+
+    Фильтры (можно комбинировать):
+    - chapter: фильтрует по params.chapter
+    - kinds: фильтрует по типу блока (kind), через запятую
+    """
+    kinds_list = [k.strip() for k in kinds.split(",")] if kinds else None
+    return {"blocks": svc.list_blocks(db, well_id, chapter=chapter, kinds=kinds_list)}
 
 
 @router.get("/blocks/count")
@@ -509,6 +560,23 @@ def api_blocks_count(
 ):
     """Сколько блоков с in_report=True (для индикатора)."""
     return {"well_id": well_id, "in_report": svc.count_blocks_in_report(db, well_id)}
+
+
+@router.get("/blocks/chapter-preview")
+def api_chapter_preview(
+    well_id: int = Query(...),
+    db: Session = Depends(get_db_with_blocks),
+):
+    """JSON-превью главы «Анализ данных заказчика» для правой панели.
+
+    Возвращает список блоков с краткими summary и флагами is_corrupted/warnings.
+    Corrupted-блок = data_snapshot отсутствует или не прошёл минимальную
+    валидацию (нет ключа '_v'). UI отображает badge «corrupted» для таких блоков
+    и warnings в тексте карточки.
+
+    Гарантия: только READ, никакого INSERT/UPDATE/DELETE.
+    """
+    return svc.build_chapter_preview(db, well_id)
 
 
 @router.post("/blocks")
@@ -521,6 +589,8 @@ def api_create_block(
             400, f"kind должен быть one of {sorted(svc.VALID_BLOCK_KINDS)}",
         )
     try:
+        # create_block принудительно устанавливает source/chapter для
+        # observation_analysis (см. customer_daily_service.create_block).
         return svc.create_block(
             db,
             well_id=body.well_id, kind=body.kind, title=body.title,
@@ -537,13 +607,26 @@ def api_update_block(
     body: BlockUpdate,
     db: Session = Depends(get_db_with_blocks),
 ):
-    if svc.get_block(db, block_id) is None:
+    """Обновить метаданные блока (title / comment / in_report / sort_order)
+    и частично params по whitelist (parts / prefix_note / suffix_note).
+
+    data_snapshot и прочие ключи params (kind/source/chapter/date_*) НЕ
+    изменяются — защита снапшота. Это позволяет галочкам «что попадёт в отчёт»
+    (params.parts) персиститься, не перезаписывая сам снапшот.
+    """
+    existing = svc.get_block(db, block_id)
+    if existing is None:
         raise HTTPException(404, f"Block {block_id} not found")
+    merged_params = None
+    if body.params is not None:
+        merged_params = _merge_block_params(existing.get("params"), body.params)
     return svc.update_block(
         db, block_id,
-        title=body.title, params=body.params, comment=body.comment,
-        in_report=body.in_report, sort_order=body.sort_order,
-        data_snapshot=body.data_snapshot,
+        title=body.title,
+        comment=body.comment,
+        in_report=body.in_report,
+        sort_order=body.sort_order,
+        params=merged_params,  # только whitelist-merge; data_snapshot не трогаем
     )
 
 

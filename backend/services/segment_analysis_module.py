@@ -857,7 +857,7 @@ def _determine_change_cause(curr_seg: dict, prev_seg: dict | None) -> str | None
         direction = "↑" if delta_dp > 0 else "↓"
         line = f"ΔP {direction} {delta_dp:+.2f} кгс/см²"
         if np.isfinite(delta_dp_pct):
-            line += f" ({delta_dp_pct:+.0f}%)"
+            line += f" ({delta_dp_pct:+.0f}\\%)"  # \\% для LaTeX
         if have_components:
             # δ(ΔP) = δP_уст − δP_шл. Показываем оба вклада числами.
             line += (
@@ -1286,9 +1286,13 @@ def _segment_analysis(df: pd.DataFrame) -> dict:
                 "типичный признак успешного ГТМ/КРС"
             )
         elif delta_pct <= -success:
+            # FIX-B: запрещены пластовые формулировки («ухудшение условий
+            # притока/режима»). Заменяем на нейтральное наблюдение, требующее
+            # сверки с журналом операций (см. feedback_diagnostic_interpretation_style).
             verdict = (
                 "дебит снизился относительно до-простойного режима — "
-                "ухудшение условий притока или режима"
+                "фактический сдвиг режима эксплуатации после простоя; "
+                "требуется сверка с журналом технологических операций"
             )
         else:
             verdict = "изменение дебита в пределах естественной вариативности"

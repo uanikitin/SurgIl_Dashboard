@@ -1,0 +1,3935 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Сегментный анализ — Скв {{ well_number }}</title>
+  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+  <script src="/static/js/segment_blocks_widget.js"></script>
+  <style>
+    body { font-family: -apple-system, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+    .container { max-width: 1400px; margin: 0 auto; }
+    h1 { color: #1565c0; margin-bottom: 5px; }
+    .subtitle { color: #666; margin-bottom: 20px; }
+    .card { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .stats { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px; }
+    .stat { background: #e3f2fd; padding: 10px 15px; border-radius: 6px; }
+    .stat b { color: #1565c0; }
+    .chart { height: 500px; margin-bottom: 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 6px 8px; text-align: left; border-bottom: 1px solid #eee; }
+    th { background: #f5f5f5; font-weight: 500; font-size: 12px; white-space: nowrap; }
+    td { vertical-align: middle; }
+    .badge { display: inline-block; padding: 3px 10px; border-radius: 4px; color: #fff; font-size: 12px; }
+    .back-link { display: inline-block; margin-bottom: 15px; color: #1976d2; text-decoration: none; }
+    .back-link:hover { text-decoration: underline; }
+
+    /* Контролы */
+    .controls { display: flex; gap: 15px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+    .control-group { display: flex; align-items: center; gap: 6px; }
+    .control-group label { font-size: 13px; color: #666; }
+    .control-group input[type="range"] { width: 100px; }
+    .control-group input[type="checkbox"] { width: 16px; height: 16px; }
+    .control-group input[type="number"] { width: 50px; padding: 4px; border: 1px solid #ddd; border-radius: 4px; }
+    .btn { background: #1976d2; color: #fff; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+    .btn:hover { background: #1565c0; }
+    .btn-secondary { background: #6b7280; }
+    .btn-secondary:hover { background: #4b5563; }
+    .btn-danger { background: #dc2626; }
+    .btn-danger:hover { background: #b91c1c; }
+    .btn-sm { padding: 4px 8px; font-size: 12px; }
+
+    /* Тренд в таблице */
+    .drift { font-size: 12px; }
+    .drift-positive { color: #22c55e; }
+    .drift-negative { color: #ef4444; }
+    .rsq { font-size: 11px; color: #999; }
+
+    /* Комментарий */
+    .comment-input { width: 100%; padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; }
+    .comment-input:focus { outline: none; border-color: #1976d2; }
+
+    /* Режим редактирования */
+    .edit-mode-banner { background: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px; padding: 10px 15px; margin-bottom: 15px; display: none; }
+    .edit-mode-banner.active { display: block; }
+    .edit-hint { font-size: 13px; color: #92400e; }
+
+    /* Исключённые области */
+    .exclude-list { margin-top: 10px; }
+    .exclude-item { display: inline-flex; align-items: center; gap: 5px; background: #fee2e2; padding: 4px 10px; border-radius: 4px; margin-right: 8px; margin-bottom: 5px; font-size: 12px; }
+    .exclude-item button { background: none; border: none; color: #dc2626; cursor: pointer; font-size: 14px; }
+
+    /* Trim controls */
+    .trim-controls { display: flex; gap: 20px; margin-top: 10px; padding: 10px; background: #f9fafb; border-radius: 6px; }
+    .trim-group { display: flex; align-items: center; gap: 8px; }
+    .trim-group label { font-size: 12px; color: #666; }
+
+    /* Информационная панель */
+    .info-panel { font-size: 12px; color: #666; margin-top: 5px; }
+
+    /* Подсветка строки при выборе */
+    tr.selected { background: #dbeafe; }
+    tr:hover { background: #f3f4f6; cursor: pointer; }
+
+    /* Контекстное меню */
+    .context-menu {
+      position: absolute;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      padding: 8px 0;
+      z-index: 1000;
+      min-width: 180px;
+      display: none;
+    }
+    .context-menu.active { display: block; }
+    .context-menu-item {
+      padding: 10px 16px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+    }
+    .context-menu-item:hover { background: #f3f4f6; }
+    .context-menu-item.danger { color: #dc2626; }
+    .context-menu-item.danger:hover { background: #fef2f2; }
+    .context-menu-divider { height: 1px; background: #e5e7eb; margin: 4px 0; }
+    .context-menu-header { padding: 6px 16px; font-size: 11px; color: #9ca3af; text-transform: uppercase; }
+
+    /* Режим выделения области */
+    .selection-mode-active { border: 3px solid #f59e0b !important; }
+
+    /* Ручной режим */
+    .manual-mode-banner {
+      background: #f3e8ff;
+      border: 1px solid #8b5cf6;
+      border-radius: 6px;
+      padding: 10px 15px;
+      margin-bottom: 10px;
+      display: none;
+    }
+    .manual-mode-banner.active { display: block; }
+    .manual-hint { font-size: 13px; color: #6b21a8; }
+
+    /* Ручные сегменты в таблице */
+    tr.manual-segment { background: #faf5ff; }
+    tr.manual-segment:hover { background: #f3e8ff; }
+    .badge-manual { background: #8b5cf6 !important; }
+
+    /* Контролы границ */
+    .boundary-controls {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+    }
+    .boundary-btn {
+      background: #e5e7eb;
+      border: none;
+      border-radius: 3px;
+      width: 20px;
+      height: 20px;
+      cursor: pointer;
+      font-size: 11px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .boundary-btn:hover { background: #d1d5db; }
+    .boundary-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .boundary-value {
+      min-width: 35px;
+      text-align: center;
+      font-family: monospace;
+      font-size: 11px;
+      color: #6b7280;
+    }
+
+    /* Кнопка удаления в таблице */
+    .delete-seg-btn {
+      background: #fee2e2;
+      border: 1px solid #fca5a5;
+      border-radius: 4px;
+      color: #dc2626;
+      cursor: pointer;
+      padding: 2px 6px;
+      font-size: 12px;
+    }
+    .delete-seg-btn:hover { background: #fecaca; }
+
+    /* Таблица вбросов */
+    #injections-table th,
+    #injections-table td {
+      padding: 6px 10px;
+      text-align: left;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    #injections-table th { background: #f9fafb; font-weight: 500; }
+    #injections-table tr:hover { background: #f9fafb; }
+    .reagent-color-dot {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .reagent-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      background: #f3f4f6;
+      border-radius: 12px;
+    }
+
+    /* Модальное окно сравнения */
+    .compare-modal {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+    }
+    .compare-modal.active { display: flex; }
+    .compare-modal-content {
+      background: #fff;
+      border-radius: 12px;
+      width: 95%;
+      max-width: 1200px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    }
+    .compare-modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 15px 20px;
+      border-bottom: 1px solid #e5e7eb;
+      background: #f9fafb;
+      border-radius: 12px 12px 0 0;
+    }
+    .compare-modal-header h3 { margin: 0; color: #1f2937; }
+    .compare-modal-close {
+      background: none;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      color: #6b7280;
+    }
+    .compare-modal-close:hover { color: #1f2937; }
+    .compare-modal-body { padding: 20px; }
+    .compare-chart { height: 400px; margin-bottom: 20px; }
+    .compare-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      margin-bottom: 20px;
+      padding: 10px;
+      background: #f9fafb;
+      border-radius: 8px;
+    }
+    .compare-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+    }
+    .compare-legend-color {
+      width: 20px;
+      height: 4px;
+      border-radius: 2px;
+    }
+    .compare-legend-item label { cursor: pointer; }
+    .compare-stats-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .compare-stats-table th,
+    .compare-stats-table td {
+      padding: 8px 12px;
+      text-align: left;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .compare-stats-table th { background: #f3f4f6; font-weight: 500; }
+    .compare-stats-table tr:hover { background: #f9fafb; }
+    .compare-diff { font-size: 11px; color: #6b7280; }
+    .compare-diff-positive { color: #22c55e; }
+    .compare-diff-negative { color: #ef4444; }
+
+    /* Модальное окно анализа сегмента */
+    .analysis-modal {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+    }
+    .analysis-modal.active { display: flex; }
+    .analysis-modal-content {
+      background: #fff;
+      border-radius: 12px;
+      width: 95%;
+      max-width: 800px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    }
+    .analysis-modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 15px 20px;
+      border-bottom: 1px solid #e5e7eb;
+      background: #f9fafb;
+      border-radius: 12px 12px 0 0;
+    }
+    .analysis-modal-header h3 { margin: 0; color: #1f2937; }
+    .analysis-modal-close {
+      background: none;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      color: #6b7280;
+    }
+    .analysis-modal-close:hover { color: #1f2937; }
+    .analysis-modal-body { padding: 20px; }
+
+    .segment-analysis {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .analysis-section {
+      background: #f9fafb;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .analysis-header {
+      background: #e5e7eb;
+      padding: 10px 15px;
+      font-weight: 600;
+      font-size: 14px;
+      color: #374151;
+    }
+    .analysis-content {
+      padding: 15px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .analysis-text {
+      text-align: justify;
+    }
+    .analysis-content .stats-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .analysis-content .stats-table td {
+      padding: 6px 8px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .analysis-content .stats-table td:first-child {
+      color: #6b7280;
+      width: 45%;
+    }
+
+    /* Кнопка анализа в таблице */
+    .analysis-btn {
+      background: #f3f4f6;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      padding: 2px 6px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.15s;
+    }
+    .analysis-btn:hover {
+      background: #e5e7eb;
+      border-color: #9ca3af;
+    }
+
+    /* Чекбокс выбора в таблице */
+    .seg-checkbox {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+    }
+
+    /* Индикатор перетаскивания границы */
+    .drag-hint {
+      position: fixed;
+      background: #1f2937;
+      color: #fff;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      pointer-events: none;
+      z-index: 3000;
+      display: none;
+    }
+    .drag-hint.visible { display: block; }
+
+    /* Подсветка активной границы */
+    .boundary-active {
+      stroke: #8b5cf6 !important;
+      stroke-width: 4 !important;
+    }
+    .compare-btn-float {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #8b5cf6;
+      color: #fff;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 30px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      box-shadow: 0 4px 15px rgba(139,92,246,0.4);
+      display: none;
+      z-index: 1000;
+    }
+    .compare-btn-float:hover { background: #7c3aed; }
+    .compare-btn-float.visible { display: flex; align-items: center; gap: 8px; }
+
+    /* Развёрнутая строка с контролами */
+    .segment-details {
+      background: #f9fafb;
+      padding: 10px 15px;
+      border-top: 1px dashed #e5e7eb;
+    }
+    .segment-details-row {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .detail-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+    }
+    .detail-label { color: #6b7280; }
+
+    /* Панель сохранённых блоков */
+    .saved-blocks-panel {
+      margin-top: 20px;
+      padding: 16px;
+      background: #f9fafb;
+      border-radius: 8px;
+      border: 1px solid #e5e7eb;
+    }
+    .saved-blocks-panel h3 {
+      margin: 0 0 12px 0;
+      font-size: 16px;
+      color: #1f2937;
+    }
+    .saved-blocks-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 12px;
+    }
+    .saved-block-card {
+      background: #fff;
+      border: 2px solid #e5e7eb;
+      border-left: 5px solid #5b21b6;
+      border-radius: 8px;
+      padding: 12px;
+      transition: box-shadow 0.2s;
+    }
+    .saved-block-card:hover {
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    .saved-block-card.kind-segment_comparison {
+      border-left-color: #0891b2;
+    }
+    .saved-block-card .block-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .saved-block-card .block-kind-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      background: #5b21b6;
+      color: #fff;
+    }
+    .saved-block-card.kind-segment_comparison .block-kind-badge {
+      background: #0891b2;
+    }
+    .saved-block-card .block-period {
+      font-size: 11px;
+      color: #6b7280;
+    }
+    .saved-block-card .block-title {
+      font-weight: 600;
+      font-size: 14px;
+      color: #1f2937;
+      margin-bottom: 6px;
+    }
+    .saved-block-card .block-metrics {
+      display: flex;
+      gap: 12px;
+      margin: 8px 0;
+      font-size: 12px;
+      color: #6b7280;
+    }
+    .saved-block-card .block-metrics span {
+      background: #f3f4f6;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    .saved-block-card details {
+      margin-top: 8px;
+      font-size: 13px;
+    }
+    .saved-block-card details summary {
+      cursor: pointer;
+      color: #4b5563;
+      font-size: 12px;
+    }
+    .saved-block-card .block-settings {
+      padding: 8px 0;
+    }
+    .saved-block-card .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 0;
+      font-size: 12px;
+    }
+    .saved-block-card .checkbox-row input[type="checkbox"] {
+      width: 14px;
+      height: 14px;
+    }
+    .saved-block-card .block-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid #e5e7eb;
+    }
+    .btn-success { background: #22c55e; color: #fff; }
+    .btn-success:hover { background: #16a34a; }
+
+    /* Footer модалки сравнения */
+    .compare-modal-footer {
+      padding: 15px 20px;
+      border-top: 1px solid #e5e7eb;
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a href="javascript:window.close()" class="back-link">← Закрыть</a>
+
+    <h1>Сегментный анализ: Скважина {{ well_number }}</h1>
+    <p class="subtitle">Период: {{ date_from }} — {{ date_to }} | Ряд: {{ series_label }}</p>
+    <div id="chapter-badge" style="display:none; margin-top:-8px; margin-bottom:12px;">
+      <span style="display:inline-block; padding:4px 12px; background:#7c3aed; color:#fff; border-radius:4px; font-size:12px; font-weight:500;">
+        📋 Блоки сохраняются в главу «Наблюдение»
+      </span>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><b id="stat-points">{{ n_points }}</b> часов данных</div>
+      <div class="stat"><b id="stat-cp">{{ changepoints|length }}</b> точек перелома</div>
+      <div class="stat"><b id="stat-seg">{{ segments|length }}</b> сегментов</div>
+    </div>
+
+    <!-- Режим редактирования -->
+    <div class="edit-mode-banner" id="edit-banner">
+      <span class="edit-hint">
+        <b>Режим редактирования:</b>
+        Перетащите красную линию CP мышкой для изменения границы (линия привяжется к ближайшей точке).
+        Esc — отмена. Правый клик — контекстное меню.
+      </span>
+      <div style="margin-top:8px; display:flex; gap:10px; align-items:center;">
+        <button class="btn btn-sm" id="btn-exclude-mode" onclick="toggleExcludeMode()">
+          🚫 Выделить область для исключения
+        </button>
+        <span id="exclude-mode-hint" style="font-size:12px; color:#dc2626; display:none;">
+          Выделите область мышкой, затем нажмите "Исключить выделенное"
+        </span>
+        <button class="btn btn-sm btn-danger" id="btn-apply-exclude" onclick="applyExcludeFromSelection()" style="display:none;">
+          ✓ Исключить выделенное
+        </button>
+        <button class="btn btn-sm btn-secondary" id="btn-cancel-exclude" onclick="cancelExcludeMode()" style="display:none;">
+          Отмена
+        </button>
+      </div>
+    </div>
+
+    <!-- Контролы -->
+    <div class="card">
+      <div class="controls">
+        <div class="control-group">
+          <input type="checkbox" id="showTrends" checked>
+          <label for="showTrends">Тренды</label>
+        </div>
+        <div class="control-group">
+          <input type="checkbox" id="showCP" checked>
+          <label for="showCP">CP линии</label>
+        </div>
+        <div class="control-group">
+          <input type="checkbox" id="showBG" checked>
+          <label for="showBG">Фон</label>
+        </div>
+        <div class="control-group">
+          <input type="checkbox" id="showEvents" checked>
+          <label for="showEvents">📍 События</label>
+        </div>
+        <div class="control-group">
+          <input type="checkbox" id="showGlobalLines">
+          <label for="showGlobalLines">Среднее/Медиана</label>
+        </div>
+        <div class="control-group">
+          <label>Чувствительность:</label>
+          <input type="range" id="sensitivity" min="1" max="10" value="{{ sensitivity|default(5) }}">
+          <span id="sensitivityVal">{{ sensitivity|default(5) }}</span>
+        </div>
+        <button class="btn" onclick="rerunAnalysis()">Пересчитать</button>
+        <button class="btn btn-success" onclick="saveAnalysisAsBlock()">💾 Сохранить анализ</button>
+
+        <span style="color:#ccc">|</span>
+
+        <div class="control-group">
+          <input type="checkbox" id="editMode">
+          <label for="editMode"><b>Редактирование</b></label>
+        </div>
+
+        <span style="color:#ccc">|</span>
+
+        <div class="control-group">
+          <input type="checkbox" id="manualMode">
+          <label for="manualMode"><b style="color:#8b5cf6">Ручной режим</b></label>
+        </div>
+        <button class="btn btn-secondary btn-sm" id="clearManualBtn" style="display:none;" onclick="clearManualSegments()">Очистить всё</button>
+      </div>
+
+      <!-- Инструкция для ручного режима -->
+      <div class="manual-mode-banner" id="manual-banner">
+        <span class="manual-hint">
+          <b>🎯 Ручной режим:</b>
+          Выделяйте участки кривой мышкой (зажмите и протяните), затем нажмите "Создать сегмент".
+        </span>
+        <button class="btn" id="createFromSelectionBtn" onclick="createSegmentFromCurrentSelection()" style="margin-left:15px;">
+          ✓ Создать сегмент
+        </button>
+        <span id="selectionInfo" style="margin-left:10px; font-size:12px; color:#6b7280;"></span>
+      </div>
+
+      <!-- Trim controls -->
+      <div class="trim-controls" id="trim-controls" style="display:none;">
+        <div class="trim-group">
+          <label>Отступ тренда слева:</label>
+          <input type="number" id="trimLeft" value="0" min="0" max="20">
+          <label>часов</label>
+        </div>
+        <div class="trim-group">
+          <label>Отступ тренда справа:</label>
+          <input type="number" id="trimRight" value="0" min="0" max="20">
+          <label>часов</label>
+        </div>
+        <button class="btn btn-sm" onclick="applyTrimToSelected()">Применить к выбранному</button>
+      </div>
+
+      <!-- Исключённые области -->
+      <div class="exclude-list" id="exclude-list" style="display:none;">
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <b style="font-size:12px;">Исключённые области:</b>
+          <span id="exclude-items"></span>
+          <button class="btn btn-sm btn-secondary" onclick="recalcWithExclusions()" title="Пересчитать сегменты с учётом исключений">
+            🔄 Пересчитать статистики
+          </button>
+        </div>
+      </div>
+
+      <div id="chart-main" class="chart"></div>
+      <div class="info-panel" id="info-panel">Кликните на сегмент в таблице для выбора</div>
+      <!-- Debug info -->
+      <div id="debug-info" style="font-size:11px; color:#999; margin-top:5px;"></div>
+    </div>
+
+    <!-- Контекстное меню -->
+    <div class="context-menu" id="context-menu">
+      <div class="context-menu-header">Индекс: <span id="ctx-index">0</span></div>
+      <div class="context-menu-item" id="ctx-add-cp" onclick="doAddChangepoint()">
+        <span>➕</span> Добавить точку перелома
+      </div>
+      <div class="context-menu-item danger" id="ctx-remove-cp" onclick="doRemoveChangepoint()" style="display:none;">
+        <span>🗑️</span> Удалить CP<span id="ctx-cp-num"></span>
+      </div>
+      <div class="context-menu-divider"></div>
+      <div class="context-menu-item" id="ctx-exclude" onclick="startExcludeFromHere()">
+        <span>🚫</span> Начать исключение отсюда
+      </div>
+      <div class="context-menu-item" id="ctx-exclude-end" onclick="endExcludeHere()" style="display:none;">
+        <span>✓</span> Закончить исключение здесь
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <h3 style="margin:0;">Сегменты <span id="segments-count" style="font-size:12px; color:#6b7280; font-weight:normal;"></span></h3>
+        <div style="display:flex; gap:10px; align-items:center;">
+          <label style="font-size:12px; color:#6b7280;">
+            <input type="checkbox" id="selectAllSegments" onchange="toggleSelectAll(this.checked)"> Выбрать все
+          </label>
+          <button class="btn" id="compareSelectedBtn" onclick="openCompareModal()" style="display:none;">
+            📊 Сравнить выбранные (<span id="selectedCount">0</span>)
+          </button>
+        </div>
+      </div>
+      <div id="global-stats-info" style="font-size:12px; color:#6b7280; margin-bottom:10px;"></div>
+      <table id="segments-table">
+        <thead>
+          <tr>
+            <th style="width:30px;"></th>
+            <th>#</th>
+            <th>Тип</th>
+            <th>Границы</th>
+            <th>Часов</th>
+            <th>Среднее</th>
+            <th title="Отклонение от среднего периода">vs μ</th>
+            <th title="Отклонение от медианы периода">vs Me</th>
+            <th title="Стандартное отклонение">σ</th>
+            <th title="Дрейф = наклон × дни / среднее × 100%">Дрейф</th>
+            <th title="Коэффициент детерминации">R²</th>
+            <th>Комментарий</th>
+            <th title="Подробный анализ">📊</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="segments-tbody">
+          <!-- Заполняется через JavaScript updateTable() -->
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Таблица вбросов реагента -->
+    <div class="card" id="injections-card" style="display:none; margin-top:20px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <h3 style="margin:0;">💊 Вбросы реагента <span id="injections-count" style="font-size:12px; color:#6b7280; font-weight:normal;"></span></h3>
+        <div style="display:flex; gap:10px; align-items:center;">
+          <div id="reagent-legend" style="display:flex; flex-wrap:wrap; gap:8px; font-size:12px;"></div>
+        </div>
+      </div>
+      <div style="max-height:300px; overflow-y:auto;">
+        <table id="injections-table" style="width:100%; font-size:13px;">
+          <thead>
+            <tr>
+              <th style="width:20px;"></th>
+              <th>Дата/время</th>
+              <th>Реагент</th>
+              <th>Кол-во</th>
+              <th>Описание</th>
+              <th>Сегмент</th>
+            </tr>
+          </thead>
+          <tbody id="injections-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Блок текстового отчёта для копирования -->
+    <div class="card" id="report-card" style="margin-top:20px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+        <h3 style="margin:0;">📋 Текстовый отчёт по сегментам</h3>
+        <div style="display:flex; gap:10px;">
+          <button class="btn-secondary" onclick="generateFullReport()">🔄 Сформировать</button>
+          <button class="btn-secondary" onclick="copyReportToClipboard()" id="copyReportBtn" style="display:none;">📋 Копировать</button>
+        </div>
+      </div>
+      <div id="report-content" style="display:none; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:15px; font-size:13px; line-height:1.8; max-height:500px; overflow-y:auto;">
+        <!-- Заполняется динамически -->
+      </div>
+      <div id="report-placeholder" style="color:#6b7280; font-size:13px; text-align:center; padding:20px;">
+        Нажмите «Сформировать» для генерации текстового описания всех сегментов
+      </div>
+    </div>
+
+    <!-- Панель сохранённых блоков -->
+    <div class="saved-blocks-panel" id="saved-blocks-panel" style="display:none;">
+      <h3>📦 Сохранённые блоки анализа</h3>
+      <div id="saved-blocks-grid" class="saved-blocks-grid"></div>
+    </div>
+
+    <!-- Плавающая кнопка сравнения -->
+    <button class="compare-btn-float" id="compareFloatBtn" onclick="openCompareModal()">
+      📊 Сравнить <span id="floatSelectedCount">0</span> сегментов
+    </button>
+
+    <!-- Подсказка при перетаскивании границы -->
+    <div class="drag-hint" id="drag-hint"></div>
+  </div>
+
+  <!-- Модальное окно сравнения сегментов -->
+  <div class="compare-modal" id="compare-modal">
+    <div class="compare-modal-content">
+      <div class="compare-modal-header">
+        <h3>📊 Сравнение сегментов</h3>
+        <button class="compare-modal-close" onclick="closeCompareModal()">×</button>
+      </div>
+      <div class="compare-modal-body">
+        <!-- Легенда с чекбоксами -->
+        <div class="compare-legend" id="compare-legend"></div>
+
+        <!-- Опции отображения -->
+        <div style="margin-bottom:10px; display:flex; gap:20px; align-items:center;">
+          <label style="font-size:13px;">
+            <input type="checkbox" id="compareNormalize" onchange="buildCompareChart()"> Нормализовать (0-100%)
+          </label>
+        </div>
+
+        <!-- График сравнения -->
+        <div id="compare-chart" class="compare-chart"></div>
+
+        <!-- Таблица сравнительной статистики -->
+        <h4 style="margin-top:20px;">Сравнительная статистика</h4>
+        <table class="compare-stats-table" id="compare-stats-table">
+          <thead>
+            <tr>
+              <th>Сегмент</th>
+              <th>Период</th>
+              <th>Часов</th>
+              <th>Среднее</th>
+              <th>σ</th>
+              <th>Мин</th>
+              <th>Макс</th>
+              <th>Дрейф</th>
+              <th>R²</th>
+            </tr>
+          </thead>
+          <tbody id="compare-stats-tbody"></tbody>
+        </table>
+
+        <!-- Разница между сегментами (если 2 выбрано) -->
+        <div id="compare-diff-section" style="margin-top:20px; display:none;">
+          <h4>Разница (Δ)</h4>
+          <div id="compare-diff-content"></div>
+        </div>
+      </div>
+      <!-- Footer с кнопкой сохранения -->
+      <div class="compare-modal-footer">
+        <button class="btn btn-success" onclick="saveComparisonAsBlock()">💾 Записать сравнение</button>
+        <button class="btn btn-secondary" onclick="closeCompareModal()">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модальное окно анализа сегмента -->
+  <div class="analysis-modal" id="analysis-modal">
+    <div class="analysis-modal-content">
+      <div class="analysis-modal-header">
+        <h3 id="analysis-modal-title">Анализ сегмента</h3>
+        <button class="analysis-modal-close" onclick="closeAnalysisModal()">×</button>
+      </div>
+      <div class="analysis-modal-body" id="analysis-modal-body">
+        <!-- Заполняется динамически -->
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ═══ Данные ═══
+    let chartData = {{ chart_data | tojson | safe }};
+    let segments = {{ segments | tojson | safe }};
+    let changepoints = {{ changepoints | tojson | safe }};
+    const typeColors = {{ type_colors | tojson | safe }};
+    const typeLabels = {{ type_labels | tojson | safe }};
+
+    // ═══ Состояние редактора ═══
+    let editMode = false;
+    let manualMode = false;
+    let excludeSelectionMode = false;  // режим выделения области для исключения
+    let selectedSegment = null;
+    let excludeRanges = [];  // [{start, end}, ...]
+    let segmentComments = {};  // {num: "comment"}
+    let excludeStartIdx = null;  // начало выделения области исключения
+    let contextClickIdx = null;  // индекс клика для контекстного меню
+    let contextNearCP = null;    // ближайший CP к клику (или null)
+    let dragHandlersInitialized = false;  // флаг инициализации drag handlers для CP
+
+    // ═══ Ручные сегменты ═══
+    let manualSegments = [];  // массив ручных сегментов
+    let currentSelectionRange = null;  // текущий выделенный диапазон {startIdx, endIdx}
+    let excludeSelectionRange = null;  // диапазон для исключения
+
+    // ═══ События скважины (формат как в app.py well_page) ═══
+    let eventsData = { timeline_injections: [], timeline_events: [] };
+    let showEvents = true;  // показывать события на графике
+
+    // ═══ Цвета реагентов (генерируются динамически) ═══
+    let reagentColors = {};
+
+    // Генерация стабильного цвета по строке (как в app.py _stable_color)
+    function stableColor(key) {
+      const s = key || 'x';
+      let h = 0;
+      for (let i = 0; i < s.length; i++) {
+        h = (h * 33 + s.charCodeAt(i)) % 360;
+      }
+      return `hsl(${h}, 70%, 45%)`;
+    }
+
+    // Базовые цвета для известных реагентов (как в app.py)
+    const REAGENT_COLORS_BASE = {
+      'Пенный реагент': '#ff6b6b',
+      'Інгібітор': '#4ecdc4',
+      'Surfactant': '#95e1d3',
+      'Foamer': '#f38181',
+      'ПАР': '#aa96da',
+      'Деемульгатор': '#fcbad3',
+    };
+
+    function getReagentColor(reagent) {
+      if (!reagent) return '#9ca3af';
+      if (!reagentColors[reagent]) {
+        reagentColors[reagent] = REAGENT_COLORS_BASE[reagent] || stableColor('reag:' + reagent);
+      }
+      return reagentColors[reagent];
+    }
+
+    // ═══ Глобальные статистики периода ═══
+    let globalStats = { mean: 0, median: 0, std: 0, min: 0, max: 0 };
+
+    // ═══ Выбранные сегменты для сравнения ═══
+    let selectedForCompare = new Set();  // Set of segment nums
+    let compareShowTrends = {};  // {segNum: true/false}
+
+    // ═══ Получение параметра chapter из URL ═══
+    const urlChapter = (new URLSearchParams(window.location.search)).get('chapter');
+
+    // ═══ Виджет управления блоками (вынесен в отдельный модуль) ═══
+    const blocksWidget = new SegmentBlocksWidget({
+      wellId: {{ well_id|default(0) }},
+      wellNumber: "{{ well_number }}",
+      apiBase: '/api/customer-daily/blocks',
+      panelSelector: '#saved-blocks-panel',
+      gridSelector: '#saved-blocks-grid',
+      kinds: ['segment_analysis', 'segment_comparison'],
+      chapterFilter: urlChapter,  // если chapter=observation, блоки сохраняются в главу "Наблюдение"
+      onBlockSaved: (block) => console.log('Block saved:', block),
+      onBlockDeleted: (blockId) => console.log('Block deleted:', blockId)
+    });
+
+    // Сохраняем оригинальные автоматические данные СРАЗУ при загрузке
+    // Используем функцию для безопасного копирования (обработка NaN/Infinity)
+    function safeClone(obj) {
+      try {
+        return JSON.parse(JSON.stringify(obj, (k, v) =>
+          typeof v === 'number' && !isFinite(v) ? null : v
+        ));
+      } catch (e) {
+        console.error('Clone error:', e);
+        return obj;
+      }
+    }
+
+    const originalSegments = safeClone(segments);
+    const originalChangepoints = safeClone(changepoints);
+    const originalChartData = safeClone(chartData);
+
+    // Debug info
+    const debugInfo = {
+      dates: chartData?.dates?.length || 0,
+      values: chartData?.primary?.values?.length || 0,
+      segments: segments?.length || 0,
+      changepoints: changepoints?.length || 0,
+      firstDate: chartData?.dates?.[0] || 'none',
+      lastDate: chartData?.dates?.[chartData?.dates?.length - 1] || 'none',
+      firstValue: chartData?.primary?.values?.[0] || 'none'
+    };
+    console.log('Data loaded:', debugInfo);
+
+    // Показываем в UI для отладки
+    setTimeout(() => {
+      const debugDiv = document.getElementById('debug-info');
+      if (debugDiv) {
+        debugDiv.textContent = `Debug: dates=${debugInfo.dates}, values=${debugInfo.values}, ` +
+          `first=${debugInfo.firstDate}, last=${debugInfo.lastDate}, val0=${debugInfo.firstValue}`;
+      }
+    }, 100);
+
+    // ═══ Цвета трендов ═══
+    const trendColors = {
+      'sharp_rise': '#8b5cf6',
+      'rise': '#22c55e',
+      'stable': '#6b7280',
+      'decline': '#f59e0b',
+      'sharp_decline': '#ef4444',
+      'initial': '#6b7280'
+    };
+
+    // ═══ Построение графика ═══
+    function buildChart() {
+      try {
+        // Проверяем что данные есть
+        if (!chartData || !chartData.dates || !chartData.primary || !chartData.primary.values) {
+          console.error('Missing chart data:', chartData);
+          document.getElementById('chart-main').innerHTML =
+            '<div style="padding:50px;text-align:center;color:#dc2626;">Ошибка: данные для графика отсутствуют</div>';
+          return;
+        }
+
+        console.log('Building chart with', chartData.dates.length, 'points');
+
+        const showTrends = document.getElementById('showTrends').checked;
+        const showCP = document.getElementById('showCP').checked;
+        const showBG = document.getElementById('showBG').checked;
+
+        // Основной trace - данные
+        // В ручном режиме добавляем маркеры для лучшего выделения
+        const mainTrace = {
+          x: chartData.dates,
+          y: chartData.primary.values,
+          type: 'scatter',
+          mode: manualMode ? 'lines+markers' : 'lines',
+          name: 'Данные',
+          line: { color: '#1976d2', width: 1.5 },
+          opacity: 0.8
+        };
+
+        // Добавляем свойства для режима выделения только в ручном режиме
+        if (manualMode) {
+          mainTrace.marker = { size: 3, color: '#1976d2' };
+          mainTrace.selected = { marker: { color: '#8b5cf6', size: 6 } };
+          mainTrace.unselected = { marker: { opacity: 0.4 } };
+        }
+
+        const traces = [mainTrace];
+
+      // Тренды
+      if (showTrends) {
+        segments.forEach((seg, i) => {
+          const startIdx = seg.start_idx + (seg.trim_left || 0);
+          const endIdx = Math.min(seg.end_idx - (seg.trim_right || 0), chartData.dates.length);
+
+          if (endIdx <= startIdx) return;
+
+          const trendX = [];
+          const trendY = [];
+
+          for (let j = startIdx; j < endIdx; j++) {
+            trendX.push(chartData.dates[j]);
+            const localIdx = j - seg.start_idx;
+            trendY.push(seg.intercept + seg.slope * localIdx);
+          }
+
+          const color = trendColors[seg.segment_type] || '#999';
+          const isSelected = selectedSegment === seg.num;
+
+          traces.push({
+            x: trendX,
+            y: trendY,
+            type: 'scatter',
+            mode: 'lines',
+            name: `Тренд #${seg.num}`,
+            line: { color: color, width: isSelected ? 4 : 2.5 },
+            showlegend: false,
+            hovertemplate: `Сегмент ${seg.num}<br>%{x}<br>Тренд: %{y:.2f}<extra></extra>`
+          });
+        });
+      }
+
+      // Исключённые области (затемнение)
+      excludeRanges.forEach((range, i) => {
+        traces.push({
+          x: chartData.dates.slice(range.start, range.end),
+          y: chartData.primary.values.slice(range.start, range.end),
+          type: 'scatter',
+          mode: 'lines',
+          name: `Исключено ${i+1}`,
+          line: { color: '#9ca3af', width: 3 },
+          opacity: 0.5,
+          showlegend: false
+        });
+      });
+
+      const shapes = [];
+      const annotations = [];
+
+      // Фон сегментов
+      if (showBG) {
+        segments.forEach(seg => {
+          const color = typeColors[seg.segment_type] || '#ccc';
+          const isSelected = selectedSegment === seg.num;
+          shapes.push({
+            type: 'rect', xref: 'x', yref: 'paper',
+            x0: chartData.dates[seg.start_idx],
+            x1: chartData.dates[Math.min(seg.end_idx - 1, chartData.dates.length - 1)],
+            y0: 0, y1: 1,
+            fillcolor: color, opacity: isSelected ? 0.25 : 0.12, line: { width: 0 }
+          });
+
+          // Комментарий на графике
+          if (seg.comment || segmentComments[seg.num]) {
+            const comment = seg.comment || segmentComments[seg.num];
+            const midIdx = Math.floor((seg.start_idx + seg.end_idx) / 2);
+            annotations.push({
+              x: chartData.dates[midIdx], y: 0.95, xref: 'x', yref: 'paper',
+              text: comment.substring(0, 20) + (comment.length > 20 ? '...' : ''),
+              showarrow: false,
+              font: { size: 10, color: '#4b5563' },
+              bgcolor: 'rgba(255,255,255,0.8)',
+              borderpad: 3
+            });
+          }
+        });
+      }
+
+      // Линии changepoints
+      const isDraggableMode = editMode && !manualMode && !excludeSelectionMode;
+      if (showCP) {
+        changepoints.forEach((cp, i) => {
+          const isDragging = (draggingCP && draggingCP.cpIndex === i);
+          shapes.push({
+            type: 'line',
+            xref: 'x',
+            yref: 'paper',
+            x0: chartData.dates[cp],
+            x1: chartData.dates[cp],
+            y0: 0,
+            y1: 1,
+            line: {
+              color: isDragging ? '#8b5cf6' : '#dc2626',
+              width: isDraggableMode ? 4 : 2,
+              dash: isDraggableMode ? 'solid' : 'dash'
+            },
+          });
+          annotations.push({
+            x: chartData.dates[cp],
+            y: 1.03,
+            xref: 'x',
+            yref: 'paper',
+            text: isDraggableMode ? `⟷ CP${i + 1}` : `CP${i + 1}`,
+            showarrow: false,
+            font: { size: 11, color: '#dc2626', weight: 'bold' }
+          });
+        });
+      }
+
+      // Исключённые области (закрашивание)
+      excludeRanges.forEach((range, i) => {
+        shapes.push({
+          type: 'rect', xref: 'x', yref: 'paper',
+          x0: chartData.dates[range.start],
+          x1: chartData.dates[Math.min(range.end - 1, chartData.dates.length - 1)],
+          y0: 0, y1: 1,
+          fillcolor: '#ef4444', opacity: 0.1,
+          line: { color: '#ef4444', width: 1, dash: 'dot' }
+        });
+      });
+
+      // ═══ События на графике (формат как в app.py well_page) ═══
+      const showEventsChecked = document.getElementById('showEvents')?.checked;
+      if (showEventsChecked && eventsData) {
+        // Вбросы реагента (timeline_injections) — маркеры по цвету реагента
+        if (eventsData.timeline_injections && eventsData.timeline_injections.length > 0) {
+          // Группируем по реагентам
+          const byReagent = {};
+          eventsData.timeline_injections.forEach(ev => {
+            if (!ev.t) return;
+            const reagent = ev.reagent || 'Неизвестный';
+            if (!byReagent[reagent]) {
+              byReagent[reagent] = { x: [], y: [], text: [], color: getReagentColor(reagent) };
+            }
+            const evTime = ev.t.replace('T', ' ').substring(0, 16);
+            const idx = chartData.dates.findIndex(d => d >= evTime);
+            if (idx >= 0 && idx < chartData.primary.values.length) {
+              byReagent[reagent].x.push(chartData.dates[idx]);
+              byReagent[reagent].y.push(chartData.primary.values[idx]);
+              byReagent[reagent].text.push(`💊 ${reagent}: ${ev.qty || '?'} л`);
+            }
+          });
+
+          // Создаём trace для каждого реагента
+          Object.entries(byReagent).forEach(([reagent, data]) => {
+            if (data.x.length > 0) {
+              traces.push({
+                x: data.x,
+                y: data.y,
+                type: 'scatter',
+                mode: 'markers',
+                name: `💊 ${reagent}`,
+                marker: {
+                  symbol: 'diamond',
+                  size: 12,
+                  color: data.color,
+                  line: { width: 2, color: '#fff' }
+                },
+                text: data.text,
+                hovertemplate: '%{text}<br>%{x}<extra></extra>'
+              });
+            }
+          });
+        }
+
+        // Прочие события (timeline_events) — линии по типу
+        if (eventsData.timeline_events && eventsData.timeline_events.length > 0) {
+          eventsData.timeline_events.forEach(ev => {
+            if (!ev.t) return;  // поле "t", не "time"!
+            const evTime = ev.t.replace('T', ' ').substring(0, 16);
+            const idx = chartData.dates.findIndex(d => d >= evTime);
+            if (idx >= 0) {
+              const evType = (ev.type || 'other').toLowerCase();
+
+              if (evType === 'purge' || ev.purge_phase) {
+                // Продувки — оранжевые
+                shapes.push({
+                  type: 'line', xref: 'x', yref: 'paper',
+                  x0: chartData.dates[idx], x1: chartData.dates[idx],
+                  y0: 0, y1: 1,
+                  line: { color: '#f59e0b', width: 2, dash: 'dot' }
+                });
+                annotations.push({
+                  x: chartData.dates[idx], y: 0.02, xref: 'x', yref: 'paper',
+                  text: '🔥', showarrow: false, font: { size: 12 }
+                });
+              } else {
+                // Прочие — серые
+                shapes.push({
+                  type: 'line', xref: 'x', yref: 'paper',
+                  x0: chartData.dates[idx], x1: chartData.dates[idx],
+                  y0: 0, y1: 1,
+                  line: { color: '#9ca3af', width: 1, dash: 'dashdot' }
+                });
+              }
+            }
+          });
+        }
+      }
+
+      // ═══ Глобальные линии (среднее/медиана) ═══
+      const showGlobalLines = document.getElementById('showGlobalLines')?.checked;
+      if (showGlobalLines && globalStats.mean > 0) {
+        // Линия среднего
+        shapes.push({
+          type: 'line', xref: 'paper', yref: 'y',
+          x0: 0, x1: 1,
+          y0: globalStats.mean, y1: globalStats.mean,
+          line: { color: '#3b82f6', width: 2, dash: 'dash' }
+        });
+        annotations.push({
+          x: 1.01, y: globalStats.mean, xref: 'paper', yref: 'y',
+          text: `μ=${globalStats.mean.toFixed(1)}`, showarrow: false,
+          font: { size: 10, color: '#3b82f6' }, xanchor: 'left'
+        });
+
+        // Линия медианы
+        shapes.push({
+          type: 'line', xref: 'paper', yref: 'y',
+          x0: 0, x1: 1,
+          y0: globalStats.median, y1: globalStats.median,
+          line: { color: '#8b5cf6', width: 2, dash: 'dot' }
+        });
+        annotations.push({
+          x: 1.01, y: globalStats.median, xref: 'paper', yref: 'y',
+          text: `Me=${globalStats.median.toFixed(1)}`, showarrow: false,
+          font: { size: 10, color: '#8b5cf6' }, xanchor: 'left'
+        });
+      }
+
+      // Режим drag: в ручном режиме или режиме исключения - выделение
+      // В режиме редактирования отключаем чтобы не мешал перетаскиванию CP
+      let dragMode = 'zoom';
+      if (manualMode || excludeSelectionMode) {
+        dragMode = 'select';
+      } else if (editMode) {
+        dragMode = false;  // отключаем zoom чтобы работало перетаскивание CP линий
+      }
+
+      const layout = {
+        title: { text: '{{ series_label }}', font: { size: 16 } },
+        xaxis: { title: 'Дата', tickangle: -30 },
+        yaxis: { title: '{{ series_label }}' },
+        shapes, annotations,
+        margin: { t: 50, b: 80, l: 60, r: 20 },
+        hovermode: 'closest',
+        dragmode: dragMode,
+        selectdirection: 'h'  // только горизонтальное выделение
+      };
+
+      const config = {
+        responsive: true,
+        modeBarButtonsToAdd: (manualMode || excludeSelectionMode) ? ['select2d', 'lasso2d'] : [],
+        displayModeBar: true
+      };
+
+      // Используем newPlot для полной перерисовки (очищает старые listeners)
+      Plotly.newPlot('chart-main', traces, layout, config).then(function() {
+        // Обработчики событий - привязываем ПОСЛЕ отрисовки
+        const chartDiv = document.getElementById('chart-main');
+
+        if (editMode && !manualMode && !excludeSelectionMode) {
+          console.log('Attaching edit mode handlers');
+
+          // Обработчик клика для контекстного меню
+          chartDiv.on('plotly_click', function(data) {
+            console.log('Chart clicked in edit mode:', data);
+            handleChartClick(data);
+          });
+
+          // Подсказка - но не перезаписываем если идёт перетаскивание CP
+          if (!draggingCP) {
+            document.getElementById('info-panel').innerHTML =
+              '<span style="color:#8b5cf6">✎ Перетащите красную линию CP для изменения границы сегмента</span>';
+          }
+
+          // Инициализируем drag handlers один раз после создания графика
+          if (!dragHandlersInitialized) {
+            initCPDragHandlers();
+            dragHandlersInitialized = true;
+          }
+        }
+
+        if (manualMode) {
+          console.log('Manual mode active, attaching selection handlers. Dragmode:', layout.dragmode);
+
+          // Обработка завершения выделения
+          chartDiv.on('plotly_selected', function(data) {
+            console.log('plotly_selected fired:', data);
+            if (!data) {
+              console.log('No data in selection event');
+              return;
+            }
+
+            // Сохраняем выделение
+            if (data.range && data.range.x) {
+              const indices = getIndicesFromRange(data.range.x[0], data.range.x[1]);
+              if (indices && indices.endIdx - indices.startIdx >= 3) {
+                currentSelectionRange = indices;
+                const x0 = String(data.range.x[0]).substring(0, 16);
+                const x1 = String(data.range.x[1]).substring(0, 16);
+                document.getElementById('selectionInfo').innerHTML =
+                  `<b style="color:#22c55e">${x0} — ${x1} (${indices.endIdx - indices.startIdx} точек)</b>`;
+                document.getElementById('info-panel').innerHTML =
+                  `<span style="color:#22c55e">✓ Выделено ${indices.endIdx - indices.startIdx} точек. Нажмите "Создать сегмент".</span>`;
+              }
+            } else if (data.points && data.points.length > 0) {
+              // Альтернативный метод через points
+              const dataPoints = data.points.filter(p => p.curveNumber === 0);
+              if (dataPoints.length >= 3) {
+                const indices = dataPoints.map(p => p.pointIndex).sort((a, b) => a - b);
+                currentSelectionRange = {
+                  startIdx: indices[0],
+                  endIdx: indices[indices.length - 1] + 1
+                };
+                document.getElementById('selectionInfo').innerHTML =
+                  `<b style="color:#22c55e">${currentSelectionRange.endIdx - currentSelectionRange.startIdx} точек</b>`;
+                document.getElementById('info-panel').innerHTML =
+                  `<span style="color:#22c55e">✓ Выделено ${currentSelectionRange.endIdx - currentSelectionRange.startIdx} точек. Нажмите "Создать сегмент".</span>`;
+              }
+            }
+          });
+
+          // Также обрабатываем событие во время выделения для feedback
+          chartDiv.on('plotly_selecting', function(data) {
+            if (data && data.range && data.range.x) {
+              const x0 = data.range.x[0];
+              const x1 = data.range.x[1];
+
+              // Сохраняем диапазон для кнопки "Создать сегмент"
+              const indices = getIndicesFromRange(x0, x1);
+              if (indices) {
+                currentSelectionRange = indices;
+                const x0Short = String(x0).substring(0, 16);
+                const x1Short = String(x1).substring(0, 16);
+                document.getElementById('selectionInfo').textContent =
+                  `${x0Short} — ${x1Short} (${indices.endIdx - indices.startIdx} точек)`;
+                document.getElementById('info-panel').innerHTML =
+                  `<span style="color:#8b5cf6">Выделено: индексы ${indices.startIdx}—${indices.endIdx}</span>`;
+              }
+            }
+          });
+
+          // Обработка отмены выделения
+          chartDiv.on('plotly_deselect', function() {
+            currentSelectionRange = null;
+            document.getElementById('selectionInfo').textContent = '';
+          });
+
+          // Обработка двойного клика для сброса
+          chartDiv.on('plotly_doubleclick', function() {
+            clearSelection();
+            document.getElementById('info-panel').innerHTML =
+              '<b style="color:#8b5cf6">Ручной режим:</b> выделите участок кривой мышкой для создания сегмента.';
+          });
+        }
+
+        // Обработчики для режима выделения исключаемых областей
+        if (excludeSelectionMode) {
+          console.log('Exclude selection mode active');
+
+          chartDiv.on('plotly_selected', function(data) {
+            console.log('Exclude selection:', data);
+            if (!data) return;
+
+            if (data.range && data.range.x) {
+              const indices = getIndicesFromRange(data.range.x[0], data.range.x[1]);
+              if (indices && indices.endIdx - indices.startIdx >= 2) {
+                excludeSelectionRange = indices;
+                const x0 = String(data.range.x[0]).substring(0, 16);
+                const x1 = String(data.range.x[1]).substring(0, 16);
+                document.getElementById('info-panel').innerHTML =
+                  `<span style="color:#dc2626">🚫 Выделено для исключения: ${x0} — ${x1} (${indices.endIdx - indices.startIdx} точек). Нажмите "Исключить выделенное".</span>`;
+              }
+            }
+          });
+
+          chartDiv.on('plotly_selecting', function(data) {
+            if (data && data.range && data.range.x) {
+              const indices = getIndicesFromRange(data.range.x[0], data.range.x[1]);
+              if (indices) {
+                excludeSelectionRange = indices;
+                document.getElementById('info-panel').innerHTML =
+                  `<span style="color:#f59e0b">Выделяется область: ${indices.endIdx - indices.startIdx} точек</span>`;
+              }
+            }
+          });
+        }
+
+      }).catch(function(err) {
+        console.error('Plotly error:', err);
+        document.getElementById('chart-main').innerHTML =
+          '<div style="padding:50px;text-align:center;color:#dc2626;">Ошибка построения графика: ' + err.message + '</div>';
+      });
+
+      } catch (e) {
+        console.error('buildChart error:', e);
+        document.getElementById('chart-main').innerHTML =
+          '<div style="padding:50px;text-align:center;color:#dc2626;">Ошибка построения графика: ' + e.message + '</div>';
+      }
+    }
+
+    // ═══ Обработка выделения для ручного режима ═══
+    function handleManualSelectionByRange(range) {
+      // Используем range.x для определения границ по датам
+      if (!range || !range.x || range.x.length < 2) {
+        console.log('No valid range:', range);
+        return;
+      }
+
+      const x0 = range.x[0];
+      const x1 = range.x[1];
+
+      // Находим индексы по датам
+      let startIdx = -1;
+      let endIdx = -1;
+
+      for (let i = 0; i < chartData.dates.length; i++) {
+        const d = chartData.dates[i];
+        if (startIdx < 0 && d >= x0) {
+          startIdx = i;
+        }
+        if (d <= x1) {
+          endIdx = i + 1;
+        }
+      }
+
+      console.log('Range selection:', x0, x1, '-> indices:', startIdx, endIdx);
+
+      if (startIdx < 0 || endIdx <= startIdx) {
+        document.getElementById('info-panel').innerHTML =
+          `<span style="color:#dc2626">⚠️ Не удалось определить границы выделения</span>`;
+        return;
+      }
+
+      // Минимум 3 точки для сегмента
+      if (endIdx - startIdx < 3) {
+        document.getElementById('info-panel').innerHTML =
+          `<span style="color:#f59e0b">⚠️ Выделите больше точек (минимум 3)</span>`;
+        clearSelection();
+        return;
+      }
+
+      // Проверяем пересечения
+      const overlaps = manualSegments.some(seg =>
+        (startIdx < seg.end_idx && endIdx > seg.start_idx)
+      );
+
+      if (overlaps) {
+        document.getElementById('info-panel').innerHTML =
+          `<span style="color:#dc2626">⚠️ Область пересекается с существующим сегментом!</span>`;
+        clearSelection();
+        return;
+      }
+
+      // Создаём сегмент
+      createManualSegment(startIdx, endIdx);
+      clearSelection();
+    }
+
+    function handleManualSelection(data) {
+      // Собираем индексы выделенных точек (только из основного trace - данные)
+      const dataPoints = data.points.filter(p => p.curveNumber === 0);
+      if (dataPoints.length < 2) {
+        console.log('Not enough data points:', dataPoints.length);
+        return;
+      }
+
+      const indices = dataPoints.map(p => p.pointIndex).sort((a, b) => a - b);
+      const startIdx = indices[0];
+      const endIdx = indices[indices.length - 1] + 1;
+
+      console.log('Points selection -> indices:', startIdx, endIdx);
+
+      // Проверяем что не пересекается с существующими ручными сегментами
+      const overlaps = manualSegments.some(seg =>
+        (startIdx < seg.end_idx && endIdx > seg.start_idx)
+      );
+
+      if (overlaps) {
+        document.getElementById('info-panel').innerHTML =
+          `<span style="color:#dc2626">⚠️ Выделенная область пересекается с существующим сегментом!</span>`;
+        clearSelection();
+        return;
+      }
+
+      // Создаём новый ручной сегмент
+      createManualSegment(startIdx, endIdx);
+      clearSelection();
+    }
+
+    function clearSelection() {
+      // Сбрасываем выделение на графике
+      Plotly.restyle('chart-main', { selectedpoints: [null] }, [0]).catch(() => {});
+      currentSelectionRange = null;
+      const selInfo = document.getElementById('selectionInfo');
+      if (selInfo) selInfo.textContent = '';
+    }
+
+    function getIndicesFromRange(x0, x1) {
+      // Преобразует диапазон дат в индексы
+      let startIdx = -1;
+      let endIdx = -1;
+
+      for (let i = 0; i < chartData.dates.length; i++) {
+        const d = chartData.dates[i];
+        if (startIdx < 0 && d >= x0) {
+          startIdx = i;
+        }
+        if (d <= x1) {
+          endIdx = i + 1;
+        }
+      }
+
+      if (startIdx >= 0 && endIdx > startIdx) {
+        return { startIdx, endIdx };
+      }
+      return null;
+    }
+
+    function createSegmentFromCurrentSelection() {
+      // Создаёт сегмент из текущего выделения (по кнопке)
+      if (!currentSelectionRange) {
+        // Попробуем получить выделение из графика напрямую
+        const chartDiv = document.getElementById('chart-main');
+        const selection = chartDiv.data?.[0]?.selectedpoints;
+
+        if (selection && selection.length > 2) {
+          const startIdx = Math.min(...selection);
+          const endIdx = Math.max(...selection) + 1;
+          currentSelectionRange = { startIdx, endIdx };
+        } else {
+          document.getElementById('info-panel').innerHTML =
+            `<span style="color:#f59e0b">⚠️ Сначала выделите область на графике</span>`;
+          return;
+        }
+      }
+
+      const { startIdx, endIdx } = currentSelectionRange;
+
+      // Проверки
+      if (endIdx - startIdx < 3) {
+        document.getElementById('info-panel').innerHTML =
+          `<span style="color:#f59e0b">⚠️ Выделите больше точек (минимум 3)</span>`;
+        return;
+      }
+
+      // Проверка пересечений
+      const overlaps = manualSegments.some(seg =>
+        (startIdx < seg.end_idx && endIdx > seg.start_idx)
+      );
+
+      if (overlaps) {
+        document.getElementById('info-panel').innerHTML =
+          `<span style="color:#dc2626">⚠️ Область пересекается с существующим сегментом!</span>`;
+        return;
+      }
+
+      // Создаём сегмент
+      createManualSegment(startIdx, endIdx);
+      clearSelection();
+    }
+
+    // ═══ Флаг для контекстного меню ═══
+    let menuJustShown = false;  // Предотвращает немедленное скрытие меню
+
+    // ═══ Скрытие контекстного меню при клике вне ═══
+    document.addEventListener('click', function(e) {
+      // Пропускаем если меню только что показано (чтобы не скрыть сразу)
+      if (menuJustShown) return;
+
+      const menu = document.getElementById('context-menu');
+      if (!menu.contains(e.target)) {
+        menu.classList.remove('active');
+      }
+    });
+
+    // ═══ Состояние перетаскивания CP (drag & drop) ═══
+    let draggingCP = null;  // { cpIndex, startX, shapeIndex }
+    let dragPreviewLine = null;  // временная линия при перетаскивании
+
+    // ═══ Обработка клика на график (для контекстного меню) ═══
+    function handleChartClick(data) {
+      if (!data.points || data.points.length === 0) return;
+
+      const point = data.points[0];
+
+      // Определяем индекс на основном ряде данных
+      let clickedIdx = point.pointIndex;
+
+      // Если кликнули не на основной trace, ищем ближайшую точку
+      if (point.curveNumber !== 0) {
+        const clickedDate = point.x;
+        clickedIdx = snapToNearestPoint(clickedDate);
+      }
+
+      // Если идёт выделение области исключения
+      if (excludeStartIdx !== null) {
+        const start = Math.min(excludeStartIdx, clickedIdx);
+        const end = Math.max(excludeStartIdx, clickedIdx) + 1;
+        addExcludeRange(start, end);
+        excludeStartIdx = null;
+        document.getElementById('ctx-exclude-end').style.display = 'none';
+        document.getElementById('info-panel').textContent = `Добавлена область исключения: ${start} — ${end}`;
+        updateExcludeList();
+        buildChart();
+        return;
+      }
+
+      // Проверяем, кликнули ли рядом с CP
+      const cpThreshold = 5;
+      let nearestCPIndex = null;
+      let nearestDist = Infinity;
+
+      changepoints.forEach((cp, i) => {
+        const dist = Math.abs(clickedIdx - cp);
+        if (dist < nearestDist && dist <= cpThreshold) {
+          nearestDist = dist;
+          nearestCPIndex = i;
+        }
+      });
+
+      // Сохраняем для контекстного меню
+      contextClickIdx = clickedIdx;
+      contextNearCP = nearestCPIndex;
+
+      // Показываем контекстное меню
+      showContextMenu(data.event.clientX, data.event.clientY);
+    }
+
+    // ═══ Инициализация drag & drop для CP линий ═══
+    function initCPDragHandlers() {
+      const chartDiv = document.getElementById('chart-main');
+      if (!chartDiv) return;
+
+      // Находим CP рядом с позицией мыши
+      function findCPNearPosition(clientX) {
+        const rect = chartDiv.getBoundingClientRect();
+        const xaxis = chartDiv._fullLayout?.xaxis;
+        if (!xaxis) return null;
+
+        // Конвертируем пиксели в дату
+        const plotX = clientX - rect.left - chartDiv._fullLayout.margin.l;
+        const xDate = xaxis.p2d(plotX);
+
+        // Находим ближайший CP
+        const cpThresholdPx = 15;  // пикселей
+        let nearestCP = null;
+        let nearestDistPx = Infinity;
+
+        changepoints.forEach((cp, i) => {
+          const cpDate = chartData.dates[cp];
+          const cpPx = xaxis.d2p(cpDate);
+          const distPx = Math.abs(plotX - cpPx);
+
+          if (distPx < nearestDistPx && distPx <= cpThresholdPx) {
+            nearestDistPx = distPx;
+            nearestCP = { index: i, cpValue: cp };
+          }
+        });
+
+        return nearestCP;
+      }
+
+      // Конвертируем позицию мыши в индекс данных
+      function mouseToDataIndex(clientX) {
+        const rect = chartDiv.getBoundingClientRect();
+        const xaxis = chartDiv._fullLayout?.xaxis;
+        if (!xaxis) return null;
+
+        const plotX = clientX - rect.left - chartDiv._fullLayout.margin.l;
+        const xDate = xaxis.p2d(plotX);
+
+        return snapToNearestPoint(xDate);
+      }
+
+      // MOUSEDOWN - начало перетаскивания
+      chartDiv.addEventListener('mousedown', function(e) {
+        if (!editMode || manualMode || excludeSelectionMode) return;
+        if (e.button !== 0) return;  // только левая кнопка
+
+        const nearCP = findCPNearPosition(e.clientX);
+        if (!nearCP) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        // Запоминаем что тащим
+        const showBG = document.getElementById('showBG').checked;
+        const shapeIndex = (showBG ? segments.length : 0) + nearCP.index;
+
+        draggingCP = {
+          cpIndex: nearCP.index,
+          startIdx: nearCP.cpValue,
+          shapeIndex: shapeIndex
+        };
+
+        chartDiv.style.cursor = 'ew-resize';
+        document.getElementById('info-panel').innerHTML =
+          `<span style="color:#8b5cf6; font-weight:bold;">⟷ Перетаскивание CP${nearCP.index + 1}...</span>`;
+
+        console.log('Started dragging CP', nearCP.index);
+      });
+
+      // MOUSEMOVE - визуальное перемещение линии
+      document.addEventListener('mousemove', function(e) {
+        if (!draggingCP) return;
+
+        const newIdx = mouseToDataIndex(e.clientX);
+        if (newIdx === null) return;
+
+        const newDate = chartData.dates[newIdx];
+        if (!newDate) return;
+
+        // Обновляем позицию shape через Plotly.relayout
+        const update = {};
+        update[`shapes[${draggingCP.shapeIndex}].x0`] = newDate;
+        update[`shapes[${draggingCP.shapeIndex}].x1`] = newDate;
+
+        Plotly.relayout(chartDiv, update);
+
+        // Показываем текущую позицию
+        document.getElementById('info-panel').innerHTML =
+          `<span style="color:#8b5cf6; font-weight:bold;">⟷ CP${draggingCP.cpIndex + 1} → ${newDate.substring(5, 16)} (индекс ${newIdx})</span>`;
+      });
+
+      // MOUSEUP - завершение перетаскивания
+      document.addEventListener('mouseup', async function(e) {
+        if (!draggingCP) return;
+
+        const cpIndex = draggingCP.cpIndex;
+        const startIdx = draggingCP.startIdx;
+        const newIdx = mouseToDataIndex(e.clientX);
+
+        draggingCP = null;
+        chartDiv.style.cursor = '';
+
+        console.log('Finished dragging CP', cpIndex, 'from', startIdx, 'to', newIdx);
+
+        if (newIdx === null || newIdx === startIdx) {
+          // Отмена - возвращаем на место
+          buildChart();
+          document.getElementById('info-panel').innerHTML =
+            '<span style="color:#8b5cf6">✎ Перетащите красную линию CP для изменения границы</span>';
+          return;
+        }
+
+        // Проверяем валидность новой позиции
+        const minIdx = cpIndex > 0 ? changepoints[cpIndex - 1] + 2 : 2;
+        const maxIdx = cpIndex < changepoints.length - 1 ? changepoints[cpIndex + 1] - 2 : chartData.dates.length - 2;
+
+        if (newIdx < minIdx || newIdx > maxIdx) {
+          document.getElementById('info-panel').innerHTML =
+            `<span style="color:#dc2626">⚠️ Нельзя: граница должна быть между ${minIdx} и ${maxIdx}</span>`;
+          buildChart();  // Возвращаем на место
+          return;
+        }
+
+        // Обновляем changepoints
+        const newCPs = [...changepoints];
+        newCPs[cpIndex] = newIdx;
+
+        document.getElementById('info-panel').innerHTML =
+          `<span style="color:#8b5cf6">⏳ Пересчёт сегментов...</span>`;
+
+        try {
+          await updateChangepoints(newCPs, 'move', newIdx);
+          document.getElementById('info-panel').innerHTML =
+            `<span style="color:#22c55e">✓ CP${cpIndex + 1} перемещена: ${chartData.dates[newIdx].substring(5, 16)}</span>`;
+        } catch (err) {
+          console.error('Error updating CP:', err);
+          document.getElementById('info-panel').innerHTML =
+            `<span style="color:#dc2626">Ошибка: ${err.message}</span>`;
+          buildChart();
+        }
+      });
+
+      // ESC - отмена перетаскивания
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && draggingCP) {
+          draggingCP = null;
+          chartDiv.style.cursor = '';
+          buildChart();
+          document.getElementById('info-panel').innerHTML =
+            '<span style="color:#8b5cf6">✎ Перетащите красную линию CP для изменения границы</span>';
+        }
+      });
+    }
+
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  Анализ сегментов (вбросы реагентов + описание)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    // Получить вбросы реагентов в диапазоне сегмента
+    function getSegmentInjections(seg) {
+      const emptyResult = { total: 0, totalQty: 0, byReagent: {}, list: [] };
+
+      if (!eventsData || !eventsData.timeline_injections) return emptyResult;
+      if (!chartData || !chartData.dates || chartData.dates.length === 0) return emptyResult;
+
+      // Границы сегмента
+      const startIdx = seg.start_idx;
+      const endIdx = Math.min(seg.end_idx, chartData.dates.length) - 1;  // end_idx exclusive -> inclusive
+
+      const startDate = chartData.dates[startIdx];
+      const endDate = chartData.dates[endIdx];
+
+      if (!startDate || !endDate) return emptyResult;
+
+      // Нормализуем даты для сравнения (убираем T, берём первые 16 символов)
+      const normalizeDate = (d) => d ? d.replace('T', ' ').substring(0, 16) : '';
+      const startNorm = normalizeDate(startDate);
+      const endNorm = normalizeDate(endDate);
+
+      // Фильтруем вбросы по времени (включительно)
+      const injections = eventsData.timeline_injections.filter(ev => {
+        if (!ev.t) return false;
+        const evNorm = normalizeDate(ev.t);
+        return evNorm >= startNorm && evNorm <= endNorm;
+      });
+
+      // Группируем по типу реагента
+      const byReagent = {};
+      let totalQty = 0;
+
+      injections.forEach(ev => {
+        const reagent = ev.reagent || 'Неизвестный';
+        if (!byReagent[reagent]) {
+          byReagent[reagent] = { count: 0, totalQty: 0 };
+        }
+        byReagent[reagent].count++;
+        byReagent[reagent].totalQty += parseFloat(ev.qty) || 0;
+        totalQty += parseFloat(ev.qty) || 0;
+      });
+
+      return {
+        total: injections.length,
+        totalQty: totalQty,
+        byReagent: byReagent,
+        list: injections  // Добавляем список для детального анализа
+      };
+    }
+
+    // ═══ Анализ реакции на вбросы реагентов ═══
+    // Логика: если после вброса уровень ВЫШЕ чем ДО вброса — реакция положительная.
+    // Даже если тренд спадающий — это нормально (эффект ПАВ постепенно уходит).
+    // Главное: был ли подъём относительно исходного уровня.
+    function analyzeInjectionReactions(seg, prevSeg) {
+      const injData = getSegmentInjections(seg);
+      if (!injData.list || injData.list.length === 0) {
+        return { hasInjections: false };
+      }
+
+      // Проверяем наличие данных для анализа
+      if (!chartData || !chartData.primary || !chartData.primary.values || !chartData.dates) {
+        return { hasInjections: true, reactions: [], overall: null };
+      }
+
+      const values = chartData.primary.values;
+      const results = [];
+
+      // Значения сегмента
+      const segStartIdx = seg.start_idx;
+      const segEndIdx = Math.min(seg.end_idx - 1, values.length - 1);
+      const segStartValue = values[segStartIdx];
+      const segEndValue = values[segEndIdx];
+
+      // Значение ДО сегмента (конец предыдущего или начало данных)
+      let preSegmentValue;
+      if (prevSeg) {
+        const prevEndIdx = Math.min(prevSeg.end_idx - 1, values.length - 1);
+        preSegmentValue = values[prevEndIdx];
+      } else if (segStartIdx > 0) {
+        // Среднее за несколько точек до начала сегмента
+        const beforeStart = Math.max(0, segStartIdx - 3);
+        const beforeVals = values.slice(beforeStart, segStartIdx);
+        preSegmentValue = beforeVals.length > 0
+          ? beforeVals.reduce((a, b) => a + b, 0) / beforeVals.length
+          : segStartValue;
+      } else {
+        preSegmentValue = segStartValue;
+      }
+
+      // Находим пик внутри сегмента
+      const segValues = values.slice(segStartIdx, segEndIdx + 1);
+      let peakValue = segValues[0];
+      let peakIdx = 0;
+      segValues.forEach((v, i) => {
+        if (v > peakValue) {
+          peakValue = v;
+          peakIdx = i;
+        }
+      });
+
+      // Анализируем каждый вброс
+      injData.list.forEach((inj, injIdx) => {
+        const injTime = inj.t;
+        const injDateIdx = findClosestDateIndex(injTime);
+
+        if (injDateIdx < 0 || injDateIdx >= values.length) return;
+
+        // Baseline — значение непосредственно перед вбросом (2-3 точки)
+        const beforeStart = Math.max(0, injDateIdx - 3);
+        const beforeValues = values.slice(beforeStart, injDateIdx);
+        const baseline = beforeValues.length > 0
+          ? beforeValues.reduce((a, b) => a + b, 0) / beforeValues.length
+          : values[injDateIdx];
+
+        // Ищем пик в окне после вброса (до 8 часов или до конца сегмента)
+        const windowEnd = Math.min(injDateIdx + 8, segEndIdx + 1);
+        const afterValues = values.slice(injDateIdx, windowEnd);
+
+        let localPeak = afterValues[0] || baseline;
+        let localPeakIdx = 0;
+        afterValues.forEach((v, i) => {
+          if (v > localPeak) {
+            localPeak = v;
+            localPeakIdx = i;
+          }
+        });
+
+        // Ключевая метрика: подъём относительно baseline ДО вброса
+        const liftFromBaseline = localPeak - baseline;
+        const liftPct = baseline !== 0 ? (liftFromBaseline / baseline * 100) : 0;
+
+        // Значение в конце окна анализа
+        const windowEndValue = afterValues[afterValues.length - 1] || localPeak;
+        const sustainedLift = windowEndValue - baseline;
+        const sustainedLiftPct = baseline !== 0 ? (sustainedLift / baseline * 100) : 0;
+
+        // Определяем характеристику реакции
+        // Главное: был ли подъём выше baseline
+        let reactionLevel, reactionDesc;
+
+        if (liftPct > 20) {
+          reactionLevel = 'strong';
+          reactionDesc = 'ярко выраженная положительная реакция';
+        } else if (liftPct > 10) {
+          reactionLevel = 'good';
+          reactionDesc = 'хорошая реакция';
+        } else if (liftPct > 5) {
+          reactionLevel = 'moderate';
+          reactionDesc = 'умеренная реакция';
+        } else if (liftPct > 2) {
+          reactionLevel = 'weak';
+          reactionDesc = 'слабая реакция';
+        } else if (liftPct > 0) {
+          reactionLevel = 'minimal';
+          reactionDesc = 'незначительная реакция';
+        } else {
+          reactionLevel = 'none';
+          reactionDesc = 'реакция не выражена';
+        }
+
+        // Добавляем оценку устойчивости эффекта
+        let sustainedDesc = '';
+        if (liftPct > 2) {
+          if (sustainedLiftPct > liftPct * 0.7) {
+            sustainedDesc = 'эффект устойчивый';
+          } else if (sustainedLiftPct > liftPct * 0.3) {
+            sustainedDesc = 'эффект постепенно снижается';
+          } else if (sustainedLiftPct > 0) {
+            sustainedDesc = 'эффект быстро затухает';
+          } else {
+            sustainedDesc = 'эффект кратковременный';
+          }
+        }
+
+        results.push({
+          time: injTime,
+          reagent: inj.reagent || 'Неизвестный',
+          qty: inj.qty,
+          baseline: baseline,
+          peakValue: localPeak,
+          peakHoursAfter: localPeakIdx,
+          liftFromBaseline: liftFromBaseline,
+          liftPct: liftPct,
+          sustainedLift: sustainedLift,
+          sustainedLiftPct: sustainedLiftPct,
+          reactionLevel: reactionLevel,
+          reactionDesc: reactionDesc,
+          sustainedDesc: sustainedDesc
+        });
+      });
+
+      // Общая оценка сегмента с вбросами
+      // Ключевое: начало сегмента vs конец предыдущего
+      const segmentLift = segStartValue - preSegmentValue;
+      const segmentLiftPct = preSegmentValue !== 0 ? (segmentLift / preSegmentValue * 100) : 0;
+
+      // Пик сегмента vs уровень до сегмента
+      const peakLift = peakValue - preSegmentValue;
+      const peakLiftPct = preSegmentValue !== 0 ? (peakLift / preSegmentValue * 100) : 0;
+
+      // Конец сегмента vs уровень до сегмента (остаточный эффект)
+      const residualLift = segEndValue - preSegmentValue;
+      const residualLiftPct = preSegmentValue !== 0 ? (residualLift / preSegmentValue * 100) : 0;
+
+      // Характер тренда внутри сегмента
+      const internalDecline = peakValue - segEndValue;
+      const internalDeclinePct = peakValue !== 0 ? (internalDecline / peakValue * 100) : 0;
+
+      let overallAssessment = {
+        totalInjections: results.length,
+        preSegmentValue: preSegmentValue,
+        segStartValue: segStartValue,
+        segEndValue: segEndValue,
+        peakValue: peakValue,
+        // Подъём от уровня до вброса
+        segmentLiftPct: segmentLiftPct,
+        peakLiftPct: peakLiftPct,
+        residualLiftPct: residualLiftPct,
+        // Снижение внутри сегмента
+        internalDeclinePct: internalDeclinePct,
+        // Интерпретация
+        hasPositiveReaction: peakLiftPct > 3,
+        hasStrongReaction: peakLiftPct > 15,
+        effectSustained: residualLiftPct > 3,
+        effectPartial: residualLiftPct > 0 && residualLiftPct <= peakLiftPct * 0.5,
+        effectFaded: residualLiftPct <= 0
+      };
+
+      return {
+        hasInjections: true,
+        reactions: results,
+        overall: overallAssessment
+      };
+    }
+
+    // Найти индекс ближайшей даты в chartData
+    function findClosestDateIndex(dateStr) {
+      if (!dateStr || !chartData.dates) return -1;
+
+      // Нормализуем дату для сравнения
+      const normalizeDate = (d) => d ? d.replace('T', ' ').substring(0, 16) : '';
+      const targetNorm = normalizeDate(dateStr);
+
+      for (let i = 0; i < chartData.dates.length; i++) {
+        const chartNorm = normalizeDate(chartData.dates[i]);
+        if (chartNorm >= targetNorm) {
+          return i;
+        }
+      }
+      return chartData.dates.length - 1;
+    }
+
+    // Генерация текстового описания реакций на вбросы
+    function generateInjectionAnalysisText(seg, prevSeg) {
+      const analysis = analyzeInjectionReactions(seg, prevSeg);
+      if (!analysis.hasInjections || !analysis.reactions || analysis.reactions.length === 0) {
+        return '';
+      }
+
+      let text = '';
+      const reactions = analysis.reactions;
+      const ov = analysis.overall;
+
+      if (reactions.length === 1) {
+        // Один вброс
+        const r = reactions[0];
+        text += `<b>Реакция на вброс (${r.time.substring(11, 16)}, ${r.reagent}):</b> `;
+        text += `${r.reactionDesc}. `;
+
+        if (r.reactionLevel !== 'none') {
+          text += `Baseline до вброса: ${r.baseline.toFixed(2)}, `;
+          text += `пик: ${r.peakValue.toFixed(2)} `;
+          text += `(<span class="${r.liftPct > 5 ? 'drift-positive' : ''}">${r.liftPct > 0 ? '+' : ''}${r.liftPct.toFixed(1)}%</span>)`;
+          if (r.peakHoursAfter > 0) {
+            text += ` через ~${r.peakHoursAfter} ч`;
+          }
+          text += `. `;
+
+          if (r.sustainedDesc) {
+            text += `${r.sustainedDesc}. `;
+          }
+        }
+      } else {
+        // Несколько вбросов
+        text += `<b>Реакция на вбросы (${reactions.length} шт.):</b><br>`;
+
+        reactions.forEach((r, i) => {
+          text += `${i + 1}. <i>${r.time.substring(11, 16)}</i> (${r.reagent}): ${r.reactionDesc}`;
+          if (r.reactionLevel !== 'none' && r.reactionLevel !== 'minimal') {
+            text += ` (<span class="${r.liftPct > 5 ? 'drift-positive' : ''}">${r.liftPct > 0 ? '+' : ''}${r.liftPct.toFixed(1)}%</span>)`;
+          }
+          if (r.sustainedDesc) {
+            text += ` — ${r.sustainedDesc}`;
+          }
+          text += `.<br>`;
+        });
+      }
+
+      // Общая оценка сегмента
+      if (ov) {
+        text += `<br><b>Итог по сегменту:</b> `;
+
+        if (ov.hasStrongReaction) {
+          text += `<span class="drift-positive">Выраженная положительная реакция на ПАВ</span>. `;
+          text += `Пик +${ov.peakLiftPct.toFixed(1)}% от исходного уровня. `;
+        } else if (ov.hasPositiveReaction) {
+          text += `Положительная реакция на ПАВ (+${ov.peakLiftPct.toFixed(1)}% в пике). `;
+        } else {
+          text += `Значимой реакции не зафиксировано. `;
+        }
+
+        // Устойчивость эффекта
+        if (ov.hasPositiveReaction) {
+          if (ov.effectSustained) {
+            text += `Эффект устойчивый — к концу сегмента уровень выше исходного на ${ov.residualLiftPct.toFixed(1)}%. `;
+          } else if (ov.effectPartial) {
+            text += `Эффект частично сохраняется (+${ov.residualLiftPct.toFixed(1)}% к концу). `;
+          } else if (ov.effectFaded) {
+            text += `Эффект затух — уровень вернулся к исходному или ниже. `;
+          }
+
+          // Темп снижения
+          if (ov.internalDeclinePct > 20) {
+            text += `Темп снижения высокий (−${ov.internalDeclinePct.toFixed(0)}% от пика). `;
+          } else if (ov.internalDeclinePct > 10) {
+            text += `Темп снижения умеренный. `;
+          }
+        }
+      }
+
+      return text;
+    }
+
+    // Генерация plain-text версии анализа вбросов (для отчёта)
+    function generateInjectionAnalysisPlain(analysis) {
+      if (!analysis.hasInjections || !analysis.reactions || analysis.reactions.length === 0) {
+        return '';
+      }
+
+      let text = '';
+      const reactions = analysis.reactions;
+      const ov = analysis.overall;
+
+      if (reactions.length === 1) {
+        const r = reactions[0];
+        text += `Реакция на вброс: ${r.reactionDesc}`;
+        if (r.reactionLevel !== 'none' && r.reactionLevel !== 'minimal') {
+          text += ` (+${r.liftPct.toFixed(1)}% от baseline)`;
+        }
+        if (r.sustainedDesc) {
+          text += `, ${r.sustainedDesc}`;
+        }
+        text += `. `;
+      } else {
+        text += `Реакция на вбросы: `;
+        const reactionSummary = reactions.map((r, i) =>
+          `${i + 1}) ${r.reactionDesc}${r.reactionLevel !== 'none' && r.reactionLevel !== 'minimal' ? ' (+' + r.liftPct.toFixed(1) + '%)' : ''}`
+        ).join('; ');
+        text += reactionSummary + '. ';
+      }
+
+      // Общая оценка
+      if (ov) {
+        if (ov.hasStrongReaction) {
+          text += `Выраженная положительная реакция на ПАВ (пик +${ov.peakLiftPct.toFixed(1)}%). `;
+        } else if (ov.hasPositiveReaction) {
+          text += `Положительная реакция (+${ov.peakLiftPct.toFixed(1)}% в пике). `;
+        }
+
+        if (ov.hasPositiveReaction) {
+          if (ov.effectSustained) {
+            text += `Эффект устойчивый (+${ov.residualLiftPct.toFixed(1)}% к концу). `;
+          } else if (ov.effectFaded) {
+            text += `Эффект затух к концу периода. `;
+          }
+        }
+      }
+
+      return text;
+    }
+
+    // Описание тренда
+    function describeTrend(seg) {
+      const typeDescriptions = {
+        'sharp_rise': 'резкий рост',
+        'rise': 'рост',
+        'stable': 'стабильный уровень',
+        'decline': 'снижение',
+        'sharp_decline': 'резкое снижение'
+      };
+
+      const typeDesc = typeDescriptions[seg.segment_type] || seg.segment_type;
+      const drift = seg.mean_value !== 0 ? (seg.slope * seg.days / seg.mean_value * 100) : 0;
+
+      let driftDesc = '';
+      if (Math.abs(drift) > 1) {
+        driftDesc = ` (${drift > 0 ? '+' : ''}${drift.toFixed(1)}% за период)`;
+      }
+
+      return `${typeDesc}${driftDesc}`;
+    }
+
+    // Генерация полного анализа сегмента
+    function generateSegmentAnalysis(seg, prevSeg) {
+      const startDate = chartData.dates[seg.start_idx] || '';
+      const endDate = chartData.dates[Math.min(seg.end_idx - 1, chartData.dates.length - 1)] || '';
+      const injData = getSegmentInjections(seg);
+
+      let html = '<div class="segment-analysis">';
+
+      // === Период ===
+      html += `<div class="analysis-section">`;
+      html += `<div class="analysis-header">📅 Период</div>`;
+      html += `<div class="analysis-content">`;
+      html += `<b>${startDate.substring(0, 16)}</b> — <b>${endDate.substring(0, 16)}</b>`;
+      html += `<br>Длительность: <b>${seg.days}</b> часов`;
+      html += `</div></div>`;
+
+      // === Вбросы реагентов ===
+      html += `<div class="analysis-section">`;
+      html += `<div class="analysis-header">💉 Вбросы реагентов</div>`;
+      html += `<div class="analysis-content">`;
+
+      if (injData.total === 0) {
+        html += `<span style="color:#6b7280">Вбросов не зафиксировано</span>`;
+      } else {
+        html += `<b>Всего: ${injData.total} вбросов</b>`;
+        if (injData.totalQty > 0) {
+          html += ` (${injData.totalQty.toFixed(1)} л)`;
+        }
+        html += `<ul style="margin:8px 0 0 16px; padding:0;">`;
+        for (const [reagent, data] of Object.entries(injData.byReagent)) {
+          const color = getReagentColor(reagent);
+          html += `<li style="margin:4px 0;">`;
+          html += `<span style="display:inline-block;width:10px;height:10px;background:${color};border-radius:50%;margin-right:6px;"></span>`;
+          html += `<b>${reagent}</b>: ${data.count} шт.`;
+          if (data.totalQty > 0) {
+            html += ` (${data.totalQty.toFixed(1)} л)`;
+          }
+          html += `</li>`;
+        }
+        html += `</ul>`;
+
+        // Анализ реакции на вбросы
+        const injAnalysisText = generateInjectionAnalysisText(seg, prevSeg);
+        if (injAnalysisText) {
+          html += `<div style="margin-top:12px; padding-top:12px; border-top:1px dashed #d1d5db;">`;
+          html += injAnalysisText;
+          html += `</div>`;
+        }
+      }
+      html += `</div></div>`;
+
+      // === Тренд ===
+      html += `<div class="analysis-section">`;
+      html += `<div class="analysis-header">📈 Тренд</div>`;
+      html += `<div class="analysis-content">`;
+
+      const trendDesc = describeTrend(seg);
+      const typeColor = typeColors[seg.segment_type] || '#999';
+      html += `<span class="badge" style="background:${typeColor}">${trendDesc}</span>`;
+      html += `<br><br>`;
+      html += `Наклон: <b>${seg.slope?.toFixed(4) || '—'}</b> ед/час`;
+      html += `<br>R² (качество): <b>${seg.r_squared?.toFixed(3) || '—'}</b>`;
+      html += `</div></div>`;
+
+      // === Статистика ===
+      html += `<div class="analysis-section">`;
+      html += `<div class="analysis-header">📊 Статистика</div>`;
+      html += `<div class="analysis-content">`;
+      html += `<table class="stats-table">`;
+      html += `<tr><td>Среднее:</td><td><b>${seg.mean_value?.toFixed(2) || '—'}</b></td></tr>`;
+      html += `<tr><td>Ст. откл. (σ):</td><td>${seg.std_value?.toFixed(2) || '—'}</td></tr>`;
+      html += `<tr><td>Минимум:</td><td>${seg.min_value?.toFixed(2) || '—'}</td></tr>`;
+      html += `<tr><td>Максимум:</td><td>${seg.max_value?.toFixed(2) || '—'}</td></tr>`;
+      html += `</table>`;
+
+      // Сравнение с глобальными
+      if (globalStats.mean > 0) {
+        const vsMean = ((seg.mean_value - globalStats.mean) / globalStats.mean * 100);
+        const vsMedian = ((seg.mean_value - globalStats.median) / globalStats.median * 100);
+        html += `<div style="margin-top:10px; padding-top:10px; border-top:1px solid #e5e7eb;">`;
+        html += `<b>Относительно всего периода:</b><br>`;
+        html += `vs среднее: <span class="${vsMean > 5 ? 'drift-positive' : vsMean < -5 ? 'drift-negative' : ''}">${vsMean > 0 ? '+' : ''}${vsMean.toFixed(1)}%</span>`;
+        html += ` | vs медиана: <span class="${vsMedian > 5 ? 'drift-positive' : vsMedian < -5 ? 'drift-negative' : ''}">${vsMedian > 0 ? '+' : ''}${vsMedian.toFixed(1)}%</span>`;
+        html += `</div>`;
+      }
+      html += `</div></div>`;
+
+      // === Сравнение с предыдущим сегментом ===
+      if (prevSeg) {
+        html += `<div class="analysis-section">`;
+        html += `<div class="analysis-header">🔄 Изменение vs сегмент #${prevSeg.num}</div>`;
+        html += `<div class="analysis-content">`;
+
+        const meanChange = seg.mean_value - prevSeg.mean_value;
+        const meanChangePct = prevSeg.mean_value !== 0 ? (meanChange / prevSeg.mean_value * 100) : 0;
+        const slopeChange = (seg.slope || 0) - (prevSeg.slope || 0);
+
+        // Вбросы предыдущего
+        const prevInjData = getSegmentInjections(prevSeg);
+        const injChange = injData.total - prevInjData.total;
+
+        html += `<table class="stats-table">`;
+        html += `<tr><td>Среднее:</td><td><span class="${meanChange > 0 ? 'drift-positive' : meanChange < 0 ? 'drift-negative' : ''}">${meanChange > 0 ? '+' : ''}${meanChange.toFixed(2)} (${meanChangePct > 0 ? '+' : ''}${meanChangePct.toFixed(1)}%)</span></td></tr>`;
+        html += `<tr><td>Тренд:</td><td>${prevSeg.segment_type} → <b>${seg.segment_type}</b></td></tr>`;
+        html += `<tr><td>Наклон Δ:</td><td>${slopeChange > 0 ? '+' : ''}${slopeChange.toFixed(4)}</td></tr>`;
+        html += `<tr><td>Вбросов:</td><td>${prevInjData.total} → ${injData.total} (<span class="${injChange > 0 ? 'drift-positive' : injChange < 0 ? 'drift-negative' : ''}">${injChange > 0 ? '+' : ''}${injChange}</span>)</td></tr>`;
+        html += `</table>`;
+
+        html += `</div></div>`;
+      }
+
+      html += '</div>';
+
+      // === Текстовое описание ===
+      html += `<div class="analysis-section">`;
+      html += `<div class="analysis-header">📝 Описание</div>`;
+      html += `<div class="analysis-content analysis-text">`;
+      html += generateTextDescription(seg, prevSeg, injData);
+      html += `</div></div>`;
+
+      return html;
+    }
+
+    // Генерация текстового описания
+    function generateTextDescription(seg, prevSeg, injData) {
+      const startDate = chartData.dates[seg.start_idx] || '';
+      const endDate = chartData.dates[Math.min(seg.end_idx - 1, chartData.dates.length - 1)] || '';
+
+      let text = `В период с ${startDate.substring(5, 16)} по ${endDate.substring(5, 16)} (${seg.days} ч) `;
+
+      // Вбросы
+      if (injData.total === 0) {
+        text += `вбросов реагентов не производилось. `;
+      } else {
+        text += `произведено <b>${injData.total}</b> вбросов реагента`;
+        const reagentNames = Object.keys(injData.byReagent);
+        if (reagentNames.length === 1) {
+          text += ` «${reagentNames[0]}»`;
+        } else {
+          text += `: `;
+          text += reagentNames.map(r => `${r} — ${injData.byReagent[r].count} шт.`).join(', ');
+        }
+        text += `. `;
+      }
+
+      // Тренд с интенсивностью
+      const trendInfo = getTrendInfo(seg);
+      text += `Наблюдается <b>${trendInfo.description}</b>`;
+      if (trendInfo.intensity) {
+        text += ` (${trendInfo.intensity})`;
+      }
+      text += `. `;
+
+      // Статистика
+      text += `Среднее значение: <b>${seg.mean_value?.toFixed(2)}</b> `;
+      text += `(σ = ${seg.std_value?.toFixed(2)}, `;
+      text += `диапазон ${seg.min_value?.toFixed(1)}–${seg.max_value?.toFixed(1)}). `;
+
+      // Сравнение с предыдущим сегментом
+      if (prevSeg) {
+        const meanChange = seg.mean_value - prevSeg.mean_value;
+        const meanChangePct = prevSeg.mean_value !== 0 ? (meanChange / prevSeg.mean_value * 100) : 0;
+        const prevTrendInfo = getTrendInfo(prevSeg);
+
+        text += `<br><br><b>Сравнение с предыдущим сегментом (#${prevSeg.num}):</b> `;
+
+        // Изменение среднего
+        if (Math.abs(meanChangePct) > 3) {
+          text += `среднее ${meanChange > 0 ? 'увеличилось' : 'снизилось'} на ${Math.abs(meanChangePct).toFixed(1)}% `;
+          text += `(${prevSeg.mean_value?.toFixed(2)} → ${seg.mean_value?.toFixed(2)}). `;
+        } else {
+          text += `среднее практически не изменилось (${prevSeg.mean_value?.toFixed(2)} → ${seg.mean_value?.toFixed(2)}). `;
+        }
+
+        // Изменение тренда
+        if (prevSeg.segment_type !== seg.segment_type) {
+          text += `Характер тренда изменился: ${prevTrendInfo.description} → <b>${trendInfo.description}</b>. `;
+        } else {
+          text += `Характер тренда сохранился (${trendInfo.description}). `;
+        }
+
+        // Изменение волатильности
+        const stdChange = seg.std_value - prevSeg.std_value;
+        const stdChangePct = prevSeg.std_value !== 0 ? (stdChange / prevSeg.std_value * 100) : 0;
+        if (Math.abs(stdChangePct) > 20) {
+          text += `Волатильность ${stdChange > 0 ? 'увеличилась' : 'снизилась'} на ${Math.abs(stdChangePct).toFixed(0)}%. `;
+        }
+      }
+
+      return text;
+    }
+
+    // Получить информацию о тренде с интенсивностью
+    function getTrendInfo(seg) {
+      const drift = seg.mean_value !== 0 ? (seg.slope * seg.days / seg.mean_value * 100) : 0;
+      const absDrift = Math.abs(drift);
+
+      const typeDescriptions = {
+        'sharp_rise': { description: 'резкий рост', direction: 'up' },
+        'rise': { description: 'рост', direction: 'up' },
+        'stable': { description: 'стабильный уровень', direction: 'stable' },
+        'decline': { description: 'снижение', direction: 'down' },
+        'sharp_decline': { description: 'резкое снижение', direction: 'down' }
+      };
+
+      const info = typeDescriptions[seg.segment_type] || { description: seg.segment_type, direction: 'unknown' };
+
+      // Определяем интенсивность на основе дрейфа
+      let intensity = '';
+      if (info.direction !== 'stable') {
+        if (absDrift > 15) {
+          intensity = 'высокая интенсивность, ' + (drift > 0 ? '+' : '') + drift.toFixed(1) + '% за период';
+        } else if (absDrift > 5) {
+          intensity = 'умеренная интенсивность, ' + (drift > 0 ? '+' : '') + drift.toFixed(1) + '% за период';
+        } else if (absDrift > 1) {
+          intensity = 'низкая интенсивность, ' + (drift > 0 ? '+' : '') + drift.toFixed(1) + '% за период';
+        }
+      }
+
+      return {
+        description: info.description,
+        direction: info.direction,
+        intensity: intensity,
+        drift: drift
+      };
+    }
+
+    // Показать модальное окно с анализом
+    function showSegmentAnalysis(segNum) {
+      const segIdx = segments.findIndex(s => s.num === segNum);
+      if (segIdx < 0) return;
+
+      const seg = segments[segIdx];
+      const prevSeg = segIdx > 0 ? segments[segIdx - 1] : null;
+
+      const html = generateSegmentAnalysis(seg, prevSeg);
+
+      // Показываем в модальном окне
+      const modal = document.getElementById('analysis-modal');
+      const modalTitle = document.getElementById('analysis-modal-title');
+      const modalBody = document.getElementById('analysis-modal-body');
+
+      modalTitle.textContent = `Анализ сегмента #${segNum}`;
+      modalBody.innerHTML = html;
+      modal.classList.add('active');
+    }
+
+    function closeAnalysisModal() {
+      document.getElementById('analysis-modal').classList.remove('active');
+    }
+
+    // ═══ Генерация полного текстового отчёта ═══
+    function generateFullReport() {
+      try {
+        const reportContent = document.getElementById('report-content');
+        const reportPlaceholder = document.getElementById('report-placeholder');
+        const copyBtn = document.getElementById('copyReportBtn');
+
+        if (!reportContent || !reportPlaceholder || !copyBtn) {
+          console.error('Report elements not found');
+          return;
+        }
+
+        let html = '';
+
+      // Заголовок отчёта
+      const wellName = '{{ well_name | default("") | e }}';
+      const firstDate = (chartData.dates && chartData.dates[0]) || '';
+      const lastDate = (chartData.dates && chartData.dates[chartData.dates.length - 1]) || '';
+
+      html += `<div style="margin-bottom:20px; padding-bottom:15px; border-bottom:2px solid #e5e7eb;">`;
+      html += `<h4 style="margin:0 0 10px 0;">Анализ временного ряда${wellName ? ' — ' + wellName : ''}</h4>`;
+      html += `<p style="margin:0; color:#6b7280;">Период: ${firstDate ? firstDate.substring(0, 16) : '—'} — ${lastDate ? lastDate.substring(0, 16) : '—'}</p>`;
+      html += `<p style="margin:5px 0 0 0; color:#6b7280;">Выделено сегментов: ${segments.length}</p>`;
+      html += `</div>`;
+
+      // Общая статистика периода
+      if (globalStats.mean > 0) {
+        html += `<div style="margin-bottom:20px; padding:12px; background:#fff; border-radius:6px; border:1px solid #e5e7eb;">`;
+        html += `<b>Общая статистика периода:</b><br>`;
+        html += `Среднее значение: ${globalStats.mean.toFixed(2)}, `;
+        html += `медиана: ${globalStats.median.toFixed(2)}, `;
+        html += `σ = ${globalStats.std.toFixed(2)}, `;
+        html += `диапазон: ${globalStats.min.toFixed(1)} – ${globalStats.max.toFixed(1)}.`;
+        html += `</div>`;
+      }
+
+      // Описание каждого сегмента
+      segments.forEach((seg, idx) => {
+        const prevSeg = idx > 0 ? segments[idx - 1] : null;
+        const injData = getSegmentInjections(seg);
+
+        html += `<div style="margin-bottom:15px; padding:12px; background:#fff; border-radius:6px; border-left:4px solid ${typeColors[seg.segment_type] || '#999'};">`;
+        html += `<b>Сегмент #${seg.num}</b> `;
+        html += `<span style="color:#6b7280;">(${typeLabels[seg.segment_type] || seg.segment_type})</span><br>`;
+        html += generateTextDescriptionPlain(seg, prevSeg, injData);
+        html += `</div>`;
+      });
+
+      // Итоговое резюме
+      html += `<div style="margin-top:20px; padding:15px; background:#f0f9ff; border-radius:6px; border:1px solid #bae6fd;">`;
+      html += `<b>Резюме:</b><br>`;
+      html += generateSummary();
+      html += `</div>`;
+
+      reportContent.innerHTML = html;
+      reportContent.style.display = 'block';
+      reportPlaceholder.style.display = 'none';
+      copyBtn.style.display = 'inline-flex';
+      } catch (err) {
+        console.error('Error generating report:', err);
+        alert('Ошибка при генерации отчёта: ' + err.message);
+      }
+    }
+
+    // Генерация текстового описания без HTML-тегов для отчёта
+    function generateTextDescriptionPlain(seg, prevSeg, injData) {
+      const startDate = chartData.dates[seg.start_idx] || '';
+      const endDate = chartData.dates[Math.min(seg.end_idx - 1, chartData.dates.length - 1)] || '';
+
+      let text = `В период с ${startDate.substring(5, 16)} по ${endDate.substring(5, 16)} (${seg.days} ч) `;
+
+      // Вбросы
+      if (injData.total === 0) {
+        text += `вбросов реагентов не производилось. `;
+      } else {
+        text += `произведено ${injData.total} вбросов реагента`;
+        const reagentNames = Object.keys(injData.byReagent);
+        if (reagentNames.length === 1) {
+          text += ` «${reagentNames[0]}»`;
+        } else {
+          text += `: `;
+          text += reagentNames.map(r => `${r} — ${injData.byReagent[r].count} шт.`).join(', ');
+        }
+        text += `. `;
+
+        // Анализ реакции на вбросы
+        const injAnalysis = analyzeInjectionReactions(seg, prevSeg);
+        if (injAnalysis.hasInjections && injAnalysis.reactions && injAnalysis.reactions.length > 0) {
+          text += generateInjectionAnalysisPlain(injAnalysis);
+        }
+      }
+
+      // Тренд с интенсивностью
+      const trendInfo = getTrendInfo(seg);
+      text += `Наблюдается ${trendInfo.description}`;
+      if (trendInfo.intensity) {
+        text += ` (${trendInfo.intensity})`;
+      }
+      text += `. `;
+
+      // Статистика
+      text += `Среднее значение: ${seg.mean_value?.toFixed(2)} `;
+      text += `(σ = ${seg.std_value?.toFixed(2)}, `;
+      text += `диапазон ${seg.min_value?.toFixed(1)}–${seg.max_value?.toFixed(1)}). `;
+
+      // Сравнение с предыдущим сегментом
+      if (prevSeg) {
+        const meanChange = seg.mean_value - prevSeg.mean_value;
+        const meanChangePct = prevSeg.mean_value !== 0 ? (meanChange / prevSeg.mean_value * 100) : 0;
+        const prevTrendInfo = getTrendInfo(prevSeg);
+
+        text += `Сравнение с предыдущим сегментом: `;
+
+        // Изменение среднего
+        if (Math.abs(meanChangePct) > 3) {
+          text += `среднее ${meanChange > 0 ? 'увеличилось' : 'снизилось'} на ${Math.abs(meanChangePct).toFixed(1)}% `;
+          text += `(${prevSeg.mean_value?.toFixed(2)} → ${seg.mean_value?.toFixed(2)}). `;
+        } else {
+          text += `среднее практически не изменилось. `;
+        }
+
+        // Изменение тренда
+        if (prevSeg.segment_type !== seg.segment_type) {
+          text += `Характер тренда изменился: ${prevTrendInfo.description} → ${trendInfo.description}. `;
+        }
+      }
+
+      return text;
+    }
+
+    // Генерация итогового резюме
+    function generateSummary() {
+      let summary = '';
+
+      // Подсчёт типов сегментов
+      const typeCounts = {};
+      segments.forEach(seg => {
+        const type = seg.segment_type || 'unknown';
+        typeCounts[type] = (typeCounts[type] || 0) + 1;
+      });
+
+      summary += `За анализируемый период выделено ${segments.length} сегментов: `;
+      const typeDescParts = [];
+      for (const [type, count] of Object.entries(typeCounts)) {
+        typeDescParts.push(`${typeLabels[type] || type} — ${count}`);
+      }
+      summary += typeDescParts.join(', ') + '. ';
+
+      // Общее количество вбросов
+      let totalInjections = 0;
+      const allReagents = {};
+      segments.forEach(seg => {
+        const injData = getSegmentInjections(seg);
+        totalInjections += injData.total || 0;
+        if (injData.byReagent) {
+          for (const [reagent, data] of Object.entries(injData.byReagent)) {
+            if (!allReagents[reagent]) allReagents[reagent] = 0;
+            allReagents[reagent] += data.count || 0;
+          }
+        }
+      });
+
+      if (totalInjections > 0) {
+        summary += `Всего зафиксировано ${totalInjections} вбросов реагента`;
+        const reagentParts = [];
+        for (const [reagent, count] of Object.entries(allReagents)) {
+          reagentParts.push(`${reagent}: ${count}`);
+        }
+        if (reagentParts.length > 1) {
+          summary += ` (${reagentParts.join(', ')})`;
+        }
+        summary += '. ';
+      } else {
+        summary += 'Вбросов реагентов за период не зафиксировано. ';
+      }
+
+      // Сравнение первого и последнего сегмента
+      if (segments.length >= 2) {
+        const first = segments[0];
+        const last = segments[segments.length - 1];
+        const overallChange = last.mean_value - first.mean_value;
+        const overallChangePct = first.mean_value !== 0 ? (overallChange / first.mean_value * 100) : 0;
+
+        if (Math.abs(overallChangePct) > 5) {
+          summary += `Общая динамика за период: среднее значение ${overallChange > 0 ? 'выросло' : 'снизилось'} `;
+          summary += `на ${Math.abs(overallChangePct).toFixed(1)}% (с ${first.mean_value?.toFixed(2)} до ${last.mean_value?.toFixed(2)}).`;
+        } else {
+          summary += `В целом за период значительных изменений среднего уровня не наблюдается.`;
+        }
+      }
+
+      return summary;
+    }
+
+    // Копирование отчёта в буфер обмена
+    function copyReportToClipboard() {
+      const reportContent = document.getElementById('report-content');
+
+      // Создаём временный элемент для получения plain text
+      const temp = document.createElement('div');
+      temp.innerHTML = reportContent.innerHTML;
+
+      // Убираем стили и получаем чистый текст
+      const text = temp.innerText;
+
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById('copyReportBtn');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '✅ Скопировано!';
+        setTimeout(() => { btn.innerHTML = originalText; }, 2000);
+      }).catch(err => {
+        console.error('Не удалось скопировать:', err);
+        alert('Не удалось скопировать в буфер обмена');
+      });
+    }
+
+    // ═══ SNAPSHOT: Сохранение блоков анализа (делегировано в виджет) ═══
+
+    // Сохранить анализ как блок — делегируем в виджет
+    async function saveAnalysisAsBlock() {
+      await blocksWidget.saveAnalysis({
+        chartData: () => chartData,
+        segments: () => segments,
+        changepoints: () => changepoints,
+        eventsData: () => eventsData,
+        period: { from: "{{ date_from }}", to: "{{ date_to }}" },
+        series: "{{ primary_series|default('flow_rate') }}",
+        generateSummary: typeof generateSummary === 'function' ? generateSummary : null
+      });
+    }
+
+    // Сохранить сравнение как блок — делегируем в виджет
+    async function saveComparisonAsBlock() {
+      const result = await blocksWidget.saveComparison({
+        chartData: () => chartData,
+        segments: () => segments,
+        selectedForCompare: () => selectedForCompare,
+        compareColors: compareColors
+      });
+      if (result) {
+        closeCompareModal();
+      }
+    }
+
+    // Загрузка сохранённых блоков — делегируем в виджет
+    function loadSavedBlocks() {
+      blocksWidget.loadBlocks();
+    }
+
+    // ═══ Показать контекстное меню ═══
+    function showContextMenu(x, y) {
+      const menu = document.getElementById('context-menu');
+
+      // Обновляем содержимое
+      document.getElementById('ctx-index').textContent = contextClickIdx;
+
+      // Показываем/скрываем пункт удаления CP
+      const removeItem = document.getElementById('ctx-remove-cp');
+      if (contextNearCP !== null) {
+        removeItem.style.display = 'flex';
+        document.getElementById('ctx-cp-num').textContent = contextNearCP + 1;
+      } else {
+        removeItem.style.display = 'none';
+      }
+
+      // Показываем "закончить исключение" если начато
+      document.getElementById('ctx-exclude-end').style.display = excludeStartIdx !== null ? 'flex' : 'none';
+
+      // Позиционируем меню
+      menu.style.left = x + 'px';
+      menu.style.top = y + 'px';
+
+      // Устанавливаем флаг и показываем с задержкой чтобы избежать конфликта с document click
+      menuJustShown = true;
+      setTimeout(() => {
+        menu.classList.add('active');
+        setTimeout(() => { menuJustShown = false; }, 100);
+      }, 10);
+    }
+
+    // ═══ Действия контекстного меню ═══
+    function doAddChangepoint() {
+      hideContextMenu();
+      addChangepoint(contextClickIdx);
+    }
+
+    function doRemoveChangepoint() {
+      hideContextMenu();
+      if (contextNearCP !== null) {
+        removeChangepoint(contextNearCP);
+      }
+    }
+
+    function startExcludeFromHere() {
+      hideContextMenu();
+      excludeStartIdx = contextClickIdx;
+      document.getElementById('info-panel').innerHTML =
+        `<b style="color:#f59e0b">Выделение области:</b> начало на индексе ${excludeStartIdx}. Кликните на конечную точку.`;
+    }
+
+    function endExcludeHere() {
+      hideContextMenu();
+      if (excludeStartIdx !== null) {
+        const start = Math.min(excludeStartIdx, contextClickIdx);
+        const end = Math.max(excludeStartIdx, contextClickIdx) + 1;
+        addExcludeRange(start, end);
+        excludeStartIdx = null;
+        updateExcludeList();
+        buildChart();
+      }
+    }
+
+    function hideContextMenu() {
+      document.getElementById('context-menu').classList.remove('active');
+    }
+
+    function snapToNearestPoint(dateStr) {
+      // Находим индекс ближайшей точки к дате
+      if (!dateStr) return null;
+
+      const targetDate = typeof dateStr === 'string' ? dateStr : new Date(dateStr).toISOString().substring(0, 16).replace('T', ' ');
+
+      let nearestIdx = 0;
+      let nearestDist = Infinity;
+
+      for (let i = 0; i < chartData.dates.length; i++) {
+        const d = chartData.dates[i];
+        const dist = Math.abs(new Date(d) - new Date(targetDate));
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearestIdx = i;
+        }
+      }
+
+      return nearestIdx;
+    }
+
+    // ═══ Ручные сегменты ═══
+    async function createManualSegment(startIdx, endIdx) {
+      try {
+        // Вызываем API для расчёта характеристик сегмента
+        const response = await fetch('/api/segment-demo/recalc-segment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            well_id: {{ well_id|default(0) }},
+            date_from: '{{ date_from }}',
+            date_to: '{{ date_to }}',
+            series: '{{ series|default("flow_rate") }}',
+            start_idx: startIdx,
+            end_idx: endIdx,
+            trim_left: 0,
+            trim_right: 0,
+            exclude_ranges: []
+          })
+        });
+
+        const result = await response.json();
+        if (result.ok) {
+          // Добавляем номер сегмента
+          const newSeg = {
+            ...result.segment,
+            num: manualSegments.length + 1,
+            is_manual: true,
+            segment_type: classifySegmentType(result.segment),
+            comment: ''
+          };
+
+          manualSegments.push(newSeg);
+
+          // Обновляем отображение
+          updateManualDisplay();
+
+          document.getElementById('info-panel').innerHTML =
+            `<span style="color:#22c55e">✓ Создан сегмент #${newSeg.num}: ${chartData.dates[startIdx]} — ${chartData.dates[endIdx-1]}</span>`;
+        } else {
+          alert('Ошибка: ' + result.error);
+        }
+      } catch (e) {
+        alert('Ошибка запроса: ' + e.message);
+      }
+    }
+
+    function classifySegmentType(seg) {
+      // Классифицируем по дрейфу
+      const drift = seg.mean_value !== 0 ? (seg.slope * seg.days / seg.mean_value * 100) : 0;
+
+      if (Math.abs(drift) < 5) return 'stable';
+      if (drift >= 30) return 'sharp_rise';
+      if (drift <= -30) return 'sharp_decline';
+      if (drift > 0) return 'rise';
+      return 'decline';
+    }
+
+    function updateManualDisplay() {
+      // В ручном режиме показываем только ручные сегменты
+      if (manualMode) {
+        // Сортируем по start_idx
+        manualSegments.sort((a, b) => a.start_idx - b.start_idx);
+
+        // Перенумеровываем
+        manualSegments.forEach((seg, i) => seg.num = i + 1);
+
+        // Обновляем segments для отображения
+        segments = manualSegments;
+        changepoints = manualSegments.slice(0, -1).map(seg => seg.end_idx);
+      }
+
+      updateStats();
+      updateTable();
+      buildChart();
+    }
+
+    function clearManualSegments() {
+      if (!confirm('Очистить все ручные сегменты?')) return;
+
+      manualSegments = [];
+      updateManualDisplay();
+
+      document.getElementById('info-panel').textContent = 'Все сегменты очищены. Выделите участки кривой.';
+    }
+
+    function removeManualSegment(num) {
+      manualSegments = manualSegments.filter(s => s.num !== num);
+      updateManualDisplay();
+    }
+
+    // ═══ Управление границами сегментов ═══
+    async function moveLeftBoundary(segNum, delta) {
+      // Сдвигает левую границу сегмента (и правую границу предыдущего)
+      const segIdx = segments.findIndex(s => s.num === segNum);
+      if (segIdx < 0) return;
+
+      const seg = segments[segIdx];
+      const newStart = seg.start_idx + delta;
+
+      // Проверки
+      if (newStart < 0) return;
+      if (newStart >= seg.end_idx - 2) return;  // минимум 2 точки в сегменте
+
+      // Если есть предыдущий сегмент, проверяем его тоже
+      if (segIdx > 0) {
+        const prevSeg = segments[segIdx - 1];
+        if (newStart <= prevSeg.start_idx + 2) return;  // минимум 2 точки
+      }
+
+      if (manualMode) {
+        // В ручном режиме просто обновляем локально
+        await updateManualSegmentBoundary(segIdx, newStart, seg.end_idx);
+      } else {
+        // В автоматическом режиме - обновляем CP
+        await updateBoundaryViaCP(segIdx, 'left', delta);
+      }
+    }
+
+    async function moveRightBoundary(segNum, delta) {
+      // Сдвигает правую границу сегмента (и левую границу следующего)
+      const segIdx = segments.findIndex(s => s.num === segNum);
+      if (segIdx < 0) return;
+
+      const seg = segments[segIdx];
+      const newEnd = seg.end_idx + delta;
+
+      // Проверки
+      if (newEnd > chartData.dates.length) return;
+      if (newEnd <= seg.start_idx + 2) return;  // минимум 2 точки
+
+      // Если есть следующий сегмент, проверяем его тоже
+      if (segIdx < segments.length - 1) {
+        const nextSeg = segments[segIdx + 1];
+        if (newEnd >= nextSeg.end_idx - 2) return;  // минимум 2 точки
+      }
+
+      if (manualMode) {
+        await updateManualSegmentBoundary(segIdx, seg.start_idx, newEnd);
+      } else {
+        await updateBoundaryViaCP(segIdx, 'right', delta);
+      }
+    }
+
+    async function updateManualSegmentBoundary(segIdx, newStart, newEnd) {
+      // Обновляем границы ручного сегмента
+      const seg = manualSegments[segIdx];
+      if (!seg) return;
+
+      try {
+        const response = await fetch('/api/segment-demo/recalc-segment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            well_id: {{ well_id|default(0) }},
+            date_from: '{{ date_from }}',
+            date_to: '{{ date_to }}',
+            series: '{{ series|default("flow_rate") }}',
+            start_idx: newStart,
+            end_idx: newEnd,
+            trim_left: seg.trim_left || 0,
+            trim_right: seg.trim_right || 0,
+            exclude_ranges: []
+          })
+        });
+
+        const result = await response.json();
+        if (result.ok) {
+          // Обновляем сегмент
+          manualSegments[segIdx] = {
+            ...seg,
+            ...result.segment,
+            start_idx: newStart,
+            end_idx: newEnd,
+            days: newEnd - newStart,
+            num: seg.num,
+            is_manual: true,
+            segment_type: classifySegmentType(result.segment),
+            comment: seg.comment || ''
+          };
+
+          updateManualDisplay();
+          document.getElementById('info-panel').innerHTML =
+            `<span style="color:#22c55e">✓ Границы сегмента #${seg.num} обновлены</span>`;
+        }
+      } catch (e) {
+        console.error('Error updating boundary:', e);
+      }
+    }
+
+    async function updateBoundaryViaCP(segIdx, side, delta) {
+      // В автоматическом режиме сдвигаем соответствующий CP
+      let cpIdx;
+      if (side === 'left') {
+        cpIdx = segIdx - 1;  // CP перед этим сегментом
+      } else {
+        cpIdx = segIdx;  // CP после этого сегмента
+      }
+
+      if (cpIdx < 0 || cpIdx >= changepoints.length) {
+        // Для крайних сегментов - нет CP для сдвига
+        return;
+      }
+
+      const newCP = changepoints[cpIdx] + delta;
+
+      // Проверка: CP не должен выходить за границы соседних
+      if (cpIdx > 0 && newCP <= changepoints[cpIdx - 1] + 2) return;
+      if (cpIdx < changepoints.length - 1 && newCP >= changepoints[cpIdx + 1] - 2) return;
+      if (newCP < 2 || newCP >= chartData.dates.length - 2) return;
+
+      // Обновляем CP
+      const newCPs = [...changepoints];
+      newCPs[cpIdx] = newCP;
+
+      await updateChangepoints(newCPs, 'move', newCP);
+    }
+
+    async function deleteSegment(segNum) {
+      // Удаление сегмента = удаление CP между ним и соседним
+      const segIdx = segments.findIndex(s => s.num === segNum);
+      if (segIdx < 0 || segments.length <= 1) return;
+
+      // Определяем какой CP удалить
+      // Для сегмента N удаляем CP после него (объединяем с N+1)
+      // Для последнего сегмента удаляем CP перед ним (объединяем с N-1)
+      let cpIdxToRemove;
+      if (segIdx === segments.length - 1) {
+        cpIdxToRemove = segIdx - 1;  // удаляем CP перед последним сегментом
+      } else {
+        cpIdxToRemove = segIdx;  // удаляем CP после текущего сегмента
+      }
+
+      if (cpIdxToRemove < 0 || cpIdxToRemove >= changepoints.length) return;
+
+      const cpValue = changepoints[cpIdxToRemove];
+      const newCPs = changepoints.filter((_, i) => i !== cpIdxToRemove);
+
+      await updateChangepoints(newCPs, 'remove', cpValue);
+
+      document.getElementById('info-panel').innerHTML =
+        `<span style="color:#f59e0b">Сегмент #${segNum} объединён с соседним</span>`;
+    }
+
+    // ═══ Переключение ручного режима ═══
+    function toggleManualMode(enabled) {
+      manualMode = enabled;
+
+      document.getElementById('manual-banner').classList.toggle('active', enabled);
+      document.getElementById('clearManualBtn').style.display = enabled ? 'inline-block' : 'none';
+
+      // Скрываем контролы автоматического режима
+      document.getElementById('sensitivity').parentElement.style.display = enabled ? 'none' : 'flex';
+      document.querySelector('button[onclick="rerunAnalysis()"]').style.display = enabled ? 'none' : 'inline-block';
+
+      if (enabled) {
+        // Переключаемся на ручной режим
+        // Если есть ручные сегменты - показываем их, иначе пустой график
+        if (manualSegments.length > 0) {
+          segments = manualSegments;
+          changepoints = manualSegments.slice(0, -1).map(seg => seg.end_idx);
+        } else {
+          segments = [];
+          changepoints = [];
+        }
+
+        document.getElementById('info-panel').innerHTML =
+          '<b style="color:#8b5cf6">Ручной режим:</b> выделите участок кривой мышкой для создания сегмента.';
+      } else {
+        // Возвращаем автоматические результаты (всегда восстанавливаем из оригинала)
+        segments = safeClone(originalSegments);
+        changepoints = safeClone(originalChangepoints);
+        chartData = safeClone(originalChartData);
+
+        document.getElementById('info-panel').textContent = 'Кликните на сегмент в таблице для выбора';
+      }
+
+      updateStats();
+      updateTable();
+      buildChart();
+    }
+
+    // ═══ API вызовы ═══
+    async function addChangepoint(idx) {
+      const newCPs = [...changepoints, idx].sort((a, b) => a - b);
+      await updateChangepoints(newCPs, 'add', idx);
+    }
+
+    async function removeChangepoint(cpIndex) {
+      const cpValue = changepoints[cpIndex];
+      const newCPs = changepoints.filter((_, i) => i !== cpIndex);
+      await updateChangepoints(newCPs, 'remove', cpValue);
+    }
+
+    async function updateChangepoints(newCPs, action, idx) {
+      try {
+        const response = await fetch('/api/segment-demo/manual-cp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            well_id: {{ well_id|default(0) }},
+            date_from: '{{ date_from }}',
+            date_to: '{{ date_to }}',
+            series: '{{ series|default("flow_rate") }}',
+            sensitivity: parseInt(document.getElementById('sensitivity').value),
+            changepoints: newCPs,
+            action: action,
+            index: idx
+          })
+        });
+
+        const result = await response.json();
+        if (result.ok) {
+          changepoints = result.changepoints;
+          segments = result.segments;
+          chartData.dates = result.dates;
+          chartData.primary.values = result.values;
+          updateStats();
+          updateTable();
+          buildChart();
+        } else {
+          alert('Ошибка: ' + result.error);
+        }
+      } catch (e) {
+        alert('Ошибка запроса: ' + e.message);
+      }
+    }
+
+    // ═══ Исключения ═══
+    function toggleExcludeMode() {
+      excludeSelectionMode = !excludeSelectionMode;
+      excludeSelectionRange = null;
+
+      const btn = document.getElementById('btn-exclude-mode');
+      const hint = document.getElementById('exclude-mode-hint');
+      const applyBtn = document.getElementById('btn-apply-exclude');
+      const cancelBtn = document.getElementById('btn-cancel-exclude');
+
+      if (excludeSelectionMode) {
+        btn.style.display = 'none';
+        hint.style.display = 'inline';
+        applyBtn.style.display = 'inline-block';
+        cancelBtn.style.display = 'inline-block';
+        document.getElementById('info-panel').innerHTML =
+          '<span style="color:#f59e0b">🚫 Выделите область на графике для исключения</span>';
+      } else {
+        btn.style.display = 'inline-block';
+        hint.style.display = 'none';
+        applyBtn.style.display = 'none';
+        cancelBtn.style.display = 'none';
+      }
+
+      buildChart();
+    }
+
+    function cancelExcludeMode() {
+      excludeSelectionMode = false;
+      excludeSelectionRange = null;
+
+      document.getElementById('btn-exclude-mode').style.display = 'inline-block';
+      document.getElementById('exclude-mode-hint').style.display = 'none';
+      document.getElementById('btn-apply-exclude').style.display = 'none';
+      document.getElementById('btn-cancel-exclude').style.display = 'none';
+      document.getElementById('info-panel').textContent = 'Режим исключения отменён';
+
+      buildChart();
+    }
+
+    function applyExcludeFromSelection() {
+      if (!excludeSelectionRange) {
+        alert('Сначала выделите область на графике');
+        return;
+      }
+
+      addExcludeRange(excludeSelectionRange.startIdx, excludeSelectionRange.endIdx);
+
+      // Выходим из режима исключения
+      excludeSelectionMode = false;
+      excludeSelectionRange = null;
+      document.getElementById('btn-exclude-mode').style.display = 'inline-block';
+      document.getElementById('exclude-mode-hint').style.display = 'none';
+      document.getElementById('btn-apply-exclude').style.display = 'none';
+      document.getElementById('btn-cancel-exclude').style.display = 'none';
+
+      document.getElementById('info-panel').innerHTML =
+        `<span style="color:#22c55e">✓ Область исключена. Нажмите "Пересчитать статистики" для обновления.</span>`;
+
+      buildChart();
+    }
+
+    function addExcludeRange(start, end) {
+      excludeRanges.push({ start, end });
+      updateExcludeList();
+      // Показываем блок исключений
+      document.getElementById('exclude-list').style.display = 'block';
+    }
+
+    function removeExcludeRange(idx) {
+      excludeRanges.splice(idx, 1);
+      updateExcludeList();
+      if (excludeRanges.length === 0) {
+        document.getElementById('exclude-list').style.display = editMode ? 'block' : 'none';
+      }
+      buildChart();
+    }
+
+    function updateExcludeList() {
+      const container = document.getElementById('exclude-items');
+      container.innerHTML = excludeRanges.map((r, i) => {
+        const startDate = chartData.dates[r.start] || r.start;
+        const endDate = chartData.dates[Math.min(r.end-1, chartData.dates.length-1)] || r.end;
+        return `<span class="exclude-item">
+          ${startDate.substring(5, 16)} — ${endDate.substring(5, 16)} (${r.end - r.start} ч.)
+          <button onclick="removeExcludeRange(${i})" title="Удалить исключение">×</button>
+        </span>`;
+      }).join('');
+    }
+
+    // Пересчёт статистик с учётом исключений
+    async function recalcWithExclusions() {
+      if (excludeRanges.length === 0) {
+        alert('Нет исключённых областей');
+        return;
+      }
+
+      document.getElementById('info-panel').innerHTML =
+        '<span style="color:#6b7280">⏳ Пересчёт статистик...</span>';
+
+      try {
+        // Пересчитываем каждый сегмент с учётом исключений
+        for (let i = 0; i < segments.length; i++) {
+          const seg = segments[i];
+
+          const response = await fetch('/api/segment-demo/recalc-segment', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              well_id: {{ well_id|default(0) }},
+              date_from: '{{ date_from }}',
+              date_to: '{{ date_to }}',
+              series: '{{ series|default("flow_rate") }}',
+              start_idx: seg.start_idx,
+              end_idx: seg.end_idx,
+              trim_left: seg.trim_left || 0,
+              trim_right: seg.trim_right || 0,
+              exclude_ranges: excludeRanges.map(r => [r.start, r.end])
+            })
+          });
+
+          const result = await response.json();
+          if (result.ok) {
+            // Обновляем ВСЕ статистики сегмента включая тренд
+            segments[i] = {
+              ...seg,
+              mean_value: result.segment.mean_value,
+              std_value: result.segment.std_value,
+              min_value: result.segment.min_value,
+              max_value: result.segment.max_value,
+              slope: result.segment.slope,
+              intercept: result.segment.intercept,
+              r_squared: result.segment.r_squared,
+              days: result.segment.days,
+              // Пересчитываем тип сегмента по новому тренду
+              segment_type: classifySegmentType(result.segment)
+            };
+            console.log(`Segment ${seg.num} recalculated: slope=${result.segment.slope}, intercept=${result.segment.intercept}`);
+          }
+        }
+
+        updateTable();
+        buildChart();
+        document.getElementById('info-panel').innerHTML =
+          `<span style="color:#22c55e">✓ Статистики пересчитаны с учётом ${excludeRanges.length} исключённых областей</span>`;
+      } catch (e) {
+        console.error('Recalc error:', e);
+        document.getElementById('info-panel').innerHTML =
+          `<span style="color:#dc2626">Ошибка пересчёта: ${e.message}</span>`;
+      }
+    }
+
+    // ═══ Trim / Отступы ═══
+    async function applyTrimToSelected() {
+      if (!selectedSegment) {
+        alert('Сначала выберите сегмент в таблице');
+        return;
+      }
+
+      const seg = segments.find(s => s.num === selectedSegment);
+      if (!seg) return;
+
+      const trimLeft = parseInt(document.getElementById('trimLeft').value) || 0;
+      const trimRight = parseInt(document.getElementById('trimRight').value) || 0;
+
+      try {
+        const response = await fetch('/api/segment-demo/recalc-segment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            well_id: {{ well_id|default(0) }},
+            date_from: '{{ date_from }}',
+            date_to: '{{ date_to }}',
+            series: '{{ series|default("flow_rate") }}',
+            start_idx: seg.start_idx,
+            end_idx: seg.end_idx,
+            trim_left: trimLeft,
+            trim_right: trimRight,
+            exclude_ranges: excludeRanges.map(r => [r.start, r.end])
+          })
+        });
+
+        const result = await response.json();
+        if (result.ok) {
+          // Обновляем сегмент
+          const idx = segments.findIndex(s => s.num === selectedSegment);
+          if (idx >= 0) {
+            segments[idx] = { ...segments[idx], ...result.segment, num: selectedSegment };
+            updateTable();
+            buildChart();
+          }
+        } else {
+          alert('Ошибка: ' + result.error);
+        }
+      } catch (e) {
+        alert('Ошибка запроса: ' + e.message);
+      }
+    }
+
+    // ═══ Комментарии ═══
+    function updateComment(segNum, comment) {
+      segmentComments[segNum] = comment;
+      const seg = segments.find(s => s.num === segNum);
+      if (seg) seg.comment = comment;
+      buildChart();
+    }
+
+    // ═══ Выбор сегмента ═══
+    function selectSegment(num) {
+      selectedSegment = num;
+
+      // Подсветка в таблице
+      document.querySelectorAll('#segments-tbody tr').forEach(tr => {
+        tr.classList.toggle('selected', parseInt(tr.dataset.segment) === num);
+      });
+
+      // Обновить info panel
+      const seg = segments.find(s => s.num === num);
+      if (seg) {
+        document.getElementById('info-panel').innerHTML =
+          `Выбран сегмент #${num}: ${chartData.dates[seg.start_idx]} — ${chartData.dates[Math.min(seg.end_idx-1, chartData.dates.length-1)]} (${seg.days} ч.)`;
+      }
+
+      buildChart();
+    }
+
+    // ═══ Обновление UI ═══
+    function updateStats() {
+      document.getElementById('stat-cp').textContent = changepoints.length;
+      document.getElementById('stat-seg').textContent = segments.length;
+    }
+
+    function updateTable() {
+      const tbody = document.getElementById('segments-tbody');
+      const canEdit = editMode || manualMode;
+
+      // Обновляем счётчик и глобальные статистики
+      const countSpan = document.getElementById('segments-count');
+      if (countSpan) {
+        countSpan.textContent = `(${segments.length} шт.)`;
+      }
+
+      // Показываем глобальные статистики
+      const globalInfo = document.getElementById('global-stats-info');
+      if (globalInfo && globalStats.mean > 0) {
+        globalInfo.innerHTML = `<b>Период:</b> μ (среднее) = <span style="color:#3b82f6">${globalStats.mean.toFixed(2)}</span> | ` +
+          `Me (медиана) = <span style="color:#8b5cf6">${globalStats.median.toFixed(2)}</span> | ` +
+          `σ = ${globalStats.std.toFixed(2)} | ` +
+          `мин = ${globalStats.min.toFixed(1)}, макс = ${globalStats.max.toFixed(1)}`;
+      }
+
+      tbody.innerHTML = segments.map((seg, idx) => {
+        // Безопасное получение значений с проверками
+        const meanVal = typeof seg.mean_value === 'number' ? seg.mean_value : 0;
+        const slopeVal = typeof seg.slope === 'number' ? seg.slope : 0;
+        const daysVal = seg.days || 1;
+        const rSquared = typeof seg.r_squared === 'number' ? seg.r_squared : 0;
+        const stdVal = typeof seg.std_value === 'number' ? seg.std_value : 0;
+
+        // Сравнение с глобальными статистиками
+        const vsMean = globalStats.mean > 0 ? ((meanVal - globalStats.mean) / globalStats.mean * 100) : 0;
+        const vsMedian = globalStats.median > 0 ? ((meanVal - globalStats.median) / globalStats.median * 100) : 0;
+        const vsMeanClass = vsMean > 5 ? 'drift-positive' : (vsMean < -5 ? 'drift-negative' : '');
+        const vsMedianClass = vsMedian > 5 ? 'drift-positive' : (vsMedian < -5 ? 'drift-negative' : '');
+
+        const drift = meanVal !== 0 ? (slopeVal * daysVal / meanVal * 100) : 0;
+        const driftClass = drift > 0 ? 'drift-positive' : (drift < 0 ? 'drift-negative' : '');
+        const typeColor = typeColors[seg.segment_type] || '#999';
+        const typeLabel = typeLabels[seg.segment_type] || seg.segment_type || 'unknown';
+        const isSelected = selectedSegment === seg.num;
+        const isManual = seg.is_manual;
+        const rowClass = [isSelected ? 'selected' : '', isManual ? 'manual-segment' : ''].filter(Boolean).join(' ');
+
+        // Форматирование границ
+        const startDate = chartData.dates[seg.start_idx] || String(seg.start_idx);
+        const endDate = chartData.dates[Math.min(seg.end_idx - 1, chartData.dates.length - 1)] || String(seg.end_idx);
+        const startShort = startDate.length > 10 ? startDate.substring(11, 16) || startDate.substring(5, 10) : startDate;
+        const endShort = endDate.length > 10 ? endDate.substring(11, 16) || endDate.substring(5, 10) : endDate;
+
+        // Контролы границ (показываем только в режиме редактирования)
+        let boundaryHtml = `<span style="font-size:11px;color:#6b7280">${startShort}—${endShort}</span>`;
+        if (canEdit) {
+          const isFirst = idx === 0;
+          const isLast = idx === segments.length - 1;
+          boundaryHtml = `
+            <div class="boundary-controls">
+              <button class="boundary-btn" onclick="event.stopPropagation(); moveLeftBoundary(${seg.num}, -1)" ${isFirst ? 'disabled' : ''} title="Сдвинуть начало влево">◀</button>
+              <span class="boundary-value">${seg.start_idx}</span>
+              <button class="boundary-btn" onclick="event.stopPropagation(); moveLeftBoundary(${seg.num}, 1)" title="Сдвинуть начало вправо">▶</button>
+              <span style="color:#ccc">|</span>
+              <button class="boundary-btn" onclick="event.stopPropagation(); moveRightBoundary(${seg.num}, -1)" title="Сдвинуть конец влево">◀</button>
+              <span class="boundary-value">${seg.end_idx}</span>
+              <button class="boundary-btn" onclick="event.stopPropagation(); moveRightBoundary(${seg.num}, 1)" ${isLast ? 'disabled' : ''} title="Сдвинуть конец вправо">▶</button>
+            </div>
+          `;
+        }
+
+        // Кнопка удаления
+        let deleteBtn = '';
+        if (canEdit) {
+          if (manualMode && isManual) {
+            deleteBtn = `<button class="delete-seg-btn" onclick="event.stopPropagation(); removeManualSegment(${seg.num})" title="Удалить сегмент">🗑️</button>`;
+          } else if (editMode && segments.length > 1) {
+            deleteBtn = `<button class="delete-seg-btn" onclick="event.stopPropagation(); deleteSegment(${seg.num})" title="Удалить (объединить с соседним)">🗑️</button>`;
+          }
+        }
+
+        const isChecked = selectedForCompare.has(seg.num);
+        return `<tr data-segment="${seg.num}" onclick="selectSegment(${seg.num})" class="${rowClass}">
+          <td onclick="event.stopPropagation()">
+            <input type="checkbox" class="seg-checkbox" data-seg="${seg.num}" ${isChecked ? 'checked' : ''} onchange="toggleSegmentForCompare(${seg.num}, this.checked)">
+          </td>
+          <td>${seg.num} ${isManual ? '<span style="color:#8b5cf6" title="Ручной сегмент">✋</span>' : ''}</td>
+          <td><span class="badge ${isManual ? 'badge-manual' : ''}" style="background:${typeColor}">${typeLabel}</span></td>
+          <td>${boundaryHtml}</td>
+          <td>${daysVal}</td>
+          <td><b>${meanVal.toFixed(2)}</b></td>
+          <td><span class="${vsMeanClass}" style="font-size:11px">${vsMean > 0 ? '+' : ''}${vsMean.toFixed(1)}%</span></td>
+          <td><span class="${vsMedianClass}" style="font-size:11px">${vsMedian > 0 ? '+' : ''}${vsMedian.toFixed(1)}%</span></td>
+          <td style="font-size:11px;color:#6b7280">${stdVal.toFixed(2)}</td>
+          <td><span class="drift ${driftClass}">${drift > 0 ? '+' : ''}${drift.toFixed(1)}%</span></td>
+          <td><span class="rsq">${rSquared.toFixed(2)}</span></td>
+          <td>
+            <input type="text" class="comment-input" data-segment="${seg.num}" placeholder="комментарий..." value="${seg.comment || segmentComments[seg.num] || ''}" onchange="updateComment(${seg.num}, this.value)" onclick="event.stopPropagation()">
+          </td>
+          <td><button class="analysis-btn" onclick="event.stopPropagation(); showSegmentAnalysis(${seg.num})" title="Подробный анализ">📊</button></td>
+          <td>${deleteBtn}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    // ═══ Пересчитать с новой чувствительностью ═══
+    function rerunAnalysis() {
+      const sens = document.getElementById('sensitivity').value;
+      const url = new URL(window.location.href);
+      url.searchParams.set('sensitivity', sens);
+      window.location.href = url.toString();
+    }
+
+    // ═══ Режим редактирования ═══
+    document.getElementById('editMode').addEventListener('change', function() {
+      editMode = this.checked;
+      document.getElementById('edit-banner').classList.toggle('active', editMode && !manualMode);
+      document.getElementById('trim-controls').style.display = (editMode && !manualMode) ? 'flex' : 'none';
+
+      // Показываем exclude-list если есть исключения ИЛИ если режим редактирования
+      const showExclude = (editMode && !manualMode) || excludeRanges.length > 0;
+      document.getElementById('exclude-list').style.display = showExclude ? 'block' : 'none';
+
+      // Сбрасываем режим выделения исключений если выходим из редактирования
+      if (!editMode && excludeSelectionMode) {
+        cancelExcludeMode();
+      }
+
+      updateTable();  // обновляем таблицу для показа/скрытия контролов
+      buildChart();
+    });
+
+    // ═══ Ручной режим ═══
+    document.getElementById('manualMode').addEventListener('change', function() {
+      toggleManualMode(this.checked);
+
+      // Если включён ручной режим, выключаем режим редактирования
+      if (this.checked) {
+        document.getElementById('editMode').checked = false;
+        editMode = false;
+        document.getElementById('edit-banner').classList.remove('active');
+        document.getElementById('trim-controls').style.display = 'none';
+        document.getElementById('exclude-list').style.display = 'none';
+      }
+    });
+
+    // ═══ Инициализация ═══
+    document.getElementById('showTrends').addEventListener('change', buildChart);
+    document.getElementById('showCP').addEventListener('change', buildChart);
+    document.getElementById('showBG').addEventListener('change', buildChart);
+    document.getElementById('showEvents').addEventListener('change', buildChart);
+    document.getElementById('showGlobalLines').addEventListener('change', buildChart);
+    document.getElementById('sensitivity').addEventListener('input', function() {
+      document.getElementById('sensitivityVal').textContent = this.value;
+    });
+
+    // ═══ Загрузка событий скважины ═══
+    async function loadEvents() {
+      try {
+        const response = await fetch(`/api/segment-demo/events?well_id={{ well_id|default(0) }}&date_from={{ date_from }}&date_to={{ date_to }}`);
+        const result = await response.json();
+        if (result.ok) {
+          eventsData = result;
+          console.log('Events loaded:', result.total, 'events');
+          updateInjectionsTable();  // обновляем таблицу вбросов
+          buildChart();  // перерисовываем с событиями
+        }
+      } catch (e) {
+        console.error('Failed to load events:', e);
+      }
+    }
+
+    // ═══ Таблица вбросов реагента ═══
+    function updateInjectionsTable() {
+      const injections = eventsData.timeline_injections || [];
+      const card = document.getElementById('injections-card');
+      const tbody = document.getElementById('injections-tbody');
+      const countSpan = document.getElementById('injections-count');
+      const legendDiv = document.getElementById('reagent-legend');
+
+      if (injections.length === 0) {
+        card.style.display = 'none';
+        return;
+      }
+
+      card.style.display = 'block';
+      countSpan.textContent = `(${injections.length})`;
+
+      // Собираем уникальные реагенты и генерируем цвета
+      const uniqueReagents = [...new Set(injections.map(inj => inj.reagent).filter(Boolean))];
+      uniqueReagents.forEach(r => getReagentColor(r));
+
+      // Легенда реагентов
+      legendDiv.innerHTML = uniqueReagents.map(reagent => {
+        const color = getReagentColor(reagent);
+        return `<div class="reagent-legend-item">
+          <span class="reagent-color-dot" style="background:${color}"></span>
+          <span>${reagent}</span>
+        </div>`;
+      }).join('');
+
+      // Заполняем таблицу
+      tbody.innerHTML = injections.map(inj => {
+        const color = getReagentColor(inj.reagent);
+        const dateStr = inj.t ? inj.t.replace('T', ' ').substring(0, 16) : '—';
+
+        // Находим в каком сегменте произошёл вброс
+        let segNum = '—';
+        if (inj.t) {
+          const evTime = inj.t.replace('T', ' ').substring(0, 16);
+          const idx = chartData.dates.findIndex(d => d >= evTime);
+          if (idx >= 0) {
+            const seg = segments.find(s => idx >= s.start_idx && idx < s.end_idx);
+            if (seg) segNum = `#${seg.num}`;
+          }
+        }
+
+        return `<tr>
+          <td><span class="reagent-color-dot" style="background:${color}"></span></td>
+          <td style="font-size:12px; white-space:nowrap;">${dateStr}</td>
+          <td><b>${inj.reagent || '—'}</b></td>
+          <td>${inj.qty ? inj.qty.toFixed(1) + ' л' : '—'}</td>
+          <td style="font-size:12px; color:#6b7280; max-width:200px; overflow:hidden; text-overflow:ellipsis;">${inj.description || ''}</td>
+          <td style="font-size:12px; color:#6b7280;">${segNum}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    // ═══ Расчёт глобальных статистик периода ═══
+    function calculateGlobalStats() {
+      const values = chartData.primary.values.filter(v => v != null && isFinite(v));
+      if (values.length === 0) return;
+
+      // Среднее
+      globalStats.mean = values.reduce((a, b) => a + b, 0) / values.length;
+
+      // Медиана
+      const sorted = [...values].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      globalStats.median = sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+
+      // Стандартное отклонение
+      const sqDiff = values.map(v => Math.pow(v - globalStats.mean, 2));
+      globalStats.std = Math.sqrt(sqDiff.reduce((a, b) => a + b, 0) / values.length);
+
+      // Мин/Макс
+      globalStats.min = Math.min(...values);
+      globalStats.max = Math.max(...values);
+
+      console.log('Global stats:', globalStats);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  Сравнение сегментов
+    // ═══════════════════════════════════════════════════════════════════════
+
+    const compareColors = [
+      '#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6',
+      '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1'
+    ];
+
+    function toggleSegmentForCompare(segNum, checked) {
+      if (checked) {
+        selectedForCompare.add(segNum);
+        compareShowTrends[segNum] = true;
+      } else {
+        selectedForCompare.delete(segNum);
+        delete compareShowTrends[segNum];
+      }
+      updateCompareButtons();
+    }
+
+    function toggleSelectAll(checked) {
+      segments.forEach(seg => {
+        if (checked) {
+          selectedForCompare.add(seg.num);
+          compareShowTrends[seg.num] = true;
+        } else {
+          selectedForCompare.delete(seg.num);
+          delete compareShowTrends[seg.num];
+        }
+      });
+      updateTable();
+      updateCompareButtons();
+    }
+
+    function updateCompareButtons() {
+      const count = selectedForCompare.size;
+      const compareBtn = document.getElementById('compareSelectedBtn');
+      const floatBtn = document.getElementById('compareFloatBtn');
+
+      if (count >= 2) {
+        compareBtn.style.display = 'inline-block';
+        floatBtn.classList.add('visible');
+      } else {
+        compareBtn.style.display = 'none';
+        floatBtn.classList.remove('visible');
+      }
+
+      document.getElementById('selectedCount').textContent = count;
+      document.getElementById('floatSelectedCount').textContent = count;
+    }
+
+    function openCompareModal() {
+      if (selectedForCompare.size < 2) {
+        alert('Выберите минимум 2 сегмента для сравнения');
+        return;
+      }
+
+      document.getElementById('compare-modal').classList.add('active');
+      buildCompareChart();
+      buildCompareTable();
+    }
+
+    function closeCompareModal() {
+      document.getElementById('compare-modal').classList.remove('active');
+    }
+
+    // Закрытие по клику вне модалки
+    document.getElementById('compare-modal').addEventListener('click', function(e) {
+      if (e.target === this) closeCompareModal();
+    });
+
+    // Закрытие анализа по клику вне модалки
+    document.getElementById('analysis-modal').addEventListener('click', function(e) {
+      if (e.target === this) closeAnalysisModal();
+    });
+
+    function buildCompareChart() {
+      const selectedSegs = segments.filter(s => selectedForCompare.has(s.num));
+      if (selectedSegs.length === 0) return;
+
+      const normalize = document.getElementById('compareNormalize')?.checked;
+
+      // Строим легенду (с количеством событий для информации)
+      const legendHtml = selectedSegs.map((seg, i) => {
+        const color = compareColors[i % compareColors.length];
+        const checked = compareShowTrends[seg.num] !== false;
+        const eventsInSeg = countEventsInSegment(seg);
+        const eventsLabel = eventsInSeg > 0 ? ` <span style="color:#22c55e" title="Событий в сегменте">[${eventsInSeg} соб.]</span>` : '';
+        return `
+          <div class="compare-legend-item">
+            <div class="compare-legend-color" style="background:${color}"></div>
+            <label>
+              <input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleCompareTrend(${seg.num}, this.checked)">
+              Сегмент #${seg.num} (${seg.days} ч.)${eventsLabel}
+            </label>
+          </div>
+        `;
+      }).join('');
+      document.getElementById('compare-legend').innerHTML = legendHtml;
+
+      // Строим traces
+      const traces = [];
+
+      selectedSegs.forEach((seg, i) => {
+        const color = compareColors[i % compareColors.length];
+        const startIdx = seg.start_idx;
+        const endIdx = seg.end_idx;
+
+        // Данные сегмента (относительное время)
+        let segValues = chartData.primary.values.slice(startIdx, endIdx);
+        const relativeTime = segValues.map((_, idx) => idx);  // 0, 1, 2, ... N
+
+        // Нормализация (0-100%)
+        if (normalize) {
+          const validValues = segValues.filter(v => v != null && isFinite(v));
+          const minV = Math.min(...validValues);
+          const maxV = Math.max(...validValues);
+          const range = maxV - minV || 1;
+          segValues = segValues.map(v => v != null ? ((v - minV) / range * 100) : null);
+        }
+
+        // Основная линия данных
+        traces.push({
+          x: relativeTime,
+          y: segValues,
+          type: 'scatter',
+          mode: 'lines',
+          name: `#${seg.num} данные`,
+          line: { color: color, width: 2 },
+          hovertemplate: `Сегмент #${seg.num}<br>Час %{x}<br>Значение: %{y:.2f}<extra></extra>`
+        });
+
+        // Тренд (если включён)
+        if (compareShowTrends[seg.num] !== false) {
+          let trendY = relativeTime.map(t => seg.intercept + seg.slope * t);
+
+          // Нормализуем тренд если нужно
+          if (normalize) {
+            const validValues = chartData.primary.values.slice(startIdx, endIdx).filter(v => v != null && isFinite(v));
+            const minV = Math.min(...validValues);
+            const maxV = Math.max(...validValues);
+            const range = maxV - minV || 1;
+            trendY = trendY.map(v => ((v - minV) / range * 100));
+          }
+
+          traces.push({
+            x: relativeTime,
+            y: trendY,
+            type: 'scatter',
+            mode: 'lines',
+            name: `#${seg.num} тренд`,
+            line: { color: color, width: 2, dash: 'dash' },
+            opacity: 0.7,
+            hovertemplate: `Тренд #${seg.num}<br>Час %{x}<br>Значение: %{y:.2f}<extra></extra>`
+          });
+        }
+      });
+
+      const layout = {
+        title: { text: normalize ? 'Наложение сегментов (нормализовано 0-100%)' : 'Наложение сегментов (относительное время)', font: { size: 14 } },
+        xaxis: { title: 'Часы от начала сегмента', zeroline: true },
+        yaxis: { title: normalize ? 'Нормализованное значение (%)' : '{{ series_label }}' },
+        margin: { t: 40, b: 50, l: 60, r: 20 },
+        hovermode: 'closest',
+        showlegend: true,
+        legend: { orientation: 'h', y: -0.15 }
+      };
+
+      Plotly.newPlot('compare-chart', traces, layout, { responsive: true });
+    }
+
+    function countEventsInSegment(seg) {
+      if (!eventsData) return 0;
+      let count = 0;
+      const segStartDate = chartData.dates[seg.start_idx];
+      const segEndDate = chartData.dates[seg.end_idx - 1];
+
+      const checkEvents = (events) => {
+        if (!events) return;
+        events.forEach(ev => {
+          if (!ev.t) return;  // поле "t", не "time"!
+          const evTime = ev.t.replace('T', ' ').substring(0, 16);
+          if (evTime >= segStartDate && evTime <= segEndDate) count++;
+        });
+      };
+
+      checkEvents(eventsData.timeline_injections);
+      checkEvents(eventsData.timeline_events);
+
+      return count;
+    }
+
+    function toggleCompareTrend(segNum, show) {
+      compareShowTrends[segNum] = show;
+      buildCompareChart();
+    }
+
+    function buildCompareTable() {
+      const selectedSegs = segments.filter(s => selectedForCompare.has(s.num));
+      const tbody = document.getElementById('compare-stats-tbody');
+
+      // Находим базовый сегмент (первый выбранный) для сравнения
+      const baseSeg = selectedSegs[0];
+
+      tbody.innerHTML = selectedSegs.map((seg, i) => {
+        const color = compareColors[i % compareColors.length];
+        const meanVal = seg.mean_value || 0;
+        const stdVal = seg.std_value || 0;
+        const minVal = seg.min_value || 0;
+        const maxVal = seg.max_value || 0;
+        const daysVal = seg.days || 0;
+        const drift = meanVal !== 0 ? (seg.slope * daysVal / meanVal * 100) : 0;
+        const rSquared = seg.r_squared || 0;
+
+        // Разница с базовым
+        let diffHtml = '';
+        if (i > 0 && baseSeg) {
+          const baseMean = baseSeg.mean_value || 0;
+          const meanDiff = baseMean !== 0 ? ((meanVal - baseMean) / baseMean * 100) : 0;
+          const diffClass = meanDiff > 0 ? 'compare-diff-positive' : (meanDiff < 0 ? 'compare-diff-negative' : '');
+          diffHtml = `<span class="compare-diff ${diffClass}">(${meanDiff > 0 ? '+' : ''}${meanDiff.toFixed(1)}%)</span>`;
+        }
+
+        // Период (даты)
+        const startDate = chartData.dates[seg.start_idx] || '';
+        const endDate = chartData.dates[Math.min(seg.end_idx - 1, chartData.dates.length - 1)] || '';
+        const period = `${startDate.substring(5, 10)} — ${endDate.substring(5, 10)}`;
+
+        return `<tr>
+          <td><span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:${color};margin-right:8px;"></span>#${seg.num}</td>
+          <td style="font-size:11px;">${period}</td>
+          <td>${daysVal}</td>
+          <td><b>${meanVal.toFixed(2)}</b> ${diffHtml}</td>
+          <td>${stdVal.toFixed(2)}</td>
+          <td>${minVal.toFixed(1)}</td>
+          <td>${maxVal.toFixed(1)}</td>
+          <td class="${drift > 0 ? 'drift-positive' : (drift < 0 ? 'drift-negative' : '')}">${drift > 0 ? '+' : ''}${drift.toFixed(1)}%</td>
+          <td>${rSquared.toFixed(3)}</td>
+        </tr>`;
+      }).join('');
+
+      // Добавляем строку с разницей если выбрано ровно 2 сегмента
+      const diffSection = document.getElementById('compare-diff-section');
+      if (selectedSegs.length === 2) {
+        const seg1 = selectedSegs[0];
+        const seg2 = selectedSegs[1];
+
+        const diffs = {
+          hours: seg2.days - seg1.days,
+          mean: seg2.mean_value - seg1.mean_value,
+          meanPct: seg1.mean_value ? ((seg2.mean_value - seg1.mean_value) / seg1.mean_value * 100) : 0,
+          std: seg2.std_value - seg1.std_value,
+          min: seg2.min_value - seg1.min_value,
+          max: seg2.max_value - seg1.max_value,
+        };
+
+        const drift1 = seg1.mean_value !== 0 ? (seg1.slope * seg1.days / seg1.mean_value * 100) : 0;
+        const drift2 = seg2.mean_value !== 0 ? (seg2.slope * seg2.days / seg2.mean_value * 100) : 0;
+        diffs.drift = drift2 - drift1;
+
+        document.getElementById('compare-diff-content').innerHTML = `
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:15px;">
+            <div class="stat" style="background:#f3f4f6;">
+              <div style="font-size:11px;color:#6b7280;">Δ Среднее</div>
+              <div style="font-size:18px;font-weight:bold;color:${diffs.mean >= 0 ? '#22c55e' : '#ef4444'}">
+                ${diffs.mean >= 0 ? '+' : ''}${diffs.mean.toFixed(2)}
+              </div>
+              <div style="font-size:11px;color:#6b7280;">(${diffs.meanPct >= 0 ? '+' : ''}${diffs.meanPct.toFixed(1)}%)</div>
+            </div>
+            <div class="stat" style="background:#f3f4f6;">
+              <div style="font-size:11px;color:#6b7280;">Δ σ</div>
+              <div style="font-size:18px;font-weight:bold;">${diffs.std >= 0 ? '+' : ''}${diffs.std.toFixed(2)}</div>
+            </div>
+            <div class="stat" style="background:#f3f4f6;">
+              <div style="font-size:11px;color:#6b7280;">Δ Часов</div>
+              <div style="font-size:18px;font-weight:bold;">${diffs.hours >= 0 ? '+' : ''}${diffs.hours}</div>
+            </div>
+            <div class="stat" style="background:#f3f4f6;">
+              <div style="font-size:11px;color:#6b7280;">Δ Дрейф</div>
+              <div style="font-size:18px;font-weight:bold;color:${diffs.drift >= 0 ? '#22c55e' : '#ef4444'}">
+                ${diffs.drift >= 0 ? '+' : ''}${diffs.drift.toFixed(1)}%
+              </div>
+            </div>
+            <div class="stat" style="background:#f3f4f6;">
+              <div style="font-size:11px;color:#6b7280;">Δ Мин</div>
+              <div style="font-size:18px;font-weight:bold;">${diffs.min >= 0 ? '+' : ''}${diffs.min.toFixed(1)}</div>
+            </div>
+            <div class="stat" style="background:#f3f4f6;">
+              <div style="font-size:11px;color:#6b7280;">Δ Макс</div>
+              <div style="font-size:18px;font-weight:bold;">${diffs.max >= 0 ? '+' : ''}${diffs.max.toFixed(1)}</div>
+            </div>
+          </div>
+        `;
+        diffSection.style.display = 'block';
+      } else {
+        diffSection.style.display = 'none';
+      }
+    }
+
+    // Инициализируем интерфейс
+    calculateGlobalStats();  // рассчитываем глобальные статистики
+    updateTable();  // обновляем таблицу с полными данными
+    buildChart();
+    loadEvents();  // загружаем события асинхронно
+
+    // Показываем exclude-list если есть исключения
+    if (excludeRanges.length > 0) {
+      document.getElementById('exclude-list').style.display = 'block';
+      updateExcludeList();
+    }
+
+    // Загружаем сохранённые блоки
+    loadSavedBlocks();
+
+    // Показываем бейдж главы, если указан chapter в URL
+    if (urlChapter === 'observation') {
+      const badge = document.getElementById('chapter-badge');
+      if (badge) badge.style.display = 'block';
+    }
+
+    console.log('Segment editor initialized. Segments:', segments.length, 'Changepoints:', changepoints.length);
+  </script>
+</body>
+</html>

@@ -1,0 +1,321 @@
+/* ─── Step 5 timeline (wz5tl-) — копия wz3tl с зелёным акцентом ─── */
+.wz5tl-wrap { background:#fafafa; border:1px solid #e5e7eb; border-radius:6px;
+              padding:10px 12px; margin-bottom:12px; }
+.wz5tl-headerrow { display:flex; align-items:center; gap:10px;
+                   font-size:0.84rem; color:#374151; flex-wrap:wrap; margin-bottom:8px; }
+.wz5tl-mode { color:#059669; font-weight:500; }
+.wz5tl-zoom-row { display:flex; align-items:center; gap:8px; margin-bottom:6px;
+                  font-size:0.78rem; color:#6b7280; flex-wrap:wrap; }
+.wz5tl-zoom-btn { padding:3px 10px; font-size:0.76rem; background:#fff;
+                  border:1px solid #d1d5db; border-radius:999px; cursor:pointer;
+                  color:#374151; }
+.wz5tl-zoom-btn:hover { background:#ecfdf5; border-color:#6ee7b7; }
+.wz5tl-zoom-btn.active { background:#059669; color:#fff; border-color:#047857; }
+.wz5tl-scroll { width:100%; overflow-x:auto; overflow-y:hidden;
+                background:#fff; border:1px solid #e5e7eb; border-radius:4px;
+                padding:6px 0; margin-bottom:4px; }
+.wz5tl-scale { position:relative; height:160px; min-width:100%;
+               cursor:crosshair; user-select:none; }
+.wz5tl-bar { position:absolute; height:18px; border-radius:3px; pointer-events:none; }
+.wz5tl-bar-customer { top:76px; background:#93c5fd; }
+.wz5tl-bar-our      { top:102px; background:#6ee7b7; }
+.wz5tl-bar-label { position:absolute; left:6px; font-size:0.7rem;
+                   color:rgba(0,0,0,0.7); line-height:18px; pointer-events:none; }
+.wz5tl-stage-line { position:absolute; top:12px; height:130px; width:2px;
+                    background:currentColor; opacity:0.45;
+                    transform:translateX(-50%); pointer-events:none; }
+.wz5tl-stage-dot { position:absolute; top:6px; width:14px; height:14px;
+                   border-radius:50%; background:currentColor;
+                   box-shadow:0 0 0 2px #fff, 0 1px 4px rgba(0,0,0,0.2);
+                   transform:translateX(-50%); cursor:pointer; pointer-events:auto; }
+.wz5tl-stage-dot:hover { transform:translateX(-50%) scale(1.4); }
+.wz5tl-stage-label-side { position:absolute; font-size:0.66rem; font-weight:600;
+                          background:#fff; padding:1px 4px; border-radius:2px;
+                          border:1px solid currentColor; white-space:nowrap;
+                          pointer-events:none; line-height:14px; }
+.wz5tl-event-icon { position:absolute; top:100px; transform:translateX(-50%);
+                    font-size:13px; line-height:13px; background:#fff;
+                    border-radius:50%; padding:1px 2px;
+                    box-shadow:0 0 0 1px currentColor, 0 1px 3px rgba(0,0,0,0.15);
+                    pointer-events:auto; cursor:help; }
+.wz5tl-range { position:absolute; top:70px; height:60px;
+               background:rgba(5,150,105,0.12);
+               border-left:2px solid rgba(5,150,105,0.65);
+               border-right:2px solid rgba(5,150,105,0.65); pointer-events:none; }
+.wz5tl-range-label { position:absolute; top:-2px; background:rgba(5,150,105,0.9);
+                     color:#fff; font-size:0.66rem; font-weight:600;
+                     padding:1px 5px; border-radius:2px; white-space:nowrap; }
+.wz5tl-obs-band { position:absolute; top:70px; height:60px;
+                  background:rgba(59,130,246,0.08);
+                  border-left:2px dashed rgba(59,130,246,0.5);
+                  border-right:2px dashed rgba(59,130,246,0.5); pointer-events:none; }
+.wz5tl-obs-band-label { position:absolute; top:-2px; background:rgba(59,130,246,0.85);
+                        color:#fff; font-size:0.62rem; font-weight:600;
+                        padding:1px 4px; border-radius:2px; }
+.wz5tl-axis { position:absolute; bottom:0; left:0; right:0; height:16px;
+              pointer-events:none; }
+.wz5tl-axis-tick { position:absolute; top:0; font-size:0.62rem; color:#6b7280;
+                   transform:translateX(-50%); white-space:nowrap; }
+.wz5tl-axis-tick::before { content:""; display:block; width:1px; height:4px;
+                           background:#9ca3af; margin:0 auto 1px; }
+.wz5tl-help { font-size:0.7rem; color:#9ca3af; margin-top:4px;
+              display:flex; gap:12px; flex-wrap:wrap; }
+.wz5tl-help b { color:#4b5563; }
+
+/* ─── Шаг 5: сравнительная таблица Адапт vs B2 vs B1 ─── */
+.wz5cmp-wrap {
+  background:#fff; border:2px solid #047857; border-radius:8px;
+  padding:14px 16px; margin-bottom:12px;
+  box-shadow:0 2px 8px rgba(5,150,105,0.08);
+}
+.wz5cmp-title {
+  font-size:1.05rem; font-weight:600; color:#065f46;
+  margin:0 0 4px 0; display:flex; align-items:center; gap:8px;
+}
+.wz5cmp-subtitle {
+  font-size:0.78rem; color:#6b7280; margin-bottom:10px;
+}
+.wz5cmp-table { width:100%; border-collapse:collapse; font-size:0.84rem; }
+.wz5cmp-table th, .wz5cmp-table td {
+  padding:6px 8px; border-bottom:1px solid #e5e7eb; text-align:right;
+}
+.wz5cmp-table th:first-child, .wz5cmp-table td:first-child {
+  text-align:left; color:#374151; font-weight:500;
+}
+.wz5cmp-table th {
+  background:#f9fafb; font-size:0.74rem; font-weight:600;
+  text-transform:uppercase; letter-spacing:0.03em; color:#6b7280;
+}
+.wz5cmp-table th.col-b1   { background:#fffbeb; color:#92400e; }
+.wz5cmp-table th.col-b2   { background:#ecfdf5; color:#065f46; }
+.wz5cmp-table th.col-r    { background:#eff6ff; color:#1e40af; }
+.wz5cmp-table th.col-rstar{ background:#fef3c7; color:#92400e; }
+.wz5cmp-table th.col-d    { background:#f5f5f5; }
+.wz5cmp-table td.col-b1   { background:rgba(255,251,235,0.4); }
+.wz5cmp-table td.col-b2   { background:rgba(236,253,245,0.4); }
+.wz5cmp-table td.col-r    { background:rgba(239,246,255,0.4); }
+.wz5cmp-table td.col-rstar{ background:rgba(254,243,199,0.5); font-weight:600; }
+.wz5cmp-table td.dpos { color:#15803d; font-weight:500; }
+.wz5cmp-table td.dneg { color:#b91c1c; font-weight:500; }
+.wz5cmp-table td.dflat { color:#6b7280; }
+.wz5cmp-table tr:hover td { background:#f9fafb; }
+.wz5cmp-section-row td {
+  background:#f3f4f6 !important; font-size:0.72rem; font-weight:600;
+  color:#4b5563; text-transform:uppercase; letter-spacing:0.04em;
+  text-align:left !important; padding:4px 8px;
+}
+.wz5cmp-empty {
+  padding:16px; background:#f9fafb; border:1px dashed #d1d5db;
+  border-radius:6px; color:#6b7280; font-size:0.86rem; text-align:center;
+}
+
+/* ─── Шаг 5: сводные карточки результата ─── */
+.wz5-cards {
+  display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
+  gap:10px; margin-bottom:12px;
+}
+.wz5-card {
+  background:#fff; border:1px solid #e5e7eb; border-radius:8px;
+  padding:10px 12px; border-left:4px solid #d1d5db;
+}
+.wz5-card.r       { border-left-color:#3b82f6; background:#eff6ff; }
+.wz5-card.b2      { border-left-color:#059669; background:#ecfdf5; }
+.wz5-card.b1      { border-left-color:#d97706; background:#fffbeb; }
+.wz5-card.rstar   { border-left-color:#f59e0b; background:linear-gradient(120deg,#fef3c7,#fde68a); }
+.wz5-card-title {
+  font-size:0.74rem; font-weight:600; text-transform:uppercase;
+  letter-spacing:0.04em; color:#6b7280; margin-bottom:4px;
+}
+.wz5-card.r .wz5-card-title    { color:#1e40af; }
+.wz5-card.b2 .wz5-card-title   { color:#065f46; }
+.wz5-card.b1 .wz5-card-title   { color:#92400e; }
+.wz5-card.rstar .wz5-card-title{ color:#92400e; }
+.wz5-card-period { font-size:0.72rem; color:#6b7280; margin-bottom:6px; }
+.wz5-card-grid {
+  display:grid; grid-template-columns:1fr 1fr; gap:4px 10px;
+  font-size:0.78rem;
+}
+.wz5-card-grid .lbl { color:#6b7280; }
+.wz5-card-grid .val { color:#1f2937; font-weight:600; text-align:right; }
+
+/* ─── Шаг 5: события / ИРВ ─── */
+.wz5-events-table, .wz5-irv-table {
+  width:100%; border-collapse:collapse; font-size:0.82rem;
+}
+.wz5-events-table th, .wz5-events-table td,
+.wz5-irv-table th, .wz5-irv-table td {
+  padding:5px 8px; border-bottom:1px solid #e5e7eb; text-align:right;
+}
+.wz5-events-table th, .wz5-irv-table th {
+  background:#f9fafb; font-size:0.72rem; color:#6b7280; font-weight:600;
+  text-transform:uppercase; letter-spacing:0.03em; text-align:left;
+}
+.wz5-events-table th:first-child, .wz5-events-table td:first-child,
+.wz5-irv-table th:first-child, .wz5-irv-table td:first-child {
+  text-align:left;
+}
+.wz5-irv-score {
+  display:inline-block; padding:2px 8px; border-radius:10px;
+  font-weight:600; font-size:0.78rem; min-width:40px; text-align:center;
+}
+.wz5-irv-score.lvl-1 { background:#fee2e2; color:#991b1b; }
+.wz5-irv-score.lvl-2 { background:#ffedd5; color:#9a3412; }
+.wz5-irv-score.lvl-3 { background:#fef3c7; color:#854d0e; }
+.wz5-irv-score.lvl-4 { background:#d1fae5; color:#065f46; }
+.wz5-irv-score.lvl-5 { background:#dcfce7; color:#14532d; }
+.wz5-evt-pill {
+  display:inline-block; padding:1px 8px; border-radius:10px;
+  font-size:0.72rem; font-weight:500;
+}
+.wz5-evt-pill.reagent { background:#ede9fe; color:#5b21b6; }
+.wz5-evt-pill.purge   { background:#fce7f3; color:#9d174d; }
+.wz5-evt-pill.equip   { background:#dbeafe; color:#1e40af; }
+.wz5-evt-pill.other   { background:#f3f4f6; color:#4b5563; }
+
+/* ─── Шаг 5: R★ кандидаты ─── */
+.wz5-rstar-grid {
+  display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));
+  gap:10px; margin-bottom:8px;
+}
+.wz5-rstar-card {
+  background:#fff; border:1.5px solid #fcd34d; border-radius:8px;
+  padding:10px 12px; cursor:pointer; transition:all 0.15s;
+}
+.wz5-rstar-card:hover { border-color:#f59e0b; transform:translateY(-1px);
+                        box-shadow:0 4px 12px rgba(0,0,0,0.08); }
+.wz5-rstar-card.selected {
+  background:linear-gradient(120deg,#fef3c7,#fde68a);
+  border-color:#d97706; box-shadow:0 0 0 3px rgba(251,191,36,0.25);
+}
+.wz5-rstar-rank {
+  display:inline-block; width:22px; height:22px; line-height:22px;
+  border-radius:50%; background:#f59e0b; color:#fff; text-align:center;
+  font-weight:700; font-size:0.78rem; margin-right:6px;
+}
+.wz5-rstar-card.selected .wz5-rstar-rank { background:#d97706; }
+.wz5-rstar-period { font-size:0.74rem; color:#6b7280; margin-bottom:6px; }
+.wz5-rstar-metrics { display:grid; grid-template-columns:1fr 1fr; gap:3px 8px;
+                     font-size:0.78rem; }
+.wz5-rstar-metrics .lbl { color:#6b7280; }
+.wz5-rstar-metrics .val { color:#1f2937; font-weight:600; text-align:right; }
+
+/* ─── Шаг 5: блок-карточка прикреплённого периода ─── */
+.wz5-attached-tile {
+  background:#fff; border:1px solid #d1d5db; border-radius:6px;
+  padding:8px 12px; display:flex; gap:10px; align-items:center;
+}
+.wz5-attached-tile .kind {
+  padding:2px 8px; border-radius:10px; font-size:0.72rem; font-weight:500;
+  background:#eff6ff; color:#1e40af; flex-shrink:0;
+}
+.wz5-attached-tile .kind.optimal_window  { background:#fef3c7; color:#92400e; }
+.wz5-attached-tile .kind.reagent_irv_summary { background:#ede9fe; color:#5b21b6; }
+.wz5-attached-tile .meta { flex:1; min-width:0; font-size:0.82rem; color:#374151; }
+.wz5-attached-tile .meta .ttl { font-weight:500; color:#1f2937; }
+.wz5-attached-tile .meta .sub { font-size:0.72rem; color:#6b7280;
+                                font-family:monospace; }
+.wz5-attached-tile button {
+  border:none; background:transparent; cursor:pointer; color:#9ca3af;
+  font-size:0.95rem; padding:2px 4px;
+}
+.wz5-attached-tile button:hover { color:#dc2626; }
+
+/* ─── Шаг 5: загрузка / пустые состояния ─── */
+.wz5-loading {
+  display:flex; align-items:center; gap:8px; padding:18px;
+  color:#6b7280; font-size:0.86rem; justify-content:center;
+}
+.wz5-empty {
+  padding:14px; background:#f9fafb; border:1px dashed #d1d5db;
+  border-radius:6px; color:#6b7280; font-size:0.84rem; text-align:center;
+}
+.wz5-error {
+  padding:10px 12px; background:#fee2e2; color:#991b1b;
+  border-left:3px solid #dc2626; border-radius:4px;
+  font-size:0.86rem; margin:8px 0;
+}
+.wz5-info {
+  padding:8px 12px; background:#eff6ff; color:#1e3a8a;
+  border-left:3px solid #2563eb; border-radius:4px;
+  font-size:0.82rem; margin:6px 0;
+}
+.wz5-warn {
+  padding:8px 12px; background:#fef3c7; color:#854d0e;
+  border-left:3px solid #f59e0b; border-radius:4px;
+  font-size:0.82rem; margin:6px 0;
+}
+
+/* ─── ЗОНА 2: плитки видов анализа (в ряд, чётко выделены) ─── */
+.wz5m-row {
+  display:flex; gap:14px; flex-wrap:wrap; align-items:stretch;
+}
+.wz5m-tile {
+  flex:1 1 220px; min-width:220px; max-width:340px;
+  display:flex; flex-direction:column; gap:6px;
+  background:#fff; border:2px solid #e5e7eb; border-radius:10px;
+  padding:14px 16px; cursor:pointer;
+  transition:border-color .12s, box-shadow .12s, transform .08s;
+}
+.wz5m-tile:hover {
+  border-color:#059669; box-shadow:0 4px 14px rgba(5,150,105,.12);
+  transform:translateY(-1px);
+}
+.wz5m-tile-head { display:flex; align-items:center; gap:8px; }
+.wz5m-tile-icon { font-size:1.5rem; line-height:1; }
+.wz5m-tile-title { font-size:0.98rem; font-weight:700; color:#111827; }
+.wz5m-tile-desc { font-size:0.8rem; color:#6b7280; line-height:1.4; flex:1; }
+.wz5m-tile-children { display:flex; gap:6px; flex-wrap:wrap; margin-top:4px; }
+.wz5m-chip {
+  display:inline-flex; align-items:center; gap:4px;
+  font-size:0.76rem; padding:3px 10px; border-radius:999px;
+  background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0;
+  cursor:pointer; user-select:none;
+}
+.wz5m-chip:hover { background:#d1fae5; }
+.wz5m-chip.disabled {
+  background:#f3f4f6; color:#9ca3af; border-color:#e5e7eb;
+  cursor:not-allowed;
+}
+
+/* Карточка-результат: галочки артефактов */
+.wz5-attached-tile { flex-wrap:wrap; }
+.wz5-parts-box { flex-basis:100%; margin-top:8px; padding-top:8px;
+                 border-top:1px dashed #e5e7eb; }
+.wz5-parts-title { font-size:0.76rem; color:#6b7280; font-weight:600;
+                   margin-bottom:6px; }
+.wz5-parts-grid { display:flex; flex-wrap:wrap; gap:6px; }
+.wz5-part-lbl {
+  display:inline-flex; align-items:center; gap:5px;
+  padding:4px 10px; border:1px solid #e5e7eb; border-radius:5px;
+  font-size:0.77rem; cursor:pointer; user-select:none; background:#ecfdf5;
+  color:#065f46;
+}
+.wz5-part-lbl.off { background:#f9fafb; color:#9ca3af; }
+.wz5-part-lbl input { width:14px; height:14px; margin:0; }
+
+/* Период в шапке модалки «Полный анализ» */
+.wz5-modal-period {
+  display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  padding:10px 14px; margin-bottom:14px;
+  background:#ecfdf5; border:1px solid #a7f3d0; border-radius:8px;
+}
+.wz5-modal-period .lbl { font-weight:600; color:#065f46; }
+.wz5-modal-period input[type="datetime-local"] {
+  padding:4px 8px; border:1px solid #6ee7b7; border-radius:5px; font-size:0.85rem;
+}
+.wz5-modal-period .hint { margin-left:auto; font-size:0.76rem; color:#059669; }
+
+/* F8: аккордеон подразделов результата «Полного анализа» */
+.wz5-acc { border:1px solid #e5e7eb; border-radius:7px; margin-bottom:8px;
+           background:#fff; overflow:hidden; }
+.wz5-acc > summary {
+  cursor:pointer; padding:9px 12px; font-weight:600; font-size:0.9rem;
+  color:#1f2937; background:#f9fafb; list-style:none; user-select:none;
+  display:flex; align-items:center; gap:8px;
+}
+.wz5-acc > summary::-webkit-details-marker { display:none; }
+.wz5-acc > summary::before { content:'▸'; color:#059669; font-size:0.9rem; }
+.wz5-acc[open] > summary::before { content:'▾'; }
+.wz5-acc > summary:hover { background:#ecfdf5; }
+.wz5-acc[open] > summary { border-bottom:1px solid #e5e7eb; }
+.wz5-acc > div { padding:12px; }

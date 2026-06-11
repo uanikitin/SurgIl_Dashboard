@@ -13,6 +13,7 @@
 \usepackage{amsmath}
 \usepackage{xcolor}
 \usepackage{colortbl}
+\usepackage{float}
 
 \newcolumntype{P}[1]{>{\RaggedRight\arraybackslash\footnotesize}m{#1}}
 \newcolumntype{C}[1]{>{\centering\arraybackslash\footnotesize}m{#1}}
@@ -606,9 +607,11 @@
 %# /comparisons
 
 % ─── Подсекция 2.N: сегментный анализ (kind='segment_analysis', segment_v1) ───
-% PLAN B (PDF integration Core Segment Analysis). Renderer строит PNG-figure,
-% formatter готовит данные, шаблон только compose. Краткие описания сегментов —
-% ТОЛЬКО фактические (без causal/diagnostic claims).
+% PB-V2: PDF-вывод приведён в соответствие HTML PART_LABELS.segment_analysis.
+% Parts:  prefix_note, q_segment_chart, segments_table,
+%         descriptions, cp_descriptions, description, suffix_note.
+% dual_comparison — выводится всегда (как в HTML, toggle отсутствует).
+% PAV — в PDF НЕ выводится (по согласованию).
 \BLOCK{ if customer_chapter.segment_blocks and customer_chapter.segment_blocks|length > 0 }
 %% set _p_n = customer_chapter.periods|length
 %% set _c_n = customer_chapter.comparisons|length
@@ -616,7 +619,7 @@
 %% set _sub_idx = _p_n + _c_n + loop.index
 \subsection*{2.\VAR{_sub_idx}. \VAR{sb.title}}
 
-% ── Пользовательский вступительный текст ──
+% ── prefix_note ──
 \BLOCK{ if sb.parts.prefix_note and sb.prefix_note_tex }
 {\footnotesize {\itshape \VAR{sb.prefix_note_tex}\par}}
 
@@ -629,18 +632,17 @@
 \textbf{Период:} \VAR{sb.date_from}~--~\VAR{sb.date_to} \quad
 \textbf{Сегментов:} \VAR{sb.segments_rows|length} \quad
 \textbf{Точек:} \VAR{sb.n_points}
-\BLOCK{ if sb.parts.description and sb.comment }
-
-{\itshape \VAR{sb.comment}\par}
-\BLOCK{ endif }
 }
 
 \vspace{0.3em}
 
-% ── График Q + downtime subplot (полная ширина) ──
+% ── q_segment_chart: график Q + downtime subplot (полная ширина) ──
+% PDF layout fix: убран жёсткий height-constraint (height=0.42\textheight).
+% PNG теперь компактный (без пустого поля сверху), поэтому масштабируем
+% строго по ширине страницы — высота берётся из реальной пропорции figure.
 \BLOCK{ if sb.parts.q_segment_chart and sb.chart_q_path }
 \begin{center}
-\includegraphics[width=\textwidth,height=0.42\textheight,keepaspectratio]{\VAR{sb.chart_q_path}}
+\includegraphics[width=\textwidth]{\VAR{sb.chart_q_path}}
 \end{center}
 {\scriptsize \textbf{Рис.~2.\VAR{_sub_idx}.1.} Сегментный анализ: суточный $Q$
 с трендами (slope$\times$x+intercept), переломами и кластерами простоев.
@@ -649,7 +651,7 @@
 \vspace{0.4em}
 \BLOCK{ endif }
 
-% ── Таблица сегментов (11 колонок) ──
+% ── segments_table: таблица сегментов (11 колонок) ──
 \BLOCK{ if sb.parts.segments_table and sb.segments_rows|length > 0 }
 {\scriptsize \textbf{Табл.~2.\VAR{_sub_idx}.1.} Параметры сегментов.}
 \vspace{0.2em}
@@ -678,16 +680,17 @@
 \BLOCK{ endif }
 %# /segments_table
 
-% ── Краткие фактические описания сегментов ──
-\BLOCK{ if sb.parts.segment_describes and sb.segment_engineering_notes|length > 0 }
+% ── descriptions: HTML §6.4 rich + snap.descriptions[] ──
+\BLOCK{ if sb.parts.descriptions }
+\BLOCK{ if sb.rich_segment_describes|length > 0 }
 {\scriptsize \textbf{Описание сегментов:}\par}
 \vspace{0.1em}
-{\footnotesize
-\begin{itemize}\setlength\itemsep{0.1em}
-%% for note in sb.segment_engineering_notes
-\item \textbf{Сегмент \VAR{note.num}.}
+{\footnotesize \raggedright
+\begin{itemize}\setlength\itemsep{0.25em}
+%% for note in sb.rich_segment_describes
+\item \textbf{\VAR{note.header}.}
 %% for line in note.lines
-\VAR{line}
+\VAR{line}\\
 %% endfor
 
 %% endfor
@@ -696,10 +699,42 @@
 
 \vspace{0.3em}
 \BLOCK{ endif }
-%# /segment_describes
+%# /rich_segment_describes
 
-% ── События переломов (cp_marks) ──
-\BLOCK{ if sb.parts.cp_descriptions and sb.cp_bullets|length > 0 }
+\BLOCK{ if sb.descriptions_lines|length > 0 }
+{\scriptsize \textbf{Развёрнутые описания (из алгоритма):}\par}
+\vspace{0.1em}
+{\footnotesize \raggedright \sloppy
+\begin{itemize}\setlength\itemsep{0.15em}
+%% for line in sb.descriptions_lines
+\item \VAR{line}
+%% endfor
+\end{itemize}
+}
+
+\vspace{0.3em}
+\BLOCK{ endif }
+%# /descriptions_lines
+
+\BLOCK{ endif }
+%# /descriptions
+
+% ── cp_descriptions: snap.cp_descriptions[] либо fallback cp_bullets ──
+\BLOCK{ if sb.parts.cp_descriptions }
+\BLOCK{ if sb.cp_descriptions_lines|length > 0 }
+{\scriptsize \textbf{События переломов:}\par}
+\vspace{0.1em}
+{\footnotesize \raggedright \sloppy
+\begin{itemize}\setlength\itemsep{0.15em}
+%% for line in sb.cp_descriptions_lines
+\item \VAR{line}
+%% endfor
+\end{itemize}
+}
+
+\vspace{0.3em}
+\BLOCK{ else }
+\BLOCK{ if sb.cp_bullets|length > 0 }
 {\scriptsize \textbf{Точки переломов:}\par}
 \vspace{0.1em}
 {\footnotesize
@@ -712,40 +747,44 @@
 
 \vspace{0.3em}
 \BLOCK{ endif }
+\BLOCK{ endif }
+\BLOCK{ endif }
 %# /cp_descriptions
 
-% ── Двойное сравнение (Q общий vs Q рабочий) ──
-\BLOCK{ if sb.parts.dual_comparison }
-{\scriptsize \textbf{Двойное сравнение переломов:}\par}
+% ── dual_comparison: выводится ВСЕГДА (как в HTML, без toggle) ──
+{\scriptsize \textbf{Сравнение $Q$ общий $\leftrightarrow$ $Q$ рабочий:}\par}
 \vspace{0.1em}
 {\footnotesize
-Точек в $Q$ общем: \VAR{sb.dual_summary_tex.primary} \quad
-Точек в $Q$ рабочем: \VAR{sb.dual_summary_tex.working} \quad
-Подтверждено обоими: \VAR{sb.dual_summary_tex.common}
-\BLOCK{ if sb.dual_summary_tex.common_dates_tex }
+По $Q$ общему найдено переломов: \textbf{\VAR{sb.dual_summary_tex.primary}}.
+По $Q$ рабочему: \textbf{\VAR{sb.dual_summary_tex.working}}.
+Подтверждено обеими: \textbf{\VAR{sb.dual_summary_tex.common}}\BLOCK{ if sb.dual_summary_tex.common_dates_tex } (\VAR{sb.dual_summary_tex.common_dates_tex})\BLOCK{ endif }.
+\BLOCK{ if sb.dual_summary_tex.only_working_tex }
 
-\textit{Подтверждённые даты:} \VAR{sb.dual_summary_tex.common_dates_tex}.
+Только в $Q$ рабочем: \VAR{sb.dual_summary_tex.only_working_tex}.
 \BLOCK{ endif }
 \BLOCK{ if sb.dual_summary_tex.only_total_tex }
 
-\textit{Только в общем:} \VAR{sb.dual_summary_tex.only_total_tex}.
-\BLOCK{ endif }
-\BLOCK{ if sb.dual_summary_tex.only_working_tex }
-
-\textit{Только в рабочем:} \VAR{sb.dual_summary_tex.only_working_tex}.
+Только в $Q$ общем: \VAR{sb.dual_summary_tex.only_total_tex}.
 \BLOCK{ endif }
 }
 
 \vspace{0.3em}
+
+% ── description: комментарий пользователя (отдельная секция) ──
+\BLOCK{ if sb.parts.description and sb.comment }
+{\scriptsize \textbf{Комментарий к блоку:}\par}
+\vspace{0.1em}
+{\footnotesize \raggedright {\itshape \VAR{sb.comment}\par}}
+
+\vspace{0.3em}
 \BLOCK{ endif }
-%# /dual_comparison
 
 \BLOCK{ else }
 {\footnotesize \textit{Снимок данных пуст или расчёт неудачен --- пересохраните блок на странице анализа.}}
 \BLOCK{ endif }
 %# /has_data
 
-% ── Пользовательский заключительный текст ──
+% ── suffix_note ──
 \BLOCK{ if sb.parts.suffix_note and sb.suffix_note_tex }
 \vspace{0.3em}
 {\footnotesize {\itshape \VAR{sb.suffix_note_tex}\par}}
@@ -1423,9 +1462,17 @@ $\Delta\,\%$ --- то же относительно базы. Положител
 \vspace{0.3em}
 
 %% for ob in observation_blocks
-\subsubsection*{3.4.\VAR{loop.index}. \VAR{ob.title}}
-
+%# ── segment_analysis: pre-rendered LaTeX из render_segment_analysis ──
+%# Заголовок уже включён в latex_content, поэтому не дублируем
+\BLOCK{ if ob.latex_content }
+\VAR{ob.latex_content}
+\BLOCK{ else }
+\subsubsection*{3.4.\VAR{loop.index}. \VAR{ob.title}\BLOCK{ if ob.is_b2 } \textsuperscript{\textcolor{blue!70!black}{[B2]}}\BLOCK{ endif }}
+%# ── observation_analysis: стандартная таблица метрик ──
 {\footnotesize
+\BLOCK{ if ob.is_b2 }
+\textbf{\textcolor{blue!70!black}{Утверждённый baseline наблюдения (B2).}} \\
+\BLOCK{ endif }
 \textbf{Период:} \VAR{ob.date_from}~--~\VAR{ob.date_to}
 (\VAR{ob.days}~сут.).
 }
@@ -1499,6 +1546,8 @@ $P_\text{лин}$, кгс/см$^2$     & \VAR{ob.p_flowline_avg_fmt} & \VAR{ob.p
 {\scriptsize \textit{Мгновенный дебит $Q$, тыс.м$^3$/сут.}}
 \BLOCK{ endif }
 \BLOCK{ endif }
+\BLOCK{ endif }
+%# /конец условия latex_content / observation_analysis
 
 \vspace{0.5em}
 %% endfor
@@ -1740,31 +1789,220 @@ Score & \VAR{optimal_regime.score_fmt} \\
 \BLOCK{ if ab.kind == 'adaptation_period_analysis' }
 \subsubsection*{4.7.\VAR{loop.index}. \VAR{ab.title} {\small\textmd{(анализ периода)}}}
 
+%# 1. Введение с датчиками
+\BLOCK{ if ab.has_intro }
 {\footnotesize
-\textbf{Период адаптации:} \VAR{ab.date_from}~--~\VAR{ab.date_to}.
-\BLOCK{ if ab.comment }
-
-{\itshape \VAR{ab.comment}\par}
+\VAR{ab.intro_text}
+}
+\vspace{0.2em}
 \BLOCK{ endif }
+
+%# Период (если нет intro)
+\BLOCK{ if not ab.has_intro }
+{\footnotesize
+\textbf{Период:} \VAR{ab.date_from}~--~\VAR{ab.date_to}
+\BLOCK{if ab.adapt_duration_days} (\VAR{ab.adapt_duration_days}~сут.)\BLOCK{endif}.
+\BLOCK{if ab.adapt_working_hours_fmt != '---'}
+Рабочих часов: \VAR{ab.adapt_working_hours_fmt}, КИВ: \VAR{ab.adapt_utilization_fmt}\%.
+\BLOCK{endif}
+}
+\vspace{0.2em}
+\BLOCK{ endif }
+
+\BLOCK{ if ab.comment }
+{\footnotesize\itshape \VAR{ab.comment}\par}
+\vspace{0.2em}
+\BLOCK{ endif }
+
+%# 2,3,4. Графики давлений, ΔP, Q (PNG через matplotlib)
+\BLOCK{ if ab.chart_pressures }
+\vspace{0.3em}
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{\VAR{ab.chart_pressures}}
+\caption*{{\footnotesize Рис.~4.\VAR{loop.index}.1. Динамика устьевого и линейного давления за период адаптации.
+Вертикальные линии — продувки, точки — вбросы реагента.}}
+\end{figure}
+\BLOCK{ endif }
+
+\BLOCK{ if ab.chart_dp }
+\vspace{0.2em}
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{\VAR{ab.chart_dp}}
+\caption*{{\footnotesize Рис.~4.\VAR{loop.index}.2. Перепад давления ($\Delta P = P$ устье $- P$ линия).
+Рост $\Delta P$ указывает на увеличение дебита; снижение — на возможное накопление жидкости.}}
+\end{figure}
+\BLOCK{ endif }
+
+\BLOCK{ if ab.chart_flow }
+\vspace{0.2em}
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{\VAR{ab.chart_flow}}
+\caption*{{\footnotesize Рис.~4.\VAR{loop.index}.3. Расчётный дебит газа по показаниям датчиков давления.}}
+\end{figure}
+\BLOCK{ endif }
+
+%# 5. Таблица событий (до таблицы сравнения)
+\BLOCK{ if ab.has_events }
+\vspace{0.3em}
+{\scriptsize \textbf{Табл.~4.7.\VAR{loop.index}.1.} События за период (\VAR{ab.events_count}).}
+\vspace{0.2em}
+
+{\scriptsize
+\begin{tabularx}{\textwidth}{|P{2.4cm}|P{2.0cm}|X|R{0.7cm}|R{0.7cm}|R{0.7cm}|}
+\hline
+\textbf{Дата/время} & \textbf{Тип} & \textbf{Описание} & \textbf{Кол-во} & \textbf{P уст.} & \textbf{P лин.} \\
+\hline
+%% for ev in ab.events
+\VAR{ev.ts} & \VAR{ev.type} & \VAR{ev.label} & \VAR{ev.qty} & \VAR{ev.p_tube} & \VAR{ev.p_line} \\
+\hline
+%% endfor
+\end{tabularx}
 }
 
-\vspace{0.2em}
-{\scriptsize \textbf{Табл.~4.7.\VAR{loop.index}.1.} Сводка наблюдение → адаптация.}
+{\scriptsize \textbf{Итого:} \VAR{ab.reagent_count_ev} вбросов реагента
+\BLOCK{if ab.reagent_qty_sum != '---'}(\VAR{ab.reagent_qty_sum}~ед.)\BLOCK{endif},
+\VAR{ab.purge_count_ev} продувок.}
+\vspace{0.3em}
+\BLOCK{ endif }
+
+%# 7. Таблица сравнения (Наблюдение → Адаптация)
+{\scriptsize \textbf{Табл.~4.7.\VAR{loop.index}.2.} Сводка: наблюдение (B2) → адаптация (R).}
 \vspace{0.2em}
 
 {\footnotesize
-\begin{tabularx}{\textwidth}{|X|R{2.4cm}|R{2.4cm}|R{2.4cm}|}
+\begin{tabularx}{\textwidth}{|X|R{2.0cm}|R{2.0cm}|R{2.0cm}|R{2.0cm}|}
 \hline
-\textbf{Параметр} & \textbf{Наблюдение} & \textbf{Адаптация} & \textbf{$\Delta$} \\
+\textbf{Параметр} & \textbf{B2 (Набл.)} & \textbf{R (Адапт.)} & \textbf{$\Delta$} & \textbf{$\Delta$, \%} \\
 \hline
-$Q$ медианный, тыс.м$^3$/сут & \VAR{ab.obs_flow_median_fmt}  & \VAR{ab.adapt_flow_median_fmt} & \VAR{ab.delta_flow_median_fmt} \\
+$Q$ медианный, тыс.м$^3$/сут & \VAR{ab.obs_flow_median_fmt}  & \VAR{ab.adapt_flow_median_fmt} & \VAR{ab.delta_flow_median_fmt} & \VAR{ab.delta_flow_median_pct} \\
 \hline
-$\Delta P$, кгс/см$^2$       & \VAR{ab.obs_dp_median_fmt}    & \VAR{ab.adapt_dp_median_fmt}   & \VAR{ab.delta_dp_fmt} \\
+$Q$ средний, тыс.м$^3$/сут   & \VAR{ab.obs_flow_avg_fmt}     & \VAR{ab.adapt_flow_avg_fmt}    & \VAR{ab.delta_flow_avg_fmt}    & --- \\
 \hline
-КИВ, \%                      & ---                            & \VAR{ab.adapt_utilization_fmt} & --- \\
+$\Delta P$, кгс/см$^2$       & \VAR{ab.obs_dp_median_fmt}    & \VAR{ab.adapt_dp_median_fmt}   & \VAR{ab.delta_dp_fmt}          & \VAR{ab.delta_dp_pct} \\
+\hline
+$P$ труб., кгс/см$^2$        & \VAR{ab.obs_p_tube_fmt}       & \VAR{ab.adapt_p_tube_fmt}      & \VAR{ab.delta_p_tube_fmt}      & --- \\
+\hline
+$P$ лин., кгс/см$^2$         & \VAR{ab.obs_p_line_fmt}       & \VAR{ab.adapt_p_line_fmt}      & \VAR{ab.delta_p_line_fmt}      & --- \\
+\hline
+КИВ, \%                      & \VAR{ab.obs_utilization_fmt}  & \VAR{ab.adapt_utilization_fmt} & \VAR{ab.delta_utilization_fmt} & --- \\
+\hline
+Продувок                     & \VAR{ab.obs_purge_count}      & \VAR{ab.adapt_purge_count}     & \VAR{ab.delta_purge_count}     & --- \\
+\hline
+Вбросов реагента             & \VAR{ab.obs_reagent_count}    & \VAR{ab.adapt_reagent_count}   & \VAR{ab.delta_reagent_count}   & --- \\
 \hline
 \end{tabularx}
 }
+
+%# ─── 4 карточки метрик (R, R★, B2, B1) ───
+\vspace{0.4em}
+{\scriptsize \textbf{Табл.~4.7.\VAR{loop.index}.3.} Карточки метрик (R — Адаптация, R★ — Оптимум, B2 — Наблюдение, B1 — Базовый).}
+\vspace{0.2em}
+
+{\footnotesize
+\begin{tabularx}{\textwidth}{|X|R{1.8cm}|R{1.8cm}|R{1.8cm}|R{1.8cm}|}
+\hline
+\textbf{Параметр} & \textbf{R (Адапт.)} & \textbf{R$^\star$ (Опт.)} & \textbf{B2 (Набл.)} & \textbf{B1 (Баз.)} \\
+\hline
+$Q$ мед., тыс.м$^3$/сут & \VAR{ab.adapt_flow_median_fmt} & \VAR{ab.opt_flow_median_fmt} & \VAR{ab.obs_flow_median_fmt} & \VAR{ab.b1_flow_median_fmt} \\
+\hline
+$Q$ ср., тыс.м$^3$/сут & \VAR{ab.adapt_flow_avg_fmt} & \VAR{ab.opt_flow_avg_fmt} & \VAR{ab.obs_flow_avg_fmt} & \VAR{ab.b1_flow_avg_fmt} \\
+\hline
+$\Delta P$ мед., кгс/см$^2$ & \VAR{ab.adapt_dp_median_fmt} & \VAR{ab.opt_dp_median_fmt} & \VAR{ab.obs_dp_median_fmt} & \VAR{ab.b1_dp_median_fmt} \\
+\hline
+$P$ труб., кгс/см$^2$ & \VAR{ab.adapt_p_tube_fmt} & \VAR{ab.opt_p_tube_fmt} & \VAR{ab.obs_p_tube_fmt} & \VAR{ab.b1_p_tube_fmt} \\
+\hline
+$P$ лин., кгс/см$^2$ & \VAR{ab.adapt_p_line_fmt} & \VAR{ab.opt_p_line_fmt} & \VAR{ab.obs_p_line_fmt} & \VAR{ab.b1_p_line_fmt} \\
+\hline
+КИВ, \% & \VAR{ab.adapt_utilization_fmt} & \VAR{ab.opt_utilization_fmt} & \VAR{ab.obs_utilization_fmt} & --- \\
+\hline
+Дней & \VAR{ab.adapt_duration_days} & \VAR{ab.opt_duration_days} & \VAR{ab.obs_duration_days} & \VAR{ab.b1_duration_days} \\
+\hline
+\end{tabularx}
+}
+
+%# ─── Тренды (все 4 параметра) ───
+\BLOCK{ if ab.has_trends }
+\vspace{0.3em}
+{\footnotesize
+\textbf{Тренды за период адаптации:}
+$Q$: \VAR{ab.q_trend_dir} (\VAR{ab.q_trend_slope_fmt}~тыс.м$^3$/сут/д), значимость: \VAR{ab.q_trend_sig}.
+$\Delta P$: \VAR{ab.dp_trend_dir} (\VAR{ab.dp_trend_slope_fmt}~кгс/см$^2$/д).
+$P$ труб: \VAR{ab.p_tube_trend_dir} (\VAR{ab.p_tube_trend_slope_fmt}~кгс/см$^2$/д).
+$P$ лин: \VAR{ab.p_line_trend_dir} (\VAR{ab.p_line_trend_slope_fmt}~кгс/см$^2$/д).
+}
+\BLOCK{ endif }
+
+%# ─── R★ Оптимальное окно ───
+\BLOCK{ if ab.has_optimal }
+\vspace{0.3em}
+{\footnotesize
+\textbf{R$^\star$ Оптимальное окно:} \VAR{ab.opt_date_from}~--~\VAR{ab.opt_date_to}
+\BLOCK{if ab.opt_duration_label}(\VAR{ab.opt_duration_label})\BLOCK{endif}.
+\BLOCK{if ab.opt_score_fmt != '---'}Score: \textbf{\VAR{ab.opt_score_fmt}}.\BLOCK{endif}
+$Q$ мед.: \VAR{ab.opt_flow_median_fmt}~тыс.м$^3$/сут,
+$\Delta P$: \VAR{ab.opt_dp_median_fmt}~кгс/см$^2$.
+}
+\BLOCK{ endif }
+
+%# ─── Сегментный анализ ───
+\BLOCK{ if ab.has_segments }
+\vspace{0.3em}
+{\footnotesize
+\textbf{Сегментный анализ.}
+\BLOCK{ if ab.segment_cp_count > 0 }Точек изменения режима: \VAR{ab.segment_cp_count}.\BLOCK{ endif }
+}
+
+%# График сегментов Q
+\BLOCK{ if ab.segment_chart_path }
+\vspace{0.3em}
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{\VAR{ab.segment_chart_path}}
+\caption*{{\footnotesize Рис.~4.\VAR{loop.index}.4. Сегментный анализ расчётного дебита.
+Автоматическое выделение участков стабильной работы и переходных процессов.
+Вертикальные линии — точки изменения режима (changepoints).}}
+\end{figure}
+\BLOCK{ endif }
+
+\BLOCK{ if ab.segment_cp_marks and ab.segment_cp_marks|length > 0 }
+{\scriptsize
+\textbf{Changepoints:}
+%% for cp in ab.segment_cp_marks
+\VAR{cp.tag}~(\VAR{cp.date})\BLOCK{ if not loop.last },\BLOCK{ endif }
+%% endfor
+}
+\vspace{0.2em}
+\BLOCK{ endif }
+
+\BLOCK{ if ab.segment_descriptions and ab.segment_descriptions|length > 0 }
+{\scriptsize
+\textbf{Сегменты:}
+\begin{itemize}\setlength{\itemsep}{-2pt}
+%% for desc in ab.segment_descriptions
+\item \VAR{desc}
+%% endfor
+\end{itemize}
+}
+\BLOCK{ endif }
+
+\BLOCK{ if ab.segment_summary }
+{\footnotesize
+\textbf{Сводка:} \VAR{ab.segment_summary}
+}
+\BLOCK{ endif }
+\BLOCK{ endif }
+
+%# ─── Описание ───
+\BLOCK{ if ab.has_narrative }
+\vspace{0.3em}
+{\footnotesize
+\textbf{Описание:} \VAR{ab.narrative}
+}
+\BLOCK{ endif }
+
 \BLOCK{ endif }
 
 %# ─── Сравнение участков адаптации (wz3cmp_v1) ───
@@ -1878,6 +2116,142 @@ Score & \VAR{ab.score_fmt} \\
 %% endfor
 \end{tabularx}
 }
+\BLOCK{ endif }
+\BLOCK{ endif }
+
+%# ─── Сегментный анализ (segment_analysis с chapter='adaptation') ───
+\BLOCK{ if ab.kind == 'segment_analysis' }
+\subsubsection*{4.7.\VAR{loop.index}. \VAR{ab.title} {\small\textmd{(сегментный анализ)}}}
+
+\BLOCK{ if ab.has_data }
+{\footnotesize
+\textbf{Скважина:} \VAR{ab.well_number} \quad
+\textbf{Период:} \VAR{ab.date_from}~--~\VAR{ab.date_to} \quad
+\textbf{Сегментов:} \VAR{ab.segments_rows|length} \quad
+\textbf{Точек:} \VAR{ab.n_points}
+}
+
+%# ── Prefix note ──
+\BLOCK{ if ab.parts.prefix_note and ab.prefix_note_tex }
+\vspace{0.2em}
+{\footnotesize {\itshape \VAR{ab.prefix_note_tex}\par}}
+\BLOCK{ endif }
+
+%# ── График Q с сегментами ──
+\BLOCK{ if ab.parts.q_segment_chart and ab.chart_q_path }
+\vspace{0.3em}
+\begin{center}
+\includegraphics[width=\textwidth]{\VAR{ab.chart_q_path}}
+\end{center}
+{\scriptsize \textbf{Рис.~4.7.\VAR{loop.index}.1.} Сегментный анализ: суточный $Q$
+с трендами, переломами и кластерами простоев.
+Нижняя панель --- длительность простоев по дням.}
+
+\vspace{0.4em}
+\BLOCK{ endif }
+
+%# ── Таблица сегментов (11 колонок) ──
+\BLOCK{ if ab.parts.segments_table and ab.segments_rows|length > 0 }
+{\scriptsize \textbf{Табл.~4.7.\VAR{loop.index}.1.} Параметры сегментов.}
+\vspace{0.2em}
+
+{\scriptsize
+\begin{tabularx}{\textwidth}{|c|X|R{0.8cm}|R{1.1cm}|R{1.1cm}|R{1.1cm}|R{1.1cm}|R{1.1cm}|R{1.1cm}|R{1.1cm}|c|}
+\hline
+\textbf{№} & \textbf{Период} & \textbf{Дн.} &
+\textbf{Q общ} & \textbf{Q раб} &
+\textbf{Накл.} & \textbf{$\Delta$Q, \%} &
+\textbf{Прост.} & \textbf{Раб., \%} &
+\textbf{$\Delta$P} & \textbf{Тип} \\
+\hline
+%% for s in ab.segments_rows
+\VAR{s.num} & \VAR{s.period_tex} & \VAR{s.days}
+& \VAR{s.q_total_fmt} & \VAR{s.q_working_fmt}
+& \VAR{s.slope_fmt} & \VAR{s.change_fmt_tex}
+& \VAR{s.shutdown_fmt} & \VAR{s.working_fmt}
+& \VAR{s.dp_fmt} & \VAR{s.type_tex} \\
+\hline
+%% endfor
+\end{tabularx}
+}
+
+\vspace{0.4em}
+\BLOCK{ endif }
+
+%# ── Описания сегментов (rich + lines) ──
+\BLOCK{ if ab.parts.descriptions }
+\BLOCK{ if ab.rich_segment_describes|length > 0 }
+{\scriptsize \textbf{Описание сегментов:}\par}
+\vspace{0.1em}
+{\footnotesize \raggedright
+\begin{itemize}\setlength\itemsep{0.25em}
+%% for note in ab.rich_segment_describes
+\item \textbf{\VAR{note.header}.}
+%% for line in note.lines
+\VAR{line}\\
+%% endfor
+
+%% endfor
+\end{itemize}
+}
+
+\vspace{0.3em}
+\BLOCK{ endif }
+
+\BLOCK{ if ab.descriptions_lines|length > 0 }
+{\scriptsize \textbf{Развёрнутые описания:}\par}
+\vspace{0.1em}
+{\footnotesize \raggedright \sloppy
+\begin{itemize}\setlength\itemsep{0.15em}
+%% for line in ab.descriptions_lines
+\item \VAR{line}
+%% endfor
+\end{itemize}
+}
+
+\vspace{0.3em}
+\BLOCK{ endif }
+\BLOCK{ endif }
+
+%# ── Changepoints ──
+\BLOCK{ if ab.parts.cp_descriptions }
+\BLOCK{ if ab.cp_descriptions_lines|length > 0 }
+{\scriptsize \textbf{События переломов:}\par}
+\vspace{0.1em}
+{\footnotesize \raggedright \sloppy
+\begin{itemize}\setlength\itemsep{0.15em}
+%% for line in ab.cp_descriptions_lines
+\item \VAR{line}
+%% endfor
+\end{itemize}
+}
+
+\vspace{0.3em}
+\BLOCK{ else }
+\BLOCK{ if ab.cp_bullets|length > 0 }
+{\scriptsize \textbf{Точки переломов:}\par}
+\vspace{0.1em}
+{\footnotesize
+\begin{itemize}\setlength\itemsep{0.05em}
+%% for bullet in ab.cp_bullets
+\item \VAR{bullet}
+%% endfor
+\end{itemize}
+}
+
+\vspace{0.3em}
+\BLOCK{ endif }
+\BLOCK{ endif }
+\BLOCK{ endif }
+
+%# ── Suffix note ──
+\BLOCK{ if ab.parts.suffix_note and ab.suffix_note_tex }
+\vspace{0.2em}
+{\footnotesize {\itshape \VAR{ab.suffix_note_tex}\par}}
+\BLOCK{ endif }
+
+\BLOCK{ else }
+{\footnotesize \textit{Снимок данных пуст / анализ не выполнен.}}
 \BLOCK{ endif }
 \BLOCK{ endif }
 
@@ -2227,5 +2601,7 @@ $P_{\text{лин}}$ мед., кгс/см$^2$ & \VAR{adaptation.p_line_median_fmt
 (дата) & (дата) \\
 \end{tabularx}
 }
+
+% Observation chapter — рендерится через observation_blocks в §3.4
 
 \end{document}

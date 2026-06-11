@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Segment Demo - Minimal Test</title>
+</head>
+<body>
+  <h1>Minimal Test Page</h1>
+  <div id="status">Loading...</div>
+  <pre id="result"></pre>
+
+  <script>
+    const status = document.getElementById('status');
+    const result = document.getElementById('result');
+
+    async function test() {
+      status.textContent = 'Testing ping...';
+
+      try {
+        // Test ping
+        const pingResp = await fetch('/api/segment-demo/ping');
+        const pingData = await pingResp.json();
+        status.textContent = 'Ping OK: ' + JSON.stringify(pingData);
+
+        // Test wells
+        status.textContent += '\nLoading wells...';
+        const wellsResp = await fetch('/api/segment-demo/wells');
+        const wellsData = await wellsResp.json();
+        status.textContent = 'OK! Found ' + wellsData.wells.length + ' wells';
+
+        // Find well 85
+        const well85 = wellsData.wells.find(w => w.number === 85);
+        if (well85) {
+          status.textContent += '\n\nRunning analysis for well 85...';
+
+          const analyzeResp = await fetch('/api/segment-demo/analyze', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+              well_id: well85.id,
+              date_from: well85.date_min,
+              date_to: well85.date_max,
+              primary_series: 'flow_rate'
+            })
+          });
+          const analyzeData = await analyzeResp.json();
+
+          if (analyzeData.ok) {
+            status.textContent = 'SUCCESS! Analysis complete';
+            result.textContent = JSON.stringify(analyzeData, null, 2);
+          } else {
+            status.textContent = 'Analysis error: ' + analyzeData.detail;
+          }
+        }
+
+      } catch (e) {
+        status.textContent = 'ERROR: ' + e.message;
+        console.error(e);
+      }
+    }
+
+    test();
+  </script>
+</body>
+</html>

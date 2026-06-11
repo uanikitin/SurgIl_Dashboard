@@ -127,10 +127,13 @@
     // ─── Adaptation blocks (Step 5 wizard) ───
     adaptation_period_analysis: [
       ['prefix_note',        '↑ Вступительный текст'],
-      ['comparison_table',   '📋 Таблица сравнения (Наблюд. → Адапт.)'],
+      ['intro',              '📋 Введение (период, датчики SMOD)'],
+      ['charts',             '📈 Графики (P, ΔP, Q) + события'],
+      ['events_table',       '📋 Таблица событий'],
       ['metrics_cards',      '🟧 Карточки метрик (R, R★, B2, B1)'],
-      ['charts',             '📈 Графики (P, ΔP, Q, util)'],
-      ['events_table',       '📋 Таблица событий и интервалов'],
+      ['comparison_table',   '📋 Таблица сравнения (Наблюд. → Адапт.)'],
+      ['trends',             '📉 Тренды (Q, ΔP)'],
+      ['segment_analysis',   '🔍 Сегментный анализ'],
       ['description',        '✏️ Комментарий пользователя'],
       ['suffix_note',        '↓ Заключительный текст'],
     ],
@@ -143,8 +146,11 @@
     ],
     reagent_irv_summary: [
       ['prefix_note',        '↑ Вступительный текст'],
-      ['summary',            '📊 Сводка (вбросов, ИРВ, лучший)'],
-      ['scores_table',       '📋 Таблица Score по реагентам'],
+      ['cards',              '🟧 Карточки (лучший / вбросы / расход)'],
+      ['narrative',          '📖 Описание словами'],
+      ['scores_table',       '📋 Шкала эффективности реагентов'],
+      ['charts',             '📈 Графики (вбросы / Score по времени)'],
+      ['detailed',           '🔻 Детально по ИРВ (таблица)'],
       ['description',        '✏️ Комментарий пользователя'],
       ['suffix_note',        '↓ Заключительный текст'],
     ],
@@ -1591,14 +1597,24 @@
   }
 
   // ═════════════════════════════════════════════════════════════════════════
-  //   ADAPTATION BLOCKS RENDERERS (Step 5 wizard)
+  //   ADAPTATION BLOCKS RENDERERS (Step 5 wizard) — UNIVERSAL TEMPLATE v2
   // ═════════════════════════════════════════════════════════════════════════
 
   /**
-   * _buildAdaptationPeriodAnalysisHtml — рендер блока adaptation_period_analysis
+   * _buildAdaptationPeriodAnalysisHtml — УНИВЕРСАЛЬНЫЙ рендер блока adaptation_period_analysis
    *
-   * Снапшот: { adaptation, observation, b1, comparison, optimal }
-   * Рендерит: 4 карточки (R, R★, B2, B1), таблицу сравнения, графики, события
+   * Структура (порядок блоков):
+   *   1. Введение (intro) — текст с датчиками SMOD
+   *   2. График давлений (P устье, P линия) + события
+   *   3. График ΔP + пояснение
+   *   4. График Q + пояснение
+   *   5. Таблица событий
+   *   6. 4 карточки метрик (R, R★, B2, B1)
+   *   7. Таблица сравнения (Наблюдение → Адаптация)
+   *   8. Тренды
+   *   9. Сегментный анализ (если есть)
+   *
+   * Снапшот: { adaptation, observation, b1, comparison, optimal, segment_analysis? }
    */
   function _buildAdaptationPeriodAnalysisHtml(snap, block, parts) {
     if (!snap || (!snap.adaptation && !snap.observation)) {
@@ -1610,7 +1626,9 @@
     const b1 = snap.b1 || {};
     const cmp = snap.comparison || {};
     const opt = snap.optimal || {};
+    const seg = snap.segment_analysis || {};
     const p = block.params || {};
+    const bid = block.id || 'x';
 
     const fmt = (v, d = 2) => (v == null || isNaN(v)) ? '—' : Number(v).toFixed(d);
     const fmtSgn = (v, d = 2) => {
@@ -1618,92 +1636,341 @@
       const n = Number(v);
       return (n > 0 ? '+' : '') + n.toFixed(d);
     };
+    const fmtPct = (v) => (v == null || isNaN(v)) ? '—' : (v > 0 ? '+' : '') + Number(v).toFixed(1) + '%';
     const on = (key) => parts[key] !== false;
+    const trendArrow = (t) => {
+      if (!t || !t.direction) return '→';
+      return t.direction === 'up' ? '↑' : t.direction === 'down' ? '↓' : '→';
+    };
 
     let html = '';
+    const dFrom = (p.date_from || adapt.date_from || '—').slice(0, 10);
+    const dTo = (p.date_to || adapt.date_to || '—').slice(0, 10);
 
-    // ─── Заголовок периода ───
-    const dFrom = p.date_from || adapt.date_from || '—';
-    const dTo = p.date_to || adapt.date_to || '—';
-    html += `<div style="font-size:0.85rem; color:#374151; margin-bottom:8px;">
-      <b>Период адаптации:</b> ${_escHtml(dFrom)} — ${_escHtml(dTo)}
-      ${adapt.duration_days ? `(${adapt.duration_days} сут.)` : ''}
-    </div>`;
-
-    // ─── Карточки метрик (R, R★, B2, B1) ───
-    if (on('metrics_cards')) {
-      const mkCard = (label, color, data) => {
-        if (!data) return '';
-        return `<div style="flex:1; min-width:140px; padding:8px 10px; background:#fff;
-                           border:1px solid ${color}; border-radius:6px; text-align:center;">
-          <div style="font-weight:600; color:${color}; font-size:0.9rem;">${_escHtml(label)}</div>
-          <div style="margin-top:4px;">
-            <div style="font-size:0.78rem; color:#6b7280;">Q медиана</div>
-            <div style="font-size:1.1rem; font-weight:600;">${fmt(data.flow_median)}</div>
-          </div>
-          <div style="margin-top:4px;">
-            <div style="font-size:0.78rem; color:#6b7280;">ΔP медиана</div>
-            <div style="font-size:1.1rem; font-weight:600;">${fmt(data.dp_median)}</div>
-          </div>
-          ${data.utilization_pct != null ? `
-          <div style="margin-top:4px;">
-            <div style="font-size:0.78rem; color:#6b7280;">КИВ</div>
-            <div style="font-size:1rem;">${fmt(data.utilization_pct, 1)}%</div>
-          </div>` : ''}
-        </div>`;
-      };
-      html += `<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
-        ${mkCard('R (Адаптация)', '#f59e0b', adapt)}
-        ${opt.regime ? mkCard('R★ (Оптимум)', '#22c55e', opt.regime) : ''}
-        ${obs ? mkCard('B2 (Наблюд.)', '#6366f1', obs) : ''}
-        ${b1 ? mkCard('B1 (Базовый)', '#64748b', b1) : ''}
+    // ═══════════════════════════════════════════════════════════════════
+    // 1. ВВЕДЕНИЕ (intro) — текст о периоде и датчиках
+    // ═══════════════════════════════════════════════════════════════════
+    const intro = adapt.intro || {};
+    if (intro.intro_text || on('intro')) {
+      html += `<div style="margin-bottom:14px; padding:12px 14px; background:#f8fafc;
+                          border-left:4px solid #3b82f6; border-radius:4px;">
+        <div style="font-size:0.9rem; line-height:1.6; color:#374151;">
+          ${_escHtml(intro.intro_text || `В период с ${dFrom} по ${dTo} проводились работы по адаптации технологии к условиям скважины.`)}
+        </div>
       </div>`;
     }
 
-    // ─── Таблица сравнения Наблюдение → Адаптация ───
-    if (on('comparison_table') && (adapt || obs)) {
-      html += `<h4 style="margin:10px 0 6px; font-size:0.9rem; color:#374151;">
-        Сравнение: Наблюдение → Адаптация
+    // ═══════════════════════════════════════════════════════════════════
+    // 2-4. ГРАФИКИ (давления, ΔP, Q) + события
+    // ═══════════════════════════════════════════════════════════════════
+    const chartData = adapt.chart_data || [];
+    const events = adapt.events_for_chart || [];
+
+    if (on('charts') && chartData.length > 0) {
+      html += `<h4 style="margin:14px 0 8px; font-size:0.95rem; color:#1f2937;">
+        📊 Графики параметров за период адаптации
+      </h4>`;
+
+      // 2. График давлений (P устье + P линия)
+      html += `<div style="margin-bottom:12px;">
+        <div id="adapt-${bid}-pres" style="height:280px; background:#fafafa; border:1px solid #e5e7eb; border-radius:6px;"></div>
+        <div style="font-size:0.78rem; color:#6b7280; margin-top:4px; padding:0 4px;">
+          <b>Рис. 4.1.</b> Динамика устьевого и линейного давления.
+          ${events.length > 0 ? 'Вертикальные линии — продувки, точки — вбросы реагента.' : ''}
+        </div>
+      </div>`;
+
+      // 3. График ΔP
+      html += `<div style="margin-bottom:12px;">
+        <div id="adapt-${bid}-dp" style="height:250px; background:#fafafa; border:1px solid #e5e7eb; border-radius:6px;"></div>
+        <div style="font-size:0.78rem; color:#6b7280; margin-top:4px; padding:0 4px;">
+          <b>Рис. 4.2.</b> Перепад давления (ΔP = P устье − P линия).
+          Рост ΔP указывает на увеличение дебита; снижение — на возможное накопление жидкости.
+        </div>
+      </div>`;
+
+      // 4. График Q
+      html += `<div style="margin-bottom:12px;">
+        <div id="adapt-${bid}-flow" style="height:250px; background:#fafafa; border:1px solid #e5e7eb; border-radius:6px;"></div>
+        <div style="font-size:0.78rem; color:#6b7280; margin-top:4px; padding:0 4px;">
+          <b>Рис. 4.3.</b> Расчётный дебит газа по показаниям датчиков давления.
+          ${adapt.choke_label ? `Диаметр штуцера: ${_escHtml(adapt.choke_label)}.` : ''}
+          ${adapt.flow_median ? `Медиана Q = ${fmt(adapt.flow_median)} тыс.м³/сут.` : ''}
+        </div>
+      </div>`;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 5. ТАБЛИЦА СОБЫТИЙ
+    // ═══════════════════════════════════════════════════════════════════
+    if (on('events_table') && events.length > 0) {
+      let evRows = '';
+      const eventsToShow = events.slice(0, 30);
+      eventsToShow.forEach((e, i) => {
+        const bg = i % 2 === 0 ? '#fff' : '#fafafa';
+        const icon = e.type === 'purge' ? '💨' : e.type === 'reagent' ? '💊' : '•';
+        // Логика типов и описаний:
+        // - reagent → Тип: "Вброс реагента", Описание: название реагента
+        // - other → Тип: "Прочее", Описание: description из события
+        // - purge → Тип: "Продувка", Описание: —
+        let typeLabel, descr;
+        if (e.type === 'purge') {
+          typeLabel = 'Продувка';
+          descr = '—';
+        } else if (e.type === 'reagent') {
+          typeLabel = 'Вброс реагента';
+          descr = e.reagent || '—';
+        } else if (e.type === 'other') {
+          typeLabel = 'Прочее';
+          descr = e.description || e.label || '—';
+        } else {
+          typeLabel = e.type || '—';
+          descr = e.label || '—';
+        }
+        // Давления на момент события
+        const pTube = e.p_tube != null ? e.p_tube.toFixed(1) : '—';
+        const pLine = e.p_line != null ? e.p_line.toFixed(1) : '—';
+        evRows += `<tr style="background:${bg};">
+          <td style="padding:4px 8px; text-align:center;">${icon}</td>
+          <td style="padding:4px 8px;">${_escHtml((e.t || e.ts || e.time || '').slice(0, 16))}</td>
+          <td style="padding:4px 8px;">${_escHtml(typeLabel)}</td>
+          <td style="padding:4px 8px;">${_escHtml(descr)}</td>
+          <td style="text-align:right; padding:4px 8px;">${e.qty || e.amount || '—'}</td>
+          <td style="text-align:right; padding:4px 8px;">${pTube}</td>
+          <td style="text-align:right; padding:4px 8px;">${pLine}</td>
+        </tr>`;
+      });
+
+      html += `<h4 style="margin:16px 0 8px; font-size:0.95rem; color:#1f2937;">
+        📋 События за период (${events.length})
       </h4>
-      <table style="width:100%; font-size:0.8rem; border-collapse:collapse;">
-        <tr style="background:#f3f4f6;">
-          <th style="text-align:left; padding:4px 8px;">Параметр</th>
-          <th style="text-align:right; padding:4px 8px;">Наблюдение</th>
-          <th style="text-align:right; padding:4px 8px;">Адаптация</th>
-          <th style="text-align:right; padding:4px 8px;">Δ</th>
-        </tr>
-        <tr>
-          <td style="padding:4px 8px;">Q медианный, тыс.м³/сут</td>
-          <td style="text-align:right; padding:4px 8px;">${fmt(obs.flow_median)}</td>
-          <td style="text-align:right; padding:4px 8px;">${fmt(adapt.flow_median)}</td>
-          <td style="text-align:right; padding:4px 8px;">${fmtSgn(cmp.delta_flow_median)}</td>
-        </tr>
-        <tr style="background:#fafafa;">
-          <td style="padding:4px 8px;">ΔP, кгс/см²</td>
-          <td style="text-align:right; padding:4px 8px;">${fmt(obs.dp_median)}</td>
-          <td style="text-align:right; padding:4px 8px;">${fmt(adapt.dp_median)}</td>
-          <td style="text-align:right; padding:4px 8px;">${fmtSgn(cmp.delta_dp)}</td>
-        </tr>
-        <tr>
-          <td style="padding:4px 8px;">КИВ, %</td>
-          <td style="text-align:right; padding:4px 8px;">${fmt(obs.utilization_pct, 1)}</td>
-          <td style="text-align:right; padding:4px 8px;">${fmt(adapt.utilization_pct, 1)}</td>
-          <td style="text-align:right; padding:4px 8px;">—</td>
-        </tr>
+      <table style="width:100%; font-size:0.8rem; border-collapse:collapse; border:1px solid #e5e7eb;">
+        <thead>
+          <tr style="background:#f3f4f6;">
+            <th style="padding:6px 8px; width:40px;"></th>
+            <th style="text-align:left; padding:6px 8px;">Дата/время</th>
+            <th style="text-align:left; padding:6px 8px;">Тип</th>
+            <th style="text-align:left; padding:6px 8px;">Описание</th>
+            <th style="text-align:right; padding:6px 8px;">Кол-во</th>
+            <th style="text-align:right; padding:6px 8px;">P устье</th>
+            <th style="text-align:right; padding:6px 8px;">P линия</th>
+          </tr>
+        </thead>
+        <tbody>${evRows}</tbody>
+      </table>`;
+
+      // Итого
+      const reagentEvents = events.filter(e => e.type === 'reagent');
+      const purgeEvents = events.filter(e => e.type === 'purge');
+      html += `<div style="font-size:0.8rem; color:#6b7280; margin-top:6px; padding:6px 8px; background:#f9fafb; border-radius:4px;">
+        <b>Итого:</b> ${reagentEvents.length} вбросов реагента
+        ${adapt.reagent_qty ? `(${fmt(adapt.reagent_qty, 1)} ед.)` : ''},
+        ${purgeEvents.length} продувок.
+      </div>`;
+
+      if (events.length > 30) {
+        html += `<div style="font-size:0.75rem; color:#9ca3af; margin-top:4px;">
+          ... показаны первые 30 из ${events.length} событий
+        </div>`;
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 6. КАРТОЧКИ МЕТРИК (R, R★, B2, B1)
+    // ═══════════════════════════════════════════════════════════════════
+    if (on('metrics_cards')) {
+      const mkCard = (label, color, bgColor, data, isB1 = false) => {
+        if (!data || Object.keys(data).length === 0) return '';
+        const qMed = isB1 ? (data.q_total_median || data.flow_median) : data.flow_median;
+        const qAvg = isB1 ? (data.q_total_avg || data.flow_avg) : data.flow_avg;
+        const dpMed = data.dp_median;
+        const pTube = isB1 ? data.p_wellhead_median : data.p_tube_median;
+        const pLine = isB1 ? data.p_flowline_median : data.p_line_median;
+        const util = data.utilization_pct;
+        const dur = data.duration_days || data.days_count;
+
+        return `<div style="flex:1; min-width:165px; padding:10px 12px; background:${bgColor};
+                           border:2px solid ${color}; border-radius:8px;">
+          <div style="font-weight:700; color:${color}; font-size:0.92rem; margin-bottom:8px;
+                      border-bottom:1px solid ${color}; padding-bottom:4px;">${_escHtml(label)}</div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:3px; font-size:0.78rem;">
+            <div style="color:#6b7280;">Q мед:</div>
+            <div style="text-align:right; font-weight:600;">${fmt(qMed)}</div>
+            <div style="color:#6b7280;">Q ср:</div>
+            <div style="text-align:right;">${fmt(qAvg)}</div>
+            <div style="color:#6b7280;">ΔP мед:</div>
+            <div style="text-align:right; font-weight:600;">${fmt(dpMed)}</div>
+            <div style="color:#6b7280;">P тр:</div>
+            <div style="text-align:right;">${fmt(pTube)}</div>
+            <div style="color:#6b7280;">P лин:</div>
+            <div style="text-align:right;">${fmt(pLine)}</div>
+            ${util != null ? `<div style="color:#6b7280;">КИВ:</div>
+            <div style="text-align:right;">${fmt(util, 1)}%</div>` : ''}
+            ${dur != null ? `<div style="color:#6b7280;">Дней:</div>
+            <div style="text-align:right;">${dur}</div>` : ''}
+          </div>
+        </div>`;
+      };
+
+      html += `<h4 style="margin:18px 0 8px; font-size:0.95rem; color:#1f2937;">
+        📈 Статистический анализ
+      </h4>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
+        ${mkCard('R (Адаптация)', '#f59e0b', '#fffbeb', adapt)}
+        ${mkCard('R★ (Оптимум)', '#22c55e', '#ecfdf5', opt)}
+        ${mkCard('B2 (Наблюд.)', '#6366f1', '#eef2ff', obs)}
+        ${mkCard('B1 (Базовый)', '#64748b', '#f8fafc', b1, true)}
+      </div>`;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 7. ТАБЛИЦА СРАВНЕНИЯ (Наблюдение → Адаптация)
+    // ═══════════════════════════════════════════════════════════════════
+    if (on('comparison_table') && Object.keys(cmp).length > 0) {
+      const row = (label, obsVal, adaptVal, delta, deltaPct, bg = '#fff') => `
+        <tr style="background:${bg};">
+          <td style="padding:5px 8px;">${label}</td>
+          <td style="text-align:right; padding:5px 8px;">${fmt(obsVal)}</td>
+          <td style="text-align:right; padding:5px 8px;">${fmt(adaptVal)}</td>
+          <td style="text-align:right; padding:5px 8px; font-weight:600; color:${delta > 0 ? '#16a34a' : delta < 0 ? '#dc2626' : '#6b7280'};">${fmtSgn(delta)}</td>
+          <td style="text-align:right; padding:5px 8px; color:${deltaPct > 0 ? '#16a34a' : deltaPct < 0 ? '#dc2626' : '#6b7280'};">${fmtPct(deltaPct)}</td>
+        </tr>`;
+
+      html += `<h4 style="margin:16px 0 8px; font-size:0.95rem; color:#1f2937;">
+        📊 Сравнение: Наблюдение → Адаптация
+      </h4>
+      <table style="width:100%; font-size:0.82rem; border-collapse:collapse; border:1px solid #e5e7eb;">
+        <thead>
+          <tr style="background:#f3f4f6;">
+            <th style="text-align:left; padding:8px; border-bottom:2px solid #d1d5db;">Параметр</th>
+            <th style="text-align:right; padding:8px; border-bottom:2px solid #d1d5db; color:#6366f1;">B2 (Набл.)</th>
+            <th style="text-align:right; padding:8px; border-bottom:2px solid #d1d5db; color:#f59e0b;">R (Адапт.)</th>
+            <th style="text-align:right; padding:8px; border-bottom:2px solid #d1d5db;">Δ</th>
+            <th style="text-align:right; padding:8px; border-bottom:2px solid #d1d5db;">Δ %</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${row('Q медианный, тыс.м³/сут', obs.flow_median, adapt.flow_median, cmp.delta_flow_median, cmp.delta_flow_median_pct)}
+          ${row('Q средний, тыс.м³/сут', obs.flow_avg, adapt.flow_avg, cmp.delta_flow_avg, cmp.delta_flow_avg_pct, '#fafafa')}
+          ${row('ΔP медиана, кгс/см²', obs.dp_median, adapt.dp_median, cmp.delta_dp, cmp.delta_dp_pct)}
+          ${row('P труб. медиана, кгс/см²', obs.p_tube_median, adapt.p_tube_median, cmp.delta_p_tube, cmp.delta_p_tube_pct, '#fafafa')}
+          ${row('P лин. медиана, кгс/см²', obs.p_line_median, adapt.p_line_median, cmp.delta_p_line, cmp.delta_p_line_pct)}
+          ${row('КИВ, %', obs.utilization_pct, adapt.utilization_pct, cmp.delta_utilization_pct, null, '#fafafa')}
+          ${row('Продувок', obs.purge_count, adapt.purge_count, cmp.delta_purge_count, null)}
+          ${row('Вбросов реагента', obs.reagent_count, adapt.reagent_count, cmp.delta_reagent_count, null, '#fafafa')}
+        </tbody>
       </table>`;
     }
 
-    // ─── Раздел R★ (если есть) ───
-    if (opt.regime) {
-      const r = opt.regime;
-      html += `<div style="margin-top:12px; padding:8px 10px; background:#ecfdf5;
-                          border-left:3px solid #22c55e; border-radius:4px;">
-        <div style="font-weight:600; color:#166534;">R★ Оптимальное окно</div>
-        <div style="font-size:0.85rem; margin-top:4px;">
-          ${_escHtml(r.start || '—')} — ${_escHtml(r.end || '—')}
-          ${r.duration_label ? `(${_escHtml(r.duration_label)})` : ''}
+    // ═══════════════════════════════════════════════════════════════════
+    // 8. ТРЕНДЫ
+    // ═══════════════════════════════════════════════════════════════════
+    if (on('trends') && (adapt.q_trend || adapt.dp_trend)) {
+      html += `<div style="margin-top:14px; padding:10px 12px; background:#f0f9ff;
+                          border-left:4px solid #0284c7; border-radius:4px;">
+        <div style="font-weight:600; color:#0369a1; margin-bottom:8px; font-size:0.92rem;">
+          📈 Тренды за период адаптации
         </div>
-        ${r.score != null ? `<div style="font-size:0.85rem;">Score: <b>${fmt(r.score, 1)}</b></div>` : ''}
+        <div style="font-size:0.84rem; display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          ${adapt.q_trend ? `<div>
+            <b>Q:</b> ${trendArrow(adapt.q_trend)} ${fmt(adapt.q_trend.slope_per_day, 3)} тыс.м³/сут/день
+            ${adapt.q_trend.mk_significant ? '<span style="color:#16a34a; font-weight:600;">(знач.)</span>' : ''}
+          </div>` : ''}
+          ${adapt.dp_trend ? `<div>
+            <b>ΔP:</b> ${trendArrow(adapt.dp_trend)} ${fmt(adapt.dp_trend.slope_per_day, 4)} кгс/см²/день
+          </div>` : ''}
+          ${adapt.p_tube_trend ? `<div>
+            <b>P труб:</b> ${trendArrow(adapt.p_tube_trend)} ${fmt(adapt.p_tube_trend.slope_per_day, 3)} кгс/см²/день
+          </div>` : ''}
+          ${adapt.p_line_trend ? `<div>
+            <b>P лин:</b> ${trendArrow(adapt.p_line_trend)} ${fmt(adapt.p_line_trend.slope_per_day, 3)} кгс/см²/день
+          </div>` : ''}
+        </div>
+      </div>`;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 9. СЕГМЕНТНЫЙ АНАЛИЗ (если есть данные)
+    // ═══════════════════════════════════════════════════════════════════
+    if (on('segment_analysis') && seg && (seg.changepoints || seg.interpretation || seg.cp_marks)) {
+      const interp = seg.interpretation || {};
+      const cpMarks = seg.cp_marks || [];
+
+      html += `<h4 style="margin:18px 0 8px; font-size:0.95rem; color:#1f2937;">
+        🔍 Сегментный анализ
+      </h4>`;
+
+      // График сегментов (контейнер для Plotly)
+      if (seg.chart_data) {
+        html += `<div style="margin-bottom:12px;">
+          <div id="adapt-${bid}-segments" style="height:280px; background:#fafafa; border:1px solid #e5e7eb; border-radius:6px;"></div>
+          <div style="font-size:0.78rem; color:#6b7280; margin-top:4px; padding:0 4px;">
+            <b>Рис. 4.4.</b> Сегментный анализ дебита. Вертикальные линии — точки изменения режима (changepoints).
+          </div>
+        </div>`;
+      }
+
+      // Changepoints
+      if (cpMarks.length > 0) {
+        html += `<div style="margin-bottom:10px; font-size:0.82rem;">
+          <b>Точки изменения режима:</b>
+          ${cpMarks.slice(0, 10).map(cp => `<span style="display:inline-block; margin:2px 4px; padding:2px 8px; background:#fef3c7; border-radius:4px; font-size:0.78rem;">${_escHtml(cp.tag)}: ${_escHtml((cp.date || '').slice(0, 16))}</span>`).join('')}
+          ${cpMarks.length > 10 ? `<span style="color:#9ca3af;">... и ещё ${cpMarks.length - 10}</span>` : ''}
+        </div>`;
+      }
+
+      // Описания сегментов
+      const descriptions = interp.descriptions || [];
+      if (descriptions.length > 0) {
+        html += `<div style="margin-bottom:10px; padding:8px 10px; background:#fefce8; border-radius:4px; font-size:0.82rem;">
+          <b>Сегменты:</b><br>
+          ${descriptions.slice(0, 8).map(d => `<div style="margin-top:3px;">• ${_escHtml(d)}</div>`).join('')}
+          ${descriptions.length > 8 ? `<div style="color:#9ca3af; margin-top:4px;">... и ещё ${descriptions.length - 8} сегментов</div>` : ''}
+        </div>`;
+      }
+
+      // Сводка
+      if (interp.summary) {
+        html += `<div style="padding:10px 12px; background:#ecfdf5; border-left:4px solid #22c55e; border-radius:4px; font-size:0.84rem; line-height:1.5;">
+          <b>Сводка:</b> ${_escHtml(interp.summary)}
+        </div>`;
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // R★ ОПТИМАЛЬНОЕ ОКНО (отдельный блок если score высокий)
+    // ═══════════════════════════════════════════════════════════════════
+    if (opt && (opt.date_from || opt.flow_median) && opt.score != null) {
+      const r = opt;
+      html += `<div style="margin-top:16px; padding:12px 14px; background:#ecfdf5;
+                          border:2px solid #22c55e; border-radius:8px;">
+        <div style="font-weight:700; color:#166534; font-size:1rem; margin-bottom:8px;">
+          ⭐ R★ Оптимальное окно
+        </div>
+        <div style="font-size:0.9rem; margin-bottom:8px;">
+          <b>${_escHtml((r.date_from || '').slice(0, 10))}</b> — <b>${_escHtml((r.date_to || '').slice(0, 10))}</b>
+          ${r.duration_label ? `<span style="color:#6b7280;"> (${_escHtml(r.duration_label)})</span>` : ''}
+        </div>
+        <div style="font-size:1.5rem; font-weight:700; color:#15803d; margin-bottom:10px;">
+          Score: ${fmt(r.score, 1)}
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; font-size:0.82rem;">
+          <div><span style="color:#6b7280;">Q мед:</span> <b>${fmt(r.flow_median)}</b> тыс.м³/сут</div>
+          <div><span style="color:#6b7280;">ΔP:</span> <b>${fmt(r.dp_median)}</b> кгс/см²</div>
+          <div><span style="color:#6b7280;">P тр:</span> ${fmt(r.p_tube_median)} кгс/см²</div>
+          <div><span style="color:#6b7280;">КИВ:</span> ${fmt(r.utilization_pct, 1)}%</div>
+        </div>
+      </div>`;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // NARRATIVE (описание периода) — в конце
+    // ═══════════════════════════════════════════════════════════════════
+    if (adapt.narrative) {
+      html += `<div style="margin-top:14px; padding:12px 14px; background:#f9fafb;
+                          border-left:4px solid #6b7280; border-radius:4px;">
+        <div style="font-weight:600; color:#374151; margin-bottom:6px;">📝 Автоматическое описание периода</div>
+        <div style="font-size:0.84rem; line-height:1.6; white-space:pre-wrap; color:#4b5563;">${_escHtml(adapt.narrative)}</div>
       </div>`;
     }
 
@@ -1711,9 +1978,9 @@
   }
 
   /**
-   * _buildOptimalWindowHtml — рендер блока optimal_window (R★)
+   * _buildOptimalWindowHtml — ПОЛНЫЙ рендер блока optimal_window (R★)
    *
-   * Снапшот: { regime, observation, b1 }
+   * Снапшот: { regime, observation, b1 } — но regime содержит 45 ключей
    */
   function _buildOptimalWindowHtml(snap, block, parts) {
     if (!snap || !snap.regime) {
@@ -1726,129 +1993,607 @@
     const p = block.params || {};
     const fmt = (v, d = 2) => (v == null || isNaN(v)) ? '—' : Number(v).toFixed(d);
     const on = (key) => parts[key] !== false;
+    const trendArrow = (t) => {
+      if (!t || !t.direction) return '→';
+      return t.direction === 'up' ? '↑' : t.direction === 'down' ? '↓' : '→';
+    };
 
     let html = '';
 
-    // ─── Сводка окна ───
-    if (on('regime_summary')) {
-      html += `<div style="padding:10px 12px; background:#ecfdf5;
-                          border-left:3px solid #22c55e; border-radius:4px; margin-bottom:10px;">
-        <div style="font-weight:600; color:#166534; font-size:1rem;">R★ Оптимальное окно</div>
-        <div style="margin-top:4px; font-size:0.9rem;">
-          <b>${_escHtml(r.start || p.optimal_from || '—')}</b> —
-          <b>${_escHtml(r.end || p.optimal_to || '—')}</b>
-          ${r.duration_label ? `<span style="color:#6b7280;"> (${_escHtml(r.duration_label)})</span>` : ''}
+    // ─── Заголовок с Score ───
+    html += `<div style="padding:12px; background:linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+                        border:2px solid #22c55e; border-radius:10px; margin-bottom:12px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div style="font-weight:700; color:#166534; font-size:1.1rem;">⭐ R★ Оптимальное окно</div>
+          <div style="margin-top:4px; font-size:0.9rem; color:#15803d;">
+            <b>${_escHtml((r.date_from || r.start || p.optimal_from || '').slice(0, 10))}</b> —
+            <b>${_escHtml((r.date_to || r.end || p.optimal_to || '').slice(0, 10))}</b>
+            ${r.duration_label ? ` (${_escHtml(r.duration_label)})` : r.duration_days ? ` (${r.duration_days} сут.)` : ''}
+          </div>
         </div>
-        ${r.score != null ? `
-        <div style="margin-top:6px; font-size:1.3rem; font-weight:700; color:#15803d;">
-          Score: ${fmt(r.score, 1)}
+        ${r.score != null ? `<div style="text-align:center;">
+          <div style="font-size:2rem; font-weight:800; color:#15803d;">${fmt(r.score, 1)}</div>
+          <div style="font-size:0.75rem; color:#6b7280;">Score</div>
         </div>` : ''}
+      </div>
+    </div>`;
+
+    // ─── ПОЛНАЯ таблица метрик окна ───
+    if (on('metrics_table')) {
+      html += `<table style="width:100%; font-size:0.84rem; border-collapse:collapse; border:1px solid #d1d5db;">
+        <thead>
+          <tr style="background:#f3f4f6;">
+            <th style="text-align:left; padding:6px 10px; border-bottom:2px solid #d1d5db;">Параметр</th>
+            <th style="text-align:right; padding:6px 10px; border-bottom:2px solid #d1d5db;">Значение</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td style="padding:5px 10px;">Q медианный, тыс.м³/сут</td>
+              <td style="text-align:right; padding:5px 10px; font-weight:600;">${fmt(r.flow_median)}</td></tr>
+          <tr style="background:#fafafa;"><td style="padding:5px 10px;">Q средний, тыс.м³/сут</td>
+              <td style="text-align:right; padding:5px 10px;">${fmt(r.flow_avg)}</td></tr>
+          <tr><td style="padding:5px 10px;">Q диапазон</td>
+              <td style="text-align:right; padding:5px 10px;">${fmt(r.q_min)} — ${fmt(r.q_max)}</td></tr>
+          <tr style="background:#fafafa;"><td style="padding:5px 10px;">ΔP медиана, кгс/см²</td>
+              <td style="text-align:right; padding:5px 10px; font-weight:600;">${fmt(r.dp_median)}</td></tr>
+          <tr><td style="padding:5px 10px;">P труб. медиана, кгс/см²</td>
+              <td style="text-align:right; padding:5px 10px;">${fmt(r.p_tube_median)}</td></tr>
+          <tr style="background:#fafafa;"><td style="padding:5px 10px;">P лин. медиана, кгс/см²</td>
+              <td style="text-align:right; padding:5px 10px;">${fmt(r.p_line_median)}</td></tr>
+          <tr><td style="padding:5px 10px;">КИВ, %</td>
+              <td style="text-align:right; padding:5px 10px;">${fmt(r.utilization_pct, 1)}</td></tr>
+          <tr style="background:#fafafa;"><td style="padding:5px 10px;">Рабочих часов</td>
+              <td style="text-align:right; padding:5px 10px;">${fmt(r.working_hours, 1)}</td></tr>
+          <tr><td style="padding:5px 10px;">Продувок</td>
+              <td style="text-align:right; padding:5px 10px;">${r.purge_count || 0}</td></tr>
+          <tr style="background:#fafafa;"><td style="padding:5px 10px;">Вбросов реагента</td>
+              <td style="text-align:right; padding:5px 10px;">${r.reagent_count || 0}</td></tr>
+        </tbody>
+      </table>`;
+    }
+
+    // ─── Тренды ───
+    if (r.q_trend || r.dp_trend) {
+      html += `<div style="margin-top:12px; padding:8px 10px; background:#f0f9ff;
+                          border-left:3px solid #0284c7; border-radius:4px;">
+        <div style="font-weight:600; color:#0369a1; margin-bottom:4px;">📈 Тренды</div>
+        <div style="font-size:0.82rem; display:flex; gap:16px; flex-wrap:wrap;">
+          ${r.q_trend ? `<div><b>Q:</b> ${trendArrow(r.q_trend)} ${fmt(r.q_trend.slope_per_day, 3)}/день</div>` : ''}
+          ${r.dp_trend ? `<div><b>ΔP:</b> ${trendArrow(r.dp_trend)} ${fmt(r.dp_trend.slope_per_day, 4)}/день</div>` : ''}
+        </div>
       </div>`;
     }
 
-    // ─── Таблица метрик окна ───
-    if (on('metrics_table')) {
-      html += `<table style="width:100%; font-size:0.82rem; border-collapse:collapse;">
-        <tr style="background:#f3f4f6;">
-          <th style="text-align:left; padding:4px 8px;">Параметр</th>
-          <th style="text-align:right; padding:4px 8px;">Значение</th>
-        </tr>
-        <tr>
-          <td style="padding:4px 8px;">P труб. (медиана), кгс/см²</td>
-          <td style="text-align:right; padding:4px 8px;">${fmt(r.p_tube_median)}</td>
-        </tr>
-        <tr style="background:#fafafa;">
-          <td style="padding:4px 8px;">P лин. (медиана), кгс/см²</td>
-          <td style="text-align:right; padding:4px 8px;">${fmt(r.p_line_median)}</td>
-        </tr>
-        <tr>
-          <td style="padding:4px 8px;">ΔP (медиана), кгс/см²</td>
-          <td style="text-align:right; padding:4px 8px;">${fmt(r.dp_median)}</td>
-        </tr>
-        <tr style="background:#fafafa;">
-          <td style="padding:4px 8px;">Q медианный, тыс.м³/сут</td>
-          <td style="text-align:right; padding:4px 8px;">${fmt(r.flow_median)}</td>
-        </tr>
-        <tr>
-          <td style="padding:4px 8px;">Q средний, тыс.м³/сут</td>
-          <td style="text-align:right; padding:4px 8px;">${fmt(r.flow_avg)}</td>
-        </tr>
-        <tr style="background:#fafafa;">
-          <td style="padding:4px 8px;">КИВ, %</td>
-          <td style="text-align:right; padding:4px 8px;">${fmt(r.utilization_pct, 1)}</td>
-        </tr>
-      </table>`;
+    // ─── Score breakdown ───
+    if (r.score_breakdown) {
+      const sb = r.score_breakdown;
+      html += `<div style="margin-top:12px; padding:8px 10px; background:#fef3c7;
+                          border-left:3px solid #f59e0b; border-radius:4px;">
+        <div style="font-weight:600; color:#92400e; margin-bottom:4px;">🎯 Компоненты Score</div>
+        <div style="font-size:0.8rem; display:grid; grid-template-columns:repeat(3, 1fr); gap:6px;">
+          ${sb.rank_q != null ? `<div>rank_q: ${fmt(sb.rank_q, 2)}</div>` : ''}
+          ${sb.rank_stability != null ? `<div>stability: ${fmt(sb.rank_stability, 2)}</div>` : ''}
+          ${sb.rank_utilization != null ? `<div>util: ${fmt(sb.rank_utilization, 2)}</div>` : ''}
+          ${sb.rank_purge != null ? `<div>purge: ${fmt(sb.rank_purge, 2)}</div>` : ''}
+          ${sb.cv_q != null ? `<div>CV(Q): ${fmt(sb.cv_q, 4)}</div>` : ''}
+        </div>
+      </div>`;
+    }
+
+    // ─── Narrative ───
+    if (r.narrative) {
+      html += `<div style="margin-top:12px; padding:10px 12px; background:#f9fafb;
+                          border-left:3px solid #6b7280; border-radius:4px;">
+        <div style="font-weight:600; color:#374151; margin-bottom:6px;">📝 Описание</div>
+        <div style="font-size:0.84rem; line-height:1.5; white-space:pre-wrap; color:#4b5563;">${_escHtml(r.narrative)}</div>
+      </div>`;
     }
 
     return html;
   }
 
   /**
-   * _buildReagentIrvSummaryHtml — рендер блока reagent_irv_summary
+   * _buildReagentIrvSummaryHtml — ПОЛНЫЙ рендер блока reagent_irv_summary
    *
-   * Снапшот: { injections_total, irv_count, scores, best_reagent }
+   * Снапшот: { injections_total, irv_count, scores, best_reagent, irv_results? }
    */
   function _buildReagentIrvSummaryHtml(snap, block, parts) {
-    if (!snap || (!snap.injections_total && !snap.irv_count && !snap.scores)) {
-      return `<div style="color:#9ca3af; padding:12px;">Данные по реагентам отсутствуют.</div>`;
+    snap = snap || {};
+    const rows   = snap.irv_results || [];
+    const scores = (snap.scores || []).slice().sort((a, b) => (b.score || 0) - (a.score || 0));
+    if (!rows.length && !scores.length) {
+      const msg = (snap.warnings && snap.warnings[0]) || 'Данные по реагентам отсутствуют.';
+      return `<div style="color:#9ca3af; padding:12px;">${_escHtml(msg)}</div>`;
     }
 
-    const fmt = (v, d = 1) => (v == null || isNaN(v)) ? '—' : Number(v).toFixed(d);
+    const fmt = (v, d = 2) => (v == null || isNaN(v)) ? '—' : Number(v).toFixed(d);
     const on = (key) => parts[key] !== false;
+    const plural = (n, a, b, c) => {
+      const m10 = n % 10, m100 = n % 100;
+      if (m10 === 1 && m100 !== 11) return a;
+      if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return b;
+      return c;
+    };
+
+    const best   = snap.best_reagent || null;   // объект {reagent, score, level_name, …}
+    const choke  = snap.choke_mm;
+    const totalInj  = snap.injections_total || rows.length;
+    const mergedInj = snap.merged_injections || rows.length;
+
+    // Цвета по реагентам (стабильная палитра)
+    const PALETTE = ['#3b82f6', '#ef4444', '#16a34a', '#f59e0b', '#8b5cf6',
+                     '#ec4899', '#0ea5e9', '#22c55e', '#d946ef', '#14b8a6'];
+    const colorByReagent = {};
+    [...new Set(rows.map(x => x.reagent).filter(Boolean))]
+      .forEach((n, i) => { colorByReagent[n] = PALETTE[i % PALETTE.length]; });
+
+    // Σ qty и счётчики по реагентам (из irv_results)
+    const qtyByReagent = {}, cntByReagent = {};
+    let totalQty = 0, qtyKnownCount = 0;
+    for (const it of rows) {
+      const name = it.reagent || '';
+      if (!name) continue;
+      cntByReagent[name] = (cntByReagent[name] || 0) + 1;
+      if (it.qty != null && !isNaN(Number(it.qty))) {
+        qtyByReagent[name] = (qtyByReagent[name] || 0) + Number(it.qty);
+        totalQty += Number(it.qty); qtyKnownCount += 1;
+      }
+    }
+    const someQty = qtyKnownCount > 0;
+
+    // Период и темп
+    const pf = (snap.period && snap.period.from) || (block && block.params && block.params.date_from);
+    const pt = (snap.period && snap.period.to)   || (block && block.params && block.params.date_to);
+    let periodDays = 0;
+    if (pf && pt) periodDays = Math.max(1, (new Date(pt) - new Date(pf)) / 86400000);
+    const ratePerDay = periodDays > 0 ? (totalInj / periodDays) : 0;
+
+    // ─── Нарратив словами ───
+    const narr = [];
+    narr.push(`За период (${periodDays.toFixed(0)} сут.) сделано <b>${totalInj}</b> `
+      + plural(totalInj, 'вброс', 'вброса', 'вбросов')
+      + (mergedInj !== totalInj ? ` (после группировки близких — <b>${mergedInj}</b>)` : '') + '.');
+    if (scores.length) {
+      narr.push(`Применялось <b>${scores.length}</b> `
+        + plural(scores.length, 'тип реагента', 'типа реагента', 'типов реагента') + '.');
+      const byCnt = scores.slice().sort((a, b) => (b.irv_count || 0) - (a.irv_count || 0));
+      const top1 = byCnt[0], top2 = byCnt[1];
+      const sumCnt = scores.reduce((s, x) => s + (x.irv_count || 0), 0) || 1;
+      if (top1) narr.push(`Чаще всего применялся <b>${_escHtml(top1.reagent)}</b> — ${top1.irv_count} ИРВ `
+        + `(${(top1.irv_count / sumCnt * 100).toFixed(0)}%).`);
+      if (top2 && top2.irv_count > 0) narr.push(`На втором месте — <b>${_escHtml(top2.reagent)}</b> `
+        + `(${top2.irv_count} ИРВ, ${(top2.irv_count / sumCnt * 100).toFixed(0)}%).`);
+    }
+    if (someQty) narr.push(`Суммарный расход: <b>${totalQty.toFixed(1)}</b> `
+      + (best && qtyByReagent[best.reagent] ? `(в т.ч. ${_escHtml(best.reagent)} — ${qtyByReagent[best.reagent].toFixed(1)})` : '') + '.');
+    if (ratePerDay > 0) narr.push(`Темп: <b>${ratePerDay.toFixed(2)}</b> вбр./сут (≈ ${(ratePerDay * 7).toFixed(1)} вбр./нед).`);
+    if (best) {
+      const sc = best.score != null ? Math.round(best.score * 100) : null;
+      narr.push(`По эффективности (Score) лидирует <b>${_escHtml(best.reagent)}</b>`
+        + (sc != null ? ` (${sc} из 100)` : '')
+        + (best.level_name ? `, уровень: «${_escHtml(best.level_name)}»` : '') + '.');
+    }
 
     let html = '';
 
-    // ─── Сводка ───
-    if (on('summary')) {
-      html += `<div style="padding:10px 12px; background:#fef3c7;
-                          border-left:3px solid #f59e0b; border-radius:4px; margin-bottom:10px;">
-        <div style="font-weight:600; color:#92400e; font-size:0.95rem;">Эффективность реагентов (ИРВ)</div>
-        <div style="margin-top:6px; font-size:0.88rem; color:#78350f;">
-          <b>Всего вбросов:</b> ${snap.injections_total || 0} &nbsp;|&nbsp;
-          <b>ИРВ:</b> ${snap.irv_count || 0}
+    // ─── Карточки: Лучший / Всего вбросов / Расход ───
+    if (on('cards')) {
+      const cardCss = 'background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px 12px; border-left:4px solid #d1d5db; flex:1; min-width:200px;';
+      const grid = 'display:grid; grid-template-columns:1fr auto; gap:3px 10px; font-size:0.82rem;';
+      html += `<div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+        <div style="${cardCss} border-left-color:#f59e0b; background:linear-gradient(120deg,#fef3c7,#fde68a);">
+          <div style="font-size:0.74rem; font-weight:700; text-transform:uppercase; color:#92400e;">⭐ Лучший реагент</div>
+          ${best ? `<div style="font-size:1.05rem; font-weight:700; color:#92400e; margin:2px 0 4px;">${_escHtml(best.reagent)}</div>
+            <div style="${grid}">
+              <span style="color:#6b7280;">Score</span><b>${best.score != null ? Math.round(best.score * 100) : '—'}</b>
+              <span style="color:#6b7280;">Уровень</span><b>${_escHtml(best.level_name || '—')}</b>
+              <span style="color:#6b7280;">Q/шт мед.</span><b>${fmt(best.median_q_per_unit, 2)}</b>
+              <span style="color:#6b7280;">Эффект, ч</span><b>${fmt(best.median_effect_hours, 1)}</b>
+            </div>` : '<div style="color:#9ca3af;">Не определён</div>'}
         </div>
-        ${snap.best_reagent ? `
-        <div style="margin-top:6px; font-size:0.9rem;">
-          <b>Лучший реагент:</b>
-          <span style="color:#15803d; font-weight:600;">${_escHtml(snap.best_reagent)}</span>
-        </div>` : ''}
+        <div style="${cardCss} border-left-color:#7c3aed; background:#f5f3ff;">
+          <div style="font-size:0.74rem; font-weight:700; text-transform:uppercase; color:#5b21b6;">Всего вбросов</div>
+          <div style="${grid} margin-top:4px;">
+            <span style="color:#6b7280;">Событий</span><b>${totalInj}</b>
+            <span style="color:#6b7280;">После группировки</span><b>${mergedInj}</b>
+            <span style="color:#6b7280;">Типов реагентов</span><b>${scores.length}</b>
+            ${ratePerDay > 0 ? `<span style="color:#6b7280;">Темп, вбр./сут</span><b>${ratePerDay.toFixed(2)}</b>` : ''}
+          </div>
+        </div>
+        <div style="${cardCss} border-left-color:#059669; background:#ecfdf5;">
+          <div style="font-size:0.74rem; font-weight:700; text-transform:uppercase; color:#065f46;">Расход</div>
+          <div style="${grid} margin-top:4px;">
+            <span style="color:#6b7280;">Σ qty</span><b>${someQty ? totalQty.toFixed(1) : '— нет qty —'}</b>
+            ${choke != null ? `<span style="color:#6b7280;">Штуцер, мм</span><b>${fmt(choke, 1)}</b>` : ''}
+          </div>
+        </div>
       </div>`;
     }
 
-    // ─── Таблица Score по реагентам ───
-    if (on('scores_table') && snap.scores) {
-      const scores = snap.scores;
-      // scores может быть объектом {reagent: score} или массивом [{reagent, score}]
-      const rows = Array.isArray(scores)
-        ? scores
-        : Object.entries(scores).map(([name, score]) => ({ reagent: name, score }));
+    // ─── Описание словами ───
+    if (on('narrative') && narr.length) {
+      html += `<div style="background:#fff; border:1px solid #ddd6fe; border-radius:8px; padding:12px 14px; margin-bottom:12px;">
+        <div style="font-weight:600; color:#5b21b6; margin-bottom:6px;">📖 Описание словами</div>
+        <div style="font-size:0.9rem; color:#4b5563; line-height:1.7;">
+          ${narr.map(s => `<div style="margin:4px 0;">▸ ${s}</div>`).join('')}
+        </div>
+      </div>`;
+    }
 
-      if (rows.length > 0) {
-        let tableRows = '';
-        rows.forEach((r, i) => {
-          const name = r.reagent || r.name || '—';
-          const sc = r.score != null ? r.score : r;
-          const bg = i % 2 === 0 ? '#fff' : '#fafafa';
-          const scoreColor = sc >= 70 ? '#15803d' : sc >= 40 ? '#d97706' : '#dc2626';
-          tableRows += `<tr style="background:${bg};">
-            <td style="padding:4px 8px;">${_escHtml(name)}</td>
-            <td style="text-align:right; padding:4px 8px; font-weight:600; color:${scoreColor};">
-              ${fmt(sc)}
-            </td>
-          </tr>`;
-        });
-
-        html += `<table style="width:100%; font-size:0.82rem; border-collapse:collapse;">
-          <tr style="background:#f3f4f6;">
-            <th style="text-align:left; padding:4px 8px;">Реагент</th>
-            <th style="text-align:right; padding:4px 8px;">Score</th>
-          </tr>
-          ${tableRows}
-        </table>`;
+    // ─── Шкала эффективности реагентов (главная таблица) ───
+    if (on('scores_table') && scores.length) {
+      const th = 'padding:6px 8px; border-bottom:2px solid #d1d5db; text-align:right; font-size:0.72rem; text-transform:uppercase; color:#6b7280; background:#f9fafb;';
+      const thL = th + ' text-align:left;';
+      const td = 'padding:5px 8px; border-bottom:1px solid #eee; text-align:right;';
+      const tdL = td + ' text-align:left;';
+      let body = '';
+      for (const s of scores) {
+        const sc  = s.score != null ? s.score.toFixed(2) : '—';
+        const cnt = cntByReagent[s.reagent] ?? s.irv_count;
+        const qty = qtyByReagent[s.reagent];
+        const sw  = colorByReagent[s.reagent] || '#9ca3af';
+        const degr = s.degradation_slope != null
+          ? `<span style="color:${s.degradation_slope < 0 ? '#b91c1c' : '#059669'};">${s.degradation_slope >= 0 ? '+' : ''}${s.degradation_slope.toFixed(3)}/ИРВ</span>`
+          : '—';
+        const flags = (s.flags || []).map(f =>
+          `<span style="display:inline-block; margin:1px; padding:1px 6px; border-radius:8px; background:#f3f4f6; color:#4b5563; font-size:0.72rem;">${_escHtml(f)}</span>`).join('');
+        body += `<tr>
+          <td style="${tdL}"><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${sw}; margin-right:6px; vertical-align:middle;"></span><b>${_escHtml(s.reagent)}</b></td>
+          <td style="${td}">${cnt ?? s.irv_count}</td>
+          <td style="${td}">${s.valid_irv_count ?? '—'}</td>
+          <td style="${td}">${qty != null ? qty.toFixed(1) : '—'}</td>
+          <td style="${td}">${fmt(s.median_q_per_unit, 3)}</td>
+          <td style="${td}">${fmt(s.median_dp_gain, 2)}</td>
+          <td style="${td}">${fmt(s.median_effect_hours, 1)}</td>
+          <td style="${td}"><b>${sc}</b></td>
+          <td style="${td}">${_escHtml(s.level_name || '—')}</td>
+          <td style="${td}">${degr}</td>
+          <td style="${tdL} font-size:0.74rem;">${flags}</td>
+        </tr>`;
       }
+      html += `<div style="font-weight:600; color:#5b21b6; margin:6px 0;">Шкала эффективности реагентов</div>
+        <div style="overflow-x:auto; margin-bottom:8px;">
+        <table style="width:100%; border-collapse:collapse; font-size:0.82rem;">
+          <thead><tr>
+            <th style="${thL}">Реагент</th><th style="${th}">Вбросов</th><th style="${th}">Валидных</th>
+            <th style="${th}">Σ qty</th><th style="${th}">Q/шт мед.</th><th style="${th}">ΔP прирост</th>
+            <th style="${th}">Длит. эффекта</th><th style="${th}">Score</th><th style="${th}">Уровень</th>
+            <th style="${th}">Деградация</th><th style="${thL}">Флаги</th>
+          </tr></thead><tbody>${body}</tbody>
+        </table></div>`;
+    }
+
+    // ─── Детально по ИРВ (раскрывающаяся таблица) ───
+    if (on('detailed') && rows.length) {
+      const th = 'padding:5px 8px; border-bottom:2px solid #d1d5db; text-align:right; font-size:0.72rem; text-transform:uppercase; color:#6b7280; background:#f9fafb;';
+      const thL = th + ' text-align:left;';
+      const td = 'padding:4px 8px; border-bottom:1px solid #eee; text-align:right;';
+      const tdL = td + ' text-align:left;';
+      let body = '';
+      for (const it of rows) {
+        const m = it.metrics || {};
+        const t = (it.event_time || '').replace('T', ' ').slice(0, 16);
+        const inv = m.invalid_reason;
+        const ext = it.extended || {};
+        const irvScore = ext.score != null ? Math.round(ext.score) : null;
+        const cat = ext.category;
+        const catColor = cat === 'good' ? '#16a34a' : cat === 'average' ? '#ca8a04' : cat === 'weak' ? '#dc2626' : '#9ca3af';
+        const sw = colorByReagent[it.reagent] || '#9ca3af';
+        body += `<tr>
+          <td style="${tdL} font-family:monospace;">${_escHtml(t)}</td>
+          <td style="${tdL}"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${sw}; margin-right:5px; vertical-align:middle;"></span>${_escHtml(it.reagent || '—')}</td>
+          <td style="${td}">${it.qty != null ? it.qty : '—'}${it.merged_count > 1 ? ` <span style="color:#9ca3af; font-size:0.72rem;">(${it.merged_count})</span>` : ''}</td>
+          <td style="${td}">${fmt(it.duration_hours, 1)}</td>
+          <td style="${td}">${fmt(m.q_per_unit, 2)}</td>
+          <td style="${td}">${fmt(m.dp_gain, 2)}</td>
+          <td style="${td}">${fmt(m.effect_duration_hours, 1)}</td>
+          <td style="${td}">${fmt(m.utilisation_pct, 1)}</td>
+          <td style="${td}">${fmt(m.q_cumulative, 2)}</td>
+          <td style="${td}">${irvScore != null ? `<span style="background:${catColor}; color:#fff; padding:2px 6px; border-radius:8px; font-weight:600;">${irvScore}</span>` : '—'}</td>
+          <td style="${tdL}">${inv ? `<span style="color:#b91c1c; font-size:0.74rem;">${_escHtml(inv)}</span>` : '<span style="color:#059669;">✓</span>'}</td>
+        </tr>`;
+      }
+      html += `<details style="margin-bottom:8px;">
+        <summary style="cursor:pointer; color:#5b21b6; font-weight:500; font-size:0.86rem;">Развернуть детально по ИРВ (${rows.length})</summary>
+        <div style="overflow-x:auto; max-height:400px; overflow-y:auto; margin-top:6px;">
+        <table style="width:100%; border-collapse:collapse; font-size:0.8rem;">
+          <thead><tr>
+            <th style="${thL}">Дата вброса</th><th style="${thL}">Реагент</th><th style="${th}">qty</th>
+            <th style="${th}">Длит. ИРВ, ч</th><th style="${th}">Q/шт</th><th style="${th}">ΔP gain</th>
+            <th style="${th}">Эффект, ч</th><th style="${th}">КИВ, %</th><th style="${th}">Σ Q, тыс.м³</th>
+            <th style="${th}">Score</th><th style="${thL}">Статус</th>
+          </tr></thead><tbody>${body}</tbody>
+        </table></div></details>`;
+    }
+
+    // ─── Графики: вбросы по реагентам (donut) + Score по времени ───
+    if (on('charts') && (scores.length || rows.length)) {
+      const bid = (block && block.id) || 'x';
+      html += `<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:8px;">
+        <div><div style="font-weight:600; color:#5b21b6; font-size:0.9rem; margin-bottom:4px;">Вбросы по реагентам</div>
+          <div id="irv-${bid}-pie" style="height:280px;"></div></div>
+        <div><div style="font-weight:600; color:#5b21b6; font-size:0.9rem; margin-bottom:4px;">Эффективность вбросов (Score по времени)</div>
+          <div id="irv-${bid}-score" style="height:280px;"></div></div>
+      </div>`;
     }
 
     return html;
+  }
+
+  // Рендер Plotly-графиков ИРВ (donut + Score по времени) — из снапшота.
+  function _renderReagentIrvCharts(snap, idPrefix) {
+    if (!window.Plotly || !snap) return;
+    const rows   = snap.irv_results || [];
+    const scores = (snap.scores || []).slice().sort((a, b) => (b.score || 0) - (a.score || 0));
+    if (!rows.length && !scores.length) return;
+
+    const PALETTE = ['#3b82f6', '#ef4444', '#16a34a', '#f59e0b', '#8b5cf6',
+                     '#ec4899', '#0ea5e9', '#22c55e', '#d946ef', '#14b8a6'];
+    const reagentNames = [...new Set(rows.map(x => x.reagent).filter(Boolean))];
+    const colorByReagent = {};
+    reagentNames.forEach((n, i) => { colorByReagent[n] = PALETTE[i % PALETTE.length]; });
+
+    const qtyByReagent = {}, cntByReagent = {};
+    let totalQty = 0, qtyKnownCount = 0;
+    for (const it of rows) {
+      const name = it.reagent || ''; if (!name) continue;
+      cntByReagent[name] = (cntByReagent[name] || 0) + 1;
+      if (it.qty != null && !isNaN(Number(it.qty))) {
+        qtyByReagent[name] = (qtyByReagent[name] || 0) + Number(it.qty);
+        totalQty += Number(it.qty); qtyKnownCount += 1;
+      }
+    }
+    const someQty = qtyKnownCount > 0;
+    const totalInj = snap.injections_total || rows.length;
+
+    // 1) Donut
+    const pieEl = document.getElementById(idPrefix + 'pie');
+    if (pieEl && scores.length) {
+      const labels = scores.map(s => s.reagent);
+      const cnts   = scores.map(s => cntByReagent[s.reagent] ?? s.irv_count ?? 0);
+      const qtys   = scores.map(s => qtyByReagent[s.reagent] ?? 0);
+      const values = someQty ? qtys : cnts;
+      try {
+        window.Plotly.newPlot(pieEl, [{
+          type: 'pie', hole: 0.45, labels: labels, values: values,
+          marker: { colors: labels.map(n => colorByReagent[n] || '#9ca3af') },
+          text: cnts.map(c => c + ' ИРВ'), textinfo: 'label+percent', textposition: 'inside',
+          hovertemplate: '<b>%{label}</b><br>%{value} ' + (someQty ? '(qty)' : 'ИРВ') + '<br>%{percent}<extra></extra>',
+        }], {
+          margin: { l: 10, r: 10, t: 10, b: 10 }, showlegend: false, font: { size: 11 },
+          annotations: [{ font: { size: 13 }, showarrow: false,
+            text: someQty ? ('Σ qty<br>' + totalQty.toFixed(0)) : (totalInj + ' вбр.'), x: 0.5, y: 0.5 }],
+        }, { displaylogo: false, responsive: true });
+      } catch (e) { /* no-op */ }
+    }
+
+    // 2) Score по времени (bar по реагентам)
+    const scEl = document.getElementById(idPrefix + 'score');
+    if (scEl && rows.length) {
+      const traces = reagentNames.map(name => {
+        const items = rows.filter(r => r.reagent === name);
+        return {
+          type: 'bar', name: name,
+          x: items.map(it => it.event_time),
+          y: items.map(it => (it.extended && it.extended.score) != null ? it.extended.score : null),
+          marker: { color: colorByReagent[name] },
+          hovertemplate: '<b>' + name + '</b><br>%{x}<br>Score: %{y}<extra></extra>',
+        };
+      });
+      try {
+        window.Plotly.newPlot(scEl, traces, {
+          margin: { l: 40, r: 10, t: 10, b: 40 },
+          xaxis: { type: 'date', title: 'Дата вброса' },
+          yaxis: { title: 'Score (0–100)', range: [0, 100] },
+          font: { size: 11 }, legend: { orientation: 'h', y: -0.18 },
+          shapes: [
+            { type: 'line', xref: 'paper', x0: 0, x1: 1, y0: 70, y1: 70, line: { color: '#16a34a', dash: 'dash', width: 1 } },
+            { type: 'line', xref: 'paper', x0: 0, x1: 1, y0: 45, y1: 45, line: { color: '#ca8a04', dash: 'dash', width: 1 } },
+          ],
+          annotations: [
+            { x: 1, xref: 'paper', y: 70, text: '70 — хороший', showarrow: false, xanchor: 'right', font: { size: 9, color: '#16a34a' }, bgcolor: 'rgba(255,255,255,0.8)' },
+            { x: 1, xref: 'paper', y: 45, text: '45 — средний', showarrow: false, xanchor: 'right', font: { size: 9, color: '#ca8a04' }, bgcolor: 'rgba(255,255,255,0.8)' },
+          ],
+        }, { displaylogo: false, responsive: true });
+      } catch (e) { /* no-op */ }
+    }
+  }
+
+  // Рендер Plotly-графиков для adaptation_period_analysis
+  function _renderAdaptationCharts(snap, idPrefix) {
+    if (!window.Plotly || !snap || !snap.adaptation) return;
+    const cd = snap.adaptation.chart_data;
+    if (!cd || !cd.length) return;
+
+    const layout = { margin: {l: 50, r: 20, t: 30, b: 40}, hovermode: 'x unified',
+                     font: {size: 10}, legend: {orientation: 'h', y: -0.18} };
+    const cfg = { displaylogo: false, responsive: true, modeBarButtonsToRemove: ['lasso2d', 'select2d'] };
+    const dates = cd.map(p => p.t);
+    const events = snap.adaptation.events_for_chart || [];
+
+    // Создаём вертикальные линии (shapes) для событий
+    const makeEventShapes = (yMin, yMax) => {
+      const shapes = [];
+      events.forEach(ev => {
+        if (ev.type === 'purge') {
+          shapes.push({
+            type: 'line', x0: ev.t, x1: ev.t, y0: yMin, y1: yMax,
+            line: { color: '#6b7280', width: 1, dash: 'dot' },
+          });
+        }
+      });
+      return shapes;
+    };
+
+    // Создаём маркеры для вбросов реагента
+    const makeReagentTrace = (yValues) => {
+      const reagentEvents = events.filter(e => e.type === 'reagent');
+      if (!reagentEvents.length) return null;
+      // Для каждого вброса находим ближайшую точку данных
+      const xs = [], ys = [], texts = [];
+      reagentEvents.forEach(ev => {
+        const idx = dates.findIndex(d => d >= ev.t);
+        if (idx >= 0 && yValues[idx] != null) {
+          xs.push(ev.t);
+          ys.push(yValues[idx]);
+          texts.push(ev.label || ev.reagent || 'Вброс');
+        }
+      });
+      if (!xs.length) return null;
+      return {
+        x: xs, y: ys, mode: 'markers', name: 'Вброс',
+        marker: { color: '#059669', size: 10, symbol: 'diamond' },
+        text: texts, hovertemplate: '%{text}<extra></extra>',
+        showlegend: true,
+      };
+    };
+
+    // ────────────────────────────────────────────────
+    // 1. Давления (P устье + P линия)
+    // ────────────────────────────────────────────────
+    const elPres = document.getElementById(idPrefix + 'pres');
+    if (elPres) {
+      try {
+        const pTube = cd.map(p => p.p_tube);
+        const pLine = cd.map(p => p.p_line);
+        const allP = [...pTube, ...pLine].filter(v => v != null && !isNaN(v));
+        const pMin = Math.min(...allP) * 0.95;
+        const pMax = Math.max(...allP) * 1.05;
+
+        const traces = [
+          { x: dates, y: pTube, name: 'P устье', mode: 'lines', line: {color: '#ef4444', width: 1.5} },
+          { x: dates, y: pLine, name: 'P линия', mode: 'lines', line: {color: '#3b82f6', width: 1.5} },
+        ];
+        const reagentTrace = makeReagentTrace(pTube);
+        if (reagentTrace) traces.push(reagentTrace);
+
+        Plotly.newPlot(elPres, traces, {
+          ...layout, title: { text: 'Давления, кгс/см²', font: {size: 12} },
+          shapes: makeEventShapes(pMin, pMax),
+          yaxis: { title: 'кгс/см²', range: [pMin, pMax] },
+        }, cfg);
+      } catch (e) { console.warn('adapt chart pres', e); }
+    }
+
+    // ────────────────────────────────────────────────
+    // 2. ΔP (перепад давления)
+    // ────────────────────────────────────────────────
+    const elDp = document.getElementById(idPrefix + 'dp');
+    if (elDp) {
+      try {
+        const dpVals = cd.map(p => p.dp);
+        const dpClean = dpVals.filter(v => v != null && !isNaN(v));
+        const dpMin = Math.min(...dpClean) * 0.9;
+        const dpMax = Math.max(...dpClean) * 1.1;
+
+        const traces = [
+          { x: dates, y: dpVals, name: 'ΔP', mode: 'lines', line: {color: '#dc2626', width: 2}, fill: 'tozeroy', fillcolor: 'rgba(220,38,38,0.1)' },
+        ];
+        const reagentTrace = makeReagentTrace(dpVals);
+        if (reagentTrace) {
+          reagentTrace.marker.color = '#16a34a';
+          traces.push(reagentTrace);
+        }
+
+        Plotly.newPlot(elDp, traces, {
+          ...layout, title: { text: 'Перепад ΔP, кгс/см²', font: {size: 12} },
+          shapes: makeEventShapes(dpMin, dpMax),
+          yaxis: { title: 'кгс/см²', range: [dpMin, dpMax] },
+        }, cfg);
+      } catch (e) { console.warn('adapt chart dp', e); }
+    }
+
+    // ────────────────────────────────────────────────
+    // 3. Q (расчётный дебит)
+    // ────────────────────────────────────────────────
+    const elFlow = document.getElementById(idPrefix + 'flow');
+    if (elFlow) {
+      try {
+        const qVals = cd.map(p => p.q);
+        const qClean = qVals.filter(v => v != null && !isNaN(v) && v > 0);
+        const qMin = qClean.length ? Math.min(...qClean) * 0.9 : 0;
+        const qMax = qClean.length ? Math.max(...qClean) * 1.1 : 50;
+
+        const traces = [
+          { x: dates, y: qVals, name: 'Q', mode: 'lines',
+            line: {color: '#2563eb', width: 2}, fill: 'tozeroy', fillcolor: 'rgba(37,99,235,0.08)' },
+        ];
+        const reagentTrace = makeReagentTrace(qVals);
+        if (reagentTrace) {
+          reagentTrace.marker.color = '#059669';
+          traces.push(reagentTrace);
+        }
+
+        // Добавляем медиану как горизонтальную линию
+        const qMed = snap.adaptation.flow_median;
+        if (qMed != null) {
+          traces.push({
+            x: [dates[0], dates[dates.length - 1]], y: [qMed, qMed],
+            mode: 'lines', name: `Медиана: ${qMed.toFixed(1)}`,
+            line: {color: '#f59e0b', width: 1.5, dash: 'dash'},
+          });
+        }
+
+        Plotly.newPlot(elFlow, traces, {
+          ...layout, title: { text: 'Дебит Q, тыс.м³/сут', font: {size: 12} },
+          shapes: makeEventShapes(qMin, qMax),
+          yaxis: { title: 'тыс.м³/сут', range: [qMin, qMax] },
+        }, cfg);
+      } catch (e) { console.warn('adapt chart flow', e); }
+    }
+
+    // ────────────────────────────────────────────────
+    // 4. Сегментный анализ (если есть данные)
+    // ────────────────────────────────────────────────
+    const seg = snap.segment_analysis || {};
+    const elSeg = document.getElementById(idPrefix + 'segments');
+    if (elSeg && seg.chart_data) {
+      try {
+        const segDates = seg.chart_data.dates || [];
+        const segQ = seg.chart_data.q_total || [];
+        const cps = seg.changepoints || [];
+        const cpMarks = seg.cp_marks || [];
+
+        // Основной trace
+        const traces = [
+          { x: segDates, y: segQ, name: 'Q', mode: 'lines',
+            line: {color: '#6366f1', width: 2} },
+        ];
+
+        // Вертикальные линии на changepoints
+        const cpShapes = [];
+        cps.forEach((cpIdx, i) => {
+          if (cpIdx >= 0 && cpIdx < segDates.length) {
+            cpShapes.push({
+              type: 'line', x0: segDates[cpIdx], x1: segDates[cpIdx],
+              y0: 0, y1: 1, yref: 'paper',
+              line: { color: '#f59e0b', width: 1.5, dash: 'dash' },
+            });
+          }
+        });
+
+        // Аннотации для CP1, CP2, ...
+        const cpAnnotations = cpMarks.slice(0, 8).map((cp, i) => ({
+          x: cp.date, y: 1, yref: 'paper', yanchor: 'bottom',
+          text: cp.tag, showarrow: false,
+          font: { size: 9, color: '#d97706' },
+          bgcolor: '#fffbeb', borderpad: 2,
+        }));
+
+        const segQClean = segQ.filter(v => v != null && !isNaN(v) && v > 0);
+        const segYMin = segQClean.length ? Math.min(...segQClean) * 0.9 : 0;
+        const segYMax = segQClean.length ? Math.max(...segQClean) * 1.1 : 50;
+
+        Plotly.newPlot(elSeg, traces, {
+          ...layout,
+          title: { text: 'Сегментный анализ Q', font: {size: 12} },
+          shapes: cpShapes,
+          annotations: cpAnnotations,
+          yaxis: { title: 'тыс.м³/сут', range: [segYMin, segYMax] },
+        }, cfg);
+      } catch (e) { console.warn('adapt chart segments', e); }
+    }
   }
 
   // ===== _renderBlockSummaryHtml (извлечено 1-в-1) =====
@@ -2361,6 +3106,12 @@
         if (typeof _renderObservationBlockCharts === 'function') {
           _renderObservationBlockCharts(b);
         }
+      } else if (b.kind === 'adaptation_period_analysis') {
+        // Adaptation блок — рендерим Plotly графики (давления, ΔP, Q)
+        _renderAdaptationCharts(b.data_snapshot || {}, 'adapt-' + b.id + '-');
+      } else if (b.kind === 'reagent_irv_summary') {
+        // ИРВ — donut «вбросы по реагентам» + Score по времени
+        _renderReagentIrvCharts(b.data_snapshot || {}, 'irv-' + b.id + '-');
       }
     });
   }

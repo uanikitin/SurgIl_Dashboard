@@ -611,8 +611,9 @@ def render_segment_analysis_chart(snapshot: dict, output_path: str | Path) -> No
     from datetime import datetime
 
     chart_data = snapshot.get("chart_data") or {}
-    segments = snapshot.get("segments_extended") or []
-    cp_marks = snapshot.get("cp_marks") or []
+    # Поддержка двух форматов: segments_extended (v2) или segments (v1/segment-demo)
+    segments = snapshot.get("segments_extended") or snapshot.get("segments") or []
+    cp_marks = snapshot.get("cp_marks") or snapshot.get("changepoints") or []
 
     dates_raw = chart_data.get("dates") or []
 

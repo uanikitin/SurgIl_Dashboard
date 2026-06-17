@@ -760,7 +760,7 @@ def _render_segments_table(segments: list) -> str:
         '<table class="obs-segments-table">',
         "  <thead><tr>",
         "    <th>#</th><th>Начало</th><th>Конец</th><th>Дни</th>"
-        "<th>Направление</th><th>Среднее Q</th><th>Наклон Q/день</th>",
+        "<th>Направление</th><th>Q</th><th>P_шл</th><th>P_уст</th><th>ΔP</th><th>Наклон</th>",
         "  </tr></thead>",
         "  <tbody>",
     ]
@@ -778,6 +778,9 @@ def _render_segments_table(segments: list) -> str:
             f"<td>{html_escape(str(seg.get('duration_days', '?')))}</td>"
             f"<td>{html_escape(direction_lbl)}</td>"
             f"<td>{_fmt(seg.get('mean_q'))}</td>"
+            f"<td>{_fmt(seg.get('mean_p_flowline'))}</td>"
+            f"<td>{_fmt(seg.get('mean_p_wellhead'))}</td>"
+            f"<td>{_fmt(seg.get('mean_dp'))}</td>"
             f"<td>{_fmt(seg.get('slope_q_per_day'))}</td>"
             f"</tr>"
         )
@@ -922,10 +925,10 @@ def _latex_segments_tabular(segments: list) -> str:
 
     rows = [
         r"{\footnotesize",
-        r"\begin{tabular}{cllrlrr}",
+        r"\begin{tabular}{cllrlrrrr}",
         r"\toprule",
         r"\textbf{\#} & \textbf{Начало} & \textbf{Конец} & \textbf{Дни} "
-        r"& \textbf{Направление} & \textbf{$Q$ среднее} & \textbf{Наклон $Q$/день} \\",
+        r"& \textbf{Направление} & \textbf{$Q$} & \textbf{$P_\text{шл}$} & \textbf{$P_\text{уст}$} & \textbf{$\Delta P$} & \textbf{Наклон} \\",
         r"\midrule",
     ]
     for seg in segments:
@@ -941,6 +944,9 @@ def _latex_segments_tabular(segments: list) -> str:
             f"& {latex_escape(str(seg.get('duration_days', '?')))} "
             f"& {latex_escape(direction_lbl)} "
             f"& {_fmt_latex(seg.get('mean_q'))} "
+            f"& {_fmt_latex(seg.get('mean_p_flowline'))} "
+            f"& {_fmt_latex(seg.get('mean_p_wellhead'))} "
+            f"& {_fmt_latex(seg.get('mean_dp'))} "
             f"& {_fmt_latex(seg.get('slope_q_per_day'))} \\\\"
         )
     rows += [r"\bottomrule", r"\end{tabular}", r"}"]
@@ -1892,13 +1898,17 @@ def render_segment_analysis(snapshot: dict, ctx: RenderContext) -> RenderResult:
     Используется для блоков, созданных через SegmentBlocksWidget на странице Наблюдение.
     """
     period = snapshot.get("period") or {}
-    segments = snapshot.get("segments_extended") or []
-    changepoints = snapshot.get("cp_marks") or []
+    # Поддержка двух форматов: segments_extended (v2) или segments (v1/segment-demo)
+    segments = snapshot.get("segments_extended") or snapshot.get("segments") or []
+    changepoints = snapshot.get("cp_marks") or snapshot.get("changepoints") or []
     interpretation = snapshot.get("interpretation") or {}
     display_settings = snapshot.get("display_settings") or {}
 
-    pf = str(period.get("from", "?"))
-    pt = str(period.get("to", "?"))
+    # Поддержка двух форматов snapshot:
+    # 1) period.from / period.to (observation виджет, params fallback)
+    # 2) date_from / date_to (segment_v1 из compute_segment_block)
+    pf = str(period.get("from") or snapshot.get("date_from") or "?")
+    pt = str(period.get("to") or snapshot.get("date_to") or "?")
     title_h = html_escape(ctx.title or "(без заголовка)")
     title_l = latex_escape(ctx.title or "(без заголовка)")
 

@@ -407,6 +407,9 @@
             <th>Границы</th>
             <th>Дн</th>
             <th>Q общ.</th>
+            <th>P_шл</th>
+            <th>P_уст</th>
+            <th>ΔP</th>
             <th>Раб%</th>
             <th>Изм%</th>
             <th>Тренд</th>
@@ -416,6 +419,21 @@
     `;
 
     segments.forEach((seg, idx) => {
+      // Fallback: извлекаем давления из secondary_means если нет на верхнем уровне
+      const sm = seg.secondary_means || {};
+      if (seg.mean_p_flowline === undefined && sm.p_line_mean !== undefined) {
+        seg.mean_p_flowline = sm.p_line_mean;
+      }
+      if (seg.mean_p_wellhead === undefined && sm.p_tube_mean !== undefined) {
+        seg.mean_p_wellhead = sm.p_tube_mean;
+      }
+      if (seg.mean_dp === undefined && sm.dp_mean !== undefined) {
+        seg.mean_dp = sm.dp_mean;
+      }
+      if (seg.working_pct === undefined && sm.downtime_min !== undefined) {
+        seg.working_pct = Math.max(0, (1440 - sm.downtime_min) / 1440 * 100);
+      }
+
       const segType = seg.segment_type || seg.type || 'unknown';
       const color = typeColors[segType] || '#9ca3af';
       const label = typeLabels[segType] || segType;
@@ -465,6 +483,14 @@
                        (seg.slope !== undefined ? seg.slope : undefined);
       const slope = slopeVal !== undefined ? (slopeVal >= 0 ? '+' : '') + Number(slopeVal).toFixed(3) : '—';
 
+      // Давления: P_шлейф, P_устье, ΔP
+      const pFlowline = seg.mean_p_flowline !== undefined && seg.mean_p_flowline !== null
+                        ? Number(seg.mean_p_flowline).toFixed(1) : '—';
+      const pWellhead = seg.mean_p_wellhead !== undefined && seg.mean_p_wellhead !== null
+                        ? Number(seg.mean_p_wellhead).toFixed(1) : '—';
+      const deltaP = seg.mean_dp !== undefined && seg.mean_dp !== null
+                     ? Number(seg.mean_dp).toFixed(1) : '—';
+
       html += `
         <tr>
           <td><span class="obs-seg-num" style="background:${color}">${seg.num || idx + 1}</span></td>
@@ -472,6 +498,9 @@
           <td style="font-size:0.82rem;">${boundaries}</td>
           <td>${days}</td>
           <td><b>${mean}</b></td>
+          <td style="font-size:0.82rem;color:#6b7280;">${pFlowline}</td>
+          <td style="font-size:0.82rem;color:#6b7280;">${pWellhead}</td>
+          <td style="font-size:0.82rem;color:#3b82f6;font-weight:500;">${deltaP}</td>
           <td>${workingPct}</td>
           <td>${driftHtml}</td>
           <td style="font-size:0.82rem;color:#9ca3af;font-family:monospace;">${slope}</td>
@@ -635,6 +664,17 @@
       // Тип: segment-demo = segment_type, customer-daily = type
       const typeVal = seg.segment_type || seg.type || 'unknown';
 
+      // Давления из secondary_means (API segment-demo возвращает там)
+      const sm = seg.secondary_means || {};
+      const pFlowline = seg.mean_p_flowline !== undefined ? seg.mean_p_flowline : sm.p_line_mean;
+      const pWellhead = seg.mean_p_wellhead !== undefined ? seg.mean_p_wellhead : sm.p_tube_mean;
+      const dpMean = seg.mean_dp !== undefined ? seg.mean_dp : sm.dp_mean;
+      // working_pct из downtime_min
+      let workingPct = seg.working_pct;
+      if (workingPct === undefined && sm.downtime_min !== undefined) {
+        workingPct = Math.max(0, (1440 - sm.downtime_min) / 1440 * 100);
+      }
+
       return {
         num: seg.num || (idx + 1),
         start_idx: seg.start_idx,
@@ -655,7 +695,10 @@
         mean_q: meanVal,               // chapter_render.js / customer-daily
         std_value: seg.std_value,      // segment-demo
         mean_q_working: seg.mean_q_working,
-        mean_dp: seg.mean_dp,
+        // Давления: P_шлейф, P_устье, ΔP (из secondary_means или напрямую)
+        mean_p_flowline: pFlowline,
+        mean_p_wellhead: pWellhead,
+        mean_dp: dpMean,
         // Тренд — оба формата
         slope: slopeVal,               // observation_chapter_renderer.py / segment-demo
         slope_total: slopeVal,         // chapter_render.js / customer-daily
@@ -670,7 +713,7 @@
         change_q_working_pct: seg.change_q_working_pct,
         change_dp_pct: seg.change_dp_pct,
         // Рабочее время
-        working_pct: seg.working_pct,
+        working_pct: workingPct,
         mean_shutdown: seg.mean_shutdown,
         // Причина и флаги
         cause: seg.cause,
@@ -898,12 +941,40 @@
     const snapshot = block.data_snapshot;
     if (!snapshot) return;
 
+    // Нормализуем chart_data: снапшот хранит q_total, _renderChart ожидает primary.values
+    let chartData = snapshot.chart_data;
+    if (chartData && !chartData.primary && chartData.q_total) {
+      chartData = {
+        dates: chartData.dates,
+        primary: { name: 'Q дебит (тыс.м³/сут)', values: chartData.q_total }
+      };
+    }
+
     // Преобразуем snapshot в формат, совместимый с API-ответом
+    let segments = snapshot.segments_extended || snapshot.segments || [];
+
+    // Миграция: обогащаем сегменты полями давления из secondary_means (если есть)
+    let needsResave = false;
+    segments = segments.map(seg => {
+      // Если поля давления отсутствуют, но есть secondary_means — вытащим оттуда
+      if (seg.mean_p_flowline === undefined && seg.secondary_means) {
+        const sm = seg.secondary_means;
+        seg.mean_p_flowline = sm.p_line_mean;
+        seg.mean_p_wellhead = sm.p_tube_mean;
+        seg.mean_dp = sm.dp_mean;
+        if (sm.downtime_min !== undefined && seg.working_pct === undefined) {
+          seg.working_pct = Math.max(0, (1440 - sm.downtime_min) / 1440 * 100);
+        }
+        needsResave = true;
+      }
+      return seg;
+    });
+
     const data = {
       ok: true,
       well_id: block.well_id,
-      chart_data: snapshot.chart_data,
-      segments: snapshot.segments_extended || snapshot.segments || [],
+      chart_data: chartData,
+      segments: segments,
       changepoints: (snapshot.cp_marks || []).map(cp => cp.idx),
       type_colors: snapshot.type_colors || SEGMENT_TYPE_COLORS,
       interpretation: snapshot.interpretation,
@@ -914,7 +985,14 @@
     this._renderResult(data);
 
     // Показываем индикатор, что это сохранённый блок
-    this._setStatus(`📦 Загружен блок: ${block.title}`, false);
+    if (needsResave) {
+      this._setStatus(`📦 Загружен блок: ${block.title} ⚠️ Пересохраните для обновления данных давления`, false);
+    } else if (segments.length > 0 && segments[0].mean_p_flowline === undefined) {
+      // Старый блок без данных давления — рекомендуем пересчитать
+      this._setStatus(`📦 Загружен блок: ${block.title} ⚠️ Нажмите "Рассчитать" для получения данных давления`, false);
+    } else {
+      this._setStatus(`📦 Загружен блок: ${block.title}`, false);
+    }
   };
 
   /**

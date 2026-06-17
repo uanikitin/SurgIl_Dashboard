@@ -49,5 +49,11 @@ class Settings(BaseSettings):
     # Секретный ключ для API автозадач (Render Cron -> HTTP endpoint)
     JOB_API_SECRET: str = "change_me_job_secret"
 
+    # === Pressure staleness alert ===
+    # Через сколько минут отсутствия новых данных слать алерт в Telegram
+    PRESSURE_STALE_ALERT_MIN: int = 90
+    # Минимальный интервал между повторными алертами (антиспам)
+    PRESSURE_STALE_COOLDOWN_MIN: int = 180
+
 settings = Settings()
 

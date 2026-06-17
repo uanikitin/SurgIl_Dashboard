@@ -5,6 +5,7 @@
 {% block extra_head %}
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 <script src="/static/js/cmp_segments.js?v={{ time() }}"></script>
+<script src="/static/js/block_reorder.js?v={{ time() }}"></script>
 <style>
 /* ── Two-Panel layout 60/40 (ТЗ §11 этап 5) ──────────────────────── */
 /* Главный контейнер: grid с двумя колонками. Topbar и legacy-секции на всю ширину. */
@@ -1182,6 +1183,11 @@
               title="Свернуть «⚙ Что включить в PDF» во всех карточках">
         ➖ Свернуть всё
       </button>
+      <button type="button" id="cd-clear-all-blocks" class="cd-btn cd-btn-secondary"
+              style="padding:3px 10px; font-size:0.78rem; color:#dc2626;"
+              title="Удалить ВСЕ блоки главы «Заказчик» для этой скважины">
+        🗑 Очистить все
+      </button>
       <span style="margin-left:auto; font-size:0.76rem; color:#6b7280;">
         💡 перетаскивай карточки ↕ для изменения порядка в отчёте
       </span>
@@ -1319,6 +1325,14 @@
   let lastCompareSnapshot = null;
   // Снимок последнего анализа базового периода
   let lastBaselineSnapshot = null;
+
+  // ─── ИЗОЛЯЦИЯ БЛОКОВ: страница Заказчик показывает ТОЛЬКО свои kinds ───
+  // Инвариант: каждая глава работает только со своими типами блоков.
+  // Блоки observation/adaptation НЕ должны появляться на этой странице.
+  const CUSTOMER_BLOCK_KINDS = [
+    'chapter_intro', 'period_analysis', 'baseline',
+    'comparison', 'criteria_rose', 'segment_analysis'
+  ].join(',');
 
   // ─────────────────────────── Helpers ───────────────────────────
   function alertBox(parent, type, html) {
@@ -3628,7 +3642,7 @@
   async function ensureChapterIntroBlock(wellId, wellNumber) {
     if (!wellId) return;
     try {
-      const r = await fetch('/api/customer-daily/blocks?well_id=' + wellId);
+      const r = await fetch('/api/customer-daily/blocks?well_id=' + wellId + '&kinds=' + CUSTOMER_BLOCK_KINDS);
       const d = await r.json();
       const has = (d.blocks || []).some(b => b.kind === 'chapter_intro');
       if (has) return;
@@ -3661,7 +3675,7 @@
   async function refreshAttachedBlocks() {
     if (!currentWellId) return;
     try {
-      const r = await fetch('/api/customer-daily/blocks?well_id=' + currentWellId);
+      const r = await fetch('/api/customer-daily/blocks?well_id=' + currentWellId + '&kinds=' + CUSTOMER_BLOCK_KINDS);
       const d = await r.json();
       const blocks = d.blocks || [];
       renderAttachedBlocks(blocks);
@@ -3815,7 +3829,6 @@
       card.dataset.blockId = b.id;
       // Цветовая рамка per-kind + класс «не в отчёте»
       card.className = `cd-attached-card cd-kind-${b.kind}${b.in_report ? '' : ' cd-not-in-report'}`;
-      card.draggable = true;  // drag-reorder (этап 11.5)
 
       // ─── Период в шапке ───
       const snap = b.data_snapshot;
@@ -4061,6 +4074,40 @@
       });
     });
 
+    // ─── Чекбоксы «Что включить в PDF» (params.parts) ───
+    list.querySelectorAll('.atc-part').forEach(cb => {
+      cb.addEventListener('change', async () => {
+        const blockId = cb.dataset.id;
+        const partKey = cb.dataset.part;
+        const block = blocks.find(b => String(b.id) === String(blockId));
+        if (!block) return;
+        const existingParts = (block.params && block.params.parts) || {};
+        const newParts = { ...existingParts, [partKey]: cb.checked };
+        const params = { ...(block.params || {}), parts: newParts };
+        block.params = params;  // локально — чтобы превью увидело свежие данные
+        await fetch('/api/customer-daily/blocks/' + blockId, {
+          method: 'PUT', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ params }),
+        });
+        // Обновляем визуальное состояние чекбокса
+        const label = cb.closest('label');
+        if (label) {
+          label.style.background = cb.checked ? '#ecfdf5' : '#f9fafb';
+          label.style.borderColor = cb.checked ? '#10b981' : '#d1d5db';
+        }
+        // Обновляем счётчик
+        const section = cb.closest('.cd-card-edit-section-body');
+        if (section) {
+          const allParts = section.querySelectorAll('.atc-part');
+          const checkedCount = section.querySelectorAll('.atc-part:checked').length;
+          const countSpan = section.querySelector('.cd-card-note-label span');
+          if (countSpan) countSpan.textContent = `(${checkedCount} из ${allParts.length})`;
+        }
+        // Обновляем превью
+        renderChapterPreview(blocks);
+      });
+    });
+
     // ─── 11.4 Подсветка блока в превью при наведении на карточку ───
     // И обратное: при наведении на блок в превью — подсветка карточки.
     list.querySelectorAll('.cd-attached-card').forEach(card => {
@@ -4076,40 +4123,18 @@
     });
 
     // ─── 11.5 Drag-reorder карточек блоков (sort_order в БД) ───
-    // HTML5 drag-and-drop. После перетаскивания пересохраняем порядок
-    // в БД через PUT каждой карточки с новым sort_order.
-    let _dragSrc = null;
-    list.querySelectorAll('.cd-attached-card').forEach(card => {
-      card.addEventListener('dragstart', (e) => {
-        _dragSrc = card;
-        card.style.opacity = '0.4';
-        e.dataTransfer.effectAllowed = 'move';
+    // Используем модуль BlockReorder для единого batch-запроса (вместо N PUT).
+    if (window.BlockReorder && blocks.length > 1) {
+      BlockReorder.init(list, {
+        apiEndpoint: '/api/customer-daily/blocks/reorder',
+        cardSelector: '.cd-attached-card',
+        onReorder: (ids) => {
+          console.log('Customer-daily blocks reordered:', ids);
+          // Обновляем превью главы после перестановки
+          renderChapterPreview(blocks);
+        },
       });
-      card.addEventListener('dragend', () => {
-        if (_dragSrc) _dragSrc.style.opacity = '';
-        _dragSrc = null;
-      });
-      card.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-      });
-      card.addEventListener('drop', async (e) => {
-        e.preventDefault();
-        if (!_dragSrc || _dragSrc === card) return;
-        // Вставляем _dragSrc перед card
-        card.parentNode.insertBefore(_dragSrc, card);
-        // Сохраняем новый порядок: проходим по DOM и шлём PUT для каждой карточки
-        const cards = list.querySelectorAll('.cd-attached-card');
-        for (let i = 0; i < cards.length; i++) {
-          const id = parseInt(cards[i].dataset.blockId, 10);
-          await fetch('/api/customer-daily/blocks/' + id, {
-            method: 'PUT', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({sort_order: i}),
-          });
-        }
-        refreshAttachedBlocks();
-      });
-    });
+    }
     // Pre/post-note (params.prefix_note / params.suffix_note) — debounced PUT.
     // Используем тот же приём что comment/title: merge params, отправить целиком.
     const _bindNote = (selector, field) => {
@@ -4754,14 +4779,26 @@
         `<div id="${idPrefix}qchart" style="height:480px;"></div>`;
     }
 
-    // ─── 2. Таблица сегментов: 11 колонок (§5.2 + §6.1 «Тип режима»)
+    // ─── 2. Таблица сегментов (§5.2 + §6.1 «Тип режима»)
+    // Русские названия типов сегментов
+    const segTypeLabels = {
+      'initial': 'Начальный',
+      'stable': 'Стабильный',
+      'rise': 'Рост',
+      'decline': 'Снижение',
+      'sharp_rise': 'Резкий рост',
+      'sharp_decline': 'Резкое снижение',
+      'volatile': 'Волатильный',
+      'unknown': 'Неопределён',
+    };
     if (on('segments_table') && segs.length) {
       let tbl = `<h3 style="margin:14px 0 6px;">📋 Сегменты режима (${segs.length})</h3>
         <table class="cd-table"><thead><tr>
           <th>№</th><th>Период</th><th>Дн</th>
-          <th>Q общ.</th><th>Q раб.</th>
+          <th>Q общ.</th>
           <th>Тренд</th><th>Изм%</th>
-          <th>Прост, мин</th><th>Раб%</th><th>ΔP</th>
+          <th>Прост, мин</th><th>Раб%</th>
+          <th>P_шл</th><th>P_уст</th><th>ΔP</th>
           <th>Тип режима</th>
         </tr></thead><tbody>`;
       for (const s of segs) {
@@ -4770,19 +4807,21 @@
                        : chg > 0 ? '#28a745' : chg < 0 ? '#dc3545' : '#6b7280';
         const chgTxt = chg == null ? '—' : (chg > 0 ? '+' : '') + chg.toFixed(0) + '%';
         const slopeTxt = s.slope_total == null ? '—' : fmtSigned(s.slope_total);
+        const typeRu = segTypeLabels[s.type] || s.type || '—';
         tbl += `<tr>
           <td><b>${s.num}</b></td>
           <td style="white-space:nowrap;">${s.start}–${s.end}</td>
           <td>${s.days}</td>
           <td>${fmt(s.mean_q, 1)}</td>
-          <td>${fmt(s.mean_q_working, 1)}</td>
           <td>${slopeTxt}</td>
           <td style="color:${chgColor}; font-weight:600;">${chgTxt}</td>
           <td>${fmt(s.mean_shutdown, 0)}</td>
           <td>${fmt(s.working_pct, 0)}</td>
+          <td>${fmt(s.mean_p_flowline, 1)}</td>
+          <td>${fmt(s.mean_p_wellhead, 1)}</td>
           <td>${fmt(s.mean_dp, 2)}</td>
           <td style="font-weight:500; color:${s.color || '#374151'};">
-            ${s.type || '—'}
+            ${typeRu}
           </td>
         </tr>`;
       }
@@ -4790,51 +4829,17 @@
       html += tbl;
     }
 
-    // ─── 3. Описание сегментов (§6.4) — краткие параграфы ─────────
-    if (on('descriptions') && segs.length) {
-      html += `<h3 style="margin:14px 0 6px;">📝 Описание сегментов</h3>` +
-        `<div style="display:flex; flex-direction:column; gap:6px;">`;
-      segs.forEach((s, i) => {
-        const prev = i > 0 ? segs[i - 1] : null;
-        const changeLine = prev
-          ? `<br><b>Изменение vs Сег.${prev.num}:</b> Q общ ${fmtSigned(s.change_pct, 1)}%, ` +
-            `Q раб ${fmtSigned(s.change_q_working_pct, 1)}%, ` +
-            `ΔP ${fmtSigned(s.change_dp_pct, 1)}%, ` +
-            `простой ${fmtSigned(s.change_shutdown, 0)} мин` +
-            (s.change_choke != null && Math.abs(s.change_choke) > 0.01
-              ? `, штуцер ${fmtSigned(s.change_choke, 1)} мм` : '')
-          : '';
-        const causeLine = s.cause
-          ? `<br><b>Основной фактор:</b> ${_escHtml(s.cause)}`
-          : '';
-        const preshutLine = (s.preshutdown_q != null && s.preshutdown_verdict)
-          ? `<br><b>До простоя/после:</b> ${fmt(s.preshutdown_q, 1)} → ${fmt(s.mean_q, 1)} ` +
-            `(${fmtSigned(s.preshutdown_delta_pct, 0)}%). ${_escHtml(s.preshutdown_verdict)}`
-          : '';
-        const gradualLine = s.gradual_trend
-          ? `<br><b>Плавный тренд:</b> ${s.gradual_trend === 'down' ? 'спад' : 'рост'} ` +
-            `на ${fmtSigned(s.gradual_drift_pct, 1)}% за период`
-          : '';
-        html += `<div style="padding:10px 14px; background:#fff;
-                  border-left:3px solid ${s.color || '#d1d5db'}; border-radius:3px;
-                  font-size:0.86rem; line-height:1.55; color:#1f2937;">
-            <div style="font-weight:600; margin-bottom:3px;">
-              Сегмент ${s.num} · ${s.start}–${s.end} · ${s.days} дн · тип: ${s.type}
-            </div>
-            <b>Средние:</b> Q общ ${fmt(s.mean_q, 1)},
-            Q раб ${fmt(s.mean_q_working, 1)} тыс.м³/сут,
-            ΔP ${fmt(s.mean_dp, 2)} кгс/см²,
-            P уст ${fmt(s.mean_p_wellhead, 1)},
-            P шл ${fmt(s.mean_p_flowline, 1)} кгс/см²,
-            штуцер ${fmt(s.mean_choke_mm, 1)} мм,
-            раб. время ${fmt(s.working_pct, 0)}%
-            ${changeLine}
-            ${gradualLine}
-            ${preshutLine}
-            ${causeLine}
-          </div>`;
-      });
-      html += `</div>`;
+    // ─── 3. Полное описание сегментов (§6.4) — из алгоритма ────────
+    // Показываем полный текст описания из snapshot.descriptions
+    // (генерируется в segment_analysis_module.py)
+    if (on('descriptions') && descriptions.length) {
+      html += `<h3 style="margin:14px 0 6px;">📝 Описание сегментов (${descriptions.length})</h3>` +
+        `<div style="display:flex; flex-direction:column; gap:6px;">` +
+        descriptions.map(t => `<div style="padding:10px 14px; background:#fff;
+                  border-left:3px solid #6366f1; border-radius:3px;
+                  font-size:0.86rem; line-height:1.6; color:#1f2937;
+                  white-space:pre-wrap;">${(t||'').replace(/\*\*/g,'').replace(/</g,'&lt;')}</div>`).join('') +
+        `</div>`;
     }
 
     // ─── 4. События переломов (§6.5) ──────────────────────────────
@@ -4844,18 +4849,7 @@
         cpDescs.map(t => `<div style="padding:8px 12px; background:#fff;
                   border-left:3px solid #7c3aed; border-radius:3px;
                   font-size:0.84rem; line-height:1.55; color:#1f2937;
-                  white-space:pre-wrap;">${(t||'').replace(/</g,'&lt;')}</div>`).join('') +
-        `</div>`;
-    }
-
-    // ─── 5. Развёрнутые описания (модульные descriptions по §6.4) ─
-    if (on('descriptions') && descriptions.length) {
-      html += `<h3 style="margin:14px 0 6px;">📑 Развёрнутые описания (из алгоритма)</h3>` +
-        `<div style="display:flex; flex-direction:column; gap:6px;">` +
-        descriptions.map(t => `<div style="padding:8px 12px; background:#fff;
-                  border-left:3px solid #d1d5db; border-radius:3px;
-                  font-size:0.84rem; line-height:1.55; color:#374151;
-                  white-space:pre-wrap;">${(t||'').replace(/</g,'&lt;')}</div>`).join('') +
+                  white-space:pre-wrap;">${(t||'').replace(/\*\*/g,'').replace(/</g,'&lt;')}</div>`).join('') +
         `</div>`;
     }
 
@@ -5787,7 +5781,7 @@
       if (block) refreshAttachedBlocks();
     } else {
       // Найти существующий блок этого типа за этот период и удалить
-      const r = await fetch('/api/customer-daily/blocks?well_id=' + currentWellId);
+      const r = await fetch('/api/customer-daily/blocks?well_id=' + currentWellId + '&kinds=' + CUSTOMER_BLOCK_KINDS);
       const d = await r.json();
       const target = (d.blocks || []).find(b =>
         b.kind === 'comparison' &&
@@ -6104,6 +6098,7 @@
             date_from: _segLastSnapshot.date_from,
             date_to:   _segLastSnapshot.date_to,
             well_number: well,
+            chapter: 'customer',  // Блоки страницы Заказчик — для изоляции от observation/adaptation
           },
           data_snapshot: _segLastSnapshot,
           comment: '',
@@ -6689,30 +6684,10 @@
       return;
     }
 
-    // ЖЁСТКИЙ ПОРЯДОК (синхронизирован с PDF):
-    //   1. chapter_intro       (общий текст-вступление)
-    //   2. period_analysis     (анализы периодов)
-    //   3. comparison          (сравнения участков)
-    //   4. criteria_rose       (диагностика — роза критериев)
-    //   5. baseline (B1)       ← всегда последним
-    //                          («раздел заканчивается выбором базового периода и метриками»)
-    // Внутри каждой группы — по sort_order (drag-reorder в UI).
-    // PDF-сборщик применяет ровно тот же порядок (см.
-    // adaptation_report_service.py: periods_only / baseline_blocks).
-    const KIND_ORDER = {
-      chapter_intro:    1,
-      period_analysis:  2,
-      segment_analysis: 3,  // расширяет анализ периода, должно идти сразу после
-      comparison:       4,
-      criteria_rose:    5,
-      baseline:         6,  // всегда последним
-    };
-    inReport.sort((a, b) => {
-      const ka = KIND_ORDER[a.kind] || 99;
-      const kb = KIND_ORDER[b.kind] || 99;
-      if (ka !== kb) return ka - kb;
-      return (a.sort_order || 0) - (b.sort_order || 0);
-    });
+    // Порядок блоков определяется пользователем (drag-drop).
+    // Сортировка ТОЛЬКО по sort_order — без группировки по kind.
+    // Это соответствует порядку карточек в левой панели после перетаскивания.
+    inReport.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
 
     let html = `
       <h3 style="margin:0 0 8px; font-size:1.05rem; color:#374151;
@@ -7361,6 +7336,28 @@ ${clone.innerHTML}
   });
   $('cd-collapse-all-parts')?.addEventListener('click', () => {
     document.querySelectorAll('#cd-attached-list details').forEach(d => d.open = false);
+  });
+
+  // ─── Кнопка «Очистить все блоки» — удаляет ВСЕ блоки главы Заказчик ───
+  $('cd-clear-all-blocks')?.addEventListener('click', async () => {
+    if (!currentWellId) return;
+    const ok = confirm('Удалить ВСЕ блоки главы «Заказчик» для этой скважины?\n\nЭто действие необратимо.');
+    if (!ok) return;
+    try {
+      // Загружаем все блоки главы Заказчик
+      const r = await fetch('/api/customer-daily/blocks?well_id=' + currentWellId + '&kinds=' + CUSTOMER_BLOCK_KINDS);
+      const d = await r.json();
+      const blocks = d.blocks || [];
+      // Удаляем каждый блок
+      for (const b of blocks) {
+        await fetch('/api/customer-daily/blocks/' + b.id, { method: 'DELETE' });
+      }
+      // Обновляем отображение
+      refreshAttachedBlocks();
+    } catch (e) {
+      console.error('clearAllBlocks failed', e);
+      alert('Ошибка при удалении блоков: ' + e.message);
+    }
   });
 
   // ─── Top-bar (sticky шапка, ТЗ §11 этап 3) — слушатели один раз ───

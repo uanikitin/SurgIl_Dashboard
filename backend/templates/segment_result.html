@@ -623,6 +623,7 @@
           <label for="manualMode"><b style="color:#8b5cf6">Ручной режим</b></label>
         </div>
         <button class="btn btn-secondary btn-sm" id="clearManualBtn" style="display:none;" onclick="clearManualSegments()">Очистить всё</button>
+        <button class="btn btn-secondary btn-sm" id="resetEditsBtn" style="display:none;" onclick="clearSavedEdits()" title="Сбросить все редактирования и начать с нуля">🗑 Сбросить редактирование</button>
       </div>
 
       <!-- Инструкция для ручного режима -->
@@ -709,6 +710,10 @@
             <th>Границы</th>
             <th>Часов</th>
             <th>Среднее</th>
+            <th title="Давление на шлейфе, бар">P_шл</th>
+            <th title="Давление на устье, бар">P_уст</th>
+            <th title="Перепад давления, бар">ΔP</th>
+            <th title="% рабочего времени">Раб%</th>
             <th title="Отклонение от среднего периода">vs μ</th>
             <th title="Отклонение от медианы периода">vs Me</th>
             <th title="Стандартное отклонение">σ</th>
@@ -969,6 +974,98 @@
           `first=${debugInfo.firstDate}, last=${debugInfo.lastDate}, val0=${debugInfo.firstValue}`;
       }
     }, 100);
+
+    // ═══ Сохранение/восстановление редактирований в localStorage ═══
+    const STORAGE_KEY = `segment_edits_{{ well_id|default(0) }}_{{ date_from }}_{{ date_to }}`;
+
+    function saveEditsToStorage() {
+      try {
+        const state = {
+          segments: safeClone(segments),
+          changepoints: safeClone(changepoints),
+          manualSegments: safeClone(manualSegments),
+          excludeRanges: safeClone(excludeRanges),
+          segmentComments: safeClone(segmentComments),
+          manualMode: manualMode,
+          savedAt: new Date().toISOString()
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        console.log('[SegmentEditor] Saved edits to localStorage');
+      } catch (e) {
+        console.error('[SegmentEditor] Failed to save edits:', e);
+      }
+    }
+
+    function loadEditsFromStorage() {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (!saved) return false;
+
+        const state = JSON.parse(saved);
+        // Проверяем, что сохранённые данные не устарели (старше 7 дней)
+        const savedAt = new Date(state.savedAt);
+        const now = new Date();
+        const daysDiff = (now - savedAt) / (1000 * 60 * 60 * 24);
+        if (daysDiff > 7) {
+          console.log('[SegmentEditor] Saved edits expired, clearing');
+          localStorage.removeItem(STORAGE_KEY);
+          return false;
+        }
+
+        // Восстанавливаем состояние
+        if (state.segments) segments = state.segments;
+        if (state.changepoints) changepoints = state.changepoints;
+        if (state.manualSegments) manualSegments = state.manualSegments;
+        if (state.excludeRanges) excludeRanges = state.excludeRanges;
+        if (state.segmentComments) segmentComments = state.segmentComments;
+        if (state.manualMode !== undefined) manualMode = state.manualMode;
+
+        console.log('[SegmentEditor] Restored edits from localStorage:', state.savedAt);
+        return true;
+      } catch (e) {
+        console.error('[SegmentEditor] Failed to load edits:', e);
+        return false;
+      }
+    }
+
+    function clearSavedEdits() {
+      if (!confirm('Сбросить все редактирования и вернуться к автоматической разметке?')) return;
+      localStorage.removeItem(STORAGE_KEY);
+      // Восстанавливаем оригинальные данные
+      segments = safeClone(originalSegments);
+      changepoints = safeClone(originalChangepoints);
+      manualSegments = [];
+      excludeRanges = [];
+      segmentComments = {};
+      manualMode = false;
+      // Убираем галочку ручного режима
+      const manualCheckbox = document.getElementById('manualMode');
+      if (manualCheckbox) manualCheckbox.checked = false;
+      buildChart();
+      updateTable();
+      updateStats();
+      // Скрываем кнопку сброса
+      const resetBtn = document.getElementById('resetEditsBtn');
+      if (resetBtn) resetBtn.style.display = 'none';
+      const infoPanel = document.getElementById('info-panel');
+      if (infoPanel) infoPanel.textContent = 'Кликните на сегмент в таблице для выбора';
+      console.log('[SegmentEditor] Cleared saved edits');
+    }
+
+    // Загружаем сохранённые редактирования при старте
+    const hadSavedEdits = loadEditsFromStorage();
+    if (hadSavedEdits) {
+      console.log('[SegmentEditor] Восстановлены ранее сохранённые редактирования');
+      // Показываем кнопку сброса и уведомление
+      setTimeout(() => {
+        const resetBtn = document.getElementById('resetEditsBtn');
+        if (resetBtn) resetBtn.style.display = 'inline-block';
+        const infoPanel = document.getElementById('info-panel');
+        if (infoPanel) {
+          infoPanel.innerHTML = '<span style="color:#f59e0b;">📋 Восстановлены ваши предыдущие редактирования. Нажмите "Сбросить редактирование" чтобы начать заново.</span>';
+        }
+      }, 200);
+    }
 
     // ═══ Цвета трендов ═══
     const trendColors = {
@@ -2878,6 +2975,7 @@
       updateStats();
       updateTable();
       buildChart();
+      saveEditsToStorage();  // Сохраняем после каждого изменения
     }
 
     function clearManualSegments() {
@@ -2885,6 +2983,7 @@
 
       manualSegments = [];
       updateManualDisplay();
+      saveEditsToStorage();
 
       document.getElementById('info-panel').textContent = 'Все сегменты очищены. Выделите участки кривой.';
     }
@@ -2892,6 +2991,7 @@
     function removeManualSegment(num) {
       manualSegments = manualSegments.filter(s => s.num !== num);
       updateManualDisplay();
+      saveEditsToStorage();
     }
 
     // ═══ Управление границами сегментов ═══
@@ -3083,6 +3183,7 @@
       updateStats();
       updateTable();
       buildChart();
+      saveEditsToStorage();
     }
 
     // ═══ API вызовы ═══
@@ -3123,6 +3224,7 @@
           updateStats();
           updateTable();
           buildChart();
+          saveEditsToStorage();
         } else {
           alert('Ошибка: ' + result.error);
         }
@@ -3196,6 +3298,7 @@
     function addExcludeRange(start, end) {
       excludeRanges.push({ start, end });
       updateExcludeList();
+      saveEditsToStorage();
       // Показываем блок исключений
       document.getElementById('exclude-list').style.display = 'block';
     }
@@ -3203,6 +3306,7 @@
     function removeExcludeRange(idx) {
       excludeRanges.splice(idx, 1);
       updateExcludeList();
+      saveEditsToStorage();
       if (excludeRanges.length === 0) {
         document.getElementById('exclude-list').style.display = editMode ? 'block' : 'none';
       }
@@ -3336,6 +3440,7 @@
       const seg = segments.find(s => s.num === segNum);
       if (seg) seg.comment = comment;
       buildChart();
+      saveEditsToStorage();
     }
 
     // ═══ Выбор сегмента ═══
@@ -3439,6 +3544,13 @@
         }
 
         const isChecked = selectedForCompare.has(seg.num);
+        // Давления из secondary_means или top-level
+        const sm = seg.secondary_means || {};
+        const pFlowline = seg.mean_p_flowline ?? sm.p_line_mean;
+        const pWellhead = seg.mean_p_wellhead ?? sm.p_tube_mean;
+        const deltaP = seg.mean_dp ?? sm.dp_mean;
+        const workingPct = seg.working_pct ?? (sm.downtime_min != null ? Math.max(0, (1440 - sm.downtime_min) / 1440 * 100) : null);
+
         return `<tr data-segment="${seg.num}" onclick="selectSegment(${seg.num})" class="${rowClass}">
           <td onclick="event.stopPropagation()">
             <input type="checkbox" class="seg-checkbox" data-seg="${seg.num}" ${isChecked ? 'checked' : ''} onchange="toggleSegmentForCompare(${seg.num}, this.checked)">
@@ -3448,6 +3560,10 @@
           <td>${boundaryHtml}</td>
           <td>${daysVal}</td>
           <td><b>${meanVal.toFixed(2)}</b></td>
+          <td style="font-size:11px;color:#6b7280">${pFlowline != null ? pFlowline.toFixed(1) : '—'}</td>
+          <td style="font-size:11px;color:#6b7280">${pWellhead != null ? pWellhead.toFixed(1) : '—'}</td>
+          <td style="font-size:11px;color:#3b82f6;font-weight:500">${deltaP != null ? deltaP.toFixed(1) : '—'}</td>
+          <td style="font-size:11px">${workingPct != null ? workingPct.toFixed(0) + '%' : '—'}</td>
           <td><span class="${vsMeanClass}" style="font-size:11px">${vsMean > 0 ? '+' : ''}${vsMean.toFixed(1)}%</span></td>
           <td><span class="${vsMedianClass}" style="font-size:11px">${vsMedian > 0 ? '+' : ''}${vsMedian.toFixed(1)}%</span></td>
           <td style="font-size:11px;color:#6b7280">${stdVal.toFixed(2)}</td>

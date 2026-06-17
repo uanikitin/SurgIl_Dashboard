@@ -35,6 +35,22 @@ class SendResult:
     response_data: Optional[dict] = None
 
 
+def _send_telegram_message(text: str, chat_id: str, bot_token: str) -> None:
+    """
+    Низкоуровневая отправка текстового сообщения в Telegram.
+
+    Выбрасывает исключение при сетевой ошибке или ответе API ok=false.
+    Не пишет в БД, не требует Document.
+    """
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    with httpx.Client(timeout=15.0) as client:
+        response = client.post(url, data={"chat_id": chat_id, "text": text})
+    result_data = response.json()
+    if not (response.status_code == 200 and result_data.get("ok")):
+        desc = result_data.get("description", "unknown error")
+        raise RuntimeError(f"Telegram API error: {desc}")
+
+
 def send_document_telegram(
     db: Session,
     document: Document,
@@ -122,9 +138,8 @@ def send_document_telegram(
 
     # Отправляем
     try:
-        url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
-
         with open(pdf_path, "rb") as pdf_file:
+            url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
             files = {
                 "document": (pdf_path.name, pdf_file, "application/pdf")
             }
@@ -132,7 +147,6 @@ def send_document_telegram(
                 "chat_id": target_chat_id,
                 "caption": caption,
             }
-
             with httpx.Client(timeout=30.0) as client:
                 response = client.post(url, data=data, files=files)
 

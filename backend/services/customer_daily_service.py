@@ -177,6 +177,9 @@ VALID_BLOCK_KINDS = {
     # таблица различий (diff_table), интерпретация сравнения.
     # snapshot формата segment_comparison_v1.
     "segment_comparison",
+    # Сопоставление данных мониторинга LoRa и суточных сводок УзКорГаз.
+    # Графики Q и ΔP, посуточная таблица расхождений, заключение.
+    "sensor_customer_comparison",
 }
 
 
@@ -670,6 +673,39 @@ def count_blocks_in_report(db: Session, well_id: int) -> int:
     return int(row[0] if row else 0)
 
 
+def reorder_blocks(db: Session, block_ids: list[int]) -> dict[str, Any]:
+    """Массовое обновление sort_order для блоков.
+
+    Принимает список block_id в нужном порядке и присваивает им
+    sort_order = 0, 1, 2, ... в соответствии с позицией в списке.
+
+    Возвращает: {"ok": True, "updated": count}
+    """
+    if not block_ids:
+        return {"ok": True, "updated": 0}
+
+    # Одним UPDATE с CASE WHEN для эффективности
+    cases = []
+    params_dict: dict[str, Any] = {}
+    for i, bid in enumerate(block_ids):
+        cases.append(f"WHEN id = :bid_{i} THEN :order_{i}")
+        params_dict[f"bid_{i}"] = bid
+        params_dict[f"order_{i}"] = i
+
+    case_sql = " ".join(cases)
+    id_list = ", ".join(f":bid_{i}" for i in range(len(block_ids)))
+
+    sql = f"""
+        UPDATE customer_report_block
+        SET sort_order = CASE {case_sql} ELSE sort_order END,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id IN ({id_list})
+    """
+    result = db.execute(text(sql), params_dict)
+    db.commit()
+    return {"ok": True, "updated": result.rowcount}
+
+
 def get_blocks_for_report(db: Session, well_id: int) -> list[dict[str, Any]]:
     """Только активные блоки (in_report=True), отсортированы для PDF.
 
@@ -690,7 +726,16 @@ def get_blocks_for_report(db: Session, well_id: int) -> list[dict[str, Any]]:
         WHERE well_id = :wid AND in_report = TRUE
         ORDER BY sort_order, created_at
     """), {"wid": well_id}).mappings().fetchall()
-    return [dict(r) for r in rows]
+
+    result = []
+    for r in rows:
+        block = dict(r)
+        # Обогащаем adaptation блоки (intro, segment_analysis) — как в list_blocks
+        block = _enrich_adaptation_intro(db, block)
+        block = _enrich_adaptation_segment_analysis(db, block)
+        block = _enrich_events_from_db(db, block)
+        result.append(block)
+    return result
 
 
 PARAM_LABELS: dict[str, str] = {

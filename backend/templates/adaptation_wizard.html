@@ -19,6 +19,8 @@
 <script src="/static/js/chapter_analysis_modal.js?v={{ time() }}"></script>
 <script src="/static/js/chapter_preview.js?v={{ time() }}"></script>
 <script src="/static/js/chapter_render.js?v={{ time() }}"></script>
+<script src="/static/js/sensor_customer_comparison.js?v={{ time() }}"></script>
+<script src="/static/js/block_reorder.js?v={{ time() }}"></script>
 <style>
   /* предотвращаем горизонтальный скролл всей страницы */
   html, body { overflow-x: hidden; }
@@ -569,11 +571,31 @@
   .obs-card.obs-kind-observation_period    { border-left-color: #16a34a; }
   .obs-card.obs-kind-observation_segment   { border-left-color: #5b21b6; }
   .obs-card.obs-not-in-report {
-    opacity: 0.65;
-    border-left-color: #9ca3af !important;
+    opacity: 0.7;
+    border: 2px dashed #d1d5db !important;
+    border-left: 5px solid #9ca3af !important;
+    background: #f9fafb;
   }
-  .obs-card.obs-not-in-report .obs-card-header { background: #f3f4f6; }
+  .obs-card.obs-not-in-report .obs-card-header {
+    background: linear-gradient(to bottom, #f3f4f6, #e5e7eb);
+  }
+  .obs-card.obs-not-in-report .obs-card-body { background: #fafafa; }
   .obs-card.obs-not-in-report .obs-kind-badge  { background: #9ca3af !important; }
+  .obs-card.obs-not-in-report .obs-excluded-badge {
+    display: inline-flex !important;
+  }
+  .obs-excluded-badge {
+    display: none;
+    padding: 3px 8px;
+    background: #fee2e2;
+    border: 1px solid #fca5a5;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #dc2626;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
   .obs-card-header {
     background: linear-gradient(to bottom, #f8f9fa, #f1f3f5);
     padding: 12px 14px 10px 14px;
@@ -665,6 +687,49 @@
   .wz-pill:hover { background:#ffedd5; }
   .wz-pill.active { background:#ea580c; color:#fff; border-color:#c2410c; }
 
+  /* ─── Collapsible charts ─── */
+  .wz3-charts-collapsible {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+    margin: 12px 0;
+  }
+  .wz3-charts-toggle {
+    padding: 12px 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: #334155;
+    user-select: none;
+    list-style: none;
+    transition: background 0.15s;
+  }
+  .wz3-charts-toggle::-webkit-details-marker { display: none; }
+  .wz3-charts-toggle:hover { background: #f1f5f9; }
+  .wz3-charts-toggle-icon {
+    font-size: 1.2rem;
+    transition: transform 0.2s;
+  }
+  .wz3-charts-toggle-hint {
+    font-size: 0.78rem;
+    color: #94a3b8;
+    font-weight: 400;
+    margin-left: auto;
+  }
+  .wz3-charts-collapsible[open] .wz3-charts-toggle {
+    border-bottom: 1px solid #e2e8f0;
+    background: #fff;
+  }
+  .wz3-charts-collapsible[open] .wz3-charts-toggle-hint { display: none; }
+  .wz3-charts-collapsible[open] .wz3-charts-toggle-icon { transform: rotate(90deg); }
+  .wz3-charts-collapsible > .wz-section {
+    background: #fff;
+    border-radius: 0 0 8px 8px;
+  }
+
   /* ─── Шаг 7: атомарная сборка отчёта ─── */
   .wz7-chapter {
     background:#fff; border:1px solid #e5e7eb; border-radius:5px;
@@ -701,6 +766,36 @@
     font-family:monospace; font-size:0.7rem; color:#9ca3af;
     background:#f9fafb; padding:1px 6px; border-radius:3px;
   }
+  /* Бейдж источника блока */
+  .wz7-block-source {
+    font-size:0.68rem; padding:1px 5px; border-radius:8px;
+    background:#e0f2fe; color:#0369a1; margin-left:auto; margin-right:6px;
+    white-space:nowrap;
+  }
+  .wz7-block-source[data-src="0"] { background:#f3f4f6; color:#6b7280; }
+  .wz7-block-source[data-src="2"] { background:#fef3c7; color:#92400e; }
+  .wz7-block-source[data-src="3"] { background:#dbeafe; color:#1e40af; }
+  .wz7-block-source[data-src="5"] { background:#dcfce7; color:#166534; }
+  .wz7-block-source[data-src="6"] { background:#f3e8ff; color:#7c3aed; }
+  /* Недоступный блок */
+  .wz7-block-row[data-avail="false"] {
+    opacity:0.5; background:#f9fafb; cursor:not-allowed;
+  }
+  .wz7-block-row[data-avail="false"] input {
+    cursor:not-allowed;
+  }
+  .wz7-block-row[data-avail="false"] .wz7-block-label {
+    color:#9ca3af; font-style:italic;
+  }
+  /* Сводка доступности в заголовке шага 7 */
+  .wz7-avail-summary {
+    display:flex; flex-wrap:wrap; gap:6px 12px;
+    padding:8px 12px; background:#f8fafc; border:1px solid #e2e8f0;
+    border-radius:6px; margin-bottom:12px; font-size:0.8rem;
+  }
+  .wz7-avail-item { display:flex; align-items:center; gap:4px; }
+  .wz7-avail-ok { color:#059669; }
+  .wz7-avail-no { color:#dc2626; }
 
   /* ─── Конструктор блоков наблюдения (wz3obs-) ─── */
   .wz3obs-constructor {
@@ -961,6 +1056,39 @@
   </div>
 </div>
 
+<!-- ═══ Модалка HTML-превью (финальный отчёт) ═══ -->
+<div id="wz-html-preview-modal"
+     style="display:none; position:fixed; inset:0; z-index:10000;
+            background:rgba(0,0,0,0.7); padding:18px;">
+  <div style="background:#fff; border-radius:8px; height:100%;
+              display:flex; flex-direction:column;
+              box-shadow:0 10px 40px rgba(0,0,0,0.4);">
+    <div style="display:flex; align-items:center; gap:12px; padding:10px 16px;
+                border-bottom:2px solid #e5e7eb; flex:0 0 auto;">
+      <h2 id="wz-html-preview-title"
+          style="margin:0; flex:1; font-size:1.05rem;">HTML превью</h2>
+      <span id="wz-html-preview-status"
+            style="font-size:0.82rem; color:#92400e;"></span>
+      <a id="wz-html-preview-newtab"
+         href="#" target="_blank" rel="noopener"
+         style="display:none; padding:5px 12px; font-size:0.84rem;
+                background:#dbeafe; color:#1d4ed8; border:1px solid #93c5fd;
+                border-radius:4px; text-decoration:none;">
+        ⤴ Открыть в новой вкладке
+      </a>
+      <button id="wz-html-preview-print" class="wz-btn"
+              style="display:none; padding:5px 12px; font-size:0.84rem;
+                     background:#10b981; color:#fff; border:none;">
+        🖨️ Печать
+      </button>
+      <button id="wz-html-preview-close" class="wz-btn wz-btn-secondary"
+              style="padding:5px 12px;">✕ Закрыть</button>
+    </div>
+    <iframe id="wz-html-preview-iframe"
+            style="flex:1; width:100%; border:0;"></iframe>
+  </div>
+</div>
+
 <div id="wz3-cmp-preview-modal"
      style="display:none; position:fixed; inset:0; z-index:9999;
             background:rgba(0,0,0,0.55); overflow-y:auto; padding:30px 20px;">
@@ -1010,6 +1138,93 @@
   </div>
 </div>
 
+<!-- ═══ Модалка анализа наблюдения ═══ -->
+<div id="wz3-analysis-modal"
+     style="display:none; position:fixed; inset:0; z-index:9998;
+            background:rgba(0,0,0,0.6); overflow-y:auto; padding:20px;">
+  <div class="wz3-analysis-modal-content"
+       style="max-width:1400px; margin:0 auto; background:#fff;
+              border-radius:10px; box-shadow:0 10px 50px rgba(0,0,0,0.35);
+              max-height:95vh; display:flex; flex-direction:column;">
+    <!-- Шапка модалки -->
+    <div class="wz3-modal-header"
+         style="display:flex; align-items:center; gap:12px; padding:16px 24px;
+                background:linear-gradient(to bottom, #f0fdf4, #dcfce7);
+                border-bottom:2px solid #86efac; border-radius:10px 10px 0 0;">
+      <span style="font-size:1.5rem;">📊</span>
+      <h2 style="margin:0; flex:1; font-size:1.2rem; color:#166534;">
+        Анализ периода наблюдения
+      </h2>
+      <span id="wz3-modal-well-badge" style="padding:4px 12px; background:#fff;
+            border:1px solid #86efac; border-radius:4px; font-size:0.85rem;
+            color:#166534; font-weight:500;"></span>
+      <button id="wz3-analysis-modal-close" class="wz-btn wz-btn-secondary"
+              onclick="wz3CloseAnalysisModal()"
+              style="padding:8px 16px; font-size:0.9rem;">✕ Закрыть</button>
+    </div>
+    <!-- Тело модалки (скролл) -->
+    <div id="wz3-analysis-modal-body" style="flex:1; overflow-y:auto; padding:20px 24px;">
+      <!-- Содержимое перемещается сюда при открытии -->
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Модалка инструмента сравнения участков ═══ -->
+<div id="wz3-compare-modal"
+     style="display:none; position:fixed; inset:0; z-index:9998;
+            background:rgba(0,0,0,0.6); overflow-y:auto; padding:20px;">
+  <div class="wz3-compare-modal-content"
+       style="max-width:1500px; margin:0 auto; background:#fff;
+              border-radius:10px; box-shadow:0 10px 50px rgba(0,0,0,0.35);
+              max-height:95vh; display:flex; flex-direction:column;">
+    <div class="wz3-modal-header"
+         style="display:flex; align-items:center; gap:12px; padding:16px 24px;
+                background:linear-gradient(to bottom, #eff6ff, #dbeafe);
+                border-bottom:2px solid #93c5fd; border-radius:10px 10px 0 0;">
+      <span style="font-size:1.5rem;">🔁</span>
+      <h2 style="margin:0; flex:1; font-size:1.2rem; color:#1e40af;">
+        Выбор участков для сравнения
+      </h2>
+      <span id="wz3-compare-modal-well-badge" style="padding:4px 12px; background:#fff;
+            border:1px solid #93c5fd; border-radius:4px; font-size:0.85rem;
+            color:#1e40af; font-weight:500;"></span>
+      <button class="wz-btn wz-btn-secondary"
+              onclick="wz3CloseCompareModal()"
+              style="padding:8px 16px; font-size:0.9rem;">✕ Закрыть</button>
+    </div>
+    <div id="wz3-compare-modal-body" style="flex:1; overflow-y:auto; padding:20px 24px;">
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Модалка сегментного анализа ═══ -->
+<div id="wz3-segment-modal"
+     style="display:none; position:fixed; inset:0; z-index:9998;
+            background:rgba(0,0,0,0.6); overflow-y:auto; padding:20px;">
+  <div class="wz3-segment-modal-content"
+       style="max-width:1200px; margin:0 auto; background:#fff;
+              border-radius:10px; box-shadow:0 10px 50px rgba(0,0,0,0.35);
+              max-height:95vh; display:flex; flex-direction:column;">
+    <div class="wz3-modal-header"
+         style="display:flex; align-items:center; gap:12px; padding:16px 24px;
+                background:linear-gradient(to bottom, #f8fafc, #e2e8f0);
+                border-bottom:2px solid #94a3b8; border-radius:10px 10px 0 0;">
+      <span style="font-size:1.5rem;">📊</span>
+      <h2 style="margin:0; flex:1; font-size:1.2rem; color:#1e3a5f;">
+        Сегментный анализ периода
+      </h2>
+      <span id="wz3-segment-modal-well-badge" style="padding:4px 12px; background:#fff;
+            border:1px solid #94a3b8; border-radius:4px; font-size:0.85rem;
+            color:#1e3a5f; font-weight:500;"></span>
+      <button class="wz-btn wz-btn-secondary"
+              onclick="wz3CloseSegmentModal()"
+              style="padding:8px 16px; font-size:0.9rem;">✕ Закрыть</button>
+    </div>
+    <div id="wz3-segment-modal-body" style="flex:1; overflow-y:auto; padding:20px 24px;">
+    </div>
+  </div>
+</div>
+
 <script>
   const $ = (id) => document.getElementById(id);
   const custIsAdmin = {{ 'true' if is_admin else 'false' }};
@@ -1037,66 +1252,111 @@
   };
 
   // ═══ Каталог атомарных блоков PDF — для шага 7 «Сборка отчёта». ═══
-  // Каждая строка: { key, label, chapter } — key совпадает с переменной
+  // Каждая строка: { key, label, chapter, source } — key совпадает с переменной
   // в include_sections, передаваемой на backend и используемой в LaTeX
   // (\BLOCK{ if include_sections.KEY } ... \BLOCK{ endif }).
+  // source: 0 = авто (скважина), 2 = Шаг 2 (Заказчик), 3 = Шаг 3 (Наблюдение),
+  //         5 = Шаг 5 (Адаптация), 6 = Шаг 6 (Сравнение).
   // По умолчанию все включены (галочки стоят).
   // Чтобы добавить новый блок: добавить строку сюда + обернуть нужный
   // фрагмент в adaptation_report.tex соответствующим if-блоком.
   const WZ7_BLOCK_CATALOG = [
     // ── Титул ──
-    { key: 'title_meta_table',           chapter: 'Титул',       label: 'Сводка документа и этапов' },
-    { key: 'warnings_list',              chapter: 'Титул',       label: 'Предупреждения' },
+    { key: 'title_meta_table',           chapter: 'Титул',       label: 'Сводка документа и этапов', source: 0 },
+    { key: 'warnings_list',              chapter: 'Титул',       label: 'Предупреждения', source: 0 },
     // ── §1 Технические данные ──
-    { key: 'well_summary_table',         chapter: '§1 Технические данные', label: 'Сводные параметры скважины' },
-    { key: 'well_location_map',          chapter: '§1 Технические данные', label: 'Карта расположения' },
-    { key: 'well_construction_table',    chapter: '§1 Технические данные', label: 'Конструкция скважины' },
-    { key: 'well_perforation_table',     chapter: '§1 Технические данные', label: 'Интервалы перфорации' },
-    { key: 'equipment_acts_table',       chapter: '§1 Технические данные', label: 'Установленное оборудование' },
+    { key: 'well_summary_table',         chapter: '§1 Технические данные', label: 'Сводные параметры скважины', source: 0 },
+    { key: 'well_location_map',          chapter: '§1 Технические данные', label: 'Карта расположения', source: 0 },
+    { key: 'well_construction_table',    chapter: '§1 Технические данные', label: 'Конструкция скважины', source: 0 },
+    { key: 'well_perforation_table',     chapter: '§1 Технические данные', label: 'Интервалы перфорации', source: 0 },
+    { key: 'equipment_acts_table',       chapter: '§1 Технические данные', label: 'Установленное оборудование', source: 0 },
     // ── §2 Заказчик ──
-    { key: 'customer_chapter_intro',     chapter: '§2 Заказчик', label: 'Вступление главы заказчика' },
-    { key: 'customer_period_intro',      chapter: '§2 Заказчик', label: 'Описание периода' },
-    { key: 'customer_pressures_chart',   chapter: '§2 Заказчик', label: 'График давлений за период' },
-    { key: 'customer_dp_chart',          chapter: '§2 Заказчик', label: 'График ΔP за период' },
-    { key: 'customer_flow_dt_chart',     chapter: '§2 Заказчик', label: 'График Q + простой за период' },
-    { key: 'customer_monthly_chart',     chapter: '§2 Заказчик', label: 'Помесячная агрегация Q' },
-    { key: 'customer_describe_table',    chapter: '§2 Заказчик', label: 'Описательная статистика периода' },
-    { key: 'customer_monthly_table',     chapter: '§2 Заказчик', label: 'Помесячные тренды' },
-    { key: 'customer_monthly_descriptions', chapter: '§2 Заказчик', label: 'Помесячный анализ (текстом)' },
+    { key: 'customer_chapter_intro',     chapter: '§2 Заказчик', label: 'Вступление главы заказчика', source: 2 },
+    { key: 'customer_period_intro',      chapter: '§2 Заказчик', label: 'Описание периода', source: 2 },
+    { key: 'customer_pressures_chart',   chapter: '§2 Заказчик', label: 'График давлений за период', source: 2 },
+    { key: 'customer_dp_chart',          chapter: '§2 Заказчик', label: 'График ΔP за период', source: 2 },
+    { key: 'customer_flow_dt_chart',     chapter: '§2 Заказчик', label: 'График Q + простой за период', source: 2 },
+    { key: 'customer_monthly_chart',     chapter: '§2 Заказчик', label: 'Помесячная агрегация Q', source: 2 },
+    { key: 'customer_describe_table',    chapter: '§2 Заказчик', label: 'Описательная статистика периода', source: 2 },
+    { key: 'customer_monthly_table',     chapter: '§2 Заказчик', label: 'Помесячные тренды', source: 2 },
+    { key: 'customer_monthly_descriptions', chapter: '§2 Заказчик', label: 'Помесячный анализ (текстом)', source: 2 },
     // ── §3 Наблюдение ──
-    { key: 'obs_intro_text',             chapter: '§3 Наблюдение', label: 'Вступление этапа наблюдения' },
-    { key: 'obs_sensors_table',          chapter: '§3 Наблюдение', label: 'Установленные датчики давления' },
-    { key: 'obs_period_description',     chapter: '§3 Наблюдение', label: 'Период и описание наблюдения' },
-    { key: 'obs_working_params_table',   chapter: '§3 Наблюдение', label: 'Рабочие параметры наблюдения' },
-    { key: 'obs_events_reagents_table',  chapter: '§3 Наблюдение', label: 'События и реагенты наблюдения' },
-    { key: 'obs_narrative',              chapter: '§3 Наблюдение', label: 'Нарратив этапа наблюдения' },
-    { key: 'obs_combined_chart',         chapter: '§3 Наблюдение', label: 'Комбографик наблюдения (P/ΔP/Q)' },
-    { key: 'obs_vs_baseline_table',      chapter: '§3 Наблюдение', label: 'Сравнение наблюдения с baseline заказчика' },
-    { key: 'obs_vs_baseline_narrative',  chapter: '§3 Наблюдение', label: 'Нарратив сравнения vs baseline' },
+    { key: 'obs_intro_text',             chapter: '§3 Наблюдение', label: 'Вступление этапа наблюдения', source: 3 },
+    { key: 'obs_sensors_table',          chapter: '§3 Наблюдение', label: 'Установленные датчики давления', source: 3 },
+    { key: 'obs_period_description',     chapter: '§3 Наблюдение', label: 'Период и описание наблюдения', source: 3 },
+    { key: 'obs_working_params_table',   chapter: '§3 Наблюдение', label: 'Рабочие параметры наблюдения', source: 3 },
+    { key: 'obs_events_reagents_table',  chapter: '§3 Наблюдение', label: 'События и реагенты наблюдения', source: 3 },
+    { key: 'obs_narrative',              chapter: '§3 Наблюдение', label: 'Нарратив этапа наблюдения', source: 3 },
+    { key: 'obs_combined_chart',         chapter: '§3 Наблюдение', label: 'Комбографик наблюдения (P/ΔP/Q)', source: 3 },
+    { key: 'obs_vs_baseline_table',      chapter: '§3 Наблюдение', label: 'Сравнение наблюдения с baseline заказчика', source: 3 },
+    { key: 'obs_vs_baseline_narrative',  chapter: '§3 Наблюдение', label: 'Нарратив сравнения vs baseline', source: 3 },
     // ── §4 Адаптация ──
-    { key: 'adapt_period_description',   chapter: '§4 Адаптация', label: 'Период и описание адаптации' },
-    { key: 'adapt_working_params_table', chapter: '§4 Адаптация', label: 'Рабочие параметры адаптации' },
-    { key: 'adapt_events_reagents_table',chapter: '§4 Адаптация', label: 'События и реагенты адаптации' },
-    { key: 'adapt_narrative',            chapter: '§4 Адаптация', label: 'Нарратив этапа адаптации' },
-    { key: 'adapt_combined_chart',       chapter: '§4 Адаптация', label: 'Комбографик адаптации (P/ΔP/Q + R★)' },
-    { key: 'optimal_window_intro',       chapter: '§4 Адаптация', label: 'Вступление к R★' },
-    { key: 'optimal_window_table',       chapter: '§4 Адаптация', label: 'Параметры R★' },
-    { key: 'optimal_window_narrative',   chapter: '§4 Адаптация', label: 'Нарратив R★' },
-    { key: 'optimal_window_chart',       chapter: '§4 Адаптация', label: 'График R★' },
+    { key: 'adapt_period_description',   chapter: '§4 Адаптация', label: 'Период и описание адаптации', source: 5 },
+    { key: 'adapt_working_params_table', chapter: '§4 Адаптация', label: 'Рабочие параметры адаптации', source: 5 },
+    { key: 'adapt_events_reagents_table',chapter: '§4 Адаптация', label: 'События и реагенты адаптации', source: 5 },
+    { key: 'adapt_narrative',            chapter: '§4 Адаптация', label: 'Нарратив этапа адаптации', source: 5 },
+    { key: 'adapt_combined_chart',       chapter: '§4 Адаптация', label: 'Комбографик адаптации (P/ΔP/Q + R★)', source: 5 },
+    { key: 'optimal_window_intro',       chapter: '§4 Адаптация', label: 'Вступление к R★', source: 5 },
+    { key: 'optimal_window_table',       chapter: '§4 Адаптация', label: 'Параметры R★', source: 5 },
+    { key: 'optimal_window_narrative',   chapter: '§4 Адаптация', label: 'Нарратив R★', source: 5 },
+    { key: 'optimal_window_chart',       chapter: '§4 Адаптация', label: 'График R★', source: 5 },
     // ── §5 Графики сравнения ──
-    { key: 'cmp_pressure_pair',          chapter: '§5 Графики сравнения', label: 'Пара графиков P (набл./адапт.)' },
-    { key: 'cmp_dp_pair',                chapter: '§5 Графики сравнения', label: 'Пара графиков ΔP' },
-    { key: 'cmp_flow_pair',              chapter: '§5 Графики сравнения', label: 'Пара графиков Q' },
+    { key: 'cmp_pressure_pair',          chapter: '§5 Графики сравнения', label: 'Пара графиков P (набл./адапт.)', source: 6 },
+    { key: 'cmp_dp_pair',                chapter: '§5 Графики сравнения', label: 'Пара графиков ΔP', source: 6 },
+    { key: 'cmp_flow_pair',              chapter: '§5 Графики сравнения', label: 'Пара графиков Q', source: 6 },
     // ── §6 Сводное сравнение ──
-    { key: 'summary_comparison_table',   chapter: '§6 Сводное сравнение', label: 'Сравнительная таблица показателей' },
-    { key: 'adapt_vs_baselines_table',   chapter: '§6 Сводное сравнение', label: 'Адаптация vs baseline-ы' },
-    { key: 'adapt_vs_baseline_narrative',chapter: '§6 Сводное сравнение', label: 'Нарратив адаптации vs baseline-ы' },
-    { key: 'conclusions_list',           chapter: '§6 Сводное сравнение', label: 'Выводы' },
+    { key: 'summary_comparison_table',   chapter: '§6 Сводное сравнение', label: 'Сравнительная таблица показателей', source: 6 },
+    { key: 'adapt_vs_baselines_table',   chapter: '§6 Сводное сравнение', label: 'Адаптация vs baseline-ы', source: 6 },
+    { key: 'adapt_vs_baseline_narrative',chapter: '§6 Сводное сравнение', label: 'Нарратив адаптации vs baseline-ы', source: 6 },
+    { key: 'conclusions_list',           chapter: '§6 Сводное сравнение', label: 'Выводы', source: 6 },
     // ── Подписи ──
-    { key: 'signatures_table',           chapter: 'Конец',         label: 'Подписи (Исполнитель/Заказчик)' },
+    { key: 'signatures_table',           chapter: 'Конец',         label: 'Подписи (Исполнитель/Заказчик)', source: 0 },
     // ── Дополнительно (отсутствующие пока в шаблоне) ──
-    { key: 'sensor_inventory_extended',  chapter: '§3 Наблюдение', label: 'Расширенный инвентарь датчиков (тип/частота/батарея)' },
+    { key: 'sensor_inventory_extended',  chapter: '§3 Наблюдение', label: 'Расширенный инвентарь датчиков (тип/частота/батарея)', source: 3 },
   ];
+
+  // ═══ Вычисление доступности блоков на основе данных в шагах ═══
+  function wz7ComputeBlockAvailability() {
+    const avail = {};
+    const hasWell = !!state.well;
+
+    // §2 Заказчик — зависит от шага 2
+    const s2 = state.steps[2];
+    const hasCustomer = s2.include && ((s2.data.periods || []).length > 0 || s2.data.from);
+
+    // §3 Наблюдение — зависит от шага 3
+    const s3 = state.steps[3];
+    const hasObs = s3.include && !!s3.data.from && !!s3.data.to;
+
+    // §5 Адаптация — зависит от шага 5
+    const s5 = state.steps[5];
+    const hasAdapt = s5.include && !!s5.data.from && !!s5.data.to;
+
+    // §6 Сравнение — требует и наблюдение и адаптацию
+    const s6 = state.steps[6];
+    const hasCmp = s6.include && hasObs && hasAdapt;
+
+    for (const blk of WZ7_BLOCK_CATALOG) {
+      switch (blk.source) {
+        case 0: avail[blk.key] = hasWell; break;
+        case 2: avail[blk.key] = hasCustomer; break;
+        case 3: avail[blk.key] = hasObs; break;
+        case 5: avail[blk.key] = hasAdapt; break;
+        case 6: avail[blk.key] = hasCmp; break;
+        default: avail[blk.key] = true;
+      }
+    }
+    return avail;
+  }
+
+  // Метки источников для UI
+  const WZ7_SOURCE_LABELS = {
+    0: 'Авто',
+    2: 'Шаг 2',
+    3: 'Шаг 3',
+    5: 'Шаг 5',
+    6: 'Шаг 6',
+  };
 
   // ═══ Stepper rendering ═══
   function renderStepper() {
@@ -2517,6 +2777,11 @@
     _stepsHint:    () => state.steps?.[3] || null,
     _metadataHint: () => state.metadata || null,
     _cmpStages:    [],
+    // Закрываем модалку после успешного сохранения
+    onSaved:       () => {
+      setTimeout(() => wz3CloseCompareModal(), 600);
+      return wz3LoadAttachedBlocks();
+    },
   };
   const wz5cmpCtx = {
     prefix: 'wz5cmp',
@@ -2542,16 +2807,25 @@
   // ═══ PART_LABELS для observation-блоков (из backend/constants/observation_parts.py) ═══
   // Синхронизировано с OBSERVATION_PARTS и OBSERVATION_PART_LABELS
   // Ключи графиков: chart_metrics, chart_timeseries, chart_compare_b1, chart_segments
+  // Parts с дефолтом OFF (альтернативные представления, опциональные раскладки)
+  const _OBS_PARTS_DEFAULT_OFF = new Set([
+    'metrics_tiles',   // альтернатива metrics_table
+    'charts_grid',     // альтернативная раскладка 2×2
+  ]);
+
   const OBS_PART_LABELS = {
     // observation_analysis — 4 отдельных графика из wz3RenderCharts
     observation_analysis: [
       ['prefix_note',        '↑ Вступительный текст'],
       ['intro',              '📝 Период / заголовок'],
       ['metrics_table',      '🟧 Таблица метрик'],
+      ['metrics_tiles',      '🎯 Плитки метрик (альтернатива таблице)'],
+      ['charts_grid',        '📊 Графики 2×2 (вместо колонки)'],
       ['chart_pressures',    '📈 График давлений (P тр, P лин)'],
       ['chart_dp',           '📈 График ΔP'],
       ['chart_q',            '📈 График Q(t)'],
       ['chart_utilization',  '📊 Рабочее время по дням'],
+      ['events_table',       '📋 Таблица событий'],
       ['quality',            '📊 Качество данных'],
       ['flags',              '⚠️ Флаги'],
       ['description',        '✏️ Текстовое описание'],
@@ -2592,6 +2866,32 @@
       ['description',       '✏️ Текстовое описание'],
       ['suffix_note',       '↓ Заключительный текст'],
     ],
+    // segment_analysis — сегментный анализ (Core Segment Analysis)
+    segment_analysis: [
+      ['prefix_note',       '↑ Вступительный текст'],
+      ['intro',             '📝 Заголовок'],
+      ['chart',             '📈 График сегментов'],
+      ['table',             '📋 Таблица сегментов'],
+      ['metrics',           '📊 Метрики сегментов'],
+      ['description',       '✏️ Текстовое описание'],
+      ['suffix_note',       '↓ Заключительный текст'],
+    ],
+    // segment_comparison — сравнение сегментов
+    segment_comparison: [
+      ['prefix_note',       '↑ Вступительный текст'],
+      ['intro',             '📝 Заголовок'],
+      ['chart',             '📈 График наложения'],
+      ['table',             '📋 Таблица сравнения'],
+      ['delta_summary',     '⚡ Сводка изменений'],
+      ['description',       '✏️ Текстовое описание'],
+      ['suffix_note',       '↓ Заключительный текст'],
+    ],
+    sensor_customer_comparison: [
+      ['show_q_chart',      '📈 График дебита Q'],
+      ['show_dp_chart',     '📈 График перепада ΔP'],
+      ['show_table',        '📋 Таблица посуточного сравнения'],
+      ['show_conclusion',   '📝 Заключение'],
+    ],
   };
 
   // Получить текущие настройки parts из блока
@@ -2600,8 +2900,9 @@
     const saved = (b.params && b.params.parts) || {};
     const out = {};
     for (const [key] of defs) {
-      // По умолчанию всё включено
-      out[key] = (key in saved) ? !!saved[key] : true;
+      // По умолчанию всё включено, кроме _OBS_PARTS_DEFAULT_OFF
+      const defaultVal = !_OBS_PARTS_DEFAULT_OFF.has(key);
+      out[key] = (key in saved) ? !!saved[key] : defaultVal;
     }
     return out;
   }
@@ -2670,11 +2971,13 @@
         : k === 'observation_baseline' ? '🎯 Baseline'
         : k === 'observation_period' ? '📈 Period'
         : k === 'observation_segment' ? '🔬 Segment'
+        : k === 'sensor_customer_comparison' ? '⚖️ Сопоставление'
         : k;
       const _kindColor = (k) => k === 'observation_analysis' ? '#0891b2'
         : k === 'observation_baseline' ? '#d97706'
         : k === 'observation_period' ? '#16a34a'
         : k === 'observation_segment' ? '#5b21b6'
+        : k === 'sensor_customer_comparison' ? '#0369a1'
         : '#6b7280';
       const _autoDesc = (k) => k === 'observation_analysis'
         ? '📊 Анализ наблюдения по данным датчиков давления'
@@ -2684,6 +2987,8 @@
         ? '📈 Анализ периода работы скважины с полным набором метрик'
         : k === 'observation_segment'
         ? '🔬 Сегментный анализ с трендами и сравнением участков'
+        : k === 'sensor_customer_comparison'
+        ? '⚖️ Сопоставление данных мониторинга LoRa и суточных сводок УзКорГаз'
         : '📊 Блок анализа';
 
       for (const b of blocks) {
@@ -2841,6 +3146,7 @@
             <div class="obs-card-header-top">
               <span class="obs-kind-badge" style="background:${_kindColor(b.kind)};">${_kindLabel(b.kind)}</span>
               ${periodBadge}
+              <span class="obs-excluded-badge">✗ не в отчёт</span>
             </div>
             <input type="text" class="obs-card-title" value="${(b.title || '').replace(/"/g, '&quot;')}"
                    data-block-title="${b.id}" placeholder="Название блока...">
@@ -2903,12 +3209,83 @@
       }
       // Bind handlers ко всем карточкам
       _wz3BindAttachedHandlers(list, blocks);
+      // Инициализация drag-and-drop для переупорядочивания блоков
+      if (window.BlockReorder && blocks.length > 1) {
+        BlockReorder.init(list, {
+          apiEndpoint: '/api/customer-daily/blocks/reorder',
+          cardSelector: '[data-block-id]',
+          onReorder: (ids) => {
+            console.log('Observation blocks reordered:', ids);
+            // Синхронизация правой панели после перестановки
+            if (window._obsChapterPanel && typeof window._obsChapterPanel.refresh === 'function') {
+              window._obsChapterPanel.refresh();
+            }
+          },
+        });
+      }
+      // Инициализация фильтр-панели
+      _wz3InitFilterPanel(blocks);
       // Синхронизация правой панели 60/40:
       if (window._obsChapterPanel && typeof window._obsChapterPanel.refresh === 'function') {
         window._obsChapterPanel.refresh();
       }
     } catch (e) {
       console.warn('wz3LoadAttachedBlocks', e);
+    }
+  }
+
+  // Фильтр-панель для карточек (все / в отчёт / исключённые)
+  function _wz3InitFilterPanel(blocks) {
+    const panel = document.getElementById('wz3-filter-panel');
+    const list = document.getElementById('wz3-attached-list');
+    const status = document.getElementById('wz3-filter-status');
+    if (!panel || !list) return;
+
+    // Считаем статистику
+    const total = blocks.length;
+    const inReport = blocks.filter(b => b.in_report).length;
+    const excluded = total - inReport;
+    if (status) {
+      status.textContent = total ? `всего ${total} • в отчёт ${inReport} • исключено ${excluded}` : '';
+    }
+
+    // Скрываем панель если блоков < 2
+    panel.style.display = total < 2 ? 'none' : '';
+
+    // Обработчики кнопок фильтра
+    panel.querySelectorAll('.obs-filter-btn').forEach(btn => {
+      btn.onclick = () => {
+        // Снимаем активный класс со всех
+        panel.querySelectorAll('.obs-filter-btn').forEach(b => {
+          b.classList.remove('active');
+          b.style.background = '#fff';
+          b.style.color = '#374151';
+          b.style.borderColor = '#cbd5e1';
+        });
+        // Ставим на текущую
+        btn.classList.add('active');
+        btn.style.background = '#3b82f6';
+        btn.style.color = '#fff';
+        btn.style.borderColor = '#3b82f6';
+
+        const filter = btn.dataset.filter;
+        const cards = list.querySelectorAll('[data-block-id]');
+        cards.forEach(card => {
+          const isInReport = card.querySelector('[data-block-inreport]:checked');
+          let show = true;
+          if (filter === 'in_report') show = !!isInReport;
+          else if (filter === 'excluded') show = !isInReport;
+          card.style.display = show ? '' : 'none';
+        });
+      };
+    });
+
+    // Применяем начальное состояние активной кнопки
+    const activeBtn = panel.querySelector('.obs-filter-btn.active');
+    if (activeBtn) {
+      activeBtn.style.background = '#3b82f6';
+      activeBtn.style.color = '#fff';
+      activeBtn.style.borderColor = '#3b82f6';
     }
   }
 
@@ -3216,6 +3593,8 @@
     };
 
     // ✕ Удалить — DELETE /blocks/{id}
+    // Используем /api/customer-daily/blocks/ — универсальный endpoint без фильтра chapter.
+    // Позволяет удалять блоки, созданные до введения chapter='observation'.
     list.querySelectorAll('[data-block-delete]').forEach(btn => {
       btn.addEventListener('click', async () => {
         const id = btn.dataset.blockDelete;
@@ -3223,7 +3602,7 @@
         if (!block) return;
         if (!confirm(`Удалить блок «${block.title}»?\n\nВосстановить будет нельзя.`)) return;
         try {
-          const r = await fetch('/api/observation/blocks/' + id, { method: 'DELETE' });
+          const r = await fetch('/api/customer-daily/blocks/' + id, { method: 'DELETE' });
           if (!r.ok) { alert('Ошибка удаления: HTTP ' + r.status); return; }
           await wz3LoadAttachedBlocks();
         } catch (e) { alert('Сетевая ошибка: ' + e.message); }
@@ -4050,6 +4429,68 @@
         </div>
       </div>
 
+      <!-- ═══ Панель инструментов (плитки) ═══ -->
+      <div class="wz-section" style="padding:12px 16px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px;">
+        <div style="font-size:0.75rem; color:#64748b; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:10px; font-weight:600;">
+          Инструменты анализа
+        </div>
+        <div class="wz3-tools-grid" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px;">
+
+          <!-- Плитка: Анализ наблюдения -->
+          <div id="wz3-open-analysis-btn" class="wz3-tool-tile wz3-tool-tile--green"
+               onclick="wz3OpenAnalysisModal()"
+               style="background:linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+                      border:2px solid #86efac; border-radius:8px; padding:14px;
+                      cursor:pointer; transition:all 0.15s;">
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+              <span style="font-size:1.3rem;">📊</span>
+              <span style="font-size:0.95rem; font-weight:600; color:#166534;">Анализ периода</span>
+            </div>
+            <div style="font-size:0.78rem; color:#15803d; line-height:1.3;">
+              Выбор периода → расчёт Q/ΔP → блок в отчёт
+            </div>
+          </div>
+
+          <!-- Плитка: Сравнение участков -->
+          <div id="wz3-open-compare-btn" class="wz3-tool-tile wz3-tool-tile--blue"
+               onclick="wz3OpenCompareModal()"
+               style="background:linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+                      border:2px solid #93c5fd; border-radius:8px; padding:14px;
+                      cursor:pointer; transition:all 0.15s;">
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+              <span style="font-size:1.3rem;">🔁</span>
+              <span style="font-size:0.95rem; font-weight:600; color:#1e40af;">Сравнение участков</span>
+            </div>
+            <div style="font-size:0.78rem; color:#1d4ed8; line-height:1.3;">
+              Drag-select участки → наложение кривых
+            </div>
+          </div>
+
+          <!-- Плитка: Сегментный анализ -->
+          <div id="wz3-open-segment-btn" class="wz3-tool-tile wz3-tool-tile--gray"
+               onclick="wz3OpenSegmentModal()"
+               style="background:linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+                      border:2px solid #94a3b8; border-radius:8px; padding:14px;
+                      cursor:pointer; transition:all 0.15s;">
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+              <span style="font-size:1.3rem;">📈</span>
+              <span style="font-size:0.95rem; font-weight:600; color:#1e3a5f;">Сегментный анализ</span>
+            </div>
+            <div style="font-size:0.78rem; color:#475569; line-height:1.3;">
+              Авто-детект рост/падение/стабилизация
+            </div>
+          </div>
+
+        </div>
+      </div>
+      <style>
+        .wz3-tool-tile:hover { transform:translateY(-2px); box-shadow:0 4px 12px rgba(0,0,0,0.12); }
+        .wz3-tool-tile:active { transform:translateY(0); }
+      </style>
+
+      <!-- ═══ Контент анализа (перемещается в модалку) ═══ -->
+      <div id="wz3-analysis-section" style="display:none;">
+
       <!-- 2. Шкала + выбор периода -->
       <div class="wz-section">
         <h3>Временная шкала и выбор периода наблюдения</h3>
@@ -4180,17 +4621,23 @@
       <!-- Тренды -->
       <div id="wz3-trends"></div>
 
-      <!-- Полные графики -->
+      <!-- Полные графики (collapsible) -->
       <div id="wz3-charts-block" style="display:none;">
-        <div class="wz-section">
-          <h3>Графики этапа</h3>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.7rem;">
-            <div id="wz3-ch-pres" style="height:280px;"></div>
-            <div id="wz3-ch-dp" style="height:280px;"></div>
-            <div id="wz3-ch-flow" style="height:280px;"></div>
-            <div id="wz3-ch-down" style="height:280px;"></div>
+        <details id="wz3-charts-details" class="wz3-charts-collapsible">
+          <summary class="wz3-charts-toggle">
+            <span class="wz3-charts-toggle-icon">📊</span>
+            <span class="wz3-charts-toggle-text">Графики этапа</span>
+            <span class="wz3-charts-toggle-hint">(нажмите для раскрытия)</span>
+          </summary>
+          <div class="wz-section" style="padding-top:0; margin-top:10px;">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.7rem;">
+              <div id="wz3-ch-pres" style="height:280px;"></div>
+              <div id="wz3-ch-dp" style="height:280px;"></div>
+              <div id="wz3-ch-flow" style="height:280px;"></div>
+              <div id="wz3-ch-down" style="height:280px;"></div>
+            </div>
           </div>
-        </div>
+        </details>
       </div>
 
       <!-- Сохранение baseline B2 -->
@@ -4200,6 +4647,11 @@
         <h3>Описание этапа (для PDF)</h3>
         <textarea id="wz3-desc" rows="3" placeholder="Что наблюдали, особенности скважины, замечания...">${d.description || ''}</textarea>
       </div>
+
+      </div><!-- /wz3-analysis-section -->
+
+      <!-- ═══ Контент сравнения (перемещается в модалку) ═══ -->
+      <div id="wz3-compare-section" style="display:none;">
 
       <!-- 4. Выбор участков для сравнения (инструмент) -->
       <div class="wz-section">
@@ -4387,6 +4839,11 @@
         <select id="wz3cmp-source" style="display:none;"><option value="our_pressure">UniTool</option></select>
       </div>
 
+      </div><!-- /wz3-compare-section -->
+
+      <!-- ═══ Контент сегментного анализа (перемещается в модалку) ═══ -->
+      <div id="wz3-segment-section" style="display:none;">
+
       <!-- 6.5. Сегментный анализ (observation_segment_widget.js) -->
       <div class="wz-section" style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:16px; margin:12px 0;">
         <div class="obs-seg-widget" id="obs-seg-container" style="border:none; padding:0; background:transparent;">
@@ -4413,12 +4870,8 @@
               <span id="obs-seg-sensitivity-val" style="font-size:0.82rem; color:#6b7280; min-width:20px;">5</span>
             </span>
 
-            <button type="button" id="obs-seg-calc-btn"
-                    style="padding:7px 16px; background:#2563eb; color:#fff; border:none; border-radius:5px; font-size:0.85rem; font-weight:500; cursor:pointer;">
-              ▶ Рассчитать
-            </button>
             <button type="button" id="obs-seg-full-btn"
-                    style="padding:7px 16px; background:#7c3aed; color:#fff; border:none; border-radius:5px; font-size:0.85rem; font-weight:500; cursor:pointer; margin-left:8px;"
+                    style="padding:7px 16px; background:#7c3aed; color:#fff; border:none; border-radius:5px; font-size:0.85rem; font-weight:500; cursor:pointer;"
                     title="Открыть полный анализ с редактированием, сравнением и ручным режимом">
               🔬 Полный анализ
             </button>
@@ -4459,6 +4912,8 @@
         </div>
       </div>
 
+      </div><!-- /wz3-segment-section -->
+
       <!-- 7. Конструктор блоков наблюдения -->
       <div class="wz-section">
         <section class="wz3obs-constructor" data-well-id="">
@@ -4476,19 +4931,19 @@
             <div class="wz3obs-save-block"></div>
           </div>
 
-          <!-- Строка статуса -->
-          <div class="wz3obs-status"></div>
+          <!-- Строка статуса (скрыта — используется основной wz3-attached-list) -->
+          <div class="wz3obs-status" style="display:none;"></div>
 
-          <!-- Список прикреплённых блоков -->
-          <div class="wz3obs-blocks-list">
+          <!-- Список прикреплённых блоков (скрыт — дубль wz3-attached-list) -->
+          <div class="wz3obs-blocks-list" style="display:none;">
             <h4>Прикреплённые блоки (<span class="wz3obs-count">0</span>)</h4>
             <ul class="wz3obs-blocks">
               <li class="wz3obs-empty">Загрузка…</li>
             </ul>
           </div>
 
-          <!-- Превью главы (inline HTML) -->
-          <div class="wz3obs-chapter-preview">
+          <!-- Превью главы (скрыто — дубль правой панели chp-right) -->
+          <div class="wz3obs-chapter-preview" style="display:none;">
             <h4>Превью главы «Наблюдение»</h4>
             <div class="wz3obs-chapter-html">
               <p style="color:#9ca3af;font-size:0.84rem;">Нет блоков для превью.</p>
@@ -4518,6 +4973,34 @@
           описания) — попадут в PDF главу «Этап наблюдения». Каждая плитка
           показывает ключевые метрики; кнопка <b>«👁 PDF»</b> на плитке
           собирает PDF только этого блока и открывает в новом окне.
+        </div>
+        <!-- Фильтр-панель -->
+        <div id="wz3-filter-panel" class="obs-filter-panel"
+             style="display:flex; align-items:center; gap:12px; padding:8px 12px;
+                    background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px;
+                    margin-bottom:10px; flex-wrap:wrap;">
+          <span style="font-size:0.82rem; color:#64748b; font-weight:500;">Показать:</span>
+          <div style="display:flex; gap:4px;">
+            <button class="obs-filter-btn active" data-filter="all"
+                    style="padding:4px 12px; font-size:0.8rem; border:1px solid #cbd5e1;
+                           border-radius:4px; background:#fff; cursor:pointer;
+                           transition:all 0.15s;">
+              Все
+            </button>
+            <button class="obs-filter-btn" data-filter="in_report"
+                    style="padding:4px 12px; font-size:0.8rem; border:1px solid #cbd5e1;
+                           border-radius:4px; background:#fff; cursor:pointer;
+                           transition:all 0.15s;">
+              ✓ В отчёт
+            </button>
+            <button class="obs-filter-btn" data-filter="excluded"
+                    style="padding:4px 12px; font-size:0.8rem; border:1px solid #cbd5e1;
+                           border-radius:4px; background:#fff; cursor:pointer;
+                           transition:all 0.15s;">
+              ✗ Исключённые
+            </button>
+          </div>
+          <span id="wz3-filter-status" style="font-size:0.78rem; color:#94a3b8; margin-left:auto;"></span>
         </div>
         <div id="wz3-attached-list"
              style="display:flex; flex-direction:column; gap:8px;"></div>
@@ -4639,6 +5122,12 @@
           if (typeof wz3LoadAttachedBlocks === 'function') {
             wz3LoadAttachedBlocks().catch(e => console.warn('refresh attached blocks', e));
           }
+          // Закрыть модалку через 600мс после сохранения
+          setTimeout(() => {
+            if (typeof wz3CloseSegmentModal === 'function') {
+              wz3CloseSegmentModal();
+            }
+          }, 600);
         },
       });
       window._obsSegmentWidget.init();
@@ -4688,7 +5177,9 @@
         // ТОЛЬКО блоки наблюдения. НЕ блоки заказчика (baseline/period_analysis
         // /criteria_rose) — у них своя глава. Если observation-блоков нет —
         // панель пустая, это правильно (не подтягивать чужое).
-        kinds:            ['observation_analysis', 'observation_baseline', 'observation_period', 'observation_segment', 'segment_analysis', 'segment_comparison'],
+        kinds:            ['observation_analysis', 'observation_baseline', 'observation_period', 'observation_segment', 'segment_analysis', 'segment_comparison', 'sensor_customer_comparison'],
+        // Порядок блоков определяется пользователем (drag-drop), а не kind
+        useUserOrder:     true,
         chapter_filter:   'observation',  // Показывать только блоки с chapter='observation'
         // HTML строит общий движок window.renderChapter (chapter_render.js) —
         // тот же, что глава «Заказчик». Блоки берём с снапшотами.
@@ -5152,7 +5643,7 @@
 
     $('wz3-baseline-card').innerHTML = `
       <div class="wz-section">
-        <h3 style="margin:0 0 0.3rem;">Базовые параметры B2 (по нашим датчикам)</h3>
+        <h3 style="margin:0 0 0.3rem;">Базовые параметры B2 (по данным датчиков UniTool)</h3>
         ${approvedBanner}
 
         <!-- Сводная таблица: показатель × (среднее / медиана / тренд /сут) -->
@@ -5811,7 +6302,7 @@
     const manualExclude = ann.filter(a => a.kind === 'exclude').length;
 
     const parts = [];
-    parts.push(`Этап наблюдения по нашим датчикам с ${fmtDt(d.from)} по ${fmtDt(d.to)} (${obs.duration_label || obs.duration_days + ' сут.'}).`);
+    parts.push(`Этап наблюдения зафиксирован по данным датчиков UniTool с ${fmtDt(d.from)} по ${fmtDt(d.to)}, длительность ${obs.duration_label || obs.duration_days + ' сут.'}.`);
 
     parts.push(`Базовые параметры: Q медиана ${fmt(obs.flow_median)} тыс.м³/сут, ΔP медиана ${fmt(obs.dp_median)} кгс/см², КИВ ${fmt(obs.utilization_pct, 1)}%, рабочих часов ${obs.working_hours} из ${obs.hours_with_data}.`);
 
@@ -5886,6 +6377,11 @@
                   title="Записать текущие значения как утверждённый baseline B2 (опорная линия для сравнения с адаптацией). Появится в плитке вверху страницы.">
             ✓ Утвердить как baseline B2
           </button>
+          <button id="wz3-compare-lora-btn" class="wz-btn wz-btn-secondary"
+                  onclick="openSensorCustomerComparison({wellId: state.well?.id, wellNumber: state.well?.number, chapter: 'observation'})"
+                  title="Сопоставить данные мониторинга LoRa с суточными сводками УзКорГаз">
+            📊 Сравнить с УзКорГаз
+          </button>
           <span id="wz3-save-status" style="font-size:0.8rem; color:#10b981;"></span>
         </div>
         <div style="font-size:0.76rem; color:#6b7280; margin-top:0.5rem; line-height:1.5;">
@@ -5897,6 +6393,203 @@
     $('wz3-save-bl-btn').addEventListener('click', wz3SaveBaseline);
     $('wz3-save-block-btn').addEventListener('click', wz3SaveAsObservationBlock);
   }
+
+  // ═══ Модалка анализа наблюдения ═══
+  // Перемещает содержимое wz3-analysis-section в модалку и обратно.
+
+  function wz3OpenAnalysisModal() {
+    const modal = document.getElementById('wz3-analysis-modal');
+    const body = document.getElementById('wz3-analysis-modal-body');
+    const section = document.getElementById('wz3-analysis-section');
+    const wellBadge = document.getElementById('wz3-modal-well-badge');
+
+    if (!modal || !body || !section) return;
+
+    // Показываем название скважины
+    if (wellBadge && state.well) {
+      wellBadge.textContent = `Скв. ${state.well.number || state.well.id}`;
+    }
+
+    // Перемещаем содержимое в модалку
+    section.style.display = '';
+    body.appendChild(section);
+
+    // Показываем модалку
+    modal.style.display = '';
+    document.body.style.overflow = 'hidden';
+
+    // Пере-рендерим графики Plotly (если были)
+    setTimeout(() => {
+      ['wz3-ch-pres', 'wz3-ch-dp', 'wz3-ch-flow', 'wz3-ch-down'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el && typeof Plotly !== 'undefined') {
+          try { Plotly.Plots.resize(el); } catch (_) {}
+        }
+      });
+    }, 100);
+  }
+
+  function wz3CloseAnalysisModal() {
+    const modal = document.getElementById('wz3-analysis-modal');
+    const body = document.getElementById('wz3-analysis-modal-body');
+    const section = document.getElementById('wz3-analysis-section');
+    const openBtn = document.getElementById('wz3-open-analysis-btn');
+
+    if (!modal || !body || !section) return;
+
+    // Скрываем модалку
+    modal.style.display = 'none';
+    document.body.style.overflow = '';
+
+    // Возвращаем содержимое на место (после кнопки открытия)
+    section.style.display = 'none';
+    if (openBtn && openBtn.parentElement && openBtn.parentElement.parentElement) {
+      openBtn.parentElement.parentElement.after(section);
+    }
+  }
+
+  // Закрытие модалки по клику на фон
+  document.getElementById('wz3-analysis-modal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'wz3-analysis-modal') {
+      wz3CloseAnalysisModal();
+    }
+  });
+
+  // Закрытие по Escape
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const modal = document.getElementById('wz3-analysis-modal');
+      if (modal && modal.style.display !== 'none') {
+        wz3CloseAnalysisModal();
+      }
+      const cmpModal = document.getElementById('wz3-compare-modal');
+      if (cmpModal && cmpModal.style.display !== 'none') {
+        wz3CloseCompareModal();
+      }
+      const segModal = document.getElementById('wz3-segment-modal');
+      if (segModal && segModal.style.display !== 'none') {
+        wz3CloseSegmentModal();
+      }
+    }
+  });
+
+  // ═══ Модалка инструмента сравнения участков ═══
+
+  function wz3OpenCompareModal() {
+    const modal = document.getElementById('wz3-compare-modal');
+    const body = document.getElementById('wz3-compare-modal-body');
+    const section = document.getElementById('wz3-compare-section');
+    const wellBadge = document.getElementById('wz3-compare-modal-well-badge');
+
+    if (!modal || !body || !section) return;
+
+    // Показываем название скважины
+    if (wellBadge && state.well) {
+      wellBadge.textContent = `Скв. ${state.well.number || state.well.id}`;
+    }
+
+    // Перемещаем содержимое в модалку
+    section.style.display = '';
+    body.appendChild(section);
+
+    // Показываем модалку
+    modal.style.display = '';
+    document.body.style.overflow = 'hidden';
+
+    // Пере-рендерим графики Plotly
+    setTimeout(() => {
+      ['wz3cmp-ch-pres', 'wz3cmp-ch-dp', 'wz3cmp-ch-flow', 'wz3cmp-ch-down', 'wz3cmp-chart'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el && typeof Plotly !== 'undefined') {
+          try { Plotly.Plots.resize(el); } catch (_) {}
+        }
+      });
+    }, 100);
+  }
+
+  function wz3CloseCompareModal() {
+    const modal = document.getElementById('wz3-compare-modal');
+    const body = document.getElementById('wz3-compare-modal-body');
+    const section = document.getElementById('wz3-compare-section');
+    const toolsGrid = document.querySelector('.wz3-tools-grid');
+
+    if (!modal || !body || !section) return;
+
+    // Скрываем модалку
+    modal.style.display = 'none';
+    document.body.style.overflow = '';
+
+    // Возвращаем содержимое на место
+    section.style.display = 'none';
+    if (toolsGrid && toolsGrid.parentElement && toolsGrid.parentElement.parentElement) {
+      toolsGrid.parentElement.parentElement.after(section);
+    }
+  }
+
+  // Закрытие модалки сравнения по клику на фон
+  document.getElementById('wz3-compare-modal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'wz3-compare-modal') {
+      wz3CloseCompareModal();
+    }
+  });
+
+  // ═══ Модалка сегментного анализа ═══
+
+  function wz3OpenSegmentModal() {
+    const modal = document.getElementById('wz3-segment-modal');
+    const body = document.getElementById('wz3-segment-modal-body');
+    const section = document.getElementById('wz3-segment-section');
+    const wellBadge = document.getElementById('wz3-segment-modal-well-badge');
+
+    if (!modal || !body || !section) return;
+
+    // Показываем название скважины
+    if (wellBadge && state.well) {
+      wellBadge.textContent = `Скв. ${state.well.number || state.well.id}`;
+    }
+
+    // Перемещаем содержимое в модалку
+    section.style.display = '';
+    body.appendChild(section);
+
+    // Показываем модалку
+    modal.style.display = '';
+    document.body.style.overflow = 'hidden';
+
+    // Пере-рендерим график Plotly
+    setTimeout(() => {
+      const chart = document.getElementById('obs-seg-chart');
+      if (chart && typeof Plotly !== 'undefined') {
+        try { Plotly.Plots.resize(chart); } catch (_) {}
+      }
+    }, 100);
+  }
+
+  function wz3CloseSegmentModal() {
+    const modal = document.getElementById('wz3-segment-modal');
+    const body = document.getElementById('wz3-segment-modal-body');
+    const section = document.getElementById('wz3-segment-section');
+    const toolsGrid = document.querySelector('.wz3-tools-grid');
+
+    if (!modal || !body || !section) return;
+
+    // Скрываем модалку
+    modal.style.display = 'none';
+    document.body.style.overflow = '';
+
+    // Возвращаем содержимое на место
+    section.style.display = 'none';
+    if (toolsGrid && toolsGrid.parentElement && toolsGrid.parentElement.parentElement) {
+      toolsGrid.parentElement.parentElement.after(section);
+    }
+  }
+
+  // Закрытие модалки сегментного анализа по клику на фон
+  document.getElementById('wz3-segment-modal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'wz3-segment-modal') {
+      wz3CloseSegmentModal();
+    }
+  });
 
   // Сохранить текущий анализ как блок наблюдения (customer_report_block, kind='observation_analysis').
   // Не трогает customer_baseline — это отдельная сущность для «утверждения».
@@ -5976,6 +6669,12 @@
       working_hours: s.working_hours,
       utilization_pct: s.utilization_pct,
       description: desc,
+      // ─── Интервалы простоев для графиков (розовые зоны) ───
+      downtime_periods: obs.downtime_periods_list || [],
+      // ─── События: продувки, реагент, оборудование ───
+      events: obs.events_for_chart || [],
+      // ─── Тренд Q для графика ───
+      q_trend_line: obs.q_trend || null,
     };
 
     try {
@@ -6001,7 +6700,15 @@
       if (typeof wz3LoadAttachedBlocks === 'function') {
         await wz3LoadAttachedBlocks();
       }
-      setTimeout(() => { if (status) status.textContent = ''; }, 6000);
+      // Обновляем правую панель превью
+      if (window._obsChapterPanel && typeof window._obsChapterPanel.refresh === 'function') {
+        window._obsChapterPanel.refresh();
+      }
+      // Закрываем модалку после успешного сохранения
+      setTimeout(() => {
+        wz3CloseAnalysisModal();
+        if (status) status.textContent = '';
+      }, 800);
     } catch (e) {
       if (status) { status.textContent = '✗ Сетевая ошибка: ' + e.message; status.style.color = '#dc2626'; }
     }
@@ -7877,6 +8584,8 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
         chapter_id:       'adaptation',
         title:            'Адаптация',
         kinds:            ['adaptation_period_analysis', 'adaptation_comparison', 'optimal_window', 'reagent_irv_summary', 'segment_analysis', 'segment_comparison'],
+        // Порядок блоков определяется пользователем (drag-drop), а не kind
+        useUserOrder:     true,
         chapter_filter:   'adaptation',  // legacy fallback (используется только без block_filter)
         // ЕДИНЫЙ предикат отбора — тот же, что у левого списка блоков.
         // Гарантирует «блоки = разделы отчёта»: левый список и HTML идентичны.
@@ -9353,6 +10062,7 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
     const typeNames = {
       initial: 'Начальный', stable: 'Стабильный', rise: 'Рост', decline: 'Снижение',
       sharp_rise: 'Резкий рост', sharp_decline: 'Резкое снижение',
+      volatile: 'Волатильный', unknown: 'Неопределён',
     };
     segs.forEach(s => {
       const t = s.type || 'unknown';
@@ -9466,6 +10176,10 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
               🧪 Прикрепить сводку ИРВ
             </button>
           ` : ''}
+          <button id="wz5-compare-lora-btn" class="wz-btn wz-btn-secondary"
+                  title="Сопоставить данные мониторинга LoRa с суточными сводками УзКорГаз">
+            📊 Сравнить с УзКорГаз
+          </button>
           <span id="wz5-attach-status" style="font-size:0.82rem; color:#10b981;
                 align-self:center;"></span>
         </div>
@@ -9474,6 +10188,13 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
     $('wz5-attach-analysis')?.addEventListener('click', () => wz5AttachBlock('adaptation_period_analysis', r));
     $('wz5-attach-rstar')?.addEventListener('click',    () => wz5AttachBlock('optimal_window', r));
     $('wz5-attach-irv')?.addEventListener('click',      () => wz5AttachBlock('reagent_irv_summary', r));
+    $('wz5-compare-lora-btn')?.addEventListener('click', () => {
+      openSensorCustomerComparison({
+        wellId: state.well?.id,
+        wellNumber: state.well?.number,
+        chapter: 'adaptation'
+      });
+    });
   }
 
   async function wz5AttachBlock(kind, r) {
@@ -9781,6 +10502,20 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
           }
         });
       });
+      // Инициализация drag-and-drop для переупорядочивания блоков
+      if (window.BlockReorder && blocks.length > 1) {
+        BlockReorder.init(list, {
+          apiEndpoint: '/api/customer-daily/blocks/reorder',
+          cardSelector: '[data-tile-id]',
+          onReorder: (ids) => {
+            console.log('Adaptation blocks reordered:', ids);
+            // Синхронизация правой панели после перестановки
+            if (window._adaptChapterPanel && typeof window._adaptChapterPanel.refresh === 'function') {
+              window._adaptChapterPanel.refresh();
+            }
+          },
+        });
+      }
     } catch (e) {
       console.warn('wz5LoadAttachedBlocks', e);
     }
@@ -9925,6 +10660,9 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       if (!(blk.key in s7.sections)) s7.sections[blk.key] = true;
     }
 
+    // Вычисляем доступность блоков на основе данных в шагах
+    const avail = wz7ComputeBlockAvailability();
+
     // Группируем каталог по главам в порядке появления.
     const groups = [];
     const groupMap = {};
@@ -9936,27 +10674,59 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       groupMap[blk.chapter].items.push(blk);
     }
 
-    const totalOn = Object.values(s7.sections).filter(Boolean).length;
+    // Счётчики: доступных, включённых
+    let totalAvail = 0, totalOn = 0;
+    for (const blk of WZ7_BLOCK_CATALOG) {
+      if (avail[blk.key]) {
+        totalAvail++;
+        if (s7.sections[blk.key]) totalOn++;
+      }
+    }
     const totalAll = WZ7_BLOCK_CATALOG.length;
+
+    // Сводка доступности по источникам
+    const srcStatus = {
+      0: { label: 'Скважина', ok: !!state.well },
+      2: { label: 'Заказчик', ok: state.steps[2].include && ((state.steps[2].data.periods || []).length > 0 || state.steps[2].data.from) },
+      3: { label: 'Наблюдение', ok: state.steps[3].include && !!state.steps[3].data.from && !!state.steps[3].data.to },
+      5: { label: 'Адаптация', ok: state.steps[5].include && !!state.steps[5].data.from && !!state.steps[5].data.to },
+      6: { label: 'Сравнение', ok: state.steps[6].include && srcStatus?.[3]?.ok && srcStatus?.[5]?.ok },
+    };
+    // Пересчитаем §6 (зависит от §3 и §5)
+    srcStatus[6].ok = state.steps[6].include && srcStatus[3].ok && srcStatus[5].ok;
+
+    let summaryHtml = '<div class="wz7-avail-summary">';
+    for (const [src, info] of Object.entries(srcStatus)) {
+      const icon = info.ok ? '✓' : '✗';
+      const cls = info.ok ? 'wz7-avail-ok' : 'wz7-avail-no';
+      summaryHtml += `<span class="wz7-avail-item ${cls}">${icon} ${info.label}</span>`;
+    }
+    summaryHtml += '</div>';
 
     let groupsHtml = '';
     for (const g of groups) {
-      const onCount = g.items.filter(it => s7.sections[it.key]).length;
+      const onCount = g.items.filter(it => avail[it.key] && s7.sections[it.key]).length;
+      const availCount = g.items.filter(it => avail[it.key]).length;
       groupsHtml += `
         <div class="wz7-chapter">
           <div class="wz7-chapter-head">
             <span>${g.chapter}</span>
-            <span class="wz7-chapter-count">${onCount}/${g.items.length}</span>
+            <span class="wz7-chapter-count">${onCount}/${availCount}</span>
             <button type="button" class="wz7-chapter-toggle" data-chapter="${g.chapter}">все ✓/✗</button>
           </div>
           <div class="wz7-chapter-items">
       `;
       for (const it of g.items) {
         const on = s7.sections[it.key];
+        const isAvail = avail[it.key];
+        const srcLabel = WZ7_SOURCE_LABELS[it.source] || '';
+        const disabledAttr = isAvail ? '' : 'disabled';
+        const tooltip = isAvail ? '' : `title="Нет данных — заполните ${srcLabel}"`;
         groupsHtml += `
-          <label class="wz7-block-row">
-            <input type="checkbox" class="wz7-block-cb" data-key="${it.key}" ${on ? 'checked' : ''}>
+          <label class="wz7-block-row" data-avail="${isAvail}" ${tooltip}>
+            <input type="checkbox" class="wz7-block-cb" data-key="${it.key}" ${on && isAvail ? 'checked' : ''} ${disabledAttr}>
             <span class="wz7-block-label">${it.label}</span>
+            <span class="wz7-block-source" data-src="${it.source}">${srcLabel}</span>
             <span class="wz7-block-key">${it.key}</span>
           </label>
         `;
@@ -9968,12 +10738,14 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       <h2 class="wz-step-title"><span class="step-num">7</span>Сборка отчёта</h2>
       <div class="wz-step-hint">
         Атомарная сборка PDF. Каждая строка — отдельный блок отчёта.
-        Снимите галочку чтобы исключить блок из PDF.
+        Снимите галочку чтобы исключить блок из PDF. Серые блоки недоступны — заполните соответствующий шаг.
       </div>
+
+      ${summaryHtml}
 
       <div class="wz-section">
         <h3 style="display:flex; align-items:center; justify-content:space-between;">
-          <span>Системные блоки <span style="font-weight:400; color:#6b7280; font-size:0.82rem;">· ${totalOn} из ${totalAll} включены</span></span>
+          <span>Системные блоки <span style="font-weight:400; color:#6b7280; font-size:0.82rem;">· ${totalOn} из ${totalAvail} включены (всего ${totalAll})</span></span>
           <span style="font-size:0.78rem; display:flex; gap:6px;">
             <button type="button" id="wz7-all-on"  class="wz-btn" style="padding:3px 8px; font-size:0.78rem;">все ✓</button>
             <button type="button" id="wz7-all-off" class="wz-btn" style="padding:3px 8px; font-size:0.78rem;">все ✗</button>
@@ -9988,8 +10760,9 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
         <div id="wz7-user-blocks" class="wz-step-hint">Загрузка…</div>
       </div>
 
-      <div class="wz-section" style="display:flex; align-items:center; gap:10px;">
+      <div class="wz-section" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
         <button id="wz-generate" class="wz-btn wz-btn-success">📄 Сформировать PDF</button>
+        <button id="wz-generate-html" class="wz-btn wz-btn-primary">🌐 Предпросмотр HTML</button>
         <span id="wz-generate-info" style="font-size:0.82rem; color:#6b7280;"></span>
       </div>
 
@@ -10003,18 +10776,19 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       ${navButtons(7)}
     `;
 
-    // Биндинг чекбоксов
-    document.querySelectorAll('.wz7-block-cb').forEach(cb => {
+    // Биндинг чекбоксов (только для доступных)
+    document.querySelectorAll('.wz7-block-cb:not([disabled])').forEach(cb => {
       cb.addEventListener('change', () => {
         s7.sections[cb.dataset.key] = cb.checked;
         _wz7UpdateCounts();
       });
     });
-    // Per-chapter toggle
+    // Per-chapter toggle — только доступные блоки
     document.querySelectorAll('.wz7-chapter-toggle').forEach(btn => {
       btn.addEventListener('click', () => {
         const chap = btn.dataset.chapter;
-        const items = WZ7_BLOCK_CATALOG.filter(b => b.chapter === chap);
+        const items = WZ7_BLOCK_CATALOG.filter(b => b.chapter === chap && avail[b.key]);
+        if (!items.length) return;  // нет доступных блоков в главе
         const allOn = items.every(it => s7.sections[it.key]);
         const newVal = !allOn;
         for (const it of items) s7.sections[it.key] = newVal;
@@ -10022,21 +10796,28 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       });
     });
     $('wz7-all-on')?.addEventListener('click', () => {
-      for (const b of WZ7_BLOCK_CATALOG) s7.sections[b.key] = true;
+      for (const b of WZ7_BLOCK_CATALOG) {
+        if (avail[b.key]) s7.sections[b.key] = true;
+      }
       renderStep7(main);
     });
     $('wz7-all-off')?.addEventListener('click', () => {
-      for (const b of WZ7_BLOCK_CATALOG) s7.sections[b.key] = false;
+      for (const b of WZ7_BLOCK_CATALOG) {
+        if (avail[b.key]) s7.sections[b.key] = false;
+      }
       renderStep7(main);
     });
     $('wz7-reset')?.addEventListener('click', () => {
       s7.sections = {};
-      for (const b of WZ7_BLOCK_CATALOG) s7.sections[b.key] = true;
+      for (const b of WZ7_BLOCK_CATALOG) s7.sections[b.key] = avail[b.key];  // доступные = вкл
       renderStep7(main);
     });
 
     const btn = $('wz-generate');
     if (btn) btn.addEventListener('click', generatePdf);
+
+    const btnHtml = $('wz-generate-html');
+    if (btnHtml) btnHtml.addEventListener('click', generateHtml);
 
     // Загрузка прикреплённых юзер-блоков
     wz7LoadUserBlocks().catch(e => console.warn('wz7LoadUserBlocks', e));
@@ -10044,15 +10825,16 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
 
   function _wz7UpdateCounts() {
     const s7 = state.steps[7].data;
-    let total = 0;
-    let on = 0;
-    // Обновляем счётчики глав
+    const avail = wz7ComputeBlockAvailability();
+    let totalAvail = 0, on = 0;
+    // Обновляем счётчики глав (только доступные)
     const groups = {};
     for (const b of WZ7_BLOCK_CATALOG) {
-      total++;
+      if (!avail[b.key]) continue;  // пропускаем недоступные
+      totalAvail++;
       if (s7.sections[b.key]) on++;
-      if (!groups[b.chapter]) groups[b.chapter] = { all: 0, on: 0 };
-      groups[b.chapter].all++;
+      if (!groups[b.chapter]) groups[b.chapter] = { avail: 0, on: 0 };
+      groups[b.chapter].avail++;
       if (s7.sections[b.key]) groups[b.chapter].on++;
     }
     document.querySelectorAll('.wz7-chapter').forEach(div => {
@@ -10061,11 +10843,13 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       const chap = head.querySelector('span:first-child')?.textContent;
       if (!chap || !groups[chap]) return;
       const cnt = head.querySelector('.wz7-chapter-count');
-      if (cnt) cnt.textContent = `${groups[chap].on}/${groups[chap].all}`;
+      if (cnt) cnt.textContent = `${groups[chap].on}/${groups[chap].avail}`;
     });
-    // Главный счётчик
-    const mainCount = document.querySelector('#wz7-groups')?.previousElementSibling?.querySelector('span span');
-    // (упрощённо — оставим перерисовку при крупных операциях через renderStep7)
+    // Главный счётчик в заголовке секции
+    const headerSpan = document.querySelector('#wz7-groups')?.previousElementSibling?.querySelector('span > span');
+    if (headerSpan) {
+      headerSpan.textContent = `· ${on} из ${totalAvail} включены (всего ${WZ7_BLOCK_CATALOG.length})`;
+    }
   }
 
   // Подгружает прикреплённые пользовательские блоки скважины и рендерит
@@ -10174,7 +10958,15 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       period_from: p.period_from, period_to: p.period_to,
       description: p.description || '',
     }));
-    const sectionsAtomic = { ...(state.steps[7]?.data?.sections || {}) };
+
+    // Фильтруем sections: только доступные И включённые
+    const avail = wz7ComputeBlockAvailability();
+    const rawSections = state.steps[7]?.data?.sections || {};
+    const sectionsAtomic = {};
+    for (const [key, checked] of Object.entries(rawSections)) {
+      // Включаем только если блок доступен и галочка стоит
+      sectionsAtomic[key] = checked && (avail[key] !== false);
+    }
 
     const body = {
       well_id: state.well.id,
@@ -10323,6 +11115,110 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       box.innerHTML = `<iframe class="wz-pdf-iframe" src="${url}"></iframe>`;
     } catch (e) {
       box.innerHTML = `<div class="wz-error">${e.message}</div>`;
+    }
+  }
+
+  // ═══ HTML Preview ═══
+  let _wzHtmlPreviewPrevUrl = null;
+
+  function _wzCloseHtmlPreviewModal() {
+    const modal = document.getElementById('wz-html-preview-modal');
+    const iframe = document.getElementById('wz-html-preview-iframe');
+    if (iframe) iframe.src = 'about:blank';
+    if (modal) modal.style.display = 'none';
+    document.body.style.overflow = '';
+    const newtab = document.getElementById('wz-html-preview-newtab');
+    const printBtn = document.getElementById('wz-html-preview-print');
+    if (newtab) newtab.style.display = 'none';
+    if (printBtn) printBtn.style.display = 'none';
+    if (_wzHtmlPreviewPrevUrl) {
+      try { URL.revokeObjectURL(_wzHtmlPreviewPrevUrl); } catch (_) {}
+      _wzHtmlPreviewPrevUrl = null;
+    }
+  }
+
+  function _wzInitHtmlPreviewModal() {
+    document.getElementById('wz-html-preview-close')
+      ?.addEventListener('click', _wzCloseHtmlPreviewModal);
+    document.getElementById('wz-html-preview-modal')
+      ?.addEventListener('click', (ev) => {
+        if (ev.target.id === 'wz-html-preview-modal') _wzCloseHtmlPreviewModal();
+      });
+    document.getElementById('wz-html-preview-print')
+      ?.addEventListener('click', () => {
+        const iframe = document.getElementById('wz-html-preview-iframe');
+        if (iframe && iframe.contentWindow) {
+          iframe.contentWindow.print();
+        }
+      });
+    document.addEventListener('keydown', (ev) => {
+      const modal = document.getElementById('wz-html-preview-modal');
+      if (ev.key === 'Escape' && modal && modal.style.display !== 'none') {
+        _wzCloseHtmlPreviewModal();
+      }
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _wzInitHtmlPreviewModal);
+  } else {
+    _wzInitHtmlPreviewModal();
+  }
+
+  async function generateHtml() {
+    const built = await _wzBuildPdfBody();
+    if (!built.ok) {
+      alert(built.error);
+      return;
+    }
+
+    const modal  = document.getElementById('wz-html-preview-modal');
+    const iframe = document.getElementById('wz-html-preview-iframe');
+    const status = document.getElementById('wz-html-preview-status');
+    const title  = document.getElementById('wz-html-preview-title');
+    const newtab = document.getElementById('wz-html-preview-newtab');
+    const printBtn = document.getElementById('wz-html-preview-print');
+
+    if (!modal || !iframe) {
+      alert('HTML preview modal не найдена в DOM');
+      return;
+    }
+
+    title.textContent = 'HTML превью — Отчёт об адаптации';
+    status.textContent = '⏳ Генерация HTML…';
+    status.style.color = '#92400e';
+    newtab.style.display = 'none';
+    printBtn.style.display = 'none';
+    iframe.src = 'about:blank';
+    modal.style.display = 'block';
+    document.body.style.overflow = 'hidden';
+
+    try {
+      const r = await fetch('/api/adaptation-report/preview-html', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(built.body),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        status.textContent = '✗ Ошибка: ' + (err.detail || r.status);
+        status.style.color = '#dc2626';
+        return;
+      }
+      const html = await r.text();
+      if (_wzHtmlPreviewPrevUrl) {
+        try { URL.revokeObjectURL(_wzHtmlPreviewPrevUrl); } catch (_) {}
+      }
+      const blob = new Blob([html], { type: 'text/html; charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      _wzHtmlPreviewPrevUrl = url;
+      iframe.src = url;
+      newtab.href = url;
+      newtab.style.display = '';
+      printBtn.style.display = '';
+      status.textContent = '';
+    } catch (e) {
+      status.textContent = '✗ Сетевая ошибка: ' + e.message;
+      status.style.color = '#dc2626';
     }
   }
 
@@ -10572,4 +11468,6 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
     window.open(url, '_blank');
   }
 </script>
+
+{% include "components/_sensor_customer_modal.html" %}
 {% endblock %}

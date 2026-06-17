@@ -657,20 +657,20 @@
 \vspace{0.2em}
 
 {\scriptsize
-\begin{tabularx}{\textwidth}{|c|X|R{0.8cm}|R{1.1cm}|R{1.1cm}|R{1.1cm}|R{1.1cm}|R{1.1cm}|R{1.1cm}|R{1.1cm}|c|}
+\begin{tabularx}{\textwidth}{|c|X|R{0.7cm}|R{0.9cm}|R{0.9cm}|R{0.9cm}|R{0.9cm}|R{0.7cm}|R{0.7cm}|R{0.7cm}|R{0.7cm}|R{0.7cm}|c|}
 \hline
 \textbf{№} & \textbf{Период} & \textbf{Дн.} &
 \textbf{Q общ} & \textbf{Q раб} &
 \textbf{Накл.} & \textbf{$\Delta$Q, \%} &
 \textbf{Прост.} & \textbf{Раб., \%} &
-\textbf{$\Delta$P} & \textbf{Тип} \\
+\textbf{P шл} & \textbf{P уст} & \textbf{$\Delta$P} & \textbf{Тип} \\
 \hline
 %% for s in sb.segments_rows
 \VAR{s.num} & \VAR{s.period_tex} & \VAR{s.days}
 & \VAR{s.q_total_fmt} & \VAR{s.q_working_fmt}
 & \VAR{s.slope_fmt} & \VAR{s.change_fmt_tex}
 & \VAR{s.shutdown_fmt} & \VAR{s.working_fmt}
-& \VAR{s.dp_fmt} & \VAR{s.type_tex} \\
+& \VAR{s.p_flowline_fmt} & \VAR{s.p_wellhead_fmt} & \VAR{s.dp_fmt} & \VAR{s.type_tex} \\
 \hline
 %% endfor
 \end{tabularx}
@@ -1488,6 +1488,34 @@ $\Delta\,\%$ --- то же относительно базы. Положител
 
 \vspace{0.3em}
 
+%# ── Плитки метрик (если metrics_tiles=true) ИЛИ таблица (если metrics_table=true) ──
+\BLOCK{ if ob.parts and ob.parts.metrics_tiles }
+%# ═══ ПЛИТКИ МЕТРИК (альтернатива таблице) ═══
+{\footnotesize
+\begin{center}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{*{4}{>{\centering\arraybackslash}m{3.5cm}}}
+%# Ряд 1: Q
+\cellcolor{blue!8}\parbox{3.3cm}{\centering\scriptsize\color{gray}$Q$ факт.\\\normalsize\bfseries\textcolor{blue!80!black}{\VAR{ob.q_total_avg_fmt}}\\\scriptsize тыс.м$^3$/сут} &
+\cellcolor{blue!8}\parbox{3.3cm}{\centering\scriptsize\color{gray}$Q$ медиана\\\normalsize\bfseries\textcolor{blue!80!black}{\VAR{ob.q_total_median_fmt}}\\\scriptsize тыс.м$^3$/сут} &
+\cellcolor{orange!10}\parbox{3.3cm}{\centering\scriptsize\color{gray}$\Delta P$ среднее\\\normalsize\bfseries\textcolor{orange!80!black}{\VAR{ob.dp_avg_fmt}}\\\scriptsize кгс/см$^2$} &
+\cellcolor{orange!10}\parbox{3.3cm}{\centering\scriptsize\color{gray}$\Delta P$ медиана\\\normalsize\bfseries\textcolor{orange!80!black}{\VAR{ob.dp_median_fmt}}\\\scriptsize кгс/см$^2$} \\[0.5em]
+%# Ряд 2: P, КИВ, часы
+\cellcolor{green!8}\parbox{3.3cm}{\centering\scriptsize\color{gray}$P_\text{уст}$\\\normalsize\bfseries\textcolor{green!60!black}{\VAR{ob.p_wellhead_median_fmt}}\\\scriptsize кгс/см$^2$} &
+\cellcolor{green!8}\parbox{3.3cm}{\centering\scriptsize\color{gray}$P_\text{лин}$\\\normalsize\bfseries\textcolor{green!60!black}{\VAR{ob.p_flowline_median_fmt}}\\\scriptsize кгс/см$^2$} &
+\cellcolor{violet!10}\parbox{3.3cm}{\centering\scriptsize\color{gray}КИВ\\\normalsize\bfseries\textcolor{violet!80!black}{\VAR{ob.utilization_pct_fmt}\,\%}\\\scriptsize использование} &
+\cellcolor{cyan!8}\parbox{3.3cm}{\centering\scriptsize\color{gray}Раб. часов\\\normalsize\bfseries\textcolor{cyan!60!black}{\VAR{ob.working_hours_fmt}}\\\scriptsize ч} \\
+\end{tabular}
+\end{center}
+}
+\vspace{0.2em}
+{\footnotesize
+\textbf{Простой:} \VAR{ob.shutdown_min_total} мин (\VAR{ob.shutdown_hours_fmt} ч).
+\textbf{Продувок:} \VAR{ob.purge_count}.
+\textbf{Вбросов реагента:} \VAR{ob.reagent_count}.
+}
+\BLOCK{ elif not ob.parts or ob.parts.metrics_table is not defined or ob.parts.metrics_table }
+%# ═══ ТАБЛИЦА МЕТРИК (по умолчанию) ═══
 {\scriptsize \textbf{Табл.~3.4.\VAR{loop.index}.1.} Ключевые метрики блока.}
 \vspace{0.2em}
 
@@ -1516,6 +1544,7 @@ $P_\text{лин}$, кгс/см$^2$     & \VAR{ob.p_flowline_avg_fmt} & \VAR{ob.p
 \textbf{Продувок:} \VAR{ob.purge_count}.
 \textbf{Вбросов реагента:} \VAR{ob.reagent_count}.
 }
+\BLOCK{ endif }
 
 \BLOCK{ if ob.chart_pressures or ob.chart_dp or ob.chart_flow }
 \vspace{0.5em}
@@ -2156,20 +2185,20 @@ Score & \VAR{ab.score_fmt} \\
 \vspace{0.2em}
 
 {\scriptsize
-\begin{tabularx}{\textwidth}{|c|X|R{0.8cm}|R{1.1cm}|R{1.1cm}|R{1.1cm}|R{1.1cm}|R{1.1cm}|R{1.1cm}|R{1.1cm}|c|}
+\begin{tabularx}{\textwidth}{|c|X|R{0.7cm}|R{0.9cm}|R{0.9cm}|R{0.9cm}|R{0.9cm}|R{0.7cm}|R{0.7cm}|R{0.7cm}|R{0.7cm}|R{0.7cm}|c|}
 \hline
 \textbf{№} & \textbf{Период} & \textbf{Дн.} &
 \textbf{Q общ} & \textbf{Q раб} &
 \textbf{Накл.} & \textbf{$\Delta$Q, \%} &
 \textbf{Прост.} & \textbf{Раб., \%} &
-\textbf{$\Delta$P} & \textbf{Тип} \\
+\textbf{P шл} & \textbf{P уст} & \textbf{$\Delta$P} & \textbf{Тип} \\
 \hline
 %% for s in ab.segments_rows
 \VAR{s.num} & \VAR{s.period_tex} & \VAR{s.days}
 & \VAR{s.q_total_fmt} & \VAR{s.q_working_fmt}
 & \VAR{s.slope_fmt} & \VAR{s.change_fmt_tex}
 & \VAR{s.shutdown_fmt} & \VAR{s.working_fmt}
-& \VAR{s.dp_fmt} & \VAR{s.type_tex} \\
+& \VAR{s.p_flowline_fmt} & \VAR{s.p_wellhead_fmt} & \VAR{s.dp_fmt} & \VAR{s.type_tex} \\
 \hline
 %% endfor
 \end{tabularx}
@@ -2251,6 +2280,63 @@ Score & \VAR{ab.score_fmt} \\
 \BLOCK{ endif }
 
 \BLOCK{ else }
+{\footnotesize \textit{Снимок данных пуст / анализ не выполнен.}}
+\BLOCK{ endif }
+\BLOCK{ endif }
+
+%# ─── Сопоставление LoRa / УзКорГаз (sensor_customer_comparison) ───
+\BLOCK{ if ab.kind == 'sensor_customer_comparison' }
+\subsubsection*{4.7.\VAR{loop.index}. \VAR{ab.title}}
+\BLOCK{ if ab.has_data }
+{\small Период: \VAR{ab.period_from} — \VAR{ab.period_to}. Сопоставлено дней: \VAR{ab.summary.days_matched} из \VAR{ab.summary.days_total}.}
+
+\vspace{0.4em}
+\textbf{Сводные показатели:}
+\begin{itemize}[nosep,leftmargin=1.2em]
+  \item Q (LoRa / УзКорГаз): \VAR{ab.summary.sensor_q_avg} / \VAR{ab.summary.customer_q_avg} тыс.м³/сут,
+        $\Delta$ = \VAR{ab.summary.delta_q_avg} (\VAR{ab.summary.delta_q_pct})
+  \item $\Delta$P (LoRa / УзКорГаз): \VAR{ab.summary.sensor_dp_avg} / \VAR{ab.summary.customer_dp_avg} кгс/см²,
+        $\Delta$ = \VAR{ab.summary.delta_dp_avg} (\VAR{ab.summary.delta_dp_pct})
+\end{itemize}
+
+\BLOCK{ if ab.settings.show_table and ab.table_rows }
+\vspace{0.4em}
+{\footnotesize
+\begin{longtable}{|l|r|r|r|r|r|r|}
+\hline
+\textbf{Дата} & \textbf{Q LoRa} & \textbf{Q УзК} & \textbf{$\Delta$Q} &
+\textbf{$\Delta$P LoRa} & \textbf{$\Delta$P УзК} & \textbf{$\Delta\Delta$P} \\
+\hline
+\endhead
+\BLOCK{ for row in ab.table_rows }
+\VAR{row.date} & \VAR{row.sensor_q} & \VAR{row.customer_q} & \VAR{row.delta_q} &
+\VAR{row.sensor_dp} & \VAR{row.customer_dp} & \VAR{row.delta_dp} \\
+\hline
+\BLOCK{ endfor }
+\BLOCK{ if ab.has_more_rows }
+\multicolumn{7}{|c|}{\textit{... и ещё \VAR{ab.total_rows - 15} строк}} \\
+\hline
+\BLOCK{ endif }
+\end{longtable}
+}
+\BLOCK{ endif }
+
+\BLOCK{ if ab.settings.show_conclusion and ab.conclusion }
+\vspace{0.3em}
+\textbf{Заключение:} \VAR{ab.conclusion}
+\BLOCK{ endif }
+
+\BLOCK{ else }
+{\footnotesize \textit{Снимок данных пуст / анализ не выполнен.}}
+\BLOCK{ endif }
+\BLOCK{ endif }
+
+%# ─── Сравнение участков (segment_comparison с chapter='adaptation') ───
+\BLOCK{ if ab.kind == 'segment_comparison' }
+\BLOCK{ if ab.latex_content }
+\VAR{ab.latex_content}
+\BLOCK{ else }
+\subsubsection*{4.7.\VAR{loop.index}. \VAR{ab.title} {\small\textmd{(сравнение участков)}}}
 {\footnotesize \textit{Снимок данных пуст / анализ не выполнен.}}
 \BLOCK{ endif }
 \BLOCK{ endif }

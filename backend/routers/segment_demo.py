@@ -195,10 +195,44 @@ def segment_analysis_page(
         # Анализ с учётом чувствительности
         config = AnalyzerConfig(sensitivity=max(1, min(10, sensitivity)))
         config = config.apply_sensitivity()
-        result = analyze_timeseries(df=df_daily, primary_column=primary_col, date_column="date", config=config)
+
+        # Вторичные ряды для расчёта secondary_means (P_шлейф, P_устье, ΔP, простой)
+        secondary_cols = []
+        for col in ["flow_rate_mean", "p_tube_mean", "p_line_mean", "dp_mean", "downtime_min"]:
+            if col in df_daily.columns and col != primary_col:
+                secondary_cols.append(col)
+
+        result = analyze_timeseries(
+            df=df_daily,
+            primary_column=primary_col,
+            date_column="date",
+            config=config,
+            secondary_columns=secondary_cols,
+        )
 
         if not result.ok:
             return HTMLResponse("<h1>Ошибка анализа</h1>", status_code=500)
+
+        # Обогащаем сегменты полями давления и working_pct из secondary_means
+        def enrich_segment_page(s):
+            d = s.to_dict()
+            sm = d.get("secondary_means") or {}
+            # Маппинг: p_line_mean → mean_p_flowline, p_tube_mean → mean_p_wellhead
+            d["mean_p_flowline"] = sm.get("p_line_mean")
+            d["mean_p_wellhead"] = sm.get("p_tube_mean")
+            # Если primary_series=dp, mean_dp берём из mean_value (primary column)
+            if series == "dp":
+                d["mean_dp"] = d.get("mean_value")
+            else:
+                d["mean_dp"] = sm.get("dp_mean")
+            # working_pct = (1440 - downtime_min) / 1440 * 100
+            downtime = sm.get("downtime_min")
+            if downtime is not None:
+                d["mean_shutdown"] = downtime
+                d["working_pct"] = max(0, (1440 - downtime) / 1440 * 100)
+            return d
+
+        segments_enriched = [enrich_segment_page(s) for s in result.segments]
 
         # Описания
         unit_map = {"flow_rate": "тыс.м³/сут", "p_tube": "кгс/см²", "p_line": "кгс/см²", "dp": "кгс/см²"}
@@ -214,7 +248,7 @@ def segment_analysis_page(
             "series_label": series_label,
             "n_points": result.n_points,
             "changepoints": result.changepoints,
-            "segments": [s.to_dict() for s in result.segments],
+            "segments": segments_enriched,
             "descriptions": descriptions,
             "type_labels": SEGMENT_TYPE_LABELS,
             "type_colors": SEGMENT_TYPE_COLORS,
@@ -454,6 +488,25 @@ def api_analyze(
             for seg in result.segments
         ]
 
+        # Обогащаем сегменты полями давления и working_pct из secondary_means
+        def enrich_segment(s):
+            d = s.to_dict()
+            sm = d.get("secondary_means") or {}
+            # Маппинг: p_line_mean → mean_p_flowline, p_tube_mean → mean_p_wellhead
+            d["mean_p_flowline"] = sm.get("p_line_mean")
+            d["mean_p_wellhead"] = sm.get("p_tube_mean")
+            # Если primary_series=dp, mean_dp берём из mean_value (primary column)
+            if req.primary_series == "dp":
+                d["mean_dp"] = d.get("mean_value")
+            else:
+                d["mean_dp"] = sm.get("dp_mean")
+            # working_pct = (1440 - downtime_min) / 1440 * 100
+            downtime = sm.get("downtime_min")
+            if downtime is not None:
+                d["mean_shutdown"] = downtime
+                d["working_pct"] = max(0, (1440 - downtime) / 1440 * 100)
+            return d
+
         return AnalyzeResponse(
             ok=True,
             well_id=req.well_id,
@@ -463,7 +516,7 @@ def api_analyze(
             n_points=result.n_points,
             primary_series=req.primary_series,
             changepoints=result.changepoints,
-            segments=[s.to_dict() for s in result.segments],
+            segments=[enrich_segment(s) for s in result.segments],
             anomaly_clusters=[c.to_dict() for c in result.anomaly_clusters],
             chart_data=chart_data,
             type_labels=SEGMENT_TYPE_LABELS,

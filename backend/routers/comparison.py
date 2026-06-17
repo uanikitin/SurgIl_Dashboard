@@ -194,3 +194,34 @@ def api_render_set(set_id: int, db: Session = Depends(get_db)):
     if not s:
         raise HTTPException(404, "ComparisonSet не найден")
     return svc.build_set(db, s)
+
+
+# ─────────────── Сопоставление LoRa / УзКорГаз ────────────────────
+
+class SensorCustomerRequest(BaseModel):
+    well_number: str
+    period_from: date
+    period_to: date
+
+
+@router.post("/sensor-customer/compute")
+def api_sensor_customer_compute(
+    req: SensorCustomerRequest,
+    db: Session = Depends(get_db),
+):
+    """Сопоставление данных мониторинга LoRa с суточными сводками УзКорГаз.
+
+    Возвращает:
+        - curves: кривые для Plotly (sensor_q, customer_q, sensor_dp, customer_dp)
+        - daily_diff: таблица посуточного сравнения с Δ
+        - summary: сводная статистика (средние, %, дни)
+        - conclusion: текстовое заключение
+    """
+    if req.period_from > req.period_to:
+        raise HTTPException(400, "period_from > period_to")
+    return svc.build_sensor_customer_comparison(
+        db,
+        well_number=req.well_number,
+        period_from=req.period_from,
+        period_to=req.period_to,
+    )

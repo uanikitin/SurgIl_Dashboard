@@ -129,6 +129,8 @@
         try {
           const url = new URL(config.preview_endpoint, window.location.origin);
           url.searchParams.set('well_id', wellId);
+          // Cache-buster чтобы браузер не использовал кэшированный ответ
+          url.searchParams.set('_t', Date.now());
           // НЕ передаём chapter в URL — фильтрация только на клиенте,
           // чтобы не исключить блоки без params.chapter (adaptation_period_analysis и др.)
           const resp = await fetch(url.toString());
@@ -167,6 +169,7 @@
             containerId:  htmlContent.id,
             countId:      countEl ? countEl.id : null,
             chapterTitle: config.title || 'Глава',
+            useUserOrder: config.useUserOrder || false,
           });
         } catch (e) {
           htmlContent.innerHTML =

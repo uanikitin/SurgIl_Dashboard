@@ -370,7 +370,7 @@ def chapter_preview(req: ChapterPreviewRequest, db: Session = Depends(get_db)):
         warnings: list[str] = []
 
         # Kinds, которые рендерятся напрямую без observation-валидации
-        PASSTHROUGH_KINDS = {"segment_analysis", "segment_comparison"}
+        PASSTHROUGH_KINDS = {"segment_analysis", "segment_comparison", "sensor_customer_comparison"}
 
         for row in rows:
             block_id, kind, title, snapshot = row[0], row[1], row[2], row[3]
@@ -642,10 +642,16 @@ def update_block(
     """
     # Проверяем что блок существует и является observation.
     # kind + params нужны для whitelist-merge параметров.
+    # ВАЖНО: проверяем source='observation' ИЛИ chapter='observation' —
+    # аналогично GET /blocks, чтобы sensor_customer_comparison и segment_*
+    # с chapter='observation' тоже редактировались.
     existing = db.execute(
         text("""
             SELECT id, kind, params FROM customer_report_block
-            WHERE id = :id AND params->>'source' = 'observation'
+            WHERE id = :id AND (
+                params->>'source' = 'observation'
+                OR params->>'chapter' = 'observation'
+            )
         """),
         {"id": block_id},
     ).fetchone()

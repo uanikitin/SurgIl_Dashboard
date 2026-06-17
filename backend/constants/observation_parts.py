@@ -38,10 +38,13 @@ OBSERVATION_PARTS: dict[str, list[str]] = {
         "prefix_note",
         "intro",
         "metrics_table",
+        "metrics_tiles",           # альтернатива metrics_table (плитки вместо таблицы)
+        "charts_grid",             # 2×2 сетка графиков вместо колонки
         "chart_pressures",         # wz3-ch-pres: P трубное + P линейное
         "chart_dp",                # wz3-ch-dp: Перепад ΔP
         "chart_q",                 # wz3-ch-flow: Дебит Q(t)
         "chart_utilization",       # wz3-ch-down: Учёт рабочего времени по дням
+        "events_table",            # таблица событий (продувки, реагенты)
         "quality",
         "flags",
         "description",
@@ -98,6 +101,13 @@ OBSERVATION_PARTS: dict[str, list[str]] = {
         "diff_table",
         "description",
     ],
+    # sensor_customer_comparison — сопоставление LoRa и УзКорГаз.
+    "sensor_customer_comparison": [
+        "show_q_chart",
+        "show_dp_chart",
+        "show_table",
+        "show_conclusion",
+    ],
 }
 
 # Человекочитаемые подписи для UI (Фаза O2 — чекбоксы конструктора блоков).
@@ -105,6 +115,9 @@ OBSERVATION_PART_LABELS: dict[str, str] = {
     "prefix_note":              "Вступительный текст",
     "intro":                    "Период / заголовок",
     "metrics_table":            "Таблица метрик",
+    "metrics_tiles":            "🎯 Плитки метрик (альтернатива таблице)",
+    "charts_grid":              "📊 Графики 2×2 (вместо колонки)",
+    "events_table":             "📋 Таблица событий",
     # observation_analysis — 4 графика из wz3RenderCharts
     "chart_pressures":          "📈 График давлений (P трубное, P линейное)",
     "chart_dp":                 "📈 График ΔP",

@@ -1159,6 +1159,10 @@ def _finalize_pdf_response(
     # Исключение 2: если b2_tile=None (baseline не зафиксирован в БД), НЕ фильтруем —
     #               иначе B2-блок не появится нигде (ни в §3.3, ни в §3.4).
     def _is_b2_block(b: dict) -> bool:
+        # Для отформатированных блоков is_b2 лежит на верхнем уровне
+        if b.get("is_b2"):
+            return True
+        # Для неформатированных — в data_snapshot
         snap = b.get("data_snapshot") or {}
         return snap.get("is_b2", False)
 
@@ -1170,7 +1174,13 @@ def _finalize_pdf_response(
     # Иначе: показываем все блоки включая B2 (fallback если b2_tile не создан)
 
     # Выбор форматтера по kind блока
+    # ВАЖНО: блоки уже отформатированы в collect_report_data (observation_blocks_fmt),
+    # поэтому проверяем признак форматированности (наличие *_fmt полей) и НЕ
+    # переформатируем — иначе потеряются данные (data_snapshot удалён при форматировании).
     def _format_obs_block(b: dict) -> dict:
+        # Признак отформатированного блока: есть *_fmt поля
+        if "q_total_avg_fmt" in b or "latex_content" in b:
+            return b
         kind = b.get("kind")
         if kind == "segment_analysis":
             return _format_segment_analysis_for_observation(b, render_charts=with_charts)
@@ -1179,10 +1189,17 @@ def _finalize_pdf_response(
         return _format_observation_block(b, render_charts=with_charts)
 
     observation_blocks_fmt = [_format_obs_block(b) for b in obs_blocks_for_pdf]
-    adaptation_blocks_fmt = [
-        _format_adaptation_block(b, render_charts=with_charts, db=db)
-        for b in adapt_blocks_raw
-    ]
+
+    # Блоки уже отформатированы в collect_report_data (adaptation_blocks_fmt) —
+    # проверяем по наличию "intro_text" на верхнем уровне (признак форматированного блока).
+    # НЕ переформатируем, иначе потеряется обогащённый intro_text из data_snapshot.
+    def _maybe_format_adapt_block(b: dict) -> dict:
+        if "intro_text" in b or "has_data" in b:
+            # Уже отформатирован — используем как есть
+            return b
+        return _format_adaptation_block(b, render_charts=with_charts, db=db)
+
+    adaptation_blocks_fmt = [_maybe_format_adapt_block(b) for b in adapt_blocks_raw]
 
     now_kungrad = _dt.utcnow() + KUNGRAD_OFFSET
     context = {
@@ -1329,6 +1346,121 @@ def preview_pdf_post(
         only_chapter=req.only_chapter,
         only_block_id=req.only_block_id,
     )
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  HTML Preview
+# ═══════════════════════════════════════════════════════════════════
+
+@router.post("/preview-html", response_class=HTMLResponse)
+def preview_html_post(
+    request: Request,
+    req: CustomDatesRequest,
+    db: Session = Depends(get_db),
+):
+    """POST-вариант preview-HTML — отчёт в виде HTML-страницы для печати."""
+    return _build_html_response(
+        request, db, req.well_id,
+        obs_from=req.obs_from, obs_to=req.obs_to,
+        adapt_from=req.adapt_from, adapt_to=req.adapt_to,
+        obs_description=req.obs_description,
+        adapt_description=req.adapt_description,
+        optimal_mode=req.optimal_mode,
+        optimal_window_days=req.optimal_window_days,
+        optimal_from=req.optimal_from,
+        optimal_to=req.optimal_to,
+        include_customer_chapter=req.include_customer_chapter,
+        customer_periods=req.customer_periods,
+        sections=req.sections,
+        with_charts=req.with_charts,
+        with_reagent=req.with_reagent,
+    )
+
+
+def _build_html_response(
+    request: Request,
+    db, well_id: int, *,
+    obs_from=None, obs_to=None, adapt_from=None, adapt_to=None,
+    obs_description=None, adapt_description=None,
+    optimal_mode="auto", optimal_window_days=3,
+    optimal_from=None, optimal_to=None,
+    include_customer_chapter=False, customer_periods=None,
+    sections=None,
+    with_charts: bool = True,
+    with_reagent: bool = True,
+):
+    """Генерация HTML-отчёта для предпросмотра/печати."""
+    from datetime import datetime as _dt
+    from backend.services.adaptation_report_service import KUNGRAD_OFFSET
+
+    # Собираем данные так же, как для PDF
+    chapter2_tmp = tempfile.TemporaryDirectory(prefix="adapt_html_ch2_")
+    chapter2_dir = Path(chapter2_tmp.name)
+
+    try:
+        data = collect_report_data(
+            db, well_id,
+            obs_from=obs_from, obs_to=obs_to,
+            adapt_from=adapt_from, adapt_to=adapt_to,
+            render_charts=with_charts,
+            include_reagent_effectiveness=with_reagent,
+            obs_description_override=obs_description,
+            adapt_description_override=adapt_description,
+            optimal_mode=optimal_mode,
+            optimal_window_days=optimal_window_days,
+            optimal_from=optimal_from,
+            optimal_to=optimal_to,
+            include_customer_chapter=include_customer_chapter,
+            customer_periods=customer_periods,
+            chart_dir=chapter2_dir,
+        )
+        if not data.get("ok"):
+            raise HTTPException(status_code=400, detail=data.get("error"))
+
+        # Форматируем данные для шаблона
+        observation = _add_formatted_fields(dict(data["observation"]))
+        adaptation = _add_formatted_fields(dict(data["adaptation"]))
+        comparison = _format_comparison(data["comparison"])
+
+        optimal_regime = None
+        if data.get("optimal_regime"):
+            optimal_regime = _add_formatted_fields(dict(data["optimal_regime"]))
+
+        well_ctx = dict(data["well"])
+        well_ctx["choke_mm"] = _fmt_num(well_ctx.get("choke_mm"), 1)
+
+        # Собираем include_sections из переданных sections
+        include_sections = _normalize_sections(sections)
+
+        # Номер документа и время генерации
+        now = _dt.utcnow() + KUNGRAD_OFFSET
+        doc_number = now.strftime("%Y%m%d-%H%M%S")
+        generated_at = now.strftime("%d.%m.%Y %H:%M")
+
+        # Рендерим HTML
+        return templates.TemplateResponse(
+            "adaptation_report_preview.html",
+            {
+                "request": request,
+                "well": well_ctx,
+                "observation": observation,
+                "adaptation": adaptation,
+                "comparison": comparison,
+                "optimal_regime": optimal_regime,
+                "customer_chapter": data.get("customer_chapter"),
+                "comparison_charts": data.get("comparison_charts"),
+                "warnings": data.get("warnings", []),
+                "conclusions": data.get("conclusions", []),
+                "include_sections": include_sections,
+                "doc_number": doc_number,
+                "generated_at": generated_at,
+            },
+        )
+    finally:
+        try:
+            chapter2_tmp.cleanup()
+        except Exception:
+            log.exception("chapter2 temp cleanup failed: %s", chapter2_dir)
 
 
 @router.get("/validate")

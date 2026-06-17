@@ -71,10 +71,13 @@
       ['prefix_note',        '↑ Вступительный текст'],
       ['intro',              '📝 Период / заголовок'],
       ['metrics_table',      '🟧 Таблица метрик'],
+      ['metrics_tiles',      '🎯 Плитки метрик (альтернатива таблице)'],
+      ['charts_grid',        '📊 Графики 2×2 (вместо колонки)'],
       ['chart_pressures',    '📈 График давлений (P тр, P лин)'],
       ['chart_dp',           '📈 График ΔP'],
       ['chart_q',            '📈 График Q(t)'],
       ['chart_utilization',  '📊 Рабочее время по дням'],
+      ['events_table',       '📋 Таблица событий'],
       ['quality',            '📊 Качество данных'],
       ['flags',              '⚠️ Флаги'],
       ['description',        '✏️ Текстовое описание'],
@@ -124,6 +127,13 @@
       ['description',       '✏️ Комментарий пользователя'],
       ['suffix_note',       '↓ Заключительный текст'],
     ],
+    // Сопоставление LoRa и УзКорГаз (observation chapter)
+    sensor_customer_comparison: [
+      ['show_q_chart',      '📈 График дебита Q'],
+      ['show_dp_chart',     '📈 График перепада ΔP'],
+      ['show_table',        '📋 Таблица посуточного сравнения'],
+      ['show_conclusion',   '📝 Заключение'],
+    ],
     // ─── Adaptation blocks (Step 5 wizard) ───
     adaptation_period_analysis: [
       ['prefix_note',        '↑ Вступительный текст'],
@@ -162,13 +172,20 @@
     ...PART_LABELS.period_analysis.filter(([k]) => k !== 'prefix_note'),
   ];
 
+  // Parts с дефолтом OFF (альтернативные представления, опциональные раскладки)
+  const _PARTS_DEFAULT_OFF = new Set([
+    'metrics_tiles',   // альтернатива metrics_table
+    'charts_grid',     // альтернативная раскладка 2×2
+  ]);
+
   function _getPartsForBlock(b) {
     const defs = PART_LABELS[b.kind] || [];
     const saved = (b.params && b.params.parts) || {};
     const out = {};
     for (const [key] of defs) {
-      // Дефолт: всё true
-      out[key] = (key in saved) ? !!saved[key] : true;
+      // Дефолт: true, кроме _PARTS_DEFAULT_OFF
+      const defaultVal = !_PARTS_DEFAULT_OFF.has(key);
+      out[key] = (key in saved) ? !!saved[key] : defaultVal;
     }
     return out;
   }
@@ -632,14 +649,26 @@
         `<div id="${idPrefix}qchart" style="height:480px;"></div>`;
     }
 
-    // ─── 2. Таблица сегментов: 11 колонок (§5.2 + §6.1 «Тип режима»)
+    // ─── 2. Таблица сегментов: 12 колонок (§5.2 + §6.1 «Тип режима» + P_шл, P_уст, без Q раб.)
+    // Словарь русских названий типов режима
+    const segTypeLabels = {
+      'initial': 'Начальный',
+      'stable': 'Стабильный',
+      'rise': 'Рост',
+      'decline': 'Снижение',
+      'sharp_rise': 'Резкий рост',
+      'sharp_decline': 'Резкое снижение',
+      'volatile': 'Волатильный',
+      'unknown': 'Неопределён',
+    };
     if (on('segments_table') && segs.length) {
       let tbl = `<h3 style="margin:14px 0 6px;">📋 Сегменты режима (${segs.length})</h3>
         <table class="cd-table"><thead><tr>
           <th>№</th><th>Период</th><th>Дн</th>
-          <th>Q общ.</th><th>Q раб.</th>
+          <th>Q общ.</th>
           <th>Тренд</th><th>Изм%</th>
-          <th>Прост, мин</th><th>Раб%</th><th>ΔP</th>
+          <th>Прост, мин</th><th>Раб%</th>
+          <th>P_шл</th><th>P_уст</th><th>ΔP</th>
           <th>Тип режима</th>
         </tr></thead><tbody>`;
       for (const s of segs) {
@@ -648,19 +677,22 @@
                        : chg > 0 ? '#28a745' : chg < 0 ? '#dc3545' : '#6b7280';
         const chgTxt = chg == null ? '—' : (chg > 0 ? '+' : '') + chg.toFixed(0) + '%';
         const slopeTxt = s.slope_total == null ? '—' : fmtSigned(s.slope_total);
+        const typeRaw = s.type || 'unknown';
+        const typeLabel = segTypeLabels[typeRaw] || typeRaw;
         tbl += `<tr>
           <td><b>${s.num}</b></td>
           <td style="white-space:nowrap;">${s.start}–${s.end}</td>
           <td>${s.days}</td>
           <td>${fmt(s.mean_q, 1)}</td>
-          <td>${fmt(s.mean_q_working, 1)}</td>
           <td>${slopeTxt}</td>
           <td style="color:${chgColor}; font-weight:600;">${chgTxt}</td>
           <td>${fmt(s.mean_shutdown, 0)}</td>
           <td>${fmt(s.working_pct, 0)}</td>
+          <td>${fmt(s.mean_p_flowline, 1)}</td>
+          <td>${fmt(s.mean_p_wellhead, 1)}</td>
           <td>${fmt(s.mean_dp, 2)}</td>
           <td style="font-weight:500; color:${s.color || '#374151'};">
-            ${s.type || '—'}
+            ${typeLabel}
           </td>
         </tr>`;
       }
@@ -668,51 +700,17 @@
       html += tbl;
     }
 
-    // ─── 3. Описание сегментов (§6.4) — краткие параграфы ─────────
-    if (on('descriptions') && segs.length) {
-      html += `<h3 style="margin:14px 0 6px;">📝 Описание сегментов</h3>` +
-        `<div style="display:flex; flex-direction:column; gap:6px;">`;
-      segs.forEach((s, i) => {
-        const prev = i > 0 ? segs[i - 1] : null;
-        const changeLine = prev
-          ? `<br><b>Изменение vs Сег.${prev.num}:</b> Q общ ${fmtSigned(s.change_pct, 1)}%, ` +
-            `Q раб ${fmtSigned(s.change_q_working_pct, 1)}%, ` +
-            `ΔP ${fmtSigned(s.change_dp_pct, 1)}%, ` +
-            `простой ${fmtSigned(s.change_shutdown, 0)} мин` +
-            (s.change_choke != null && Math.abs(s.change_choke) > 0.01
-              ? `, штуцер ${fmtSigned(s.change_choke, 1)} мм` : '')
-          : '';
-        const causeLine = s.cause
-          ? `<br><b>Основной фактор:</b> ${_escHtml(s.cause)}`
-          : '';
-        const preshutLine = (s.preshutdown_q != null && s.preshutdown_verdict)
-          ? `<br><b>До простоя/после:</b> ${fmt(s.preshutdown_q, 1)} → ${fmt(s.mean_q, 1)} ` +
-            `(${fmtSigned(s.preshutdown_delta_pct, 0)}%). ${_escHtml(s.preshutdown_verdict)}`
-          : '';
-        const gradualLine = s.gradual_trend
-          ? `<br><b>Плавный тренд:</b> ${s.gradual_trend === 'down' ? 'спад' : 'рост'} ` +
-            `на ${fmtSigned(s.gradual_drift_pct, 1)}% за период`
-          : '';
-        html += `<div style="padding:10px 14px; background:#fff;
-                  border-left:3px solid ${s.color || '#d1d5db'}; border-radius:3px;
-                  font-size:0.86rem; line-height:1.55; color:#1f2937;">
-            <div style="font-weight:600; margin-bottom:3px;">
-              Сегмент ${s.num} · ${s.start}–${s.end} · ${s.days} дн · тип: ${s.type}
-            </div>
-            <b>Средние:</b> Q общ ${fmt(s.mean_q, 1)},
-            Q раб ${fmt(s.mean_q_working, 1)} тыс.м³/сут,
-            ΔP ${fmt(s.mean_dp, 2)} кгс/см²,
-            P уст ${fmt(s.mean_p_wellhead, 1)},
-            P шл ${fmt(s.mean_p_flowline, 1)} кгс/см²,
-            штуцер ${fmt(s.mean_choke_mm, 1)} мм,
-            раб. время ${fmt(s.working_pct, 0)}%
-            ${changeLine}
-            ${gradualLine}
-            ${preshutLine}
-            ${causeLine}
-          </div>`;
-      });
-      html += `</div>`;
+    // ─── 3. Полное описание сегментов (§6.4) — из алгоритма ────────
+    // Показываем полный текст описания из snapshot.descriptions
+    // (генерируется в segment_analysis_module.py)
+    if (on('descriptions') && descriptions.length) {
+      html += `<h3 style="margin:14px 0 6px;">📝 Описание сегментов (${descriptions.length})</h3>` +
+        `<div style="display:flex; flex-direction:column; gap:6px;">` +
+        descriptions.map(t => `<div style="padding:10px 14px; background:#fff;
+                  border-left:3px solid #6366f1; border-radius:3px;
+                  font-size:0.86rem; line-height:1.6; color:#1f2937;
+                  white-space:pre-wrap;">${(t||'').replace(/\*\*/g,'').replace(/</g,'&lt;')}</div>`).join('') +
+        `</div>`;
     }
 
     // ─── 4. События переломов (§6.5) ──────────────────────────────
@@ -722,18 +720,7 @@
         cpDescs.map(t => `<div style="padding:8px 12px; background:#fff;
                   border-left:3px solid #7c3aed; border-radius:3px;
                   font-size:0.84rem; line-height:1.55; color:#1f2937;
-                  white-space:pre-wrap;">${(t||'').replace(/</g,'&lt;')}</div>`).join('') +
-        `</div>`;
-    }
-
-    // ─── 5. Развёрнутые описания (модульные descriptions по §6.4) ─
-    if (on('descriptions') && descriptions.length) {
-      html += `<h3 style="margin:14px 0 6px;">📑 Развёрнутые описания (из алгоритма)</h3>` +
-        `<div style="display:flex; flex-direction:column; gap:6px;">` +
-        descriptions.map(t => `<div style="padding:8px 12px; background:#fff;
-                  border-left:3px solid #d1d5db; border-radius:3px;
-                  font-size:0.84rem; line-height:1.55; color:#374151;
-                  white-space:pre-wrap;">${(t||'').replace(/</g,'&lt;')}</div>`).join('') +
+                  white-space:pre-wrap;">${(t||'').replace(/\*\*/g,'').replace(/</g,'&lt;')}</div>`).join('') +
         `</div>`;
     }
 
@@ -942,6 +929,136 @@
     return html;
   }
 
+  // ===== _buildSensorCustomerComparisonHtml — сопоставление LoRa и УзКорГаз =====
+  function _buildSensorCustomerComparisonHtml(snap, block, idPrefix) {
+    if (!snap) return '<div style="color:#9ca3af;">Снапшот не загружен.</div>';
+    // Используем parts из block.params (единый механизм управления частями)
+    // Fallback на settings из snapshot для обратной совместимости
+    const parts = (block && block.params && block.params.parts) || {};
+    const settings = snap.settings || {};
+    // Хелпер: part включён? Приоритет: parts из блока > settings из snapshot > default true
+    const on = (key) => {
+      if (key in parts) return !!parts[key];
+      if (key in settings) return !!settings[key];
+      return true;
+    };
+    const summary = snap.summary || {};
+    const dailyDiff = snap.daily_diff || [];
+    const curves = snap.curves || {};
+    const conclusion = snap.conclusion || '';
+
+    const fmt = (v, d = 2) => (v == null || isNaN(v)) ? '—' : Number(v).toFixed(d);
+    const fmtPct = (v) => {
+      if (v == null || isNaN(v)) return '—';
+      const sign = v >= 0 ? '+' : '';
+      const cls = Math.abs(v) < 10 ? 'delta-ok' : 'delta-warn';
+      return `<span style="color:${Math.abs(v) < 10 ? '#22c55e' : '#d97706'};">${sign}${v.toFixed(1)}%</span>`;
+    };
+
+    let html = '';
+
+    // Header
+    html += `<div style="font-size:0.9rem; color:#374151; margin-bottom:10px;">
+      <b>Период:</b> ${_escHtml(snap.period_from || '—')} — ${_escHtml(snap.period_to || '—')}
+      ${snap.well_number ? `, скв. ${_escHtml(snap.well_number)}` : ''}
+    </div>`;
+
+    // Summary tiles
+    html += `<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+      <div style="background:#fff; border:1px solid #e0e0e0; border-radius:4px; padding:6px 10px; min-width:100px;">
+        <div style="font-size:0.7rem; color:#666;">Q LoRa (ср.)</div>
+        <div style="font-weight:600;">${fmt(summary.sensor_q_avg)}</div>
+      </div>
+      <div style="background:#fff; border:1px solid #e0e0e0; border-radius:4px; padding:6px 10px; min-width:100px;">
+        <div style="font-size:0.7rem; color:#666;">Q УзКорГаз (ср.)</div>
+        <div style="font-weight:600;">${fmt(summary.customer_q_avg)}</div>
+      </div>
+      <div style="background:#fff; border:1px solid #e0e0e0; border-radius:4px; padding:6px 10px; min-width:100px;">
+        <div style="font-size:0.7rem; color:#666;">Δ Q</div>
+        <div style="font-weight:600;">${fmt(summary.delta_q_avg, 3)} (${fmtPct(summary.delta_q_pct)})</div>
+      </div>
+      <div style="background:#fff; border:1px solid #e0e0e0; border-radius:4px; padding:6px 10px; min-width:100px;">
+        <div style="font-size:0.7rem; color:#666;">ΔP LoRa (ср.)</div>
+        <div style="font-weight:600;">${fmt(summary.sensor_dp_avg)}</div>
+      </div>
+      <div style="background:#fff; border:1px solid #e0e0e0; border-radius:4px; padding:6px 10px; min-width:100px;">
+        <div style="font-size:0.7rem; color:#666;">ΔP УзКорГаз (ср.)</div>
+        <div style="font-weight:600;">${fmt(summary.customer_dp_avg)}</div>
+      </div>
+      <div style="background:#fff; border:1px solid #e0e0e0; border-radius:4px; padding:6px 10px; min-width:100px;">
+        <div style="font-size:0.7rem; color:#666;">Δ ΔP</div>
+        <div style="font-weight:600;">${fmt(summary.delta_dp_avg, 3)} (${fmtPct(summary.delta_dp_pct)})</div>
+      </div>
+      <div style="background:#fff; border:1px solid #e0e0e0; border-radius:4px; padding:6px 10px; min-width:100px;">
+        <div style="font-size:0.7rem; color:#666;">Дней сопоставлено</div>
+        <div style="font-weight:600;">${summary.days_matched || 0} / ${summary.days_total || 0}</div>
+      </div>
+    </div>`;
+
+    // Charts
+    if (on('show_q_chart') || on('show_dp_chart')) {
+      html += `<div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">`;
+      if (on('show_q_chart')) {
+        html += `<div>
+          <div style="font-weight:500; font-size:0.85rem; margin-bottom:4px;">Дебит (Q), тыс.м³/сут</div>
+          <div id="${idPrefix}chart-q" style="height:220px;"></div>
+        </div>`;
+      }
+      if (on('show_dp_chart')) {
+        html += `<div>
+          <div style="font-weight:500; font-size:0.85rem; margin-bottom:4px;">Перепад давления (ΔP), кгс/см²</div>
+          <div id="${idPrefix}chart-dp" style="height:220px;"></div>
+        </div>`;
+      }
+      html += `</div>`;
+    }
+
+    // Daily diff table
+    if (on('show_table') && dailyDiff.length) {
+      html += `<div style="margin-bottom:12px;">
+        <div style="font-weight:500; font-size:0.85rem; margin-bottom:6px;">Посуточное сравнение</div>
+        <div style="max-height:200px; overflow-y:auto;">
+          <table class="cd-table" style="font-size:0.78rem;">
+            <thead><tr>
+              <th>Дата</th>
+              <th>Q LoRa</th>
+              <th>Q УзКорГаз</th>
+              <th>Δ Q</th>
+              <th>ΔP LoRa</th>
+              <th>ΔP УзКорГаз</th>
+              <th>Δ ΔP</th>
+            </tr></thead>
+            <tbody>`;
+      dailyDiff.forEach(r => {
+        const fmtDelta = (v) => {
+          if (v == null) return '—';
+          const sign = v >= 0 ? '+' : '';
+          const color = v > 0 ? '#dc2626' : v < 0 ? '#22c55e' : '#6b7280';
+          return `<span style="color:${color};">${sign}${v.toFixed(3)}</span>`;
+        };
+        html += `<tr>
+          <td>${_escHtml(r.date || '—')}</td>
+          <td style="text-align:right;">${fmt(r.sensor_q)}</td>
+          <td style="text-align:right;">${fmt(r.customer_q)}</td>
+          <td style="text-align:right;">${fmtDelta(r.delta_q)}</td>
+          <td style="text-align:right;">${fmt(r.sensor_dp)}</td>
+          <td style="text-align:right;">${fmt(r.customer_dp)}</td>
+          <td style="text-align:right;">${fmtDelta(r.delta_dp)}</td>
+        </tr>`;
+      });
+      html += `</tbody></table></div></div>`;
+    }
+
+    // Conclusion
+    if (on('show_conclusion') && conclusion) {
+      html += `<div style="background:#f8f9fa; border:1px solid #e0e0e0; padding:10px; border-radius:4px; font-size:0.85rem;">
+        <b>Заключение:</b> ${_escHtml(conclusion)}
+      </div>`;
+    }
+
+    return html;
+  }
+
   // ===== _buildObservationBlockHtml — рендер observation блоков (датчики) =====
   function _buildObservationBlockHtml(snap, block, parts) {
     if (!snap) return '<div style="color:#9ca3af;">Снапшот не загружен.</div>';
@@ -1047,48 +1164,124 @@
             </table>
           </div>`;
         } else {
-          // wz3obs_v1 / observation_analysis: компактные плитки метрик
-          html += `<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));
-                              gap:8px; margin-bottom:12px;">
-            <div class="obs-metric"><div class="obs-metric-title">Q факт.</div>
-              <div class="obs-metric-val">${fmt(q_avg)} <span style="color:#9ca3af;">ср.</span></div>
-              <div class="obs-metric-val">${fmt(q_med)} <span style="color:#9ca3af;">мед.</span></div>
-              <div class="obs-metric-unit">тыс.м³/сут</div></div>
-            <div class="obs-metric"><div class="obs-metric-title">ΔP</div>
-              <div class="obs-metric-val">${fmt(dp_avg)} <span style="color:#9ca3af;">ср.</span></div>
-              <div class="obs-metric-val">${fmt(dp_med)} <span style="color:#9ca3af;">мед.</span></div>
-              <div class="obs-metric-unit">кгс/см²</div></div>
-            <div class="obs-metric"><div class="obs-metric-title">P уст. / шлейф</div>
-              <div class="obs-metric-val">${fmt(p_tube_med)} <span style="color:#9ca3af;">уст.</span></div>
-              <div class="obs-metric-val">${fmt(p_line_med)} <span style="color:#9ca3af;">шл.</span></div>
-              <div class="obs-metric-unit">кгс/см²</div></div>
-            ${shutdown_min != null ? `<div class="obs-metric"><div class="obs-metric-title">Простой</div>
-              <div class="obs-metric-val">${fmt(shutdown_min, 0)} <span style="color:#9ca3af;">мин</span></div>
-              <div class="obs-metric-val">${fmt(working_hours, 1)} <span style="color:#9ca3af;">раб.ч</span></div>
-              <div class="obs-metric-unit"></div></div>` : ''}
+          // observation_analysis: полная таблица метрик с трендом и КИВ
+          const q_trend = snap.q_trend_line || snap.q_trend;
+          const trendLabel = (t) => {
+            if (!t || t.slope == null) return '—';
+            const sign = t.slope >= 0 ? '↑' : '↓';
+            return `<span style="color:${t.slope >= 0 ? '#16a34a' : '#dc2626'};">${sign} ${Math.abs(t.slope).toFixed(3)}</span>`;
+          };
+          const utilPct = snap.utilization_pct;
+          const purgeCount = snap.purge_count ?? 0;
+          const days = snap.days || 0;
+
+          html += `<div style="margin-bottom:12px;">
+            <table style="width:100%; font-size:0.82rem; border-collapse:collapse;">
+              <thead><tr style="background:linear-gradient(to right, #fef9c3, #fef3c7);">
+                <th style="text-align:left; padding:6px 10px;">Показатель</th>
+                <th style="text-align:right; padding:6px 10px;">Среднее</th>
+                <th style="text-align:right; padding:6px 10px;">Медиана</th>
+                <th style="text-align:right; padding:6px 10px;">Ед.</th>
+                <th style="text-align:right; padding:6px 10px;">Тренд /сут</th>
+              </tr></thead>
+              <tbody>
+                <tr style="border-bottom:1px solid #e5e7eb;">
+                  <td style="padding:5px 10px;">Q фактический</td>
+                  <td style="text-align:right; padding:5px 10px; font-weight:600; color:#1d4ed8;">${fmt(q_avg)}</td>
+                  <td style="text-align:right; padding:5px 10px; font-weight:600; color:#1d4ed8;">${fmt(q_med)}</td>
+                  <td style="text-align:right; padding:5px 10px; color:#6b7280;">тыс.м³/сут</td>
+                  <td style="text-align:right; padding:5px 10px;">${trendLabel(q_trend)}</td>
+                </tr>
+                <tr style="border-bottom:1px solid #e5e7eb;">
+                  <td style="padding:5px 10px;">P трубное</td>
+                  <td style="text-align:right; padding:5px 10px; font-weight:600;">${fmt(p_tube_med)}</td>
+                  <td style="text-align:right; padding:5px 10px; font-weight:600;">${fmt(p_tube_med)}</td>
+                  <td style="text-align:right; padding:5px 10px; color:#6b7280;">кгс/см²</td>
+                  <td style="text-align:right; padding:5px 10px;">—</td>
+                </tr>
+                <tr style="border-bottom:1px solid #e5e7eb;">
+                  <td style="padding:5px 10px;">P линейное</td>
+                  <td style="text-align:right; padding:5px 10px; font-weight:600;">${fmt(p_line_med)}</td>
+                  <td style="text-align:right; padding:5px 10px; font-weight:600;">${fmt(p_line_med)}</td>
+                  <td style="text-align:right; padding:5px 10px; color:#6b7280;">кгс/см²</td>
+                  <td style="text-align:right; padding:5px 10px;">—</td>
+                </tr>
+                <tr>
+                  <td style="padding:5px 10px;">ΔP</td>
+                  <td style="text-align:right; padding:5px 10px; font-weight:600;">${fmt(dp_avg)}</td>
+                  <td style="text-align:right; padding:5px 10px; font-weight:600;">${fmt(dp_med)}</td>
+                  <td style="text-align:right; padding:5px 10px; color:#6b7280;">кгс/см²</td>
+                  <td style="text-align:right; padding:5px 10px;">—</td>
+                </tr>
+              </tbody>
+            </table>
+            <div style="display:flex; flex-wrap:wrap; gap:12px 24px; margin-top:8px; padding:8px 10px;
+                        background:#fefce8; border-radius:4px; font-size:0.8rem;">
+              ${utilPct != null ? `<span>КИВ: <b style="color:#16a34a;">${fmt(utilPct, 2)}%</b></span>` : ''}
+              ${working_hours != null ? `<span>Рабочих часов: <b>${fmt(working_hours, 2)}</b></span>` : ''}
+              ${shutdown_min != null ? `<span>Простой: <b>${fmt(shutdown_min / 60, 2)}</b> ч</span>` : ''}
+              <span>Продувок: <b>${purgeCount}</b></span>
+              ${days ? `<span>Длительность: <b>${days} сут.</b></span>` : ''}
+            </div>
           </div>`;
         }
       }
     }
 
+    // ─── Metrics tiles (альтернатива таблице) ───
+    if (kind === 'observation_analysis' && on('metrics_tiles')) {
+      const tiles = [
+        { label: 'Q факт.', value: q_avg, unit: 'тыс.м³/сут', color: '#1d4ed8', bg: '#eff6ff' },
+        { label: 'Q медиана', value: q_med, unit: 'тыс.м³/сут', color: '#1d4ed8', bg: '#eff6ff' },
+        { label: 'ΔP среднее', value: dp_avg, unit: 'кгс/см²', color: '#ea580c', bg: '#fff7ed' },
+        { label: 'ΔP медиана', value: dp_med, unit: 'кгс/см²', color: '#ea580c', bg: '#fff7ed' },
+        { label: 'P устье', value: p_tube_med, unit: 'кгс/см²', color: '#059669', bg: '#ecfdf5' },
+        { label: 'P шлейф', value: p_line_med, unit: 'кгс/см²', color: '#059669', bg: '#ecfdf5' },
+        { label: 'КИВ', value: snap.utilization_pct, unit: '%', color: '#7c3aed', bg: '#f5f3ff' },
+        { label: 'Раб. часов', value: snap.working_hours, unit: 'ч', color: '#0891b2', bg: '#ecfeff' },
+      ];
+      html += `<div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; margin:12px 0;">`;
+      tiles.forEach(t => {
+        if (t.value == null) return;
+        html += `<div style="padding:10px; background:${t.bg}; border-radius:6px; border-left:3px solid ${t.color}; text-align:center;">
+          <div style="font-size:0.72rem; color:#6b7280; margin-bottom:2px;">${_escHtml(t.label)}</div>
+          <div style="font-size:1.1rem; font-weight:700; color:${t.color};">${fmt(t.value, 2)}</div>
+          <div style="font-size:0.68rem; color:#9ca3af;">${_escHtml(t.unit)}</div>
+        </div>`;
+      });
+      html += `</div>`;
+    }
+
     // ─── Charts (контейнеры для Plotly) ───
-    // observation_analysis: 4 отдельных графика из wz3RenderCharts
+    // observation_analysis: 4 отдельных графика
     if (kind === 'observation_analysis') {
+      const useGrid = on('charts_grid');
+      if (useGrid) {
+        // 2×2 сетка графиков
+        html += `<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:8px 0;">`;
+      }
       if (on('chart_pressures')) {
-        html += `<div id="prev-${bid}-obs-pres" style="height:240px; margin:8px 0;
+        const h = useGrid ? '200px' : '240px';
+        html += `<div id="prev-${bid}-obs-pres" style="height:${h};
                       background:#fafafa; border-radius:4px;"></div>`;
       }
       if (on('chart_dp')) {
-        html += `<div id="prev-${bid}-obs-dp" style="height:240px; margin:8px 0;
+        const h = useGrid ? '200px' : '240px';
+        html += `<div id="prev-${bid}-obs-dp" style="height:${h};
                       background:#fafafa; border-radius:4px;"></div>`;
       }
       if (on('chart_q')) {
-        html += `<div id="prev-${bid}-obs-q" style="height:240px; margin:8px 0;
+        const h = useGrid ? '200px' : '240px';
+        html += `<div id="prev-${bid}-obs-q" style="height:${h};
                       background:#fafafa; border-radius:4px;"></div>`;
       }
       if (on('chart_utilization')) {
-        html += `<div id="prev-${bid}-obs-util" style="height:200px; margin:8px 0;
+        const h = useGrid ? '180px' : '200px';
+        html += `<div id="prev-${bid}-obs-util" style="height:${h};
                       background:#fafafa; border-radius:4px;"></div>`;
+      }
+      if (useGrid) {
+        html += `</div>`;
       }
     }
     // baseline: chart_metrics
@@ -1111,6 +1304,79 @@
     if (kind === 'observation_segment' && on('chart_segments')) {
       html += `<div id="prev-${bid}-obs-seg" style="height:280px; margin:8px 0;
                     background:#fafafa; border-radius:4px;"></div>`;
+    }
+
+    // ─── events_table для observation_analysis ───
+    if (kind === 'observation_analysis' && on('events_table')) {
+      const obsEvents = snap.events || [];
+      if (obsEvents.length > 0) {
+        let evRows = '';
+        const eventsToShow = obsEvents.slice(0, 30);
+        eventsToShow.forEach((e, i) => {
+          const bg = i % 2 === 0 ? '#fff' : '#fafafa';
+          const icon = e.type === 'purge' ? '💨' : e.type === 'reagent' ? '💊' : e.type === 'equipment' ? '🔧' : '•';
+          let typeLabel, descr;
+          if (e.type === 'purge') {
+            typeLabel = 'Продувка';
+            descr = '—';
+          } else if (e.type === 'reagent') {
+            typeLabel = 'Вброс реагента';
+            descr = e.reagent || e.label || '—';
+          } else if (e.type === 'equipment') {
+            typeLabel = 'Оборудование';
+            descr = e.description || e.label || '—';
+          } else if (e.type === 'other') {
+            typeLabel = 'Прочее';
+            descr = e.description || e.label || '—';
+          } else {
+            typeLabel = e.type || '—';
+            descr = e.label || e.description || '—';
+          }
+          const pTube = e.p_tube != null ? Number(e.p_tube).toFixed(1) : '—';
+          const pLine = e.p_line != null ? Number(e.p_line).toFixed(1) : '—';
+          evRows += `<tr style="background:${bg};">
+            <td style="padding:4px 8px; text-align:center;">${icon}</td>
+            <td style="padding:4px 8px;">${_escHtml((e.t || e.ts || e.time || '').slice(0, 16))}</td>
+            <td style="padding:4px 8px;">${_escHtml(typeLabel)}</td>
+            <td style="padding:4px 8px;">${_escHtml(descr)}</td>
+            <td style="text-align:right; padding:4px 8px;">${e.qty || e.amount || '—'}</td>
+            <td style="text-align:right; padding:4px 8px;">${pTube}</td>
+            <td style="text-align:right; padding:4px 8px;">${pLine}</td>
+          </tr>`;
+        });
+
+        html += `<h4 style="margin:16px 0 8px; font-size:0.95rem; color:#1f2937;">
+          📋 События за период (${obsEvents.length})
+        </h4>
+        <table style="width:100%; font-size:0.8rem; border-collapse:collapse; border:1px solid #e5e7eb;">
+          <thead>
+            <tr style="background:#f3f4f6;">
+              <th style="padding:6px 8px; width:40px;"></th>
+              <th style="text-align:left; padding:6px 8px;">Дата/время</th>
+              <th style="text-align:left; padding:6px 8px;">Тип</th>
+              <th style="text-align:left; padding:6px 8px;">Описание</th>
+              <th style="text-align:right; padding:6px 8px;">Кол-во</th>
+              <th style="text-align:right; padding:6px 8px;">P устье</th>
+              <th style="text-align:right; padding:6px 8px;">P линия</th>
+            </tr>
+          </thead>
+          <tbody>${evRows}</tbody>
+        </table>`;
+
+        const reagentEvents = obsEvents.filter(e => e.type === 'reagent');
+        const purgeEvents = obsEvents.filter(e => e.type === 'purge');
+        const equipEvents = obsEvents.filter(e => e.type === 'equipment');
+        html += `<div style="font-size:0.8rem; color:#6b7280; margin-top:6px; padding:6px 8px; background:#f9fafb; border-radius:4px;">
+          <b>Итого:</b> ${reagentEvents.length} вбросов реагента,
+          ${purgeEvents.length} продувок${equipEvents.length ? `, ${equipEvents.length} событий оборудования` : ''}.
+        </div>`;
+
+        if (obsEvents.length > 30) {
+          html += `<div style="font-size:0.75rem; color:#9ca3af; margin-top:4px;">
+            ... показаны первые 30 из ${obsEvents.length} событий
+          </div>`;
+        }
+      }
     }
 
     // ─── Quality ───
@@ -1283,6 +1549,40 @@
     // ─── observation_analysis: 4 отдельных графика ───
     // Требуется snap.chart с данными
     if (kind === 'observation_analysis' && c && c.dates && c.dates.length) {
+      // Подготовка shapes и annotations из snap.downtime_periods и snap.events
+      const downtimePeriods = snap.downtime_periods || [];
+      const obsEvents = snap.events || [];
+
+      // Shapes для простоев (розовые зоны)
+      const downtimeShapes = downtimePeriods.map(p => ({
+        type: 'rect',
+        xref: 'x', yref: 'paper',
+        x0: p.start || p.from, x1: p.end || p.to,
+        y0: 0, y1: 1,
+        fillcolor: 'rgba(244, 114, 182, 0.25)',  // pink
+        line: { width: 0 },
+        layer: 'below'
+      }));
+
+      // Shapes для событий (вертикальные линии для продувок)
+      const eventShapes = [];
+      const eventAnnotations = [];
+      obsEvents.forEach(e => {
+        const ts = e.t || e.ts || e.time;
+        if (!ts) return;
+        if (e.type === 'purge') {
+          eventShapes.push({
+            type: 'line',
+            xref: 'x', yref: 'paper',
+            x0: ts, x1: ts, y0: 0, y1: 1,
+            line: { color: '#8b5cf6', width: 1.5, dash: 'dot' },
+            layer: 'above'
+          });
+        }
+      });
+
+      const allShapes = [...downtimeShapes, ...eventShapes];
+
       // 1) Давления (chart_pressures)
       if (on('chart_pressures')) {
         const elPres = document.getElementById(`prev-${bid}-obs-pres`);
@@ -1296,8 +1596,19 @@
             traces.push({ x:c.dates, y:c.p_flowline, name:'P линейное', mode:'lines',
                           line:{color:'#d62728', width:1.4}, connectgaps:false });
           }
+          // Добавляем маркеры для событий реагента
+          const reagentEvents = obsEvents.filter(e => e.type === 'reagent' && (e.t || e.ts || e.time));
+          if (reagentEvents.length) {
+            traces.push({
+              x: reagentEvents.map(e => e.t || e.ts || e.time),
+              y: reagentEvents.map(e => e.p_tube || null),
+              mode: 'markers', name: 'Вброс реагента',
+              marker: { color: '#10b981', size: 8, symbol: 'diamond' },
+              hovertext: reagentEvents.map(e => e.reagent || e.label || 'Реагент')
+            });
+          }
           if (traces.length) {
-            try { Plotly.newPlot(elPres, traces, {...layout, title:'Давления, кгс/см²', yaxis:{title:'кгс/см²'}}, cfg); }
+            try { Plotly.newPlot(elPres, traces, {...layout, title:'Давления, кгс/см²', yaxis:{title:'кгс/см²'}, shapes:allShapes}, cfg); }
             catch(e) { console.warn('obs-pres', e); }
           }
         }
@@ -1312,12 +1623,12 @@
             line:{color:'#ef6c00', width:1.6}, fill:'tozeroy',
             fillcolor:'rgba(239,108,0,0.1)', connectgaps:false
           }];
-          try { Plotly.newPlot(elDp, traces, {...layout, title:'Перепад ΔP, кгс/см²', yaxis:{title:'кгс/см²'}}, cfg); }
+          try { Plotly.newPlot(elDp, traces, {...layout, title:'Перепад ΔP, кгс/см²', yaxis:{title:'кгс/см²'}, shapes:allShapes}, cfg); }
           catch(e) { console.warn('obs-dp', e); }
         }
       }
 
-      // 3) Q(t) (chart_q)
+      // 3) Q(t) (chart_q) — с трендом, если есть
       if (on('chart_q')) {
         const elQ = document.getElementById(`prev-${bid}-obs-q`);
         if (elQ) {
@@ -1327,7 +1638,20 @@
               x:c.dates, y:qData, name:'Q факт.', mode:'lines',
               line:{color:'#2e7d32', width:1.6}, connectgaps:false
             }];
-            try { Plotly.newPlot(elQ, traces, {...layout, title:'Дебит Q(t), тыс.м³/сут', yaxis:{title:'тыс.м³/сут'}}, cfg); }
+            // Добавляем линию тренда, если есть
+            const qTrend = snap.q_trend_line || snap.q_trend;
+            if (qTrend && qTrend.slope != null && qTrend.intercept != null && c.dates.length >= 2) {
+              const n = c.dates.length;
+              const y0 = qTrend.intercept;
+              const y1 = qTrend.intercept + qTrend.slope * (n - 1);
+              traces.push({
+                x: [c.dates[0], c.dates[n - 1]],
+                y: [y0, y1],
+                mode: 'lines', name: `Тренд (${qTrend.slope >= 0 ? '+' : ''}${qTrend.slope.toFixed(3)}/сут)`,
+                line: { color: '#9333ea', width: 2, dash: 'dash' }
+              });
+            }
+            try { Plotly.newPlot(elQ, traces, {...layout, title:'Дебит Q(t), тыс.м³/сут', yaxis:{title:'тыс.м³/сут'}, shapes:allShapes}, cfg); }
             catch(e) { console.warn('obs-q', e); }
           }
         }
@@ -2630,6 +2954,12 @@
       return _buildSegmentComparisonHtml(snap, b, `segcmp-${bid}-`);
     }
 
+    // ─── sensor_customer_comparison: сопоставление LoRa и УзКорГаз ───
+    if (b.kind === 'sensor_customer_comparison') {
+      const bid = b.id || 'x';
+      return _buildSensorCustomerComparisonHtml(snap, b, `scc-${bid}-`);
+    }
+
     // baseline/period_analysis — данные заказчика (UzKorGaz)
     // observation_analysis обрабатывается ниже через observation_* блок
     if (b.kind === 'baseline' || b.kind === 'period_analysis') {
@@ -2997,6 +3327,76 @@
     }
   }
 
+  // ===== _renderSensorCustomerComparisonCharts — графики сопоставления LoRa/УзКорГаз =====
+  function _renderSensorCustomerComparisonCharts(snap, idPrefix) {
+    if (!window.Plotly) return;
+
+    var curves = snap.curves || {};
+    var layout = {
+      height: 200,
+      margin: { l: 50, r: 20, t: 20, b: 40 },
+      legend: { orientation: 'h', y: -0.25 },
+      showlegend: true,
+    };
+    var config = { responsive: true, displayModeBar: false };
+
+    // Q chart — рендерится только если элемент есть (создан в _buildSensorCustomerComparisonHtml)
+    var qEl = document.getElementById(idPrefix + 'chart-q');
+    if (qEl && curves.sensor_q && curves.customer_q) {
+        var qTraces = [
+          {
+            x: curves.sensor_q.dates || [],
+            y: curves.sensor_q.values || [],
+            name: 'LoRa',
+            mode: 'lines+markers',
+            marker: { size: 4 },
+            line: { color: '#1976d2' },
+          },
+          {
+            x: curves.customer_q.dates || [],
+            y: curves.customer_q.values || [],
+            name: 'УзКорГаз',
+            mode: 'lines+markers',
+            marker: { size: 4 },
+            line: { color: '#ff9800', dash: 'dot' },
+          },
+        ];
+        try {
+          Plotly.newPlot(qEl, qTraces, { ...layout, yaxis: { title: 'тыс.м³/сут' } }, config);
+        } catch (e) {
+          qEl.innerHTML = '<div style="color:#dc2626;">Ошибка: ' + e.message + '</div>';
+        }
+    }
+
+    // DP chart — рендерится только если элемент есть
+    var dpEl = document.getElementById(idPrefix + 'chart-dp');
+    if (dpEl && curves.sensor_dp && curves.customer_dp) {
+        var dpTraces = [
+          {
+            x: curves.sensor_dp.dates || [],
+            y: curves.sensor_dp.values || [],
+            name: 'LoRa',
+            mode: 'lines+markers',
+            marker: { size: 4 },
+            line: { color: '#1976d2' },
+          },
+          {
+            x: curves.customer_dp.dates || [],
+            y: curves.customer_dp.values || [],
+            name: 'УзКорГаз',
+            mode: 'lines+markers',
+            marker: { size: 4 },
+            line: { color: '#ff9800', dash: 'dot' },
+          },
+        ];
+        try {
+          Plotly.newPlot(dpEl, dpTraces, { ...layout, yaxis: { title: 'кгс/см²' } }, config);
+        } catch (e) {
+          dpEl.innerHTML = '<div style="color:#dc2626;">Ошибка: ' + e.message + '</div>';
+        }
+    }
+  }
+
   // ─────────────────────────────────────────────────────────────────
   //  renderChapter — параметризованный движок (из renderChapterPreview).
   //  Параметризованы 4 точки: containerId, countId, chapterTitle, kindOrder.
@@ -3029,25 +3429,35 @@
       return;
     }
 
-    var KIND_ORDER = cfg.kindOrder || {
-      chapter_intro: 1, period_analysis: 2, segment_analysis: 3,
-      comparison: 4, criteria_rose: 5, baseline: 6,
-      // Observation (датчики): baseline → period → segment → analysis
-      observation_baseline: 1,
-      observation_period: 2,
-      observation_segment: 3,
-      observation_analysis: 4,
-      // Adaptation (Step 5 wizard)
-      adaptation_period_analysis: 1,
-      optimal_window: 2,
-      reagent_irv_summary: 3,
-    };
-    inReport.sort(function (a, b) {
-      var ka = KIND_ORDER[a.kind] || 99;
-      var kb = KIND_ORDER[b.kind] || 99;
-      if (ka !== kb) return ka - kb;
-      return (a.sort_order || 0) - (b.sort_order || 0);
-    });
+    // Сортировка блоков:
+    // - useUserOrder: true → только по sort_order (пользователь задал порядок drag-drop)
+    // - useUserOrder: false (default) → сначала по kind (KIND_ORDER), затем по sort_order
+    if (cfg.useUserOrder) {
+      // Порядок полностью определяется sort_order (из БД после drag-drop)
+      inReport.sort(function (a, b) {
+        return (a.sort_order || 0) - (b.sort_order || 0);
+      });
+    } else {
+      var KIND_ORDER = cfg.kindOrder || {
+        chapter_intro: 1, period_analysis: 2, segment_analysis: 3,
+        comparison: 4, criteria_rose: 5, baseline: 6,
+        // Observation (датчики): baseline → period → segment → analysis
+        observation_baseline: 1,
+        observation_period: 2,
+        observation_segment: 3,
+        observation_analysis: 4,
+        // Adaptation (Step 5 wizard)
+        adaptation_period_analysis: 1,
+        optimal_window: 2,
+        reagent_irv_summary: 3,
+      };
+      inReport.sort(function (a, b) {
+        var ka = KIND_ORDER[a.kind] || 99;
+        var kb = KIND_ORDER[b.kind] || 99;
+        if (ka !== kb) return ka - kb;
+        return (a.sort_order || 0) - (b.sort_order || 0);
+      });
+    }
 
     var html =
       '<h3 style="margin:0 0 8px; font-size:1.05rem; color:#374151; ' +
@@ -3101,6 +3511,8 @@
         if (typeof _renderSegmentComparisonChart === 'function') {
           _renderSegmentComparisonChart(b.data_snapshot || {}, 'segcmp-' + b.id + '-');
         }
+      } else if (b.kind === 'sensor_customer_comparison') {
+        _renderSensorCustomerComparisonCharts(b.data_snapshot || {}, 'scc-' + b.id + '-');
       } else if (b.kind && b.kind.startsWith('observation_')) {
         // Observation блоки (датчики) — рендерим Plotly графики
         if (typeof _renderObservationBlockCharts === 'function') {

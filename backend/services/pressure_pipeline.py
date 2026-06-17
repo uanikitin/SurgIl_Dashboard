@@ -26,7 +26,7 @@ import subprocess
 import sys
 import time
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 logging.basicConfig(
@@ -40,6 +40,10 @@ log = logging.getLogger("pressure_pipeline")
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 LORA_ROOT = PROJECT_ROOT.parent / "Lora"
 CSV_DIR = PROJECT_ROOT / "data" / "lora"
+_STALENESS_STATE_FILE = PROJECT_ROOT / "logs" / "staleness_alert.state"
+
+# Смещение Кунград = UTC+5
+_KUNGRAD_TZ = timezone(timedelta(hours=5))
 
 
 def run_pipeline(skip_sync: bool = False) -> dict:
@@ -114,6 +118,9 @@ def run_pipeline(skip_sync: bool = False) -> dict:
             results["steps"]["sync_raw"] = {"skipped": True, "reason": "no new data"}
             results["steps"]["update_latest"] = {"skipped": True, "reason": "no new data"}
 
+        # === Шаг 6: Проверка устаревания данных ===
+        results["steps"]["staleness_alert"] = _step_staleness_alert()
+
     except Exception as e:
         log.error(f"Пайплайн упал: {e}", exc_info=True)
         results["success"] = False
@@ -127,6 +134,122 @@ def run_pipeline(skip_sync: bool = False) -> dict:
         f"success={results['success']}"
     )
     return results
+
+
+def _step_staleness_alert() -> dict:
+    """
+    Шаг 6: Проверить актуальность данных давления.
+
+    Если MAX(pressure_latest.measured_at) старше PRESSURE_STALE_ALERT_MIN минут
+    и кулдаун (PRESSURE_STALE_COOLDOWN_MIN) прошёл — отправить Telegram-алерт.
+
+    Алерт независимый: ошибки не меняют success пайплайна.
+    """
+    log.info("=== Шаг 6: Проверка устаревания данных ===")
+    try:
+        from backend.settings import settings
+        from backend.db import SessionLocal
+        from sqlalchemy import text as _text
+
+        stale_min: int = settings.PRESSURE_STALE_ALERT_MIN
+        cooldown_min: int = settings.PRESSURE_STALE_COOLDOWN_MIN
+
+        # Читаем MAX(measured_at) из pressure_latest
+        db = SessionLocal()
+        try:
+            row = db.execute(
+                _text("SELECT MAX(measured_at) FROM pressure_latest")
+            ).fetchone()
+        finally:
+            db.close()
+
+        max_ts = row[0] if row else None
+        if max_ts is None:
+            log.info("Staleness: pressure_latest пуст, пропускаем")
+            return {"skipped": True, "reason": "no data in pressure_latest"}
+
+        # measured_at хранится в UTC (naive), приводим к aware UTC
+        if max_ts.tzinfo is None:
+            max_ts = max_ts.replace(tzinfo=timezone.utc)
+
+        now_utc = datetime.now(timezone.utc)
+        age_min = (now_utc - max_ts).total_seconds() / 60.0
+
+        log.info(f"Staleness: возраст последнего измерения = {age_min:.1f} мин (порог {stale_min} мин)")
+
+        if age_min <= stale_min:
+            return {"checked": True, "age_min": round(age_min, 1), "alert_sent": False}
+
+        # Данные устарели — проверяем кулдаун
+        last_alert_ts: datetime | None = None
+        if _STALENESS_STATE_FILE.exists():
+            try:
+                raw = _STALENESS_STATE_FILE.read_text().strip()
+                if raw:
+                    last_alert_ts = datetime.fromisoformat(raw)
+                    if last_alert_ts.tzinfo is None:
+                        last_alert_ts = last_alert_ts.replace(tzinfo=timezone.utc)
+            except Exception:
+                pass  # повреждённый файл — игнорируем, отправим алерт
+
+        if last_alert_ts is not None:
+            since_last = (now_utc - last_alert_ts).total_seconds() / 60.0
+            if since_last < cooldown_min:
+                log.info(
+                    f"Staleness: алерт в кулдауне "
+                    f"({since_last:.0f} мин < {cooldown_min} мин), пропускаем"
+                )
+                return {
+                    "checked": True,
+                    "age_min": round(age_min, 1),
+                    "alert_sent": False,
+                    "cooldown_remaining_min": round(cooldown_min - since_last, 0),
+                }
+
+        # Отправляем алерт
+        bot_token = settings.TELEGRAM_BOT_TOKEN
+        chat_id = settings.TELEGRAM_DEFAULT_CHAT_ID
+        if not bot_token or not chat_id:
+            log.info("Staleness: Telegram не настроен (нет токена/chat_id), алерт пропущен")
+            return {"checked": True, "age_min": round(age_min, 1), "alert_sent": False, "reason": "telegram not configured"}
+
+        # Время последнего измерения в Кунградском времени (UTC+5)
+        last_ts_kungrad = max_ts.astimezone(_KUNGRAD_TZ)
+        hours = int(age_min // 60)
+        minutes = int(age_min % 60)
+        age_str = f"{hours} ч {minutes} мин" if hours else f"{minutes} мин"
+
+        message = (
+            "СУРГИЛ | Алерт: данные давления не обновляются\n\n"
+            f"Последнее измерение: {last_ts_kungrad.strftime('%d.%m.%Y %H:%M')} (Кунград UTC+5)\n"
+            f"Устарело на: {age_str}\n"
+            f"Порог: {stale_min} мин\n\n"
+            "Проверьте: LoRa-шлюз, Raspberry Pi, связь с сервером."
+        )
+
+        try:
+            from backend.documents.services.notification_service import _send_telegram_message
+            _send_telegram_message(message, chat_id, bot_token)
+            log.warning(f"Staleness: алерт отправлен (возраст {age_str})")
+
+            # Обновляем state-файл
+            _STALENESS_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            _STALENESS_STATE_FILE.write_text(now_utc.isoformat())
+
+            return {"checked": True, "age_min": round(age_min, 1), "alert_sent": True}
+
+        except Exception as send_err:
+            log.error(f"Staleness: ошибка отправки Telegram: {send_err}")
+            return {
+                "checked": True,
+                "age_min": round(age_min, 1),
+                "alert_sent": False,
+                "send_error": str(send_err),
+            }
+
+    except Exception as e:
+        log.error(f"Staleness alert ошибка: {e}", exc_info=True)
+        return {"error": str(e)}
 
 
 def _step_sync_csv() -> dict:
@@ -166,6 +289,7 @@ def _step_sync_csv() -> dict:
         # Парсим строку "Done: downloaded=X, skipped=Y, errors=Z" из stdout
         import re
         result = {"downloaded": 0, "skipped": 0, "errors": 0}
+        done_found = False
         for line in proc.stdout.splitlines():
             m = re.search(
                 r"downloaded=(\d+).*skipped=(\d+).*errors=(\d+)", line
@@ -174,7 +298,22 @@ def _step_sync_csv() -> dict:
                 result["downloaded"] = int(m.group(1))
                 result["skipped"] = int(m.group(2))
                 result["errors"] = int(m.group(3))
+                done_found = True
                 break
+
+        if not done_found:
+            stdout_tail = proc.stdout.splitlines()[-10:]
+            stderr_tail = proc.stderr.splitlines()[-10:]
+            log.error(
+                f"CSV sync: строка Done не найдена в stdout (exit={proc.returncode})\n"
+                f"stdout tail: {stdout_tail}\n"
+                f"stderr tail: {stderr_tail}"
+            )
+            return {
+                "error": "sync did not complete (no Done line)",
+                "stdout_tail": stdout_tail,
+                "stderr_tail": stderr_tail,
+            }
 
         log.info(
             f"CSV sync: {result['downloaded']} скачано, "
@@ -183,6 +322,17 @@ def _step_sync_csv() -> dict:
         )
         if proc.returncode != 0:
             log.warning(f"CSV sync exit={proc.returncode}\nstderr: {proc.stderr[:500]}")
+
+        if result["downloaded"] == 0 and result["skipped"] == 0:
+            stdout_tail = proc.stdout.splitlines()[-10:]
+            stderr_tail = proc.stderr.splitlines()[-10:]
+            log.warning(
+                f"CSV sync: аномалия — синк не перебрал ни одного файла (downloaded=0, skipped=0)\n"
+                f"stdout tail: {stdout_tail}\n"
+                f"stderr tail: {stderr_tail}"
+            )
+            result["warning"] = "sync saw 0 files"
+
         return result
 
     except subprocess.TimeoutExpired:

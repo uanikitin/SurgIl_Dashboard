@@ -467,3 +467,201 @@ def set_with_curves(db: Session, set_id: int) -> dict[str, Any] | None:
     out = _set_to_dict(s)
     out["curves"] = [curve_to_dict(c) for c in s.curves]
     return out
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Сопоставление данных LoRa и УзКорГаз (sensor_customer_comparison)
+# ═══════════════════════════════════════════════════════════════════
+
+def build_sensor_customer_comparison(
+    db: Session,
+    *,
+    well_number: str,
+    period_from: date,
+    period_to: date,
+) -> dict[str, Any]:
+    """Сравнение данных мониторинга LoRa с суточными сводками УзКорГаз.
+
+    Возвращает структуру для UI и snapshot:
+        {
+          ok: bool, error?: str,
+          period_from, period_to, well_number,
+          curves: {sensor_q, customer_q, sensor_dp, customer_dp},
+          daily_diff: [{date, sensor_q, customer_q, delta_q, ...}, ...],
+          summary: {sensor_q_avg, customer_q_avg, delta_q_avg, delta_q_pct, ...},
+          conclusion: str,
+        }
+    """
+    result = {
+        "ok": True,
+        "period_from": period_from.isoformat(),
+        "period_to": period_to.isoformat(),
+        "well_number": well_number,
+        "curves": {},
+        "daily_diff": [],
+        "summary": {},
+        "conclusion": "",
+    }
+
+    # ── Загрузка данных через time_series ──
+    metrics = ["q_working", "dp"]
+    sensor_data = {}
+    customer_data = {}
+
+    for metric in metrics:
+        # Наши данные (our_flow для Q, our_pressure для ΔP)
+        source = "our_flow" if metric == "q_working" else "our_pressure"
+        sensor = _cds.time_series(
+            db, source=source, well=well_number, metric=metric,
+            d_from=period_from, d_to=period_to,
+        )
+        if sensor.get("ok"):
+            sensor_data[metric] = {
+                "dates": sensor.get("dates", []),
+                "values": sensor.get("values", []),
+            }
+        else:
+            sensor_data[metric] = {"dates": [], "values": []}
+
+        # Данные заказчика
+        customer = _cds.time_series(
+            db, source="customer", well=well_number, metric=metric,
+            d_from=period_from, d_to=period_to,
+        )
+        if customer.get("ok"):
+            customer_data[metric] = {
+                "dates": customer.get("dates", []),
+                "values": customer.get("values", []),
+            }
+        else:
+            customer_data[metric] = {"dates": [], "values": []}
+
+    result["curves"] = {
+        "sensor_q": sensor_data.get("q_working", {}),
+        "customer_q": customer_data.get("q_working", {}),
+        "sensor_dp": sensor_data.get("dp", {}),
+        "customer_dp": customer_data.get("dp", {}),
+    }
+
+    # ── Построение daily_diff ──
+    # Собираем все уникальные даты
+    all_dates = set()
+    for metric in metrics:
+        all_dates.update(sensor_data.get(metric, {}).get("dates", []))
+        all_dates.update(customer_data.get(metric, {}).get("dates", []))
+    all_dates = sorted(all_dates)
+
+    # Индексируем по дате
+    def to_dict(data: dict) -> dict:
+        return dict(zip(data.get("dates", []), data.get("values", [])))
+
+    sensor_q_map = to_dict(sensor_data.get("q_working", {}))
+    customer_q_map = to_dict(customer_data.get("q_working", {}))
+    sensor_dp_map = to_dict(sensor_data.get("dp", {}))
+    customer_dp_map = to_dict(customer_data.get("dp", {}))
+
+    daily_diff = []
+    for d in all_dates:
+        s_q = sensor_q_map.get(d)
+        c_q = customer_q_map.get(d)
+        s_dp = sensor_dp_map.get(d)
+        c_dp = customer_dp_map.get(d)
+
+        delta_q = (s_q - c_q) if (s_q is not None and c_q is not None) else None
+        delta_dp = (s_dp - c_dp) if (s_dp is not None and c_dp is not None) else None
+
+        daily_diff.append({
+            "date": d,
+            "sensor_q": s_q,
+            "customer_q": c_q,
+            "delta_q": round(delta_q, 3) if delta_q is not None else None,
+            "sensor_dp": s_dp,
+            "customer_dp": c_dp,
+            "delta_dp": round(delta_dp, 3) if delta_dp is not None else None,
+        })
+
+    result["daily_diff"] = daily_diff
+
+    # ── Сводная статистика ──
+    def safe_mean(vals: list) -> float | None:
+        clean = [v for v in vals if v is not None]
+        return sum(clean) / len(clean) if clean else None
+
+    s_q_vals = [r["sensor_q"] for r in daily_diff]
+    c_q_vals = [r["customer_q"] for r in daily_diff]
+    s_dp_vals = [r["sensor_dp"] for r in daily_diff]
+    c_dp_vals = [r["customer_dp"] for r in daily_diff]
+    d_q_vals = [r["delta_q"] for r in daily_diff]
+    d_dp_vals = [r["delta_dp"] for r in daily_diff]
+
+    s_q_avg = safe_mean(s_q_vals)
+    c_q_avg = safe_mean(c_q_vals)
+    s_dp_avg = safe_mean(s_dp_vals)
+    c_dp_avg = safe_mean(c_dp_vals)
+    d_q_avg = safe_mean(d_q_vals)
+    d_dp_avg = safe_mean(d_dp_vals)
+
+    # Процент отклонения
+    d_q_pct = (d_q_avg / abs(c_q_avg) * 100) if (d_q_avg is not None and c_q_avg) else None
+    d_dp_pct = (d_dp_avg / abs(c_dp_avg) * 100) if (d_dp_avg is not None and c_dp_avg) else None
+
+    days_matched = sum(1 for r in daily_diff if r["sensor_q"] is not None and r["customer_q"] is not None)
+
+    result["summary"] = {
+        "sensor_q_avg": round(s_q_avg, 2) if s_q_avg is not None else None,
+        "customer_q_avg": round(c_q_avg, 2) if c_q_avg is not None else None,
+        "delta_q_avg": round(d_q_avg, 3) if d_q_avg is not None else None,
+        "delta_q_pct": round(d_q_pct, 1) if d_q_pct is not None else None,
+        "sensor_dp_avg": round(s_dp_avg, 2) if s_dp_avg is not None else None,
+        "customer_dp_avg": round(c_dp_avg, 2) if c_dp_avg is not None else None,
+        "delta_dp_avg": round(d_dp_avg, 3) if d_dp_avg is not None else None,
+        "delta_dp_pct": round(d_dp_pct, 1) if d_dp_pct is not None else None,
+        "days_total": len(all_dates),
+        "days_matched": days_matched,
+    }
+
+    # ── Текстовое заключение ──
+    conclusion_parts = []
+    if days_matched == 0:
+        conclusion_parts.append(
+            "За выбранный период отсутствуют совпадающие данные "
+            "мониторинга LoRa и суточных сводок УзКорГаз."
+        )
+    else:
+        # Оценка согласованности
+        q_ok = d_q_pct is not None and abs(d_q_pct) < 10
+        dp_ok = d_dp_pct is not None and abs(d_dp_pct) < 10
+
+        if q_ok and dp_ok:
+            conclusion_parts.append(
+                "Данные мониторинга LoRa согласуются с суточными сводками УзКорГаз."
+            )
+        elif q_ok or dp_ok:
+            conclusion_parts.append(
+                "Данные частично согласуются: "
+                f"{'дебит в пределах нормы' if q_ok else 'расхождение по дебиту'}; "
+                f"{'ΔP в пределах нормы' if dp_ok else 'расхождение по ΔP'}."
+            )
+        else:
+            conclusion_parts.append(
+                "Выявлено существенное расхождение между данными мониторинга LoRa "
+                "и суточными сводками УзКорГаз."
+            )
+
+        # Детали
+        if d_q_pct is not None:
+            sign = "+" if d_q_pct >= 0 else ""
+            conclusion_parts.append(
+                f"Среднее отклонение дебита: {sign}{d_q_pct:.1f}%."
+            )
+        if d_dp_pct is not None:
+            sign = "+" if d_dp_pct >= 0 else ""
+            conclusion_parts.append(
+                f"Среднее отклонение ΔP: {sign}{d_dp_pct:.1f}%."
+            )
+
+        conclusion_parts.append(f"Сопоставлено {days_matched} из {len(all_dates)} дней.")
+
+    result["conclusion"] = " ".join(conclusion_parts)
+
+    return result

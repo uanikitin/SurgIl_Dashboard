@@ -77,6 +77,27 @@ Telegram / Email                  → NotificationsEngineer (IMPLEMENT)
 
 ---
 
+# ПРАВИЛО ГРАФА (ОБЯЗАТЕЛЬНО ПЕРЕД КОДОМ)
+
+Перед любым изменением кода или проектированием функций:
+
+1. **Сверься с графом** — `graphify-out/`:
+   - `call_graph.json` — связи вызовов между функциями
+   - `data_flow.json` — использование ключей словарей
+   - `template_vars.json` — переменные Jinja2-шаблонов
+   - `graph_hybrid.html` — интерактивная визуализация
+
+2. **Максимально переиспользуй существующие функции:**
+   - Поиск: `grep -r "def function_name" backend/`
+   - Или в графе: найти узел → посмотреть связи
+   - НЕ дублировать логику — вызывать существующее
+
+3. **Если граф устарел** — обнови: `python graphify-out/build_call_graph.py`
+
+**Нарушение:** написание новой функции, если аналог уже есть в кодовой базе.
+
+---
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 > **⚠️ ПЕРЕД ПРАВКОЙ ЛЮБОЙ ФИЧИ — читай [CODEMAP.md](CODEMAP.md).**

@@ -640,6 +640,25 @@ def api_delete_block(
     return {"ok": True, "deleted_id": block_id}
 
 
+class BlocksReorder(_BM):
+    block_ids: list[int]
+
+
+@router.patch("/blocks/reorder")
+def api_reorder_blocks(
+    body: BlocksReorder,
+    db: Session = Depends(get_db_with_blocks),
+):
+    """Массовое обновление порядка блоков (drag-and-drop).
+
+    Принимает список block_ids в нужном порядке. Присваивает sort_order
+    = 0, 1, 2, ... в соответствии с позицией в списке.
+    """
+    if not body.block_ids:
+        return {"ok": True, "updated": 0}
+    return svc.reorder_blocks(db, body.block_ids)
+
+
 # ═══════════════════════════════════════════════════════════════════════
 #  API: загрузка xlsx
 # ═══════════════════════════════════════════════════════════════════════

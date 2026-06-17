@@ -402,6 +402,39 @@
       return;
     }
 
+    // ─── Fallback: вычисляем давления из chart_data если не заданы в сегментах ───
+    // API segment-demo возвращает давления в chart_data.secondary
+    const chartData = data.chart_data || {};
+    const secondary = chartData.secondary || {};
+    const pTubeArr = (secondary.p_tube_mean && secondary.p_tube_mean.values) || [];
+    const pLineArr = (secondary.p_line_mean && secondary.p_line_mean.values) || [];
+    const dpArr = (secondary.dp_mean && secondary.dp_mean.values) || [];
+
+    // Вспомогательная функция для среднего по диапазону
+    const meanInRange = (arr, start, end) => {
+      if (!arr || arr.length === 0) return null;
+      const slice = arr.slice(start, end).filter(v => v != null && isFinite(v));
+      if (slice.length === 0) return null;
+      return slice.reduce((a, b) => a + b, 0) / slice.length;
+    };
+
+    // Обогащаем сегменты данными давления из chart_data
+    segments.forEach(seg => {
+      if ((seg.mean_p_flowline === undefined || seg.mean_p_flowline === null) && pLineArr.length > 0) {
+        const val = meanInRange(pLineArr, seg.start_idx, seg.end_idx);
+        if (val !== null) seg.mean_p_flowline = val;
+      }
+      if ((seg.mean_p_wellhead === undefined || seg.mean_p_wellhead === null) && pTubeArr.length > 0) {
+        const val = meanInRange(pTubeArr, seg.start_idx, seg.end_idx);
+        if (val !== null) seg.mean_p_wellhead = val;
+      }
+      if ((seg.mean_dp === undefined || seg.mean_dp === null) && dpArr.length > 0) {
+        const val = meanInRange(dpArr, seg.start_idx, seg.end_idx);
+        if (val !== null) seg.mean_dp = val;
+      }
+    });
+    // ───────────────────────────────────────────────────────────────────────────────
+
     // Формат из /api/segment-demo/analyze:
     // {num, start_idx, end_idx, start_date, end_date, segment_type, mean, std, slope, intercept, r_squared, drift_pct, ...}
     let html = `
@@ -1090,6 +1123,34 @@
 
     try {
       await fetch(`${this.blocksApiBase}/${blockId}`, { method: 'DELETE' });
+
+      // ─── Очистка UI после удаления ───────────────────────────────────────────
+      // Сбрасываем состояние
+      this.lastResult = null;
+      this.lastSavedBlockData = null;
+
+      // Уничтожаем и очищаем график
+      if (this.chartInstance) {
+        this.chartInstance.destroy();
+        this.chartInstance = null;
+      }
+      const chartEl = document.querySelector(this.selectors.chartContainer);
+      if (chartEl) chartEl.innerHTML = '';
+
+      // Очищаем таблицу сегментов
+      const tableEl = document.querySelector(this.selectors.segmentsTable);
+      if (tableEl) tableEl.innerHTML = '';
+
+      // Скрываем блок сохранения и результат
+      const resultEl = document.querySelector(this.selectors.resultContainer);
+      if (resultEl) resultEl.style.display = 'none';
+      const saveBlockEl = document.querySelector(this.selectors.saveBlock);
+      if (saveBlockEl) saveBlockEl.style.display = 'none';
+
+      // Очищаем статус
+      this._setStatus('Блок удалён', false);
+      // ─────────────────────────────────────────────────────────────────────────
+
       this._loadBlocks();
       // Trigger refresh in parent panel if available
       if (window._obsChapterPanel && typeof window._obsChapterPanel.refresh === 'function') {

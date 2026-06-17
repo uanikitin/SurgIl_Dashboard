@@ -42,11 +42,17 @@
   };
 
   const SEGMENT_TYPE_LABELS = {
+    initial: 'Начальный',
     stable: 'Стабильный',
-    rising: 'Рост',
-    falling: 'Падение',
+    rise: 'Рост',
+    decline: 'Снижение',
+    sharp_rise: 'Резкий рост',
+    sharp_decline: 'Резкое снижение',
     volatile: 'Волатильный',
     unknown: 'Неопределён',
+    // legacy
+    rising: 'Рост',
+    falling: 'Падение',
   };
 
   // ── CLASS ─────────────────────────────────────────────────────────────────────

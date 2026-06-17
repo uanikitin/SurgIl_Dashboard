@@ -992,19 +992,50 @@
     // Преобразуем snapshot в формат, совместимый с API-ответом
     let segments = snapshot.segments_extended || snapshot.segments || [];
 
-    // Миграция: обогащаем сегменты полями давления из secondary_means (если есть)
+    // ─── Fallback: вычисляем давления из chart_data.secondary если есть ───
+    const secondary = (chartData && chartData.secondary) || {};
+    const pTubeArr = (secondary.p_tube_mean && secondary.p_tube_mean.values) || [];
+    const pLineArr = (secondary.p_line_mean && secondary.p_line_mean.values) || [];
+    const dpArr = (secondary.dp_mean && secondary.dp_mean.values) || [];
+    const downtimeArr = (secondary.downtime_min && secondary.downtime_min.values) || [];
+
+    // Функция для вычисления среднего по диапазону индексов
+    const calcMean = (arr, start, end) => {
+      if (!arr || arr.length === 0) return undefined;
+      const slice = arr.slice(start, end + 1).filter(v => v !== null && !isNaN(v));
+      if (slice.length === 0) return undefined;
+      return slice.reduce((a, b) => a + b, 0) / slice.length;
+    };
+
+    // Миграция: обогащаем сегменты полями давления из secondary_means или chart_data.secondary
     let needsResave = false;
-    segments = segments.map(seg => {
-      // Если поля давления отсутствуют, но есть secondary_means — вытащим оттуда
-      if (seg.mean_p_flowline === undefined && seg.secondary_means) {
-        const sm = seg.secondary_means;
-        seg.mean_p_flowline = sm.p_line_mean;
-        seg.mean_p_wellhead = sm.p_tube_mean;
-        seg.mean_dp = sm.dp_mean;
-        if (sm.downtime_min !== undefined && seg.working_pct === undefined) {
-          seg.working_pct = Math.max(0, (1440 - sm.downtime_min) / 1440 * 100);
+    segments = segments.map((seg, idx) => {
+      // Если поля давления отсутствуют, пробуем несколько источников
+      if (seg.mean_p_flowline === undefined) {
+        // Источник 1: secondary_means в самом сегменте
+        if (seg.secondary_means) {
+          const sm = seg.secondary_means;
+          seg.mean_p_flowline = sm.p_line_mean;
+          seg.mean_p_wellhead = sm.p_tube_mean;
+          seg.mean_dp = sm.dp_mean;
+          if (sm.downtime_min !== undefined && seg.working_pct === undefined) {
+            seg.working_pct = Math.max(0, (1440 - sm.downtime_min) / 1440 * 100);
+          }
+          needsResave = true;
         }
-        needsResave = true;
+        // Источник 2: вычисляем из chart_data.secondary по индексам сегмента
+        else if (pLineArr.length > 0 || pTubeArr.length > 0) {
+          const start = seg.start_idx !== undefined ? seg.start_idx : 0;
+          const end = seg.end_idx !== undefined ? seg.end_idx : (pLineArr.length - 1);
+          seg.mean_p_flowline = calcMean(pLineArr, start, end);
+          seg.mean_p_wellhead = calcMean(pTubeArr, start, end);
+          seg.mean_dp = calcMean(dpArr, start, end);
+          if (downtimeArr.length > 0 && seg.working_pct === undefined) {
+            const avgDowntime = calcMean(downtimeArr, start, end) || 0;
+            seg.working_pct = Math.max(0, (1440 - avgDowntime) / 1440 * 100);
+          }
+          needsResave = true;
+        }
       }
       return seg;
     });

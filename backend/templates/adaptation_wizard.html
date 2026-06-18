@@ -4645,7 +4645,7 @@
 
       <div class="wz-section">
         <h3>Описание этапа (для PDF)</h3>
-        <textarea id="wz3-desc" rows="3" placeholder="Что наблюдали, особенности скважины, замечания...">${d.description || ''}</textarea>
+        <textarea id="wz3-desc" rows="5" style="width:100%; min-height:100px; font-size:0.9rem;" placeholder="Что наблюдали, особенности скважины, замечания...">${d.description || ''}</textarea>
       </div>
 
       </div><!-- /wz3-analysis-section -->
@@ -6184,11 +6184,7 @@
       other:   '· Прочее',
     };
 
-    let html = `<h3>События и идентифицированные интервалы</h3>
-      <div style="font-size:0.78rem; color:#666; margin-bottom:0.4rem;">
-        Сверху графиков — иконки событий из БД (🌀 продувки, 💧 реагент, 🔧 оборудование, · прочее).
-        Чтобы добавить ручную аннотацию — выделите область на графике (инструмент 📦 в menubar Plotly).
-      </div>`;
+    let html = `<h3>📋 События за период (${allEvents.length})</h3>`;
 
     if (allEvents.length === 0 && ann.length === 0) {
       html += '<div class="wz-placeholder" style="padding:0.8rem; font-size:0.85rem;">Событий из БД и ручных аннотаций нет.</div>';
@@ -6196,30 +6192,69 @@
       return;
     }
 
-    html += '<table class="wz-table"><thead><tr><th>Тип</th><th>Источник</th><th>Начало</th><th>Окончание</th><th>Действия</th></tr></thead><tbody>';
-    // События из БД (все типы)
-    for (const ev of allEvents) {
-      html += `<tr>
-        <td>${typeLabels[ev.type] || ev.type}</td>
-        <td><span style="color:#888;">из БД</span></td>
-        <td>${fmtDt(ev.t)}</td>
-        <td>—</td>
-        <td><span style="color:#888; font-size:0.78rem;">только просмотр</span></td>
-      </tr>`;
+    // ─── Детальная таблица событий (как на картинке 7) ───
+    if (allEvents.length > 0) {
+      html += `<div style="overflow-x:auto; max-height:320px; overflow-y:auto; margin-bottom:12px;">
+        <table class="wz-table">
+          <thead><tr>
+            <th></th>
+            <th>Дата/время</th>
+            <th>Тип</th>
+            <th>Описание</th>
+            <th>Кол-во</th>
+            <th>P устье</th>
+            <th>P линия</th>
+          </tr></thead><tbody>`;
+      for (const ev of allEvents) {
+        const t = (ev.t || ev.event_time || '').replace('T', ' ').slice(0, 16);
+        // Определяем тип и описание
+        let typeLabel, descr, icon;
+        if (ev.type === 'purge') {
+          icon = '🌀'; typeLabel = 'Продувка'; descr = '—';
+        } else if (ev.type === 'reagent') {
+          icon = '💊'; typeLabel = 'Вброс реагента'; descr = ev.reagent || '—';
+        } else if (ev.type === 'equip') {
+          icon = '🔧'; typeLabel = 'equip'; descr = ev.description || ev.label || '—';
+        } else {
+          icon = '•'; typeLabel = 'Прочее'; descr = ev.description || ev.label || '—';
+        }
+        // Количество и давления
+        const qty = ev.qty != null ? ev.qty : '—';
+        const pTube = ev.p_tube != null ? ev.p_tube.toFixed(1) : '—';
+        const pLine = ev.p_line != null ? ev.p_line.toFixed(1) : '—';
+        html += `<tr>
+          <td>${icon}</td>
+          <td style="font-family:monospace;">${t}</td>
+          <td>${typeLabel}</td>
+          <td>${descr}</td>
+          <td style="text-align:right;">${qty}</td>
+          <td style="text-align:right;">${pTube}</td>
+          <td style="text-align:right;">${pLine}</td>
+        </tr>`;
+      }
+      html += '</tbody></table></div>';
+      // Итого
+      const reagentCnt = allEvents.filter(e => e.type === 'reagent').length;
+      const purgeCnt = allEvents.filter(e => e.type === 'purge').length;
+      html += `<div style="font-size:0.85rem; color:#666;"><b>Итого:</b> ${reagentCnt} вбросов реагента, ${purgeCnt} продувок.</div>`;
     }
-    // Ручные аннотации
-    for (const a of ann) {
-      const label = a.kind === 'purge' ? '🌀 Продувка (ручная)'
-                 : a.kind === 'downtime' ? '⏸ Простой (ручной)'
-                 : '✂ Исключено';
-      html += `<tr>
-        <td>${label}</td>
-        <td><span style="color:#1976D2;">вручную</span></td>
-        <td>${fmtDt(a.from)}</td><td>${fmtDt(a.to)}</td>
-        <td><button class="wz-btn wz-btn-outline" style="padding:0.1rem 0.4rem; font-size:0.75rem;" onclick="wz3DeleteAnnotation('${a.id}')">× удалить</button></td>
-      </tr>`;
+
+    // ─── Ручные аннотации (если есть) ───
+    if (ann.length > 0) {
+      html += `<h4 style="margin-top:16px;">Ручные аннотации</h4>
+        <table class="wz-table"><thead><tr><th>Тип</th><th>Начало</th><th>Окончание</th><th>Действия</th></tr></thead><tbody>`;
+      for (const a of ann) {
+        const label = a.kind === 'purge' ? '🌀 Продувка (ручная)'
+                   : a.kind === 'downtime' ? '⏸ Простой (ручной)'
+                   : '✂ Исключено';
+        html += `<tr>
+          <td>${label}</td>
+          <td>${fmtDt(a.from)}</td><td>${fmtDt(a.to)}</td>
+          <td><button class="wz-btn wz-btn-outline" style="padding:0.1rem 0.4rem; font-size:0.75rem;" onclick="wz3DeleteAnnotation('${a.id}')">× удалить</button></td>
+        </tr>`;
+      }
+      html += '</tbody></table>';
     }
-    html += '</tbody></table>';
     box.innerHTML = html;
   }
 
@@ -6345,14 +6380,15 @@
     const obs = state.steps[3].data.lastResult ? state.steps[3].data.lastResult.observation : null;
     if (!obs) { box.innerHTML = ''; return; }
 
-    // Регенерируем описание если ещё не было задано (или если поле пустое)
+    // Приоритет: сохранённое описание из snapshot > авто-сгенерированное
     const d = state.steps[3].data;
+    const snapDesc = obs.description;  // из API/snapshot
     const autoDesc = wz3GenerateDescription();
     if (!d.description || d.description === d._lastAutoDesc) {
-      d.description = autoDesc;
-      d._lastAutoDesc = autoDesc;
+      d.description = snapDesc || autoDesc;
+      d._lastAutoDesc = autoDesc;  // помним авто-версию для сравнения
       const ta = $('wz3-desc');
-      if (ta) ta.value = autoDesc;
+      if (ta) ta.value = d.description;
     }
 
     if (!custIsAdmin) {
@@ -6882,6 +6918,10 @@
       working_hours: s.working_hours,
       utilization_pct: s.utilization_pct,
       description: autoDesc,
+      // ─── Интервалы простоев для графиков (розовые зоны) ───
+      downtime_periods: obs.downtime_periods_list || [],
+      // ─── События: продувки, реагент, оборудование ───
+      events: obs.events_for_chart || [],
     };
 
     const title = `B2 · ${fromDate} — ${toDate} (${days} сут.)`;

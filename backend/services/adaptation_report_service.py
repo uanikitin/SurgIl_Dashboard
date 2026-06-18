@@ -166,6 +166,46 @@ def _duration_hours(dt_from: datetime, dt_to: datetime) -> float:
     return max((dt_to - dt_from).total_seconds() / 3600.0, 0)
 
 
+def _convert_chart_to_chart_data(chart: dict | None) -> list[dict] | None:
+    """Конвертирует snapshot.chart (column-arrays) в chart_data (row-objects).
+
+    snapshot.chart: {dates: [...], p_wellhead: [...], p_flowline: [...], ...}
+    chart_data:     [{t: "...", p_tube: ..., p_line: ..., dp: ..., q: ...}, ...]
+    """
+    if not chart or not isinstance(chart, dict):
+        return None
+    dates = chart.get("dates") or []
+    if not dates:
+        return None
+
+    p_wellhead = chart.get("p_wellhead") or []
+    p_flowline = chart.get("p_flowline") or []
+    dp = chart.get("dp") or []
+    q_total = chart.get("q_gas_total") or chart.get("q") or []
+
+    result = []
+    for i, t in enumerate(dates):
+        result.append({
+            "t": t,
+            "p_tube": p_wellhead[i] if i < len(p_wellhead) else None,
+            "p_line": p_flowline[i] if i < len(p_flowline) else None,
+            "dp": dp[i] if i < len(dp) else None,
+            "q": q_total[i] if i < len(q_total) else None,
+        })
+    return result
+
+
+def _calc_avg_from_chart(chart: dict | None, key: str) -> float | None:
+    """Вычисляет среднее из chart column-array."""
+    if not chart or not isinstance(chart, dict):
+        return None
+    values = chart.get(key) or []
+    valid = [v for v in values if v is not None and isinstance(v, (int, float)) and v > 0]
+    if not valid:
+        return None
+    return round(sum(valid) / len(valid), 4)
+
+
 def _duration_days_str(dt_from: datetime, dt_to: datetime) -> str:
     """Человеко-читаемая длительность: '3 сут.' или '1 сут. 12 ч'."""
     hours = _duration_hours(dt_from, dt_to)
@@ -1749,10 +1789,11 @@ def _stats_from_observation_snapshot(
         "duration_hours": round(duration_h, 2),
         "duration_label": _duration_days_str(dt_from, dt_to),
         # Давления: snapshot использует p_wellhead_* / p_flowline_*
+        # fallback: вычисляем из chart если нет в snapshot
         "p_tube_median": snap.get("p_wellhead_median"),
-        "p_tube_avg": snap.get("p_wellhead_avg"),
+        "p_tube_avg": snap.get("p_wellhead_avg") or _calc_avg_from_chart(snap.get("chart"), "p_wellhead"),
         "p_line_median": snap.get("p_flowline_median"),
-        "p_line_avg": snap.get("p_flowline_avg"),
+        "p_line_avg": snap.get("p_flowline_avg") or _calc_avg_from_chart(snap.get("chart"), "p_flowline"),
         "dp_median": snap.get("dp_median"),
         "dp_avg": snap.get("dp_avg"),
         # Дебит: предпочитаем q_working_* (рабочий), fallback на q_total_*
@@ -1782,8 +1823,17 @@ def _stats_from_observation_snapshot(
         "dp_chart_path": None,
         "flow_chart_path": None,
         "combined_chart_path": None,
-        "chart_data": snap.get("chart_data") or [],
-        "events_for_chart": snap.get("events_for_chart") or [],
+        "chart_data": _convert_chart_to_chart_data(snap.get("chart")) or snap.get("chart_data") or [],
+        "events_for_chart": snap.get("events_for_chart") or snap.get("events") or [],
+        # Текстовое описание периода
+        "description": snap.get("description") or snap.get("describe"),
+        # Описательная статистика (таблица N/Mean/Std/Min/Median/Max)
+        "describe": snap.get("describe") or [],
+        # Помесячная агрегация
+        "monthly": snap.get("monthly") or [],
+        "monthly_desc": snap.get("monthly_desc") or [],
+        # Интервалы простоев для графиков
+        "downtime_periods": snap.get("downtime_periods") or [],
         # Метка источника (для отладки)
         "_source": "snapshot",
     }
@@ -3471,11 +3521,11 @@ def collect_report_data(
             dp_threshold=dp_threshold,
         )
         log.debug("obs_stats for well %s: live calculation (no matching snapshot)", well.number)
-    # Описание: приоритет у явного override, иначе из well_status.note
+    # Описание: приоритет у явного override, затем snapshot, затем well_status.note
     obs_stats["description"] = (
         obs_description_override
         if obs_description_override is not None
-        else obs_note
+        else obs_stats.get("description") or obs_note
     )
 
     # Вступление к §3.1: дата приёмки + датчики + шлюз дозирования.

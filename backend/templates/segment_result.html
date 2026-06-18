@@ -1013,7 +1013,27 @@
         }
 
         // Восстанавливаем состояние
-        if (state.segments) segments = state.segments;
+        if (state.segments) {
+          // ВАЖНО: правки в localStorage не хранят поля давления (mean_p_*),
+          // поэтому при восстановлении они затирали серверные значения → колонки
+          // P_шл/P_уст/ΔP/Раб% показывали «—». Дозаполняем давления из исходных
+          // (серверных) сегментов по номеру. Ручные правки границ/комментарии сохраняются.
+          const _origByNum = {};
+          (originalSegments || []).forEach(o => { if (o && o.num != null) _origByNum[o.num] = o; });
+          segments = state.segments.map(s => {
+            if (s && s.mean_p_flowline == null && s.mean_p_wellhead == null) {
+              const o = _origByNum[s.num];
+              if (o) {
+                s.mean_p_flowline = o.mean_p_flowline;
+                s.mean_p_wellhead = o.mean_p_wellhead;
+                s.mean_dp = o.mean_dp;
+                if (s.working_pct == null) s.working_pct = o.working_pct;
+                if (s.secondary_means == null) s.secondary_means = o.secondary_means;
+              }
+            }
+            return s;
+          });
+        }
         if (state.changepoints) changepoints = state.changepoints;
         if (state.manualSegments) manualSegments = state.manualSegments;
         if (state.excludeRanges) excludeRanges = state.excludeRanges;

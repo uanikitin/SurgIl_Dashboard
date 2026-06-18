@@ -403,12 +403,17 @@
     }
 
     // ─── Fallback: вычисляем давления из chart_data если не заданы в сегментах ───
-    // API segment-demo возвращает давления в chart_data.secondary
+    // Snapshot (после _normalizeChartData) хранит плоские массивы: p_wellhead, p_flowline, dp
+    // API segment-demo возвращает: secondary.p_tube_mean.values, secondary.p_line_mean.values
     const chartData = data.chart_data || {};
     const secondary = chartData.secondary || {};
-    const pTubeArr = (secondary.p_tube_mean && secondary.p_tube_mean.values) || [];
-    const pLineArr = (secondary.p_line_mean && secondary.p_line_mean.values) || [];
-    const dpArr = (secondary.dp_mean && secondary.dp_mean.values) || [];
+    // Приоритет: плоские массивы из snapshot > вложенные объекты из API
+    const pTubeArr = chartData.p_wellhead ||
+                     (secondary.p_tube_mean && secondary.p_tube_mean.values) || [];
+    const pLineArr = chartData.p_flowline ||
+                     (secondary.p_line_mean && secondary.p_line_mean.values) || [];
+    const dpArr = chartData.dp ||
+                  (secondary.dp_mean && secondary.dp_mean.values) || [];
 
     // Вспомогательная функция для среднего по диапазону
     const meanInRange = (arr, start, end) => {
@@ -992,12 +997,19 @@
     // Преобразуем snapshot в формат, совместимый с API-ответом
     let segments = snapshot.segments_extended || snapshot.segments || [];
 
-    // ─── Fallback: вычисляем давления из chart_data.secondary если есть ───
+    // ─── Fallback: вычисляем давления из chart_data ───
+    // Snapshot (после _normalizeChartData) хранит плоские массивы: p_wellhead, p_flowline, dp
+    // API segment-demo возвращает: secondary.p_tube_mean.values, secondary.p_line_mean.values
     const secondary = (chartData && chartData.secondary) || {};
-    const pTubeArr = (secondary.p_tube_mean && secondary.p_tube_mean.values) || [];
-    const pLineArr = (secondary.p_line_mean && secondary.p_line_mean.values) || [];
-    const dpArr = (secondary.dp_mean && secondary.dp_mean.values) || [];
-    const downtimeArr = (secondary.downtime_min && secondary.downtime_min.values) || [];
+    // Приоритет: плоские массивы из snapshot > вложенные объекты из API
+    const pTubeArr = (chartData && chartData.p_wellhead) ||
+                     (secondary.p_tube_mean && secondary.p_tube_mean.values) || [];
+    const pLineArr = (chartData && chartData.p_flowline) ||
+                     (secondary.p_line_mean && secondary.p_line_mean.values) || [];
+    const dpArr = (chartData && chartData.dp) ||
+                  (secondary.dp_mean && secondary.dp_mean.values) || [];
+    const downtimeArr = (chartData && chartData.shutdown_min) ||
+                        (secondary.downtime_min && secondary.downtime_min.values) || [];
 
     // Функция для вычисления среднего по диапазону индексов
     const calcMean = (arr, start, end) => {

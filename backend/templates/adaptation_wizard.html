@@ -8157,8 +8157,8 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       <div class="chp-page">
        <div class="chp-left">
 
-      <!-- 1. Шкала -->
-      <div class="wz-section">
+      <!-- 1. Шкала (переносится в модал «Полный анализ», как в Наблюдении) -->
+      <div class="wz-section" id="wz5-sec-timeline">
         <h3>Временная шкала и выбор периода адаптации</h3>
         <div class="wz-step-hint" style="margin-bottom:8px;">
           ✏️ Варианты выбора:
@@ -8181,8 +8181,8 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
         </div>
       </div>
 
-      <!-- 2. Источник длительности + быстрые кнопки + поля -->
-      <div class="wz-section">
+      <!-- 2. Источник длительности + быстрые кнопки + поля (в модал «Полный анализ») -->
+      <div class="wz-section" id="wz5-sec-source">
         <h3>Источник длительности</h3>
         ${srcHtml}
 
@@ -8739,13 +8739,17 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
     const stash = document.getElementById('wz5-modal-stash');
     if (!tilesBox || !stash) return;
 
+    const secTimeline = document.getElementById('wz5-sec-timeline');
+    const secSource   = document.getElementById('wz5-sec-source');
     const secParams  = document.getElementById('wz5-sec-params');
     const secResult  = document.getElementById('wz5-result');
     const secSegment = document.getElementById('wz5-sec-segment');
     const secCmp     = document.getElementById('wz5-sec-cmp');
 
     // Переносим тяжёлые секции в стэш (один раз). Узлы сохраняют все обработчики.
-    [secParams, secResult, secSegment, secCmp].forEach(n => { if (n) stash.appendChild(n); });
+    // secTimeline/secSource — выбор периода: уезжают в модал «Полный анализ»
+    // (как в Наблюдении), на странице остаются только плитки.
+    [secTimeline, secSource, secParams, secResult, secSegment, secCmp].forEach(n => { if (n) stash.appendChild(n); });
 
     const hasResult = () => !!(state.steps[5].data && state.steps[5].data.lastResult);
 
@@ -8791,9 +8795,8 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       });
     }
 
-    const openFull = () => openPane([secParams, secResult],
-      'Полный анализ адаптации', badge('🔬 адаптация', '#dcfce7', '#166534'),
-      wz5BuildPeriodControl());
+    const openFull = () => openPane([secTimeline, secSource, secParams, secResult],
+      'Полный анализ адаптации', badge('🔬 адаптация', '#dcfce7', '#166534'));
 
     // Плитки в ряд
     const tiles = [

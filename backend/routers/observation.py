@@ -291,9 +291,9 @@ def preview_period(req: PeriodPreviewRequest, db: Session = Depends(get_db)):
         _raise_http(400, "invalid_params", str(e))
     except HTTPException:
         raise
-    except Exception:
+    except Exception as e:
         log.exception("preview/period failed for well=%s", req.well_id)
-        _raise_http(500, "internal_error", "internal server error")
+        _raise_http(500, "internal_error", f"Ошибка расчёта для скважины {req.well_id}: {type(e).__name__}: {e}")
 
 
 @router.post("/preview/segment")
@@ -327,9 +327,9 @@ def preview_segment(req: SegmentPreviewRequest, db: Session = Depends(get_db)):
         _raise_http(400, "invalid_params", str(e))
     except HTTPException:
         raise
-    except Exception:
+    except Exception as e:
         log.exception("preview/segment failed for well=%s", req.well_id)
-        _raise_http(500, "internal_error", "internal server error")
+        _raise_http(500, "internal_error", f"Ошибка расчёта сегментов для скважины {req.well_id}: {type(e).__name__}: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -493,6 +493,11 @@ def list_blocks(
             "params":        r[8] if isinstance(r[8], dict) else {},
             "data_snapshot": r[9] if isinstance(r[9], dict) else {},
         })
+    # Подробные описания сегментов (с реакцией на вброс) — генерируем на лету
+    # для segment_analysis-блоков с заглушками. В БД не пишем.
+    from backend.services.segment_descriptions import enrich_block_descriptions
+    for _it in items:
+        enrich_block_descriptions(_it, db=db)
     return {"ok": True, "items": items, "total": len(items)}
 
 

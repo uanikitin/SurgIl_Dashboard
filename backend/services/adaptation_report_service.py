@@ -4966,6 +4966,14 @@ def _format_segment_block(
     p = b.get("params") or {}
     block_id = b.get("block_id") or "x"
 
+    # Подробные описания сегментов (с реакцией на вброс) — если в снимке только
+    # заглушки/пусто, генерируем на лету (тот же текст, что в живом анализе).
+    try:
+        from backend.services.segment_descriptions import enrich_snapshot_descriptions
+        enrich_snapshot_descriptions(snap)
+    except Exception:
+        log.exception("enrich_snapshot_descriptions failed (block_id=%s)", block_id)
+
     # ── Soft schema_version check (см. контракт §7) ────────────────
     # Legacy snapshot без schema_version трактуется как v=1.
     # Версия выше поддерживаемой не приводит к падению — рендер
@@ -5074,8 +5082,12 @@ def _format_segment_block(
     )
 
     # ── Развёрнутые описания из алгоритма (snap.descriptions[]) ─
+    # v1: лежат в snap.descriptions; v2 (snapshot из segment_blocks_widget.js):
+    # лежат в snap.interpretation.descriptions. Берём первый непустой источник.
     descriptions_lines = _build_descriptions_lines(
-        snap.get("descriptions") or [],
+        snap.get("descriptions")
+        or (snap.get("interpretation") or {}).get("descriptions")
+        or [],
     )
 
     # ── События переломов: предпочитаем snap.cp_descriptions[] ─

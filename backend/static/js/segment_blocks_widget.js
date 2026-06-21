@@ -308,9 +308,23 @@ class SegmentBlocksWidget {
       interpretation: {
         summary: typeof dataGetters.generateSummary === 'function'
           ? dataGetters.generateSummary() : '',
-        descriptions: (normalizedSegments || []).map((seg, i) =>
-          `Сегмент ${i + 1}: ${seg.type || seg.segment_type || 'неизвестно'}, среднее ${(seg.mean_q || seg.mean_value || 0).toFixed(2)}`
-        )
+        // Подробные описания сегментов — тот же текст, что в живом
+        // «Текстовом отчёте» (период, вбросы по сегменту, реакция на вброс,
+        // тренд, статистика, сравнение с пред. сегментом). Берём из
+        // dataGetters.generateDescriptions(), если страница его передала;
+        // при ошибке/пустом результате — fallback на краткие заглушки
+        // (legacy-поведение, ничего не ломает).
+        descriptions: (() => {
+          let rich = null;
+          if (typeof dataGetters.generateDescriptions === 'function') {
+            try { rich = dataGetters.generateDescriptions(); }
+            catch (e) { console.warn('generateDescriptions failed:', e); }
+          }
+          if (Array.isArray(rich) && rich.length) return rich;
+          return (normalizedSegments || []).map((seg, i) =>
+            `Сегмент ${i + 1}: ${seg.type || seg.segment_type || 'неизвестно'}, среднее ${(seg.mean_q || seg.mean_value || 0).toFixed(2)}`
+          );
+        })()
       },
       display_settings: {
         show_chart: true,

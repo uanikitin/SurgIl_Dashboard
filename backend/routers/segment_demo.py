@@ -252,7 +252,16 @@ def segment_analysis_page(
             "descriptions": descriptions,
             "type_labels": SEGMENT_TYPE_LABELS,
             "type_colors": SEGMENT_TYPE_COLORS,
-            "chart_data": {"dates": result.dates, "primary": {"name": series_label, "values": result.values}},
+            "chart_data": {
+                "dates": result.dates,
+                "primary": {"name": series_label, "values": result.values},
+                # Поточечные вторичные ряды (P_шл, P_уст, ΔP, простой) — чтобы
+                # снимок нёс их в chart_data и описания считали ΔP «с→до».
+                "secondary": {
+                    col: {"name": col, "values": vals}
+                    for col, vals in (result.secondary_values or {}).items()
+                },
+            },
             "sensitivity": sensitivity,
         })
 

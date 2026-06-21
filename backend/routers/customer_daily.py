@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import (
-    APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile,
+    APIRouter, Body, Depends, File, Form, HTTPException, Query, Request, UploadFile,
 )
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -417,6 +417,32 @@ def api_segment_preview(
         return {"ok": False, "error": f"Внутренняя ошибка: {e}"}
 
 
+@router.post("/segment-analysis/describe")
+def api_segment_describe(snapshot: dict = Body(..., embed=True),
+                         db: Session = Depends(get_db_with_blocks)):
+    """Фактические описания сегментов для живого «Текстового отчёта».
+
+    Принимает снимок segment_analysis_v2 (как его строит клиентский виджет) и
+    возвращает {"descriptions": [...]} — тем же генератором, что для отчёта/PDF.
+    Единый источник текста: живая страница и отчёт не расходятся.
+    """
+    from backend.services.segment_descriptions import (
+        build_rich_descriptions, fetch_ops_events,
+    )
+    try:
+        snap = snapshot or {}
+        try:
+            snap["events_ops"] = fetch_ops_events(
+                db, snap.get("well_number"),
+                snap.get("date_from"), snap.get("date_to"))
+        except Exception:
+            log.exception("fetch_ops_events failed in describe")
+        return {"descriptions": build_rich_descriptions(snap)}
+    except Exception as e:
+        log.exception("segment-analysis/describe failed")
+        return {"descriptions": [], "error": str(e)}
+
+
 @router.get("/segment-thresholds")
 def api_segment_thresholds_get():
     """Возвращает текущие пороги сегментного анализа.
@@ -550,7 +576,13 @@ def api_list_blocks(
     - kinds: фильтрует по типу блока (kind), через запятую
     """
     kinds_list = [k.strip() for k in kinds.split(",")] if kinds else None
-    return {"blocks": svc.list_blocks(db, well_id, chapter=chapter, kinds=kinds_list)}
+    blocks = svc.list_blocks(db, well_id, chapter=chapter, kinds=kinds_list)
+    # Подробные описания сегментов (с реакцией на вброс) — генерируем на лету,
+    # если в снимке только заглушки. Не пишем в БД; покрывает старые блоки.
+    from backend.services.segment_descriptions import enrich_block_descriptions
+    for _b in blocks:
+        enrich_block_descriptions(_b, db=db)
+    return {"blocks": blocks}
 
 
 @router.get("/blocks/count")

@@ -1275,7 +1275,7 @@
             if (idx >= 0 && idx < chartData.primary.values.length) {
               byReagent[reagent].x.push(chartData.dates[idx]);
               byReagent[reagent].y.push(chartData.primary.values[idx]);
-              byReagent[reagent].text.push(`💊 ${reagent}: ${ev.qty || '?'} л`);
+              byReagent[reagent].text.push(`💊 ${reagent}: ${ev.qty || '?'} шт`);
             }
           });
 
@@ -2359,7 +2359,7 @@
       } else {
         html += `<b>Всего: ${injData.total} вбросов</b>`;
         if (injData.totalQty > 0) {
-          html += ` (${injData.totalQty.toFixed(1)} л)`;
+          html += ` (${injData.totalQty.toFixed(0)} шт)`;
         }
         html += `<ul style="margin:8px 0 0 16px; padding:0;">`;
         for (const [reagent, data] of Object.entries(injData.byReagent)) {
@@ -2368,7 +2368,7 @@
           html += `<span style="display:inline-block;width:10px;height:10px;background:${color};border-radius:50%;margin-right:6px;"></span>`;
           html += `<b>${reagent}</b>: ${data.count} шт.`;
           if (data.totalQty > 0) {
-            html += ` (${data.totalQty.toFixed(1)} л)`;
+            html += ` (${data.totalQty.toFixed(0)} шт)`;
           }
           html += `</li>`;
         }
@@ -2585,7 +2585,7 @@
     }
 
     // ═══ Генерация полного текстового отчёта ═══
-    function generateFullReport() {
+    async function generateFullReport() {
       try {
         const reportContent = document.getElementById('report-content');
         const reportPlaceholder = document.getElementById('report-placeholder');
@@ -2595,6 +2595,23 @@
           console.error('Report elements not found');
           return;
         }
+
+        // Единый источник текста: фактические описания берём с сервера
+        // (тот же генератор, что для отчёта главы и PDF). При сбое — локальный fallback.
+        let serverDesc = null;
+        try {
+          const _snap = blocksWidget._buildAnalysisSnapshot({
+            chartData: () => chartData, segments: () => segments,
+            changepoints: () => changepoints, eventsData: () => eventsData,
+            period: { from: "{{ date_from }}", to: "{{ date_to }}" },
+            series: "{{ primary_series|default('flow_rate') }}"
+          });
+          const _r = await fetch('/api/customer-daily/segment-analysis/describe', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ snapshot: _snap })
+          });
+          if (_r.ok) { const _j = await _r.json(); if (Array.isArray(_j.descriptions)) serverDesc = _j.descriptions; }
+        } catch (e) { console.warn('describe fetch failed, локальный fallback', e); }
 
         let html = '';
 
@@ -2628,7 +2645,15 @@
         html += `<div style="margin-bottom:15px; padding:12px; background:#fff; border-radius:6px; border-left:4px solid ${typeColors[seg.segment_type] || '#999'};">`;
         html += `<b>Сегмент #${seg.num}</b> `;
         html += `<span style="color:#6b7280;">(${typeLabels[seg.segment_type] || seg.segment_type})</span><br>`;
-        html += generateTextDescriptionPlain(seg, prevSeg, injData);
+        let _body;
+        if (serverDesc && serverDesc[idx]) {
+          _body = serverDesc[idx]
+            .replace(/^Сегмент\s+\d+\s+\([^)]*\)\.?\s*/, '')
+            .replace(/\n/g, '<br>');
+        } else {
+          _body = generateTextDescriptionPlain(seg, prevSeg, injData);
+        }
+        html += _body;
         html += `</div>`;
       });
 
@@ -2811,7 +2836,18 @@
         eventsData: () => eventsData,
         period: { from: "{{ date_from }}", to: "{{ date_to }}" },
         series: "{{ primary_series|default('flow_rate') }}",
-        generateSummary: typeof generateSummary === 'function' ? generateSummary : null
+        generateSummary: typeof generateSummary === 'function' ? generateSummary : null,
+        // Подробные описания каждого сегмента (тот же текст, что в живом
+        // «Текстовом отчёте»): период, вбросы, реакция на вброс, тренд,
+        // статистика, сравнение с пред. сегментом. Сохраняем в снимок,
+        // чтобы он доезжал до HTML-отчёта И PDF.
+        generateDescriptions: () => segments.map((seg, idx) => {
+          const prevSeg = idx > 0 ? segments[idx - 1] : null;
+          const injData = getSegmentInjections(seg);
+          const typeLabel = typeLabels[seg.segment_type] || seg.segment_type || '';
+          const body = generateTextDescriptionPlain(seg, prevSeg, injData);
+          return `Сегмент ${seg.num}${typeLabel ? ' (' + typeLabel + ')' : ''}: ${body}`;
+        })
       });
     }
 
@@ -3714,7 +3750,7 @@
           <td><span class="reagent-color-dot" style="background:${color}"></span></td>
           <td style="font-size:12px; white-space:nowrap;">${dateStr}</td>
           <td><b>${inj.reagent || '—'}</b></td>
-          <td>${inj.qty ? inj.qty.toFixed(1) + ' л' : '—'}</td>
+          <td>${inj.qty ? inj.qty.toFixed(0) + ' шт' : '—'}</td>
           <td style="font-size:12px; color:#6b7280; max-width:200px; overflow:hidden; text-overflow:ellipsis;">${inj.description || ''}</td>
           <td style="font-size:12px; color:#6b7280;">${segNum}</td>
         </tr>`;

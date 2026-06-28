@@ -20,6 +20,8 @@
 <script src="/static/js/chapter_preview.js?v={{ time() }}"></script>
 <script src="/static/js/chapter_render.js?v={{ time() }}"></script>
 <script src="/static/js/sensor_customer_comparison.js?v={{ time() }}"></script>
+<script src="/static/js/pressure_spectrum_widget.js?v={{ time() }}"></script>
+<script src="/static/js/param_correlation_widget.js?v={{ time() }}"></script>
 <script src="/static/js/block_reorder.js?v={{ time() }}"></script>
 <style>
   /* предотвращаем горизонтальный скролл всей страницы */
@@ -1248,6 +1250,10 @@
            include: true,  status: 'todo', data: {} },
       7: { title: 'Сборка отчёта', sub: 'предпросмотр + PDF',
            include: true,  status: 'todo', data: {} },
+      8: { title: 'Периоды', sub: 'отчёты за период',
+           include: false, status: 'todo', data: {} },
+      9: { title: 'Стабильность работ', sub: 'до / во время / после',
+           include: false, status: 'todo', data: {} },
     },
   };
 
@@ -1290,6 +1296,7 @@
     { key: 'obs_combined_chart',         chapter: '§3 Наблюдение', label: 'Комбографик наблюдения (P/ΔP/Q)', source: 3 },
     { key: 'obs_vs_baseline_table',      chapter: '§3 Наблюдение', label: 'Сравнение наблюдения с baseline заказчика', source: 3 },
     { key: 'obs_vs_baseline_narrative',  chapter: '§3 Наблюдение', label: 'Нарратив сравнения vs baseline', source: 3 },
+    { key: 'obs_formulas_and_methods',   chapter: '§3 Наблюдение', label: 'Формулы и методика расчётов', source: 3 },
     // ── §4 Адаптация ──
     { key: 'adapt_period_description',   chapter: '§4 Адаптация', label: 'Период и описание адаптации', source: 5 },
     { key: 'adapt_working_params_table', chapter: '§4 Адаптация', label: 'Рабочие параметры адаптации', source: 5 },
@@ -1382,7 +1389,7 @@
       `;
     }
     const includedCount = Object.values(state.steps).filter(s => s.include).length;
-    html += `<div class="wz-included-count">📦 Включено в PDF: <b>${includedCount}</b> из 7</div>`;
+    html += `<div class="wz-included-count">📦 Включено в PDF: <b>${includedCount}</b> из ${Object.keys(state.steps).length}</div>`;
     box.innerHTML = html;
     box.querySelectorAll('.wz-step').forEach(el => {
       el.addEventListener('click', () => goToStep(parseInt(el.dataset.step)));
@@ -1410,6 +1417,8 @@
       5: renderStep5,
       6: renderStep6,
       7: renderStep7,
+      8: renderStep8,
+      9: renderStep9,
     };
     const fn = renderers[n];
     if (fn) fn(main);
@@ -1417,7 +1426,7 @@
 
   function navButtons(n) {
     const prev = n > 1 ? `<button class="wz-btn wz-btn-outline" onclick="goToStep(${n-1})">← Назад</button>` : '';
-    const next = n < 7 ? `<button class="wz-btn wz-btn-primary right" onclick="goToStep(${n+1})">Далее →</button>` : '';
+    const next = n < 9 ? `<button class="wz-btn wz-btn-primary right" onclick="goToStep(${n+1})">Далее →</button>` : '';
     return `<div class="wz-nav-buttons">${prev}${next}</div>`;
   }
 
@@ -2798,6 +2807,22 @@
     _metadataHint: () => state.metadata || null,
     _cmpStages:    [],
   };
+  // ═══ Step 8 «Периоды» — контекст сравнения участков ═══
+  const pr8cmpCtx = {
+    prefix: 'pr8cmp',
+    segments: [],
+    lastState: null,
+    fullData: null,
+    defaultSource: 'our_pressure',
+    attachedKind: 'period_comparison',  // → глава «Периоды» в PDF
+    stageLabel: 'период',
+    tlState:       () => null,  // timeline не используется в Step 8
+    getWellId:     () => state.well?.id,
+    getWellNumber: () => state.well?.number,
+    _stepsHint:    () => state.steps?.[8] || null,
+    _metadataHint: () => state.metadata || null,
+    _cmpStages:    [],
+  };
   // Legacy alias — некоторые места в коде wizard'а используют это имя.
   let wz3cmpSegments = wz3cmpCtx.segments;
   // Палитра и keymap — реэкспорт из shared-модуля для совместимости со старыми именами.
@@ -2887,8 +2912,10 @@
       ['suffix_note',       '↓ Заключительный текст'],
     ],
     sensor_customer_comparison: [
+      ['methodology',       '📖 Методика сравнения'],
       ['show_q_chart',      '📈 График дебита Q'],
       ['show_dp_chart',     '📈 График перепада ΔP'],
+      ['trend_character',   '📈 Сравнение характера динамики'],
       ['show_table',        '📋 Таблица посуточного сравнения'],
       ['show_conclusion',   '📝 Заключение'],
     ],
@@ -2933,6 +2960,33 @@
       </div>`;
   }
 
+  // Удалить ВСЕ блоки главы «Наблюдение». Список берём через /api/observation/blocks
+  // (фильтр по kinds главы → удаляем ТОЛЬКО блоки наблюдения, не трогая другие главы).
+  window.wz3DeleteAllBlocks = async function wz3DeleteAllBlocks() {
+    if (!state.well?.id) { alert('Сначала выберите скважину.'); return; }
+    let blocks = [];
+    try {
+      const r = await fetch('/api/observation/blocks?well_id=' + state.well.id);
+      const d = await r.json();
+      blocks = (d.items || []).map(b => ({ id: b.block_id || b.id, title: b.title || '' }));
+    } catch (e) { alert('Не удалось получить список блоков: ' + e.message); return; }
+    if (!blocks.length) { alert('Блоков главы «Наблюдение» нет — удалять нечего.'); return; }
+    if (!confirm(`Удалить ВСЕ блоки главы «Наблюдение» (${blocks.length} шт.)?\n\nВосстановить будет нельзя.`)) return;
+    const btn = document.getElementById('wz3-delete-all-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Удаление…'; }
+    let ok = 0, fail = 0;
+    for (const b of blocks) {
+      try {
+        const r = await fetch('/api/customer-daily/blocks/' + b.id, { method: 'DELETE' });
+        if (r.ok) ok++; else fail++;
+      } catch (e) { fail++; }
+    }
+    if (btn) { btn.disabled = false; btn.textContent = '🗑 Удалить все блоки'; }
+    await wz3LoadAttachedBlocks();
+    if (window._obsChapterPanel?.refresh) { try { window._obsChapterPanel.refresh(); } catch (e) {} }
+    alert(`Удалено блоков: ${ok}${fail ? `, ошибок: ${fail}` : ''}.`);
+  };
+
   // ═══ Прикреплённые блоки наблюдения ═══
   // Подгружает ТОЛЬКО observation-блоки скважины (source='observation'),
   // отображает как карточки (аналогично customer_daily). Используем /api/observation/blocks.
@@ -2972,12 +3026,16 @@
         : k === 'observation_period' ? '📈 Period'
         : k === 'observation_segment' ? '🔬 Segment'
         : k === 'sensor_customer_comparison' ? '⚖️ Сопоставление'
+        : k === 'pressure_spectrum' ? '📈 Спектр давления'
+        : k === 'param_correlation' ? '📉 Зависимость параметров'
         : k;
       const _kindColor = (k) => k === 'observation_analysis' ? '#0891b2'
         : k === 'observation_baseline' ? '#d97706'
         : k === 'observation_period' ? '#16a34a'
         : k === 'observation_segment' ? '#5b21b6'
         : k === 'sensor_customer_comparison' ? '#0369a1'
+        : k === 'pressure_spectrum' ? '#7c3aed'
+        : k === 'param_correlation' ? '#0d9488'
         : '#6b7280';
       const _autoDesc = (k) => k === 'observation_analysis'
         ? '📊 Анализ наблюдения по данным датчиков давления'
@@ -2989,6 +3047,10 @@
         ? '🔬 Сегментный анализ с трендами и сравнением участков'
         : k === 'sensor_customer_comparison'
         ? '⚖️ Сопоставление данных мониторинга LoRa и суточных сводок УзКорГаз'
+        : k === 'pressure_spectrum'
+        ? '📈 Спектр распределения давления — оценка стабильности скважины'
+        : k === 'param_correlation'
+        ? '📉 Зависимость двух параметров (ΔP→Q) — scatter + линия регрессии'
         : '📊 Блок анализа';
 
       for (const b of blocks) {
@@ -4960,13 +5022,22 @@
             📋 Прикреплено к разделу «Наблюдение»
             <span id="wz3-attached-count" style="font-size:0.78rem; color:#6b7280; font-weight:400;"></span>
           </h3>
-          <button class="wz-btn wz-btn-secondary"
-                  id="wz3-preview-chapter-btn"
-                  style="padding:5px 12px; font-size:0.84rem;
-                         background:#fef3c7; color:#92400e; border-color:#fcd34d;"
-                  title="Скомпилировать PDF только этой главы (быстрее полного отчёта)">
-            👁 Превью главы «Наблюдение» (PDF)
-          </button>
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <button class="wz-btn wz-btn-secondary"
+                    id="wz3-preview-chapter-btn"
+                    style="padding:5px 12px; font-size:0.84rem;
+                           background:#fef3c7; color:#92400e; border-color:#fcd34d;"
+                    title="Скомпилировать PDF только этой главы (быстрее полного отчёта)">
+              👁 Превью главы «Наблюдение» (PDF)
+            </button>
+            <button class="wz-btn wz-btn-outline"
+                    id="wz3-delete-all-btn"
+                    style="padding:5px 12px; font-size:0.84rem; color:#dc2626; border-color:#fca5a5;"
+                    title="Удалить ВСЕ прикреплённые блоки главы «Наблюдение»"
+                    onclick="wz3DeleteAllBlocks()">
+              🗑 Удалить все блоки
+            </button>
+          </div>
         </div>
         <div class="wz-step-hint" style="margin:8px 0;">
           Сохранённые анализы периодов с полным набором (графики, таблицы,
@@ -5177,7 +5248,7 @@
         // ТОЛЬКО блоки наблюдения. НЕ блоки заказчика (baseline/period_analysis
         // /criteria_rose) — у них своя глава. Если observation-блоков нет —
         // панель пустая, это правильно (не подтягивать чужое).
-        kinds:            ['observation_analysis', 'observation_baseline', 'observation_period', 'observation_segment', 'segment_analysis', 'segment_comparison', 'sensor_customer_comparison'],
+        kinds:            ['observation_analysis', 'observation_baseline', 'observation_period', 'observation_segment', 'segment_analysis', 'segment_comparison', 'sensor_customer_comparison', 'pressure_spectrum', 'param_correlation'],
         // Порядок блоков определяется пользователем (drag-drop), а не kind
         useUserOrder:     true,
         chapter_filter:   'observation',  // Показывать только блоки с chapter='observation'
@@ -6414,9 +6485,19 @@
             ✓ Утвердить как baseline B2
           </button>
           <button id="wz3-compare-lora-btn" class="wz-btn wz-btn-secondary"
-                  onclick="openSensorCustomerComparison({wellId: state.well?.id, wellNumber: state.well?.number, chapter: 'observation'})"
+                  onclick="openSensorCustomerComparison({wellId: state.well?.id, wellNumber: state.well?.number, chapter: 'observation', dateFrom: (document.getElementById('wz3-from')?.value||'').slice(0,10), dateTo: (document.getElementById('wz3-to')?.value||'').slice(0,10)})"
                   title="Сопоставить данные мониторинга LoRa с суточными сводками УзКорГаз">
             📊 Сравнить с УзКорГаз
+          </button>
+          <button id="wz3-spectrum-btn" class="wz-btn wz-btn-secondary"
+                  onclick="openPressureSpectrum({wellId: state.well?.id, wellNumber: state.well?.number, chapter: 'observation', dateFrom: (document.getElementById('wz3-from')?.value||'').slice(0,10), dateTo: (document.getElementById('wz3-to')?.value||'').slice(0,10)})"
+                  title="Спектр распределения устьевого давления и ΔP — оценка стабильности работы скважины">
+            📈 Спектр давления
+          </button>
+          <button id="wz3-correlation-btn" class="wz-btn wz-btn-secondary"
+                  onclick="openParamCorrelation({wellId: state.well?.id, wellNumber: state.well?.number, chapter: 'observation', dateFrom: (document.getElementById('wz3-from')?.value||'').slice(0,10), dateTo: (document.getElementById('wz3-to')?.value||'').slice(0,10)})"
+                  title="Зависимость двух параметров (по умолчанию ΔP→Q): scatter + линия регрессии">
+            📉 Зависимость параметров
           </button>
           <span id="wz3-save-status" style="font-size:0.8rem; color:#10b981;"></span>
         </div>
@@ -8374,13 +8455,22 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
             📋 Прикреплено к разделу «Адаптация»
             <span id="wz5-attached-count" style="font-size:0.78rem; color:#6b7280; font-weight:400;"></span>
           </h3>
-          <button class="wz-btn wz-btn-secondary"
-                  id="wz5-preview-chapter-btn"
-                  style="padding:5px 12px; font-size:0.84rem;
-                         background:#fef3c7; color:#92400e; border-color:#fcd34d;"
-                  title="Скомпилировать PDF только этой главы (быстрее полного отчёта)">
-            👁 Превью главы «Адаптация» (PDF)
-          </button>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="wz-btn wz-btn-secondary"
+                    id="wz5-delete-all-btn"
+                    style="padding:5px 12px; font-size:0.84rem; display:none;
+                           background:#fee2e2; color:#b91c1c; border-color:#fca5a5;"
+                    title="Удалить ВСЕ прикреплённые блоки главы «Адаптация»">
+              🗑 Удалить все блоки
+            </button>
+            <button class="wz-btn wz-btn-secondary"
+                    id="wz5-preview-chapter-btn"
+                    style="padding:5px 12px; font-size:0.84rem;
+                           background:#fef3c7; color:#92400e; border-color:#fcd34d;"
+                    title="Скомпилировать PDF только этой главы (быстрее полного отчёта)">
+              👁 Превью главы «Адаптация» (PDF)
+            </button>
+          </div>
         </div>
         <div class="wz-step-hint" style="margin:8px 0;">
           Анализы периодов адаптации, сохранённые окна R★ и сводки по реагентам.
@@ -8623,7 +8713,7 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       window._adaptChapterPanel = window.initChapterPanel({
         chapter_id:       'adaptation',
         title:            'Адаптация',
-        kinds:            ['adaptation_period_analysis', 'adaptation_comparison', 'optimal_window', 'reagent_irv_summary', 'segment_analysis', 'segment_comparison'],
+        kinds:            ['adaptation_period_analysis', 'adaptation_comparison', 'optimal_window', 'reagent_irv_summary', 'adaptation_effectiveness', 'segment_analysis', 'segment_comparison', 'sensor_customer_comparison', 'pressure_spectrum', 'param_correlation'],
         // Порядок блоков определяется пользователем (drag-drop), а не kind
         useUserOrder:     true,
         chapter_filter:   'adaptation',  // legacy fallback (используется только без block_filter)
@@ -8644,9 +8734,13 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       wzPreviewChapter('adaptation');
     });
 
-    // Если уже был анализ в state — отрисуем его обратно (после переключения шагов)
+    // Если уже был анализ в state — отрисуем его обратно (после переключения шагов).
+    // Иначе пробуем ВОССТАНОВИТЬ из сохранённых снапшотов (без пересчёта) — чтобы при
+    // повторном входе/перезагрузке не гонять тяжёлый анализ заново.
     if (d.lastResult) {
       wz5RenderResult(d.lastResult);
+    } else {
+      wz5RestoreResultFromSnapshot();
     }
 
     // ═══ Сегментный анализ для главы «Адаптация» (переиспользуем ObservationSegmentWidget) ═══
@@ -9096,50 +9190,135 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
     return list[0];
   }
 
+  // ─── Восстановление результата из сохранённых снапшотов (без пересчёта) ───
+  // Снапшот блока «Анализ адаптации» уже содержит adaptation/optimal/observation/b1/
+  // comparison; «Сводка реагентов» — irv. Этого достаточно для предпросмотра, плитки
+  // эффективности, выбора R★ и кнопок. wz5RunAnalysis (пересчёт) не затрагивается.
+  function wz5BuildResultFromBlocks(blocks) {
+    const byKind = {};
+    (blocks || []).forEach(b => { if (b && b.data_snapshot && !byKind[b.kind]) byKind[b.kind] = b; });
+    const pa = byKind['adaptation_period_analysis'];
+    if (!pa) return null;
+    const s = pa.data_snapshot || {};
+    if (!(s.adaptation || s.optimal || s.observation)) return null;
+    const r = {
+      adaptation: s.adaptation || null, optimal: s.optimal || null,
+      observation: s.observation || null, b1: s.b1 || null,
+      comparison: s.comparison || null, chart_data: s.chart_data || null,
+      _restored: true, _restored_from: pa.id,
+      _restored_at: (pa.params && (pa.params.date_to || pa.params.date_from)) || '',
+    };
+    const irvB = byKind['reagent_irv_summary'];
+    if (irvB && irvB.data_snapshot) {
+      const is = irvB.data_snapshot;
+      r.irv = {
+        irv_results: is.irv_results || [], scores: is.scores || [],
+        injections_total: is.injections_total, merged_injections: is.merged_injections,
+        choke_mm: is.choke_mm, best_reagent: is.best_reagent, warnings: is.warnings || [],
+      };
+    }
+    return r;
+  }
+
+  async function wz5RestoreResultFromSnapshot() {
+    if (!state.well?.id || (state.steps[5].data && state.steps[5].data.lastResult)) return false;
+    try {
+      const kinds = 'adaptation_period_analysis,reagent_irv_summary';
+      const resp = await fetch('/api/customer-daily/blocks?well_id=' + state.well.id + '&kinds=' + kinds);
+      const j = await resp.json();
+      const blocks = (j.blocks || []).filter(wz5IsAdaptationBlock).sort((a, b) => (b.id || 0) - (a.id || 0));
+      const r = wz5BuildResultFromBlocks(blocks);
+      if (!r) return false;
+      state.steps[5].data.lastResult = r;
+      wz5RenderResult(r);
+      wz5ShowRestoredBanner(r);
+      return true;
+    } catch (e) { console.warn('wz5 restore from snapshot', e); return false; }
+  }
+
+  function wz5ShowRestoredBanner(r) {
+    const box = $('wz5-result');
+    if (!box || !r || !r._restored || $('wz5-restored-note')) return;
+    const note = document.createElement('div');
+    note.id = 'wz5-restored-note';
+    note.style.cssText = 'margin:8px 0;padding:8px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;font-size:0.84rem;color:#1e40af;';
+    note.innerHTML = '↩️ Результат восстановлен из сохранённого снимка'
+      + (r._restored_at ? ' (период по ' + r._restored_at + ')' : '')
+      + ' — без пересчёта. Для свежих данных нажмите <b>«▶ Рассчитать»</b>.';
+    box.insertBefore(note, box.firstChild);
+  }
+
   // ─── Рендер всех блоков результата ───
   function wz5RenderResult(r) {
     const box = $('wz5-result');
-    // F8: результат — сворачиваемые подразделы (аккордеон) против «стены».
-    // Графики открыты по умолчанию (Plotly/Chart.js в скрытом <details> имели бы
-    // нулевую ширину); длинные таблицы (события/ИРВ/R★) свёрнуты. Рендер-функции
-    // не меняются — наполняют те же #wz5-*-block по id.
-    const sec = (id, title, open) =>
-      `<details class="wz5-acc"${open ? ' open' : ''}>`
-      + `<summary>${title}</summary><div id="${id}"></div></details>`;
-    box.innerHTML =
-      sec('wz5-cards-block',  '🟧 Карточки метрик (R / R★ / B2 / B1)', true)
-      + sec('wz5-cmp-block',  '📋 Таблица сравнения (Наблюдение → Адаптация)', true)
-      + sec('wz5-charts-block', '📈 Графики (P, ΔP, Q) + события', true)
-      + sec('wz5-events-block', '📋 Таблица событий', false)
-      + sec('wz5-irv-block',    '🧪 ИРВ реагентов', false)
-      + sec('wz5-rstar-block',  '⭐ Окно R★ (кандидаты)', false)
-      + '<div id="wz5-actions-block"></div>';
-    wz5RenderCards(r);
-    wz5RenderCompare(r);
-    wz5RenderCharts(r);
-    wz5RenderEvents(r);
-    wz5RenderIRV(r);
-    wz5RenderRStar(r);
-    wz5RenderActions(r);
-    // Скрыть пустые подразделы (например, нет ИРВ/R★ для периода)
-    ['wz5-cards-block', 'wz5-cmp-block', 'wz5-charts-block',
-     'wz5-events-block', 'wz5-irv-block', 'wz5-rstar-block'].forEach(id => {
-      const el = document.getElementById(id);
-      const det = el && el.closest('details.wz5-acc');
-      if (det && (!el.innerHTML || !el.innerHTML.trim())) det.style.display = 'none';
-    });
-    // При раскрытии подраздела — уведомить графики о размере (страховка).
-    box.querySelectorAll('details.wz5-acc').forEach(det => {
-      det.addEventListener('toggle', () => {
-        if (!det.open) return;
-        try { window.dispatchEvent(new Event('resize')); } catch (e) { /* no-op */ }
-        if (window.Plotly && window.Plotly.Plots) {
-          det.querySelectorAll('.js-plotly-plot').forEach(p => {
-            try { window.Plotly.Plots.resize(p); } catch (e) { /* no-op */ }
-          });
-        }
+    // A2 — ЕДИНЫЙ рендер: окно «Полный анализ» рисуется тем же window.renderChapter,
+    // что и отчёт (Превью главы) и PDF. Строим блоки из живых данных анализа `r`
+    // (та же структура снапшота, что сохраняет wz5AttachBlock) и отдаём в renderChapter.
+    // Интерактивный выбор R★ и кнопки прикрепления оставляем отдельно.
+    const d = (state.steps[5] && state.steps[5].data) || {};
+    const blocks = [];
+    if (r.adaptation) {
+      blocks.push({
+        id: 'live-period', kind: 'adaptation_period_analysis', in_report: true,
+        title: 'Анализ адаптации',
+        params: { chapter: 'adaptation', parts: {} },
+        data_snapshot: {
+          adaptation: r.adaptation, observation: r.observation,
+          b1: r.b1, comparison: r.comparison, optimal: r.optimal,
+        },
       });
-    });
+    }
+    if (r.optimal) {
+      const o = r.optimal;
+      const winS = o.date_from || o.start, winE = o.date_to || o.end;
+      blocks.push({
+        id: 'live-opt', kind: 'optimal_window', in_report: true,
+        title: 'Окно R★',
+        params: { chapter: 'adaptation', parts: {} },
+        data_snapshot: { regime: Object.assign({}, o, { start: winS, end: winE }),
+          observation: r.observation, b1: r.b1 },
+      });
+    }
+    const irv = r.irv;
+    if (irv && (irv.irv_results || irv.scores)) {
+      blocks.push({
+        id: 'live-irv', kind: 'reagent_irv_summary', in_report: true,
+        title: 'Анализ эффективности реагентов',
+        params: { chapter: 'adaptation', parts: {} },
+        data_snapshot: {
+          irv_results: irv.irv_results || [], scores: irv.scores || [],
+          injections_total: irv.injections_total, merged_injections: irv.merged_injections,
+          irv_count: (irv.irv_results || []).length, choke_mm: irv.choke_mm,
+          best_reagent: irv.best_reagent, warnings: irv.warnings || [],
+          period: { from: d.from, to: d.to },
+        },
+      });
+    }
+    // «Оценка эффективности» вынесена в ОТДЕЛЬНУЮ плитку (wz5-eff-tile) —
+    // формируется и настраивается независимо; в общий предпросмотр не добавляем.
+    box.innerHTML =
+      '<div id="wz5-chapter-live"></div>'
+      + '<div id="wz5-eff-tile"></div>'
+      + '<details class="wz5-acc"><summary>⭐ Окно R★ (выбор кандидата)</summary><div id="wz5-rstar-block"></div></details>'
+      + '<div id="wz5-actions-block"></div>';
+    if (blocks.length && window.renderChapter) {
+      try {
+        window.renderChapter(blocks, {
+          containerId: 'wz5-chapter-live',
+          chapterTitle: 'Адаптация — предпросмотр главы (как в отчёте и PDF)',
+        });
+      } catch (e) {
+        document.getElementById('wz5-chapter-live').innerHTML =
+          '<div class="wz5-error">Ошибка рендера: ' + (e.message || e) + '</div>';
+      }
+    } else {
+      document.getElementById('wz5-chapter-live').innerHTML =
+        '<div style="color:#9ca3af; padding:12px;">Нет данных для предпросмотра.</div>';
+    }
+    // Интерактивный выбор кандидата R★ + кнопки прикрепления — отдельно.
+    wz5RenderRStar(r);
+    wz5RenderEffectivenessTile(r);   // ОТДЕЛЬНАЯ настраиваемая плитка эффективности
+    wz5RenderActions(r);
     // Результат есть → активировать вложенные чипы R★/ИРВ в плитке «Полный анализ»
     document.querySelectorAll('#wz5-method-tiles .wz5m-chip.disabled').forEach(ch => {
       ch.classList.remove('disabled');
@@ -10196,6 +10375,90 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
   }
 
   // ─── Кнопки действий: прикрепить анализ / R★ как блок ───
+  // ═══ ОТДЕЛЬНАЯ ПЛИТКА «Оценка эффективности» — формируется и настраивается
+  //     независимо: свои чекбоксы настроек + живое превью + кнопка прикрепления.
+  function wz5RenderEffectivenessTile(r) {
+    const el = $('wz5-eff-tile');
+    if (!el) return;
+    if (!(r && (r.optimal || r.observation))) { el.innerHTML = ''; return; }
+    const defs = (typeof ADAPT_PART_LABELS !== 'undefined' && ADAPT_PART_LABELS.adaptation_effectiveness) || [];
+    if (!el._effParts) el._effParts = {};
+    const parts = el._effParts;
+    if (!el._effDisplay) el._effDisplay = { eff_chart_style: 'bar', eff_orientation: 'v', eff_color_scheme: 'default', eff_diff_base: 1, eff_diff_target: 3 };
+    const display = el._effDisplay;
+    const snap = { adaptation: r.adaptation, optimal: r.optimal, observation: r.observation, b1: r.b1, display: display };
+    const chk = defs.map(([k, label]) =>
+      `<label style="display:inline-flex;align-items:center;gap:4px;font-size:0.8rem;margin:2px 10px 2px 0;cursor:pointer;">
+        <input type="checkbox" data-eff-part="${k}" ${parts[k] === false ? '' : 'checked'}> ${label}</label>`).join('');
+    const opts = (id, list, cur) => `<select id="${id}" style="padding:3px 6px;border:1px solid #fde68a;border-radius:5px;">` +
+      list.map(([v, l]) => `<option value="${v}" ${String(cur) === String(v) ? 'selected' : ''}>${l}</option>`).join('') + `</select>`;
+    const TYPES = [['bar', 'Бары'], ['lollipop', 'Леденцы (стебель+точка)'], ['dot', 'Точки'], ['diff', 'Разница / эффект']];
+    const ORI = [['h', 'Горизонтальная'], ['v', 'Вертикальная']];
+    const SCHEMES = [['default', 'Стандартная'], ['cool', 'Холодная'], ['warm', 'Тёплая'], ['mono', 'Моно'], ['vivid', 'Яркая']];
+    const PERIODS = [['0', 'УзКорГаз (B1)'], ['1', 'Наблюдение (B2)'], ['2', 'Адаптация (R)'], ['3', 'Оптимум (R★)']];
+    const styleNow = (display.eff_chart_style === 'hbar' || display.eff_chart_style === 'vbar') ? 'bar' : display.eff_chart_style;
+    const isDiff = styleNow === 'diff';
+    el.innerHTML = `<div style="border:2px solid #facc15;border-radius:8px;padding:14px;background:#fffdf5;margin:14px 0;">
+      <div style="font-weight:700;color:#854d0e;margin-bottom:6px;font-size:1rem;">📊 Оценка эффективности <span style="font-weight:400;font-size:0.82rem;color:#92702a;">(отдельная плитка — настраивается и прикрепляется отдельно)</span></div>
+      <div style="display:flex;align-items:center;gap:10px;margin:6px 0;font-size:0.84rem;flex-wrap:wrap;">
+        <span style="font-weight:600;color:#854d0e;">Тип:</span> ${opts('wz5-eff-style', TYPES, styleNow)}
+        <span style="font-weight:600;color:#854d0e;">Ориентация:</span> ${opts('wz5-eff-ori', ORI, display.eff_orientation || 'h')}
+        <span style="font-weight:600;color:#854d0e;">Цвета:</span> ${opts('wz5-eff-scheme', SCHEMES, display.eff_color_scheme || 'default')}
+        <span id="wz5-eff-diff-ctrls" style="display:${isDiff ? 'inline-flex' : 'none'};align-items:center;gap:6px;">
+          <span style="font-weight:600;color:#854d0e;">Разница:</span> ${opts('wz5-eff-base', PERIODS, display.eff_diff_base)} → ${opts('wz5-eff-target', PERIODS, display.eff_diff_target)}
+        </span>
+      </div>
+      <div style="margin:6px 0 10px;padding:6px 8px;background:#fff;border:1px solid #fde68a;border-radius:6px;">${chk}</div>
+      <div id="wz5-eff-tile-preview"></div>
+      <div style="margin-top:10px;">
+        <button id="wz5-eff-tile-attach" class="wz-btn wz-btn-success">➕ Прикрепить «Оценку эффективности» в отчёт</button>
+        <span id="wz5-eff-tile-status" style="font-size:0.82rem;color:#10b981;margin-left:8px;"></span>
+      </div>
+    </div>`;
+    const renderPrev = () => {
+      const blk = { id: 'efftile', kind: 'adaptation_effectiveness', in_report: true,
+        title: 'Оценка эффективности', params: { chapter: 'adaptation', parts: Object.assign({}, parts) },
+        data_snapshot: snap };
+      try { if (window.renderChapter) window.renderChapter([blk], { containerId: 'wz5-eff-tile-preview', chapterTitle: 'Превью' }); } catch (e) { /* no-op */ }
+    };
+    renderPrev();
+    $('wz5-eff-style')?.addEventListener('change', (e) => {
+      display.eff_chart_style = e.target.value;
+      const dc = $('wz5-eff-diff-ctrls'); if (dc) dc.style.display = e.target.value === 'diff' ? 'inline-flex' : 'none';
+      renderPrev();
+    });
+    $('wz5-eff-ori')?.addEventListener('change', (e) => { display.eff_orientation = e.target.value; renderPrev(); });
+    $('wz5-eff-scheme')?.addEventListener('change', (e) => { display.eff_color_scheme = e.target.value; renderPrev(); });
+    $('wz5-eff-base')?.addEventListener('change', (e) => { display.eff_diff_base = parseInt(e.target.value, 10); renderPrev(); });
+    $('wz5-eff-target')?.addEventListener('change', (e) => { display.eff_diff_target = parseInt(e.target.value, 10); renderPrev(); });
+    el.querySelectorAll('[data-eff-part]').forEach(cb =>
+      cb.addEventListener('change', () => { parts[cb.getAttribute('data-eff-part')] = cb.checked; renderPrev(); }));
+    $('wz5-eff-tile-attach')?.addEventListener('click', async () => {
+      if (!state.well?.id) { alert('Сначала выберите скважину.'); return; }
+      const d = state.steps[5].data;
+      const st = $('wz5-eff-tile-status');
+      try {
+        const resp = await fetch('/api/customer-daily/blocks', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            well_id: state.well.id, kind: 'adaptation_effectiveness',
+            title: `Оценка эффективности ${(d.from || '').slice(0, 10)} → ${(d.to || '').slice(0, 10)}`,
+            params: { chapter: 'adaptation', source: 'adaptation', date_from: d.from, date_to: d.to, parts: Object.assign({}, parts) },
+            data_snapshot: snap, in_report: true,
+          }),
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+        const j = await resp.json();
+        st.style.color = '#10b981';
+        st.textContent = 'Добавлено в отчёт (ID ' + (j.id || j.block_id) + ')';
+        if (window._adaptChapterPanel && window._adaptChapterPanel.refresh) window._adaptChapterPanel.refresh();
+        if (typeof wz5LoadAttachedBlocks === 'function') wz5LoadAttachedBlocks();
+      } catch (e) {
+        st.style.color = '#dc2626'; st.textContent = 'Ошибка: ' + (e.message || e);
+      }
+    });
+  }
+
   function wz5RenderActions(r) {
     const box = $('wz5-actions-block');
     if (!r.adaptation) { box.innerHTML = ''; return; }
@@ -10223,6 +10486,14 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
                   title="Сопоставить данные мониторинга LoRa с суточными сводками УзКорГаз">
             📊 Сравнить с УзКорГаз
           </button>
+          <button id="wz5-spectrum-btn" class="wz-btn wz-btn-secondary"
+                  title="Спектр распределения устьевого давления и ΔP — оценка стабильности работы скважины">
+            📈 Спектр давления
+          </button>
+          <button id="wz5-correlation-btn" class="wz-btn wz-btn-secondary"
+                  title="Зависимость двух параметров (по умолчанию ΔP→Q): scatter + линия регрессии">
+            📉 Зависимость параметров
+          </button>
           <span id="wz5-attach-status" style="font-size:0.82rem; color:#10b981;
                 align-self:center;"></span>
         </div>
@@ -10231,13 +10502,19 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
     $('wz5-attach-analysis')?.addEventListener('click', () => wz5AttachBlock('adaptation_period_analysis', r));
     $('wz5-attach-rstar')?.addEventListener('click',    () => wz5AttachBlock('optimal_window', r));
     $('wz5-attach-irv')?.addEventListener('click',      () => wz5AttachBlock('reagent_irv_summary', r));
-    $('wz5-compare-lora-btn')?.addEventListener('click', () => {
-      openSensorCustomerComparison({
-        wellId: state.well?.id,
-        wellNumber: state.well?.number,
-        chapter: 'adaptation'
-      });
+    // «Оценка эффективности» — теперь через отдельную плитку wz5RenderEffectivenessTile.
+    // Аналитические блоки главы Адаптация — те же модалки, что Шаг 3, но
+    // chapter='adaptation' и даты из периода этапа адаптации (wz5-from/wz5-to).
+    const _adaptAnalyticsArgs = () => ({
+      wellId: state.well?.id,
+      wellNumber: state.well?.number,
+      chapter: 'adaptation',
+      dateFrom: ($('wz5-from')?.value || '').slice(0, 10),
+      dateTo: ($('wz5-to')?.value || '').slice(0, 10),
     });
+    $('wz5-compare-lora-btn')?.addEventListener('click', () => openSensorCustomerComparison(_adaptAnalyticsArgs()));
+    $('wz5-spectrum-btn')?.addEventListener('click',     () => openPressureSpectrum(_adaptAnalyticsArgs()));
+    $('wz5-correlation-btn')?.addEventListener('click',  () => openParamCorrelation(_adaptAnalyticsArgs()));
   }
 
   async function wz5AttachBlock(kind, r) {
@@ -10308,11 +10585,21 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
         // Продолжаем без сегментного анализа
       }
     } else if (kind === 'optimal_window') {
-      if (!selected) { alert('R★ не выбран'); return; }
-      title = `R★ ${(selected.start || '').slice(0,10)} → ${(selected.end || '').slice(0,10)}`;
-      snapshot = { regime: selected, observation: r.observation, b1: r.b1 };
-      params.optimal_from = selected.start;
-      params.optimal_to   = selected.end;
+      // Источник истины окна R★ — богатый optimal_regime (o): несёт давления
+      // (Pтр/Pлин/ΔP), дебит (Q мед/ср), КИВ, Score. Кандидат (selected) даёт
+      // только Q-метрики/ранги — его берём лишь как fallback, если compute не
+      // вернул optimal_regime. Раньше сохранялся бедный кандидат → блок 4.7.x
+      // показывал «—» (см. §4.6 убран, парность HTML↔PDF).
+      const reg = o || selected;
+      if (!reg) { alert('R★ не выбран'); return; }
+      const winStart = reg.date_from || reg.start;
+      const winEnd   = reg.date_to   || reg.end;
+      // formatter/HTML читают regime.start/regime.end — нормализуем границы.
+      const regime = Object.assign({}, selected || {}, reg, { start: winStart, end: winEnd });
+      title = `R★ ${(winStart || '').slice(0,10)} → ${(winEnd || '').slice(0,10)}`;
+      snapshot = { regime, observation: r.observation, b1: r.b1 };
+      params.optimal_from = winStart;
+      params.optimal_to   = winEnd;
     } else if (kind === 'reagent_irv_summary') {
       const irv = r.irv;
       title = `Реагенты ${(d.from || '').slice(0,10)} → ${(d.to || '').slice(0,10)}`;
@@ -10328,6 +10615,11 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
         best_reagent:      irv.best_reagent,   // объект {reagent, score, level_name, …}
         warnings:          irv.warnings || [],
         period:            { from: d.from, to: d.to },
+      };
+    } else if (kind === 'adaptation_effectiveness') {
+      title = `Оценка эффективности ${(d.from || '').slice(0,10)} → ${(d.to || '').slice(0,10)}`;
+      snapshot = {
+        adaptation: a, optimal: o, observation: r.observation, b1: r.b1,
       };
     }
 
@@ -10362,11 +10654,12 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
   // Kinds, уникальные для главы «Адаптация» (не используются в других главах).
   const ADAPT_UNIQUE_KINDS = [
     'adaptation_period_analysis', 'optimal_window', 'reagent_irv_summary',
-    'adaptation_comparison',
+    'adaptation_comparison', 'adaptation_effectiveness',
   ];
   // Kinds, общие с другими главами (Заказчик/Наблюдение). Для изоляции глав
   // (CLAUDE.md) показываем их в адаптации ТОЛЬКО при params.chapter='adaptation'.
-  const ADAPT_SHARED_KINDS = ['segment_analysis', 'segment_comparison'];
+  const ADAPT_SHARED_KINDS = ['segment_analysis', 'segment_comparison',
+    'sensor_customer_comparison', 'pressure_spectrum', 'param_correlation'];
 
   // ЕДИНЫЙ предикат «блок принадлежит главе Адаптация». Используется И левым
   // списком прикреплённых блоков, И правым HTML-превью (block_filter) — поэтому
@@ -10383,14 +10676,33 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
   // Реестр артефактов блока (что попадает в отчёт). Зеркало PART_LABELS
   // в chapter_render.js — рендер главы уважает params.parts (default = true).
   const ADAPT_PART_LABELS = {
+    adaptation_effectiveness: [
+      ['intro',          '📋 Вводное описание'],
+      ['summary_table',  '📋 Сводная таблица'],
+      ['chart_q',        '📈 Диаграмма «Дебит Q»'],
+      ['chart_dp',       '📈 Диаграмма «Перепад ΔP»'],
+      ['chart_downtime', '📈 Диаграмма «Нерабочее время»'],
+      ['captions',       '💬 Пояснения к диаграммам'],
+      ['series_b1',      '🏢 Данные УзКорГаз (суточные сводки)'],
+      ['series_b2',      '🔭 Данные наблюдения (B2)'],
+      ['series_r',       '🧪 Данные адаптации (R)'],
+      ['verdict',        '📝 Заключение'],
+      ['recommendation', '✍️ Рекомендации'],
+      ['description',    '✏️ Комментарий'],
+    ],
     adaptation_period_analysis: [
+      ['setup_description','📋 Описание установки (ШУ, мониторинг, расчёт)'],
+      ['sensor_table',     '📋 Параметры датчиков (Табл. 2.1)'],
+      ['flow_methodology', '📐 Формулы и методика расчёта дебита'],
       ['intro',            '📋 Введение'],
       ['charts',           '📈 Графики (P, ΔP, Q)'],
+      ['downtime_chart',   '🟩 Рабочее/нерабочее время (посуточно)'],
+      ['stats_table',      '📊 Статистические показатели'],
       ['events_table',     '📋 Таблица событий'],
+      ['events_stats',     '🟦 Статистика событий (плитки)'],
       ['metrics_cards',    '🟧 Карточки метрик'],
       ['comparison_table', '📋 Таблица сравнения'],
       ['trends',           '📉 Тренды'],
-      ['segment_analysis', '🔍 Сегментный анализ'],
       ['description',      '✏️ Комментарий'],
     ],
     optimal_window: [
@@ -10402,6 +10714,8 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       ['cards',            '🟧 Карточки (лучший / вбросы / расход)'],
       ['narrative',        '📖 Описание словами'],
       ['scores_table',     '📋 Шкала эффективности реагентов'],
+      ['periodicity_table','⏱ Анализ периодичности вбросов'],
+      ['intervals_chart',  '📊 Диаграмма интервалов между вбросами'],
       ['charts',           '📈 Графики (вбросы / Score)'],
       ['detailed',         '🔻 Детально по ИРВ'],
       ['description',      '✏️ Комментарий'],
@@ -10412,7 +10726,8 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       ['q_segment_chart',  '📈 График Q + сегменты'],
       ['segments_table',   '📋 Таблица сегментов'],
       ['cp_descriptions',  '🔻 События переломов'],
-      ['descriptions',     '📝 Описания сегментов'],
+      ['descriptions',     '📝 Описание сегментов (кратко)'],
+      ['detailed',         '📑 Развёрнутое описание (подробно)'],
       ['description',      '✏️ Комментарий'],
     ],
     segment_comparison: [
@@ -10420,6 +10735,29 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       ['diff_table',       '📋 Таблица различий'],
       ['interpretation',   '📝 Интерпретация'],
       ['description',      '✏️ Комментарий'],
+    ],
+    // Зеркало PART_LABELS chapter_render.js (140-158) — те же ключи частей.
+    sensor_customer_comparison: [
+      ['methodology',       '📖 Методика сравнения'],
+      ['show_q_chart',      '📈 График дебита Q'],
+      ['show_dp_chart',     '📈 График перепада ΔP'],
+      ['trend_character',   '📈 Сравнение характера динамики'],
+      ['show_table',        '📋 Таблица посуточного сравнения'],
+      ['show_conclusion',   '📝 Заключение'],
+    ],
+    pressure_spectrum: [
+      ['show_ptube_chart',  '📊 Гистограмма P устьевого'],
+      ['show_dp_chart',     '📊 Гистограмма ΔP'],
+      ['show_metrics_table','📋 Таблица метрик стабильности'],
+      ['show_comparison',   '🔀 Сравнение спектров'],
+      ['show_method_note',  '📖 Описание метода'],
+      ['description',       '✏️ Комментарий'],
+    ],
+    param_correlation: [
+      ['show_chart',        '📈 График зависимости (scatter + регрессия)'],
+      ['show_stats',        '📋 Параметры регрессии'],
+      ['show_method_note',  '📖 Описание метода'],
+      ['description',       '✏️ Комментарий'],
     ],
   };
 
@@ -10485,6 +10823,27 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       // ТОТ ЖЕ предикат, что у правого HTML-превью → списки идентичны.
       let blocks = (j.blocks || []).filter(wz5IsAdaptationBlock);
       if (cnt) cnt.textContent = blocks.length ? `(${blocks.length})` : '';
+      // Кнопка «Удалить все блоки» — видна только при наличии блоков; удаляет ровно
+      // показанные (изоляция главы «Адаптация» соблюдена — другие главы не трогаем).
+      const delAllBtn = $('wz5-delete-all-btn');
+      if (delAllBtn) {
+        delAllBtn.style.display = blocks.length ? '' : 'none';
+        delAllBtn.onclick = async () => {
+          if (!confirm(`Удалить ВСЕ блоки главы «Адаптация» (${blocks.length} шт.)?\n\nВосстановить будет нельзя.`)) return;
+          delAllBtn.disabled = true;
+          try {
+            for (const b of blocks) {
+              await fetch('/api/customer-daily/blocks/' + b.id, { method: 'DELETE' });
+            }
+          } finally {
+            delAllBtn.disabled = false;
+          }
+          await wz5LoadAttachedBlocks();
+          if (window._adaptChapterPanel && typeof window._adaptChapterPanel.refresh === 'function') {
+            window._adaptChapterPanel.refresh();
+          }
+        };
+      }
       if (!blocks.length) {
         list.innerHTML = '<div class="wz5-empty">Блоки пока не прикреплены.</div>';
         return;
@@ -10496,6 +10855,9 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
         adaptation_comparison:      '🔁 Сравнение участков',
         segment_comparison:         '🔁 Сравнение участков',
         segment_analysis:           '🔬 Сегментный анализ',
+        sensor_customer_comparison: '📊 Сравнение с УзКорГаз',
+        pressure_spectrum:          '📈 Спектр давления',
+        param_correlation:          '📉 Зависимость параметров',
       };
       let html = '';
       for (const b of blocks) {
@@ -10512,6 +10874,15 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
                   style="color:#059669;">👁</button>
           <button data-block-id="${b.id}" title="Удалить">✕</button>
           ${_wz5RenderPartsToggles(b)}
+          ${kind === 'adaptation_period_analysis' ? `
+          <div style="grid-column:1/-1; margin-top:6px;">
+            <label style="font-size:0.78rem; color:#6b7280; display:block; margin-bottom:2px;">📝 Рекомендации (ручной текст в раздел выводов):</label>
+            <textarea data-reco-block="${b.id}" rows="2"
+              placeholder="Например: продолжить дозирование в режиме R★…"
+              style="width:100%; box-sizing:border-box; font-size:0.82rem; padding:6px; border:1px solid #d1d5db; border-radius:4px; resize:vertical;">${escapeHtmlW7(b.params?.recommendation || '')}</textarea>
+            <button data-reco-save="${b.id}" style="margin-top:4px; font-size:0.78rem; padding:3px 10px; cursor:pointer;">Сохранить</button>
+            <span data-reco-status="${b.id}" style="font-size:0.76rem; color:#059669; margin-left:6px;"></span>
+          </div>` : ''}
         </div>`;
       }
       list.innerHTML = html;
@@ -10520,6 +10891,29 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
           if (!confirm('Удалить блок?')) return;
           await fetch('/api/customer-daily/blocks/' + btn.dataset.blockId, {method:'DELETE'});
           wz5LoadAttachedBlocks();
+        });
+      });
+      // Ручные «Рекомендации» — сохранение через PUT params.recommendation (whitelist).
+      list.querySelectorAll('button[data-reco-save]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.dataset.recoSave;
+          const ta = list.querySelector(`textarea[data-reco-block="${id}"]`);
+          const st = list.querySelector(`span[data-reco-status="${id}"]`);
+          if (!ta) return;
+          const block = blocks.find(x => String(x.id) === String(id));
+          const params = Object.assign({}, block?.params || {}, { recommendation: ta.value });
+          if (block) block.params = params;  // локально — чтобы превью увидело свежий текст
+          try {
+            await fetch('/api/customer-daily/blocks/' + id, {
+              method: 'PUT', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ params }),
+            });
+            if (st) st.textContent = '✓ Сохранено';
+            if (window._adaptChapterPanel?.refresh) window._adaptChapterPanel.refresh();
+          } catch (e) {
+            console.warn('save recommendation', e);
+            if (st) { st.style.color = '#dc2626'; st.textContent = '✗ Ошибка'; }
+          }
         });
       });
       // R7a: клик по плитке (глаз или область заголовка) → просмотр блока из снапшота
@@ -10799,6 +11193,16 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       </div>
 
       <div class="wz-section">
+        <h3 style="margin-top:0;">Отчёты за период</h3>
+        <div class="wz-step-hint" style="margin-bottom:8px;">
+          Каждый выбранный отчёт за период войдёт в общий документ отдельным разделом
+          (по порядку дат). Снимите галочку отчёта, чтобы исключить его; раскройте отчёт,
+          чтобы включить/выключить отдельные блоки.
+        </div>
+        <div id="wz7-periods" class="wz-step-hint">Загрузка…</div>
+      </div>
+
+      <div class="wz-section">
         <h3 style="margin-top:0;">Прикреплённые пользовательские блоки</h3>
         <div id="wz7-user-blocks" class="wz-step-hint">Загрузка…</div>
       </div>
@@ -10864,6 +11268,8 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
 
     // Загрузка прикреплённых юзер-блоков
     wz7LoadUserBlocks().catch(e => console.warn('wz7LoadUserBlocks', e));
+    // Загрузка отчётов за период (для общего документа)
+    wz7LoadPeriods().catch(e => console.warn('wz7LoadPeriods', e));
   }
 
   function _wz7UpdateCounts() {
@@ -10964,6 +11370,82 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
     }[c]));
   }
 
+  // Подгружает сохранённые отчёты за период + их блоки (из customer_report_block,
+  // как их рендерит backend) и рисует чекбоксы: отчёт + вложенные блоки.
+  // Выбор управляет общим документом: period_report_ids + period_block_{id}.
+  async function wz7LoadPeriods() {
+    const box = $('wz7-periods');
+    if (!box || !state.well?.id) {
+      if (box) box.textContent = 'Скважина не выбрана.';
+      return;
+    }
+    const s7 = state.steps[7].data;
+    if (!s7.sections) s7.sections = {};
+    try {
+      const [reports, blocksResp] = await Promise.all([
+        fetch('/api/period-report/' + state.well.id + '/list').then(r => r.json()),
+        fetch('/api/customer-daily/blocks?well_id=' + state.well.id).then(r => r.json()),
+      ]);
+      const list = Array.isArray(reports) ? reports : [];
+      state.steps[7].data.availablePeriods = list;
+      const allBlocks = (blocksResp && blocksResp.blocks) || [];
+      // Группируем period-блоки по period_report_id (как фильтрует backend).
+      const blocksByPid = {};
+      for (const b of allBlocks) {
+        const p = b.params || {};
+        if (p.chapter !== 'period') continue;
+        const pid = p.period_report_id;
+        if (pid == null) continue;
+        (blocksByPid[pid] = blocksByPid[pid] || []).push(b);
+      }
+      if (!list.length) {
+        box.innerHTML = '<div class="wz-placeholder" style="padding:0.6rem; font-size:0.82rem;">Нет сохранённых отчётов за период. Создайте отчёт на шаге «Периоды».</div>';
+        return;
+      }
+      let html = '<div style="display:flex; flex-direction:column; gap:8px;">';
+      for (const rep of list) {
+        const repOn = s7.sections['period_report_' + rep.id] !== false;
+        const repBlocks = blocksByPid[rep.id] || [];
+        const dates = (rep.period_start || '') + ' — ' + (rep.period_end || '');
+        html += '<div style="border:1px solid #e5e7eb; border-radius:6px; padding:6px 8px;">'
+          + '<label class="wz7-block-row" style="font-weight:600;">'
+          + '<input type="checkbox" class="wz7-period-cb" data-pid="' + rep.id + '" ' + (repOn ? 'checked' : '') + '>'
+          + '<span class="wz7-block-label">' + escapeHtmlW7(rep.title || ('Период ' + rep.id))
+          + ' <span style="font-weight:400; color:#6b7280; font-size:0.78rem;">(' + escapeHtmlW7(dates) + ')</span></span>'
+          + '<span class="wz7-block-key">' + repBlocks.length + ' бл.</span>'
+          + '</label>';
+        if (repBlocks.length) {
+          html += '<div style="margin-left:22px; display:flex; flex-direction:column; gap:3px; margin-top:4px;">';
+          for (const b of repBlocks) {
+            const blkOn = s7.sections['period_block_' + b.id] !== false;
+            html += '<label class="wz7-block-row" style="font-size:0.85rem;">'
+              + '<input type="checkbox" class="wz7-period-block-cb" data-bid="' + b.id + '" ' + (blkOn ? 'checked' : '') + '>'
+              + '<span class="wz7-block-label">' + escapeHtmlW7(b.title || b.kind || ('блок ' + b.id)) + '</span>'
+              + '<span class="wz7-block-key">id ' + b.id + '</span>'
+              + '</label>';
+          }
+          html += '</div>';
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+      box.innerHTML = html;
+      box.querySelectorAll('.wz7-period-cb').forEach(cb => {
+        cb.addEventListener('change', () => {
+          s7.sections['period_report_' + cb.dataset.pid] = cb.checked;
+        });
+      });
+      box.querySelectorAll('.wz7-period-block-cb').forEach(cb => {
+        cb.addEventListener('change', () => {
+          s7.sections['period_block_' + cb.dataset.bid] = cb.checked;
+        });
+      });
+    } catch (e) {
+      console.warn('wz7LoadPeriods', e);
+      box.textContent = 'Ошибка загрузки отчётов за период.';
+    }
+  }
+
   // ═══ Generate PDF ═══
   // Сборка body для preview-pdf — общая утилита для полного отчёта и
   // частичных превью (глава/блок). Возвращает {ok, body, error}.
@@ -11007,9 +11489,23 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
     const rawSections = state.steps[7]?.data?.sections || {};
     const sectionsAtomic = {};
     for (const [key, checked] of Object.entries(rawSections)) {
-      // Включаем только если блок доступен и галочка стоит
-      sectionsAtomic[key] = checked && (avail[key] !== false);
+      // period_report_*/period_block_* — не подчиняются avail (их нет в каталоге),
+      // пропускаем как есть; остальные — только если блок доступен и галочка стоит.
+      if (key.startsWith('period_report_') || key.startsWith('period_block_')) {
+        sectionsAtomic[key] = checked;
+      } else {
+        sectionsAtomic[key] = checked && (avail[key] !== false);
+      }
     }
+
+    // Выбранные отчёты за период (Step 7 «Периоды») → period_report_ids.
+    // По умолчанию (нет ключа) период включён; явная false снимает его.
+    const _periods = state.steps[7]?.data?.availablePeriods || [];
+    const _selPeriodIds = _periods
+      .filter(p => sectionsAtomic['period_report_' + p.id] !== false)
+      .map(p => p.id);
+    // Гейт раздела «Отчёты за периоды» — только если выбран хотя бы один период.
+    sectionsAtomic['period'] = _selPeriodIds.length > 0;
 
     const body = {
       well_id: state.well.id,
@@ -11022,6 +11518,7 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       include_customer_chapter: state.steps[2].include && customerPeriods.length > 0,
       customer_periods: customerPeriods,
       sections: sectionsAtomic,
+      period_report_ids: _selPeriodIds,
       only_chapter,
       only_block_id,
     };
@@ -11424,6 +11921,2559 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
     box.innerHTML = cards;
   }
 
+  // ═══ STEP 8: Периоды — отчёты за произвольный период ═══
+  function renderStep8(main) {
+    const wellId = state.well?.id;
+    main.innerHTML = `
+      <h2 class="wz-step-title"><span class="step-num">8</span>Периоды — отчёты за период</h2>
+      <div class="wz-step-hint">Формирование отчётов за произвольный период. Выберите период, проведите анализ, сохраните в главу отчёта.</div>
+
+      <!-- ═══ Каркас 60/40 этапа «Периоды» (как «Адаптация» и «Наблюдение») ═══ -->
+      <div class="chp-page">
+       <div class="chp-left">
+
+      <div style="display:grid; grid-template-columns: 280px 1fr; gap:1rem; margin-top:1rem;">
+        <!-- Левая мини-панель: создание/список отчётов -->
+        <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:1rem;">
+          <h3 style="margin:0 0 0.8rem; font-size:0.95rem; color:#334155;">📅 Создать новый отчёт</h3>
+
+          <!-- Быстрый выбор месяца -->
+          <div class="wz-field" style="margin-bottom:0.6rem;">
+            <label style="font-size:0.85rem;">Быстрый выбор месяца</label>
+            <select id="pr-month-select" style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px; font-size:0.9rem;">
+              <option value="">— выберите месяц —</option>
+            </select>
+          </div>
+
+          <div style="text-align:center; color:#94a3b8; font-size:0.75rem; margin-bottom:0.5rem;">— или укажите даты вручную —</div>
+
+          <div class="wz-row" style="margin-bottom:0.8rem;">
+            <div class="wz-field">
+              <label>Период от</label>
+              <input type="date" id="pr-date-from">
+            </div>
+            <div class="wz-field">
+              <label>до</label>
+              <input type="date" id="pr-date-to">
+            </div>
+          </div>
+
+          <div class="wz-field" style="margin-bottom:0.8rem;">
+            <label>Название отчёта</label>
+            <input type="text" id="pr-title" placeholder="Отчет март 2026">
+          </div>
+
+          <button class="wz-btn wz-btn-primary" id="pr-create-btn" style="width:100%;">
+            ➕ Создать отчёт
+          </button>
+
+          <hr style="margin:1rem 0; border:none; border-top:1px solid #e2e8f0;">
+
+          <h3 style="margin:0 0 0.8rem; font-size:0.95rem; color:#334155;">📋 Сохранённые отчёты</h3>
+          <div id="pr-reports-list" style="max-height:300px; overflow-y:auto;">
+            <div class="wz-placeholder" style="font-size:0.85rem;">Загрузка...</div>
+          </div>
+        </div>
+
+        <!-- Правая панель: анализ (как в Step 5 Адаптация) -->
+        <div style="background:#fff; border:1px solid #e2e8f0; border-radius:8px; padding:1rem; overflow-y:auto; max-height:80vh;">
+          <div id="pr-editor" style="display:none;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.8rem;">
+              <h3 style="margin:0; font-size:0.95rem; color:#334155;" id="pr-editor-title">Анализ периода</h3>
+              <button class="wz-btn wz-btn-outline" id="pr-close-editor" style="font-size:0.8rem;">✕ Закрыть</button>
+            </div>
+
+            <!-- Информация о периоде -->
+            <div id="pr-period-info" style="background:#f0f9ff; border:1px solid #bae6fd; border-radius:6px; padding:0.8rem; margin-bottom:0.8rem;">
+              <div style="font-size:0.85rem; color:#0369a1;">📅 Период анализа: <span id="pr-period-dates"></span></div>
+            </div>
+
+            <!-- Параметры расчёта (как в Step 5) -->
+            <div class="wz-section" style="background:#fff7ed; border:1px solid #fed7aa; border-radius:6px; padding:0.8rem; margin-bottom:0.8rem;">
+              <div style="font-size:0.85rem; font-weight:500; color:#9a3412; margin-bottom:0.5rem;">Параметры расчёта</div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:0.5rem;">
+                <span style="font-size:0.82rem; color:#9a3412;">Порог простоя ΔP:</span>
+                <button type="button" class="pr-dp-pill wz-pill" data-th="0.1">0.1</button>
+                <button type="button" class="pr-dp-pill wz-pill" data-th="0.2">0.2</button>
+                <button type="button" class="pr-dp-pill wz-pill" data-th="0.3">0.3</button>
+                <button type="button" class="pr-dp-pill wz-pill" data-th="0.5">0.5</button>
+                <input type="number" id="pr-dp-threshold" min="0" max="2" step="0.05" value="0.1"
+                       style="width:5rem; padding:2px 6px; font-size:0.82rem; border:1px solid #fdba74; border-radius:3px;">
+                <span style="color:#9ca3af; font-size:0.74rem;">атм</span>
+              </div>
+              <div style="display:flex; gap:1rem; align-items:center;">
+                <div style="display:flex; align-items:center; gap:6px;">
+                  <label style="font-size:0.82rem; color:#374151;">Ширина окна R★:</label>
+                  <input type="number" id="pr-opt-days" min="1" max="14" value="3" style="width:4rem; padding:2px 6px; font-size:0.82rem; border:1px solid #d1d5db; border-radius:3px;">
+                  <span style="font-size:0.74rem; color:#6b7280;">сут.</span>
+                </div>
+                <button id="pr-analyze-btn" class="wz-btn wz-btn-primary" style="background:#059669;">
+                  ▶ Проанализировать
+                </button>
+              </div>
+            </div>
+
+            <!-- Результат анализа (аккордеон как в Step 5) -->
+            <div id="pr-result">
+              <div class="wz-placeholder" style="font-size:0.85rem; padding:2rem;">
+                Нажмите «Проанализировать» для запуска анализа
+              </div>
+            </div>
+
+            <!-- Действия -->
+            <div id="pr-actions" style="margin-top:1rem; padding-top:0.8rem; border-top:1px solid #e5e7eb; display:none;">
+              <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                <button class="wz-btn wz-btn-primary" id="pr-save-btn">💾 Сохранить в отчёт</button>
+              </div>
+            </div>
+
+            <!-- Плитки инструментов (3 анализа) -->
+            <div id="pr-tools-tiles" class="wz-tools-tiles" style="display:none; margin:1rem 0; padding:12px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0;">
+              <h4 style="margin:0 0 10px; font-size:0.9rem; font-weight:600; color:#475569;">🛠 Инструменты анализа</h4>
+              <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px;">
+                <!-- Плитка 1: Анализ периода (основной) -->
+                <div class="pr-tool-tile" id="pr-tile-period" onclick="_prRunAnalysis()"
+                     style="background:linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+                            border:2px solid #86efac; border-radius:8px; padding:14px;
+                            cursor:pointer; transition:all 0.15s;">
+                  <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                    <span style="font-size:1.3rem;">📊</span>
+                    <span style="font-size:0.95rem; font-weight:600; color:#166534;">Анализ периода</span>
+                  </div>
+                  <div style="font-size:0.78rem; color:#15803d; line-height:1.3;">
+                    Метрики Q/ΔP → графики → события
+                  </div>
+                </div>
+                <!-- Плитка 2: Сегментный анализ -->
+                <div class="pr-tool-tile" id="pr-tile-segment" onclick="_prRunSegmentAnalysis()"
+                     style="background:linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+                            border:2px solid #94a3b8; border-radius:8px; padding:14px;
+                            cursor:pointer; transition:all 0.15s;">
+                  <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                    <span style="font-size:1.3rem;">📈</span>
+                    <span style="font-size:0.95rem; font-weight:600; color:#1e3a5f;">Сегментный анализ</span>
+                  </div>
+                  <div style="font-size:0.78rem; color:#475569; line-height:1.3;">
+                    Авто-детект рост/падение/стабилизация
+                  </div>
+                </div>
+                <!-- Плитка 3: Сравнение участков -->
+                <div class="pr-tool-tile" id="pr-tile-compare" onclick="_prOpenCompare()"
+                     style="background:linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+                            border:2px solid #93c5fd; border-radius:8px; padding:14px;
+                            cursor:pointer; transition:all 0.15s;">
+                  <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                    <span style="font-size:1.3rem;">🔁</span>
+                    <span style="font-size:0.95rem; font-weight:600; color:#1e40af;">Сравнение участков</span>
+                  </div>
+                  <div style="font-size:0.78rem; color:#1d4ed8; line-height:1.3;">
+                    Drag-select участки → наложение кривых
+                  </div>
+                </div>
+                <!-- Плитка 4: Оценка эффективности (сравнение метрик периодов) -->
+                <div class="pr-tool-tile" id="pr-tile-compare-metrics" onclick="_prOpenCompareMetrics()"
+                     style="background:linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
+                            border:2px solid #818cf8; border-radius:8px; padding:14px;
+                            cursor:pointer; transition:all 0.15s;">
+                  <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                    <span style="font-size:1.3rem;">⚖️</span>
+                    <span style="font-size:0.95rem; font-weight:600; color:#3730a3;">Оценка эффективности</span>
+                  </div>
+                  <div style="font-size:0.78rem; color:#4338ca; line-height:1.3;">
+                    Сравнить метрики с наблюдением / адаптацией / периодами
+                  </div>
+                </div>
+              </div>
+              <!-- Аналитические инструменты (chapter='period'): те же модалки, что
+                   Шаг 3/5, но даты из периода отчёта (pr-seg-from/pr-seg-to). -->
+              <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; padding-top:10px; border-top:1px dashed #cbd5e1;">
+                <button type="button" class="wz-btn wz-btn-secondary" id="pr-compare-lora-btn"
+                        onclick="openSensorCustomerComparison(window._prAnalyticsArgs())"
+                        title="Сопоставление данных мониторинга LoRa и суточных сводок УзКорГаз">
+                  ⚖️ Сопоставление LoRa
+                </button>
+                <button type="button" class="wz-btn wz-btn-secondary" id="pr-spectrum-btn"
+                        onclick="openPressureSpectrum(window._prAnalyticsArgs())"
+                        title="Спектр распределения устьевого давления и ΔP — оценка стабильности работы скважины">
+                  📈 Спектр давления
+                </button>
+                <button type="button" class="wz-btn wz-btn-secondary" id="pr-correlation-btn"
+                        onclick="openParamCorrelation(window._prAnalyticsArgs())"
+                        title="Зависимость двух параметров: scatter + линия регрессии">
+                  🔗 Корреляция параметров
+                </button>
+              </div>
+            </div>
+            <style>
+              .pr-tool-tile:hover { transform:translateY(-2px); box-shadow:0 4px 12px rgba(0,0,0,0.12); }
+              .pr-tool-tile:active { transform:translateY(0); }
+            </style>
+
+            <!-- Сегментный анализ (как в Step 5) -->
+            <div class="wz-section" id="pr-sec-segment" style="display:none; background:#f0fdf4; border:1px solid #86efac; border-radius:8px; padding:16px; margin:12px 0;">
+              <div class="adapt-seg-widget" id="pr-seg-container" style="border:none; padding:0; background:transparent;">
+                <h4 style="margin:0 0 10px; font-size:1rem; font-weight:600; color:#166534; display:flex; align-items:center; gap:8px;">
+                  <span style="font-size:1.15rem;">📊</span> Сегментный анализ периода
+                  <span id="pr-seg-well-badge" style="font-size:0.75rem; padding:2px 8px; background:#dcfce7; color:#166534; border-radius:4px; font-weight:500;"></span>
+                </h4>
+                <div class="wz-step-hint" style="margin-bottom:12px; color:#166534; font-size:0.85rem;">
+                  Анализ выявляет сегменты с разным режимом работы скважины.
+                  Даты берутся из выбранного периода отчёта.
+                </div>
+
+                <div class="adapt-seg-period-row" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                  <label style="font-size:0.85rem; font-weight:500; color:#374151;">Период:</label>
+                  <input type="date" id="pr-seg-from" style="width:140px; padding:6px 10px; border:1px solid #86efac; border-radius:5px; font-size:0.85rem;" readonly>
+                  <span style="color:#6b7280;">—</span>
+                  <input type="date" id="pr-seg-to" style="width:140px; padding:6px 10px; border:1px solid #86efac; border-radius:5px; font-size:0.85rem;" readonly>
+
+                  <span style="margin-left:12px; display:flex; align-items:center; gap:6px;">
+                    <label style="font-size:0.85rem; font-weight:500; color:#374151;" title="Чувствительность определения точек перелома (1-10)">Чувств.:</label>
+                    <input type="range" id="pr-seg-sensitivity" min="1" max="10" value="5" style="width:80px; cursor:pointer;"
+                           title="1 = меньше сегментов, 10 = больше сегментов">
+                    <span id="pr-seg-sensitivity-val" style="font-size:0.82rem; color:#6b7280; min-width:20px;">5</span>
+                  </span>
+
+                  <button type="button" id="pr-seg-calc-btn"
+                          style="padding:7px 16px; background:#16a34a; color:#fff; border:none; border-radius:5px; font-size:0.85rem; font-weight:500; cursor:pointer;">
+                    ▶ Рассчитать
+                  </button>
+                  <button type="button" id="pr-seg-full-btn"
+                          style="padding:7px 16px; background:#059669; color:#fff; border:none; border-radius:5px; font-size:0.85rem; font-weight:500; cursor:pointer; margin-left:8px;"
+                          title="Открыть полный анализ с редактированием, сравнением и ручным режимом">
+                    🔬 Полный анализ
+                  </button>
+                  <span id="pr-seg-status" style="font-size:0.82rem; margin-left:8px;"></span>
+                </div>
+
+                <!-- Результат расчёта -->
+                <div id="pr-seg-result" class="adapt-seg-result" style="display:none;">
+                  <div id="pr-seg-chart" class="adapt-seg-chart"></div>
+                  <div id="pr-seg-table"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Сравнение участков (как в Step 5) -->
+            <div id="pr-sec-cmp" style="display:none;"></div>
+
+            <!-- Оценка эффективности: конструктор сравнения метрик периодов -->
+            <div class="wz-section" id="pr-sec-compare-metrics" style="display:none; background:#eef2ff; border:1px solid #818cf8; border-radius:8px; padding:16px; margin:12px 0;">
+              <h4 style="margin:0 0 8px; font-size:1rem; font-weight:600; color:#3730a3; display:flex; align-items:center; gap:8px;">
+                <span style="font-size:1.15rem;">⚖️</span> Оценка эффективности (сравнение метрик)
+              </h4>
+              <div class="wz-step-hint" style="margin-bottom:10px; color:#3730a3; font-size:0.85rem;">
+                Текущий период сравнивается с выбранными источниками. Отметь галочками, с чем сравнить
+                (наблюдение, адаптация, оптимум, заказчик, другие сохранённые периоды) → «Построить».
+                Сначала запусти «📊 Анализ периода» — из него берутся метрики текущего периода.
+              </div>
+              <div id="pr-cmp-sources" style="display:flex; flex-direction:column; gap:6px; margin-bottom:10px;">
+                <div class="wz-placeholder" style="font-size:0.85rem;">Запусти «Анализ периода», затем открой эту панель.</div>
+              </div>
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <button type="button" id="pr-cmp-build-btn"
+                        style="padding:7px 16px; background:#4f46e5; color:#fff; border:none; border-radius:5px; font-size:0.85rem; font-weight:500; cursor:pointer;">
+                  ▶ Построить
+                </button>
+                <button type="button" id="pr-cmp-save-btn"
+                        style="padding:7px 16px; background:#059669; color:#fff; border:none; border-radius:5px; font-size:0.85rem; font-weight:500; cursor:pointer; display:none;">
+                  💾 Сохранить как блок
+                </button>
+                <span id="pr-cmp-status" style="font-size:0.82rem; color:#3730a3;"></span>
+              </div>
+              <div id="pr-cmp-preview" style="margin-top:12px;"></div>
+            </div>
+
+            <!-- Прикреплённые блоки главы «Периоды» -->
+            <div class="wz-section" style="margin-top:1rem;">
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+                <h3 style="margin:0;">
+                  📋 Прикреплено к главе «Периоды»
+                  <span id="pr-attached-count" style="font-size:0.78rem; color:#6b7280; font-weight:400;"></span>
+                </h3>
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <label for="pr-section-no" style="font-size:0.82rem; color:#374151;"
+                         title="Номер раздела в PDF: заголовок «N. Отчёт за период», подразделы «N.1…», рисунки «N.x»">№ раздела:</label>
+                  <input type="text" id="pr-section-no" value="3" maxlength="4"
+                         style="width:48px; padding:4px 6px; font-size:0.84rem; text-align:center; border:1px solid #d1d5db; border-radius:4px;"
+                         title="Номер раздела «Отчёт за период» (по умолчанию 3)">
+                  <button class="wz-btn wz-btn-secondary" id="pr-delete-all-btn"
+                          style="padding:5px 12px; font-size:0.84rem; background:#fee2e2; color:#991b1b; border-color:#fca5a5;"
+                          title="Удалить ВСЕ блоки текущего отчёта (необратимо)">
+                    🗑 Удалить все блоки
+                  </button>
+                  <button class="wz-btn wz-btn-secondary" id="pr-preview-chapter-btn"
+                          style="padding:5px 12px; font-size:0.84rem; background:#fef3c7; color:#92400e; border-color:#fcd34d;"
+                          title="Скомпилировать PDF только этой главы">
+                    👁 Превью главы (PDF)
+                  </button>
+                </div>
+              </div>
+              <div class="wz-step-hint" style="margin:8px 0;">
+                Блоки анализа периодов попадут в PDF главу «Периоды».
+              </div>
+              <div id="pr-attached-list" style="display:flex; flex-direction:column; gap:8px;"></div>
+            </div>
+
+          </div>
+
+          <div id="pr-placeholder" style="text-align:center; padding:3rem 1rem; color:#94a3b8;">
+            <div style="font-size:2rem; margin-bottom:0.5rem;">📄</div>
+            <div>Создайте новый отчёт или выберите существующий из списка слева</div>
+          </div>
+        </div>
+      </div>
+
+       </div><!-- /chp-left -->
+       ${window.buildChapterRightPanel('period', 'Периоды')}
+      </div><!-- /chp-page -->
+
+      ${navButtons(8)}
+    `;
+
+    // Загрузить список отчётов
+    _prLoadReports(wellId);
+
+    // Инициализировать dropdown месяцев
+    const monthSelect = $('pr-month-select');
+    if (monthSelect) {
+      monthSelect.innerHTML = '<option value="">— выберите месяц —</option>' + _prGetMonthOptions();
+      monthSelect.addEventListener('change', () => {
+        if (!monthSelect.value) return;
+        const range = _prMonthToDateRange(monthSelect.value);
+        $('pr-date-from').value = range.from;
+        $('pr-date-to').value = range.to;
+        // Автозаполнить название
+        const months = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+        const [y, m] = monthSelect.value.split('-').map(Number);
+        $('pr-title').value = `Отчёт ${months[m-1]} ${y}`;
+      });
+    }
+
+    // Обработчики
+    $('pr-create-btn')?.addEventListener('click', () => _prCreateReport(wellId));
+    $('pr-close-editor')?.addEventListener('click', _prCloseEditor);
+    $('pr-save-btn')?.addEventListener('click', _prSaveAnalysis);
+    $('pr-analyze-btn')?.addEventListener('click', _prRunAnalysis);
+    // Конструктор сравнения метрик (Оценка эффективности)
+    $('pr-cmp-build-btn')?.addEventListener('click', () => {
+      _prCmpSnapshot = _prBuildCmpSnapshot();
+      if (_prCmpSnapshot) {
+        _prCmpRenderPreview(_prCmpSnapshot);
+        const sb = $('pr-cmp-save-btn'); if (sb) sb.style.display = 'inline-block';
+        const st = $('pr-cmp-status'); if (st) st.textContent = '✓ Построено — проверь и сохрани';
+      }
+    });
+    $('pr-cmp-save-btn')?.addEventListener('click', _prSaveCmp);
+
+    // Порог ΔP — pills
+    document.querySelectorAll('.pr-dp-pill').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const val = parseFloat(btn.dataset.th);
+        $('pr-dp-threshold').value = val;
+        document.querySelectorAll('.pr-dp-pill').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
+    // Установить активную pill по умолчанию
+    document.querySelector('.pr-dp-pill[data-th="0.1"]')?.classList.add('active');
+
+    // ═══ Инициализация сравнения участков (cmp_segments.js) ═══
+    const cmpDiv = $('pr-sec-cmp');
+    if (cmpDiv && typeof cmpRenderHTML === 'function') {
+      cmpDiv.innerHTML = cmpRenderHTML(pr8cmpCtx);
+      if (typeof _wz3cmpBindHandlers === 'function') {
+        _wz3cmpBindHandlers(pr8cmpCtx);
+      }
+      if (typeof _wz3cmpRender === 'function') {
+        _wz3cmpRender(pr8cmpCtx);
+      }
+    }
+
+    // ═══ Сегментный анализ — инициализация виджета ═══
+    // Обновление отображения значения чувствительности
+    const prSensSlider = document.getElementById('pr-seg-sensitivity');
+    const prSensVal = document.getElementById('pr-seg-sensitivity-val');
+    if (prSensSlider && prSensVal) {
+      prSensSlider.addEventListener('input', () => {
+        prSensVal.textContent = prSensSlider.value;
+      });
+    }
+
+    if (typeof window.ObservationSegmentWidget === 'function') {
+      window._prSegmentWidget = new window.ObservationSegmentWidget({
+        apiBase: '/api/customer-daily',
+        blocksApiBase: '/api/customer-daily/blocks',
+        chapter: 'period',  // Блоки сохраняются в главу Периоды
+        getWellId: () => state.well?.id || null,
+        getWellNumber: () => state.well?.number || state.well?.well_number || null,
+        getPeriodReportId: () => _prCurrentReport?.id || null,  // изоляция отчёта
+        getPeriodFrom: () => document.getElementById('pr-seg-from')?.value || null,
+        getPeriodTo: () => document.getElementById('pr-seg-to')?.value || null,
+        getSensitivity: () => parseInt(document.getElementById('pr-seg-sensitivity')?.value || '5', 10),
+        selectors: {
+          container: '#pr-seg-container',
+          periodFrom: '#pr-seg-from',
+          periodTo: '#pr-seg-to',
+          calcBtn: '#pr-seg-calc-btn',
+          fullAnalysisBtn: '#pr-seg-full-btn',
+          status: '#pr-seg-status',
+          chartContainer: '#pr-seg-chart',
+          segmentsTable: '#pr-seg-table',
+          resultContainer: '#pr-seg-result',
+        },
+        onBlockSaved: (block) => {
+          console.log('[Step8] Segment block saved:', block);
+        },
+        onCalculated: (result) => {
+          console.log('[Step8] Segment analysis calculated:', result);
+        },
+      });
+      window._prSegmentWidget.init();
+      console.log('[Step8] PeriodSegmentWidget initialized');
+
+      // Показать текущую скважину в бейдже
+      const prWellBadge = document.getElementById('pr-seg-well-badge');
+      if (prWellBadge && state.well) {
+        prWellBadge.textContent = `Скв. ${state.well.number || state.well.id || '—'}`;
+      }
+    }
+
+    // ═══ Каркас 60/40: правая панель превью HTML/PDF главы «Периоды» ═══
+    if (typeof window.initChapterPanel === 'function') {
+      // Функция для получения дат текущего отчёта
+      const _getPeriodDates = () => {
+        const report = _prCurrentReport;
+        return {
+          period_from: report?.period_start || '2025-01-01',
+          period_to: report?.period_end || '2025-12-31',
+          with_charts: true,
+          with_reagent: false,
+          // Номер раздела «Отчёт за период» в PDF (поле «№ раздела»); дефолт 3.
+          period_section_no: (document.getElementById('pr-section-no')?.value || '3').trim() || '3',
+          // Изоляция отчёта: PDF собирает блоки ТОЛЬКО открытого отчёта.
+          period_report_id: report?.id || null,
+        };
+      };
+
+      window._periodChapterPanel = window.initChapterPanel({
+        chapter_id:       'period',
+        title:            'Периоды',
+        kinds:            ['period_full_analysis', 'period_comparison', 'adaptation_effectiveness',
+                           'segment_analysis', 'segment_comparison',
+                           'sensor_customer_comparison', 'pressure_spectrum', 'param_correlation'],
+        useUserOrder:     true,
+        // Изоляция отчётов: панель показывает ТОЛЬКО блоки открытого отчёта
+        // (params.period_report_id == _prCurrentReport.id). Предикат читается
+        // динамически при каждом refresh → совпадает с левым списком.
+        block_filter:     prIsCurrentReportBlock,
+        client_render:    true,
+        preview_endpoint: '/api/customer-daily/blocks',
+        pdf_endpoint:     '/api/adaptation-report/preview-pdf',
+        pdf_only_chapter: 'period',
+        get_well_id:      () => state.well?.id || null,
+        get_pdf_extra_body: _getPeriodDates,
+      });
+      console.log('[Step8] ChapterPanel initialized');
+    }
+
+    // Превью главы «Периоды» в PDF
+    $('pr-preview-chapter-btn')?.addEventListener('click', () => {
+      if (typeof wzPreviewChapter === 'function') {
+        wzPreviewChapter('period');
+      } else {
+        alert('Функция превью ещё не реализована');
+      }
+    });
+    $('pr-delete-all-btn')?.addEventListener('click', _prDeleteAllBlocks);
+
+    // Загрузить прикреплённые блоки
+    _prLoadAttachedBlocks();
+
+  }
+
+  // ═══ Шаг 9: Стабильность в период работ ═══
+  function renderStep9(main) {
+    if (!state.well) {
+      main.innerHTML = '<div class="wz-placeholder">Сначала выберите скважину сверху.</div>';
+      return;
+    }
+    main.innerHTML = `
+      <h2 class="wz-step-title"><span class="step-num">9</span>Эффективность работ</h2>
+      <div class="wz-step-hint">Роза критериев за период (дебит, стабильность ΔP по спектру, КИВ, продувки, реакция на вброс) по поминутным данным давления. Можно сравнить с периодом до работ.</div>
+
+      <div class="wz-section" style="max-width:560px;">
+        <div class="wz-row">
+          <div class="wz-field">
+            <label>Период от <span style="color:#9ca3af;font-weight:400;">(пусто = период работ авто)</span></label>
+            <input type="date" id="wz9-period-from">
+          </div>
+          <div class="wz-field">
+            <label>до</label>
+            <input type="date" id="wz9-period-to">
+          </div>
+        </div>
+        <div class="wz-field">
+          <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-weight:500;">
+            <input type="checkbox" id="wz9-compare" checked>
+            Сравнить с периодом до работ (overlay-роза + Δ + Балл)
+          </label>
+        </div>
+        <div class="wz-field" style="max-width:220px;">
+          <label>Тип работ</label>
+          <select id="wz9-work-type">
+            <option value="tpav">ТПАВ</option>
+            <option value="grp">ГРП</option>
+            <option value="choke">Смена штуцера</option>
+            <option value="cleaning">Чистка</option>
+          </select>
+        </div>
+        <div style="margin-top:0.8rem; display:flex; gap:8px; align-items:center;">
+          <button class="wz-btn wz-btn-primary" id="wz9-calc-btn">&#x1F9EE; Рассчитать</button>
+          <span id="wz9-calc-status" style="font-size:0.85rem;"></span>
+        </div>
+      </div>
+
+      <div id="wz9-preview" style="margin-top:1rem;"></div>
+
+      <div style="margin-top:1rem; display:flex; gap:8px; align-items:center;">
+        <button class="wz-btn wz-btn-success" id="wz9-attach-btn" disabled>&#x2795; Прикрепить в отчёт</button>
+        <span id="wz9-attach-status" style="font-size:0.85rem;"></span>
+      </div>
+
+      ${navButtons(9)}
+    `;
+
+    $('wz9-calc-btn')?.addEventListener('click', async () => {
+      const periodFrom = $('wz9-period-from')?.value || null;
+      const periodTo   = $('wz9-period-to')?.value || null;
+      const compare    = $('wz9-compare')?.checked !== false;
+      const workType   = $('wz9-work-type')?.value || 'tpav';
+      const statusEl   = $('wz9-calc-status');
+      const attachBtn  = $('wz9-attach-btn');
+
+      if (statusEl) { statusEl.style.color = '#6b7280'; statusEl.textContent = 'Расчёт по поминутным данным… (до минуты)'; }
+      if (attachBtn) attachBtn.disabled = true;
+
+      try {
+        const resp = await fetch('/api/customer-daily/works-effectiveness/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            well: String(state.well.number),
+            period_from: periodFrom,
+            period_to: periodTo,
+            compare: compare,
+            work_type: workType,
+          }),
+        });
+        const j = await resp.json();
+        if (j.ok === false) {
+          if (statusEl) { statusEl.style.color = '#dc2626'; statusEl.textContent = j.error || 'Ошибка расчёта'; }
+          return;
+        }
+        const snap = j.data_snapshot;
+        snap.params = { chapter: 'works', work_type: workType,
+                        period_from: periodFrom, period_to: periodTo, compare: compare };
+        state.steps[9].data.snapshot = snap;
+        if (statusEl) { statusEl.style.color = '#10b981'; statusEl.textContent = 'Готово (' + (snap.mode || '') + ')'; }
+        if (attachBtn) attachBtn.disabled = false;
+        try {
+          if (window.renderChapter) {
+            window.renderChapter(
+              [{ id: 'works-live', kind: 'works_analysis', in_report: true,
+                 title: 'Эффективность работ', params: snap.params, data_snapshot: snap }],
+              { containerId: 'wz9-preview', chapterTitle: 'Превью' }
+            );
+          }
+        } catch (e) { console.error('[works] render', e); }
+      } catch (e) {
+        if (statusEl) { statusEl.style.color = '#dc2626'; statusEl.textContent = 'Ошибка: ' + (e.message || e); }
+      }
+    });
+
+    $('wz9-attach-btn')?.addEventListener('click', async () => {
+      const snap = state.steps[9].data.snapshot;
+      if (!snap) return;
+      const st = $('wz9-attach-status');
+      try {
+        const resp = await fetch('/api/customer-daily/blocks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            well_id:       state.well.id,
+            kind:          'works_analysis',
+            title:         'Эффективность работ',
+            params:        snap.params,
+            data_snapshot: snap,
+            in_report:     true,
+          }),
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+        const j = await resp.json();
+        if (st) { st.style.color = '#10b981'; st.textContent = 'Добавлено (ID ' + (j.id || j.block_id) + ')'; }
+        if (window._adaptChapterPanel?.refresh) window._adaptChapterPanel.refresh();
+      } catch (e) {
+        if (st) { st.style.color = '#dc2626'; st.textContent = 'Ошибка: ' + (e.message || e); }
+      }
+    });
+  }
+
+  // ═══ Управление блоками главы «Отчёт за период» (зеркало Адаптации) ═══
+  // Уникальные виды периода + общие (изоляция глав по params.chapter='period').
+  const PERIOD_UNIQUE_KINDS = ['period_full_analysis', 'period_comparison'];
+  // adaptation_effectiveness переиспользуется в периоде (chapter='period') — общий
+  // kind, показывается только при params.chapter='period' (изоляция глав).
+  const PERIOD_SHARED_KINDS = ['adaptation_effectiveness', 'segment_analysis', 'segment_comparison',
+    'sensor_customer_comparison', 'pressure_spectrum', 'param_correlation'];
+  function prIsPeriodBlock(b) {
+    if (!b || !b.kind) return false;
+    if (PERIOD_UNIQUE_KINDS.indexOf(b.kind) !== -1) return true;
+    if (PERIOD_SHARED_KINDS.indexOf(b.kind) !== -1)
+      return !!(b.params && b.params.chapter === 'period');
+    return false;
+  }
+  // Изоляция отчётов: каждый «Отчёт за период» (Март, Май…) — свой набор блоков.
+  // Блок принадлежит ОТКРЫТОМУ отчёту, если params.period_report_id == _prCurrentReport.id.
+  // Блоки без report_id (legacy) не показываются — пересоздать в нужном отчёте.
+  function prBelongsToReport(b) {
+    if (!_prCurrentReport) return false;
+    const rid = (b.params || {}).period_report_id;
+    return rid != null && String(rid) === String(_prCurrentReport.id);
+  }
+  function prIsCurrentReportBlock(b) {
+    return prIsPeriodBlock(b) && prBelongsToReport(b);
+  }
+  // Аргументы для аналитических модалок периода. Глобально, т.к. inline-onclick
+  // кнопок не видит _prCurrentReport (область видимости IIFE). period_report_id —
+  // изоляция отчёта.
+  window._prAnalyticsArgs = () => ({
+    wellId: state.well?.id, wellNumber: state.well?.number, chapter: 'period',
+    dateFrom: (document.getElementById('pr-seg-from')?.value || '').slice(0, 10),
+    dateTo: (document.getElementById('pr-seg-to')?.value || '').slice(0, 10),
+    period_report_id: _prCurrentReport?.id || null,
+  });
+
+  // Реестр частей блоков периода (что попадёт в отчёт). period_full_analysis —
+  // те же части, что adaptation_period_analysis; общие виды берём из ADAPT_PART_LABELS.
+  const PERIOD_PART_LABELS = {
+    period_full_analysis: ADAPT_PART_LABELS.adaptation_period_analysis,
+    period_comparison: [
+      ['summary_table',  '📋 Таблица сравнения метрик'],
+      ['overlay_charts', '📈 Графики-оверлеи (Q / ΔP)'],
+      ['description',    '✏️ Комментарий'],
+    ],
+    adaptation_effectiveness:   ADAPT_PART_LABELS.adaptation_effectiveness,
+    segment_analysis:           ADAPT_PART_LABELS.segment_analysis,
+    segment_comparison:         ADAPT_PART_LABELS.segment_comparison,
+    sensor_customer_comparison: ADAPT_PART_LABELS.sensor_customer_comparison,
+    pressure_spectrum:          ADAPT_PART_LABELS.pressure_spectrum,
+    param_correlation:          ADAPT_PART_LABELS.param_correlation,
+  };
+  function _prPartsOf(b) {
+    const defs = PERIOD_PART_LABELS[b.kind] || [];
+    const saved = (b.params && b.params.parts) || {};
+    const out = {};
+    for (const [key] of defs) out[key] = (key in saved) ? !!saved[key] : true;
+    return out;
+  }
+  function _prRenderPartsToggles(b) {
+    const defs = PERIOD_PART_LABELS[b.kind];
+    if (!defs || !defs.length) return '';
+    const parts = _prPartsOf(b);
+    const on = Object.values(parts).filter(Boolean).length;
+    const items = defs.map(([key, label]) =>
+      `<label class="wz5-part-lbl${parts[key] ? '' : ' off'}">
+        <input type="checkbox" data-part-block="${b.id}" data-part-key="${key}" ${parts[key] ? 'checked' : ''}>
+        <span>${label}</span>
+      </label>`).join('');
+    return `<div class="wz5-parts-box">
+      <div class="wz5-parts-title">⚙️ Что попадёт в отчёт (${on} из ${defs.length})</div>
+      <div class="wz5-parts-grid">${items}</div>
+    </div>`;
+  }
+  async function _prTogglePart(blocks, blockId, partKey, checked) {
+    const block = blocks.find(b => String(b.id) === String(blockId));
+    if (!block) return;
+    const params = Object.assign({}, block.params || {});
+    params.parts = Object.assign({}, params.parts || {}, { [partKey]: checked });
+    block.params = params;  // локально — чтобы превью увидело свежие данные
+    try {
+      await fetch('/api/customer-daily/blocks/' + blockId, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ params }),
+      });
+    } catch (e) { console.warn('pr toggle part', e); }
+    if (window._periodChapterPanel?.refresh) window._periodChapterPanel.refresh();
+  }
+
+  // Удалить ВСЕ блоки текущего отчёта (только блоки этого отчёта — по
+  // period_report_id, prIsCurrentReportBlock). Необратимо.
+  async function _prDeleteAllBlocks() {
+    if (!_prCurrentReport) { alert('Сначала откройте отчёт'); return; }
+    const wellId = state.well?.id;
+    if (!wellId) return;
+    let blocks = [];
+    try {
+      const kindsParam = PERIOD_UNIQUE_KINDS.concat(PERIOD_SHARED_KINDS).join(',');
+      const r = await fetch('/api/customer-daily/blocks?well_id=' + wellId + '&kinds=' + kindsParam);
+      const j = await r.json();
+      blocks = (j.blocks || (Array.isArray(j) ? j : [])).filter(prIsCurrentReportBlock);
+    } catch (e) { console.warn('delete-all fetch', e); alert('Ошибка загрузки блоков'); return; }
+    if (!blocks.length) { alert('В этом отчёте нет блоков'); return; }
+    if (!confirm(`Удалить ВСЕ блоки отчёта «${_prCurrentReport.title || ''}» (${blocks.length} шт.)?\nДействие необратимо.`)) return;
+    let ok = 0;
+    for (const b of blocks) {
+      try {
+        const dr = await fetch('/api/customer-daily/blocks/' + b.id, { method: 'DELETE' });
+        if (dr.ok) ok++;
+      } catch (e) { console.warn('delete block', b.id, e); }
+    }
+    _prLoadAttachedBlocks();
+    alert(`Удалено блоков: ${ok} из ${blocks.length}.`);
+  }
+
+  // Загрузка прикреплённых блоков главы «Периоды» — богатые карточки:
+  // настройки частей + удаление + просмотр + drag-drop (зеркало wz5LoadAttachedBlocks).
+  async function _prLoadAttachedBlocks() {
+    const wellId = state.well?.id;
+    if (!wellId) return;
+    const list = $('pr-attached-list');
+    const cnt  = $('pr-attached-count');
+    if (!list) return;
+    try {
+      const kindsParam = PERIOD_UNIQUE_KINDS.concat(PERIOD_SHARED_KINDS).join(',');
+      const r = await fetch('/api/customer-daily/blocks?well_id=' + wellId + '&kinds=' + kindsParam);
+      if (!r.ok) throw new Error('Failed to load blocks');
+      const j = await r.json();
+      const blocks = (j.blocks || (Array.isArray(j) ? j : [])).filter(prIsCurrentReportBlock);
+      if (cnt) cnt.textContent = blocks.length ? `(${blocks.length})` : '';
+      if (!blocks.length) {
+        list.innerHTML = '<div class="wz-placeholder" style="font-size:0.85rem;">Пока нет блоков</div>';
+        if (window._periodChapterPanel?.refresh) window._periodChapterPanel.refresh();
+        return;
+      }
+      const labelByKind = {
+        period_full_analysis:       '📊 Анализ периода',
+        period_comparison:          '⚖️ Сравнение метрик',
+        segment_analysis:           '🔬 Сегментный анализ',
+        segment_comparison:         '🔁 Сравнение участков',
+        sensor_customer_comparison: '📊 Сравнение с УзКорГаз',
+        pressure_spectrum:          '📈 Спектр давления',
+        param_correlation:          '📉 Зависимость параметров',
+      };
+      let html = '';
+      for (const b of blocks) {
+        const period = (b.params && b.params.date_from)
+          ? `${b.params.date_from} → ${b.params.date_to}` : '';
+        html += `<div class="wz5-attached-tile" data-tile-id="${b.id}">
+          <span class="kind ${b.kind}">${labelByKind[b.kind] || b.kind}</span>
+          <div class="meta" data-view-id="${b.id}" style="cursor:pointer;" title="Открыть блок">
+            <div class="ttl">${b.title || 'Без названия'}</div>
+            <div class="sub">${period}${b.comment ? ' · ' + b.comment : ''}</div>
+          </div>
+          <button class="wz5-tile-view" data-view-id="${b.id}" title="Открыть / просмотреть" style="color:#059669;">👁</button>
+          <button data-block-id="${b.id}" title="Удалить">✕</button>
+          ${_prRenderPartsToggles(b)}
+        </div>`;
+      }
+      list.innerHTML = html;
+      // Удаление
+      list.querySelectorAll('button[data-block-id]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!confirm('Удалить блок?')) return;
+          await fetch('/api/customer-daily/blocks/' + btn.dataset.blockId, { method: 'DELETE' });
+          _prLoadAttachedBlocks();
+        });
+      });
+      // Просмотр блока из снапшота (тот же рендер, что HTML/PDF)
+      list.querySelectorAll('[data-view-id]').forEach(el => {
+        el.addEventListener('click', () => {
+          const blk = blocks.find(x => String(x.id) === String(el.dataset.viewId));
+          if (blk && typeof wz5OpenBlockView === 'function') wz5OpenBlockView(blk);
+        });
+      });
+      // Тогглы частей «что попадёт в отчёт»
+      list.querySelectorAll('input[data-part-block]').forEach(cb => {
+        cb.addEventListener('change', () => {
+          const lbl = cb.closest('.wz5-part-lbl');
+          if (lbl) lbl.classList.toggle('off', !cb.checked);
+          _prTogglePart(blocks, cb.dataset.partBlock, cb.dataset.partKey, cb.checked);
+          const box = cb.closest('.wz5-parts-box');
+          if (box) {
+            const all = box.querySelectorAll('input[data-part-block]').length;
+            const on  = box.querySelectorAll('input[data-part-block]:checked').length;
+            const ttl = box.querySelector('.wz5-parts-title');
+            if (ttl) ttl.textContent = `⚙️ Что попадёт в отчёт (${on} из ${all})`;
+          }
+        });
+      });
+      // Drag-drop переупорядочивание блоков (как в Адаптации)
+      if (window.BlockReorder && blocks.length > 1) {
+        BlockReorder.init(list, {
+          apiEndpoint: '/api/customer-daily/blocks/reorder',
+          cardSelector: '[data-tile-id]',
+          onReorder: () => {
+            if (window._periodChapterPanel?.refresh) window._periodChapterPanel.refresh();
+          },
+        });
+      }
+      if (window._periodChapterPanel?.refresh) window._periodChapterPanel.refresh();
+    } catch (e) {
+      console.warn('_prLoadAttachedBlocks', e);
+      list.innerHTML = '<div class="wz-placeholder" style="color:#ef4444;">Ошибка загрузки</div>';
+    }
+  }
+
+  // ─── Helpers для Step 8 ───
+
+  // Helper: генерирует список месяцев для dropdown (последние 24 месяца)
+  function _prGetMonthOptions() {
+    const months = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+    const now = new Date();
+    let options = '';
+    for (let i = 0; i < 24; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const y = d.getFullYear();
+      const m = d.getMonth();
+      const val = `${y}-${String(m+1).padStart(2,'0')}`;
+      const label = `${months[m]} ${y}`;
+      options += `<option value="${val}">${label}</option>`;
+    }
+    return options;
+  }
+
+  // Helper: из "2026-05" → {from: "2026-05-01", to: "2026-05-31"}
+  function _prMonthToDateRange(monthVal) {
+    const [year, month] = monthVal.split('-').map(Number);
+    const firstDay = new Date(year, month - 1, 1);
+    const lastDay = new Date(year, month, 0); // 0-й день следующего месяца = последний день текущего
+    const from = firstDay.toISOString().slice(0, 10);
+    const to = lastDay.toISOString().slice(0, 10);
+    return { from, to };
+  }
+
+  // Helper: обновляет date inputs при выборе месяца
+  function _prOnMonthSelect(selectId, fromId, toId) {
+    const sel = document.getElementById(selectId);
+    if (!sel?.value) return;
+    const range = _prMonthToDateRange(sel.value);
+    document.getElementById(fromId).value = range.from;
+    document.getElementById(toId).value = range.to;
+  }
+
+  // ─── Period Reports state ───
+  let _prCurrentReport = null;
+  let _prBlocks = [];
+  let _prLastResult = null;  // Результат анализа для сохранения
+
+  // ─── Основной анализ периода (как Step 5 Адаптация) ───
+  async function _prRunAnalysis() {
+    if (!_prCurrentReport) {
+      alert('Сначала создайте или откройте отчёт');
+      return;
+    }
+
+    const box = $('pr-result');
+    const wellId = state.well?.id;
+    const periodFrom = _prCurrentReport.period_start;
+    const periodTo = _prCurrentReport.period_end;
+
+    // Получаем B2 из шага 3 (если есть)
+    const obsFrom = state.steps[3]?.data?.from || periodFrom;
+    const obsTo = state.steps[3]?.data?.to || periodTo;
+
+    const dpThreshold = parseFloat($('pr-dp-threshold')?.value) || 0.1;
+    const optDays = parseInt($('pr-opt-days')?.value) || 3;
+
+    box.innerHTML = '<div class="wz5-loading"><div class="wz-spinner"></div>Анализ периода...</div>';
+
+    try {
+      // 1) compute — основной расчёт
+      const computeBody = {
+        well_id: wellId,
+        obs_from: obsFrom, obs_to: obsTo,
+        adapt_from: periodFrom, adapt_to: periodTo,
+        with_charts: false, with_reagent: true,
+        optimal_mode: 'auto',
+        optimal_window_days: optDays,
+        dp_threshold: dpThreshold,
+      };
+      const computeReq = fetch('/api/adaptation-report/compute', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(computeBody),
+      }).then(r => r.json());
+
+      // 2) baselines — для B1
+      const blReq = fetch('/api/adaptation-report/baselines?well_id=' + wellId)
+        .then(r => r.json()).catch(() => ({baselines: []}));
+
+      // 3) reagent ИРВ
+      const irvReq = fetch('/api/reagent-analysis/analyze', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          well_id: wellId,
+          period_start: periodFrom, period_end: periodTo,
+        }),
+      }).then(r => r.ok ? r.json() : null).catch(() => null);
+
+      const [computeData, blData, irvData] = await Promise.all([computeReq, blReq, irvReq]);
+
+      if (!computeData.ok) {
+        box.innerHTML = `<div class="wz5-error">${computeData.error || 'Ошибка расчёта'}</div>`;
+        return;
+      }
+
+      // Сохраняем результат
+      _prLastResult = {
+        adaptation: computeData.adaptation || null,
+        observation: computeData.observation || null,
+        optimal: computeData.optimal_regime || null,
+        candidates: computeData.optimal_candidates || [],
+        comparison: computeData.comparison || null,
+        reagentSummary: computeData.reagent_effectiveness || null,
+        b1: _prPickPinnedB1(blData?.baselines || []),
+        irv: irvData,
+        period: { from: periodFrom, to: periodTo },
+        params: { dp_threshold: dpThreshold, optimal_window_days: optDays },
+      };
+
+      // Рендерим результат (как Step 5)
+      _prRenderAnalysisResult(_prLastResult);
+
+      // Показываем кнопки действий
+      $('pr-actions').style.display = 'block';
+
+    } catch (e) {
+      console.warn('_prRunAnalysis error', e);
+      box.innerHTML = `<div class="wz5-error">Ошибка анализа: ${e.message}</div>`;
+    }
+  }
+
+  // ─── Плитка «Сегментный анализ» — запускает расчёт сегментов ───
+  function _prRunSegmentAnalysis() {
+    if (!_prCurrentReport) {
+      alert('Сначала создайте или откройте отчёт');
+      return;
+    }
+    // Прокрутка к секции сегментов
+    const secSegment = $('pr-sec-segment');
+    if (secSegment) {
+      secSegment.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // Подсветка
+      secSegment.style.outline = '2px solid #16a34a';
+      secSegment.style.outlineOffset = '2px';
+      setTimeout(() => { secSegment.style.outline = 'none'; }, 1500);
+    }
+    // Запускаем расчёт через виджет
+    if (window._prSegmentWidget && typeof window._prSegmentWidget.calculate === 'function') {
+      window._prSegmentWidget.calculate();
+    } else {
+      // Fallback: кликаем по кнопке расчёта
+      const calcBtn = $('pr-seg-calc-btn');
+      if (calcBtn) calcBtn.click();
+    }
+  }
+
+  // ─── Плитка «Сравнение участков» — открывает секцию сравнения ───
+  function _prOpenCompare() {
+    if (!_prCurrentReport) {
+      alert('Сначала создайте или откройте отчёт');
+      return;
+    }
+    // Прокрутка к секции сравнения
+    const secCmp = $('pr-sec-cmp');
+    if (secCmp) {
+      secCmp.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // Подсветка
+      secCmp.style.outline = '2px solid #3b82f6';
+      secCmp.style.outlineOffset = '2px';
+      setTimeout(() => { secCmp.style.outline = 'none'; }, 1500);
+    }
+    // Загружаем данные для сравнения, если ещё не загружены
+    if (pr8cmpCtx && typeof _wz3cmpLoadData === 'function' && !pr8cmpCtx.fullData) {
+      _wz3cmpLoadData(pr8cmpCtx);
+    }
+  }
+
+  // ═══ Оценка эффективности: конструктор сравнения метрик периодов ═══
+  // Снапшот period_comparison_v1 собирается из _prLastResult (наблюдение/адаптация/
+  // оптимум/B1) + снапшотов других сохранённых period_full_analysis. Рендер —
+  // тот же window.renderChapter (PARITY HTML↔PDF), сохранение — period_comparison.
+  let _prCmpSources = [];
+  let _prCmpSnapshot = null;
+
+  function _prOpenCompareMetrics() {
+    if (!_prCurrentReport) { alert('Сначала создайте или откройте отчёт'); return; }
+    if (!_prLastResult || !_prLastResult.adaptation) {
+      alert('Сначала запусти «📊 Анализ периода» — из него берутся метрики периода (R/R★/B2/B1)');
+      return;
+    }
+    const sec = $('pr-sec-compare-metrics');
+    if (sec) { sec.style.display = 'block'; sec.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    // Используем ТОТ ЖЕ блок «Оценка эффективности», что в Адаптации (функции,
+    // настройки, стили). Старый конструктор источников скрываем.
+    ['pr-cmp-sources', 'pr-cmp-build-btn', 'pr-cmp-save-btn'].forEach(id => { const e = $(id); if (e) e.style.display = 'none'; });
+    _prRenderEffectivenessTile();
+  }
+
+  // Порт wz5RenderEffectivenessTile для главы «Отчёт за период»: те же функции
+  // (renderChapter adaptation_effectiveness → _buildAdaptationEffectivenessHtml /
+  // _renderEffectivenessChart), те же настройки/стили; chapter='period',
+  // сохранение в ТЕКУЩИЙ отчёт (period_report_id). Снимок {adaptation,optimal,
+  // observation,b1,display} = текущий период как R, наблюдение B2, B1, оптимум R★.
+  function _prRenderEffectivenessTile() {
+    const el = $('pr-cmp-preview');
+    const r = _prLastResult;
+    if (!el || !r) return;
+    const defs = (typeof ADAPT_PART_LABELS !== 'undefined' && ADAPT_PART_LABELS.adaptation_effectiveness) || [];
+    if (!el._effParts) el._effParts = {};
+    const parts = el._effParts;
+    if (!el._effDisplay) el._effDisplay = { eff_chart_style: 'bar', eff_orientation: 'v', eff_color_scheme: 'default', eff_diff_base: 1, eff_diff_target: 3 };
+    const display = el._effDisplay;
+    const snap = { adaptation: r.adaptation, optimal: r.optimal, observation: r.observation, b1: r.b1, display: display };
+    const chk = defs.map(([k, label]) =>
+      `<label style="display:inline-flex;align-items:center;gap:4px;font-size:0.8rem;margin:2px 10px 2px 0;cursor:pointer;">
+        <input type="checkbox" data-preff-part="${k}" ${parts[k] === false ? '' : 'checked'}> ${label}</label>`).join('');
+    const opts = (id, list, cur) => `<select id="${id}" style="padding:3px 6px;border:1px solid #fde68a;border-radius:5px;">` +
+      list.map(([v, l]) => `<option value="${v}" ${String(cur) === String(v) ? 'selected' : ''}>${l}</option>`).join('') + `</select>`;
+    const TYPES = [['bar', 'Бары'], ['lollipop', 'Леденцы (стебель+точка)'], ['dot', 'Точки'], ['diff', 'Разница / эффект']];
+    const ORI = [['h', 'Горизонтальная'], ['v', 'Вертикальная']];
+    const SCHEMES = [['default', 'Стандартная'], ['cool', 'Холодная'], ['warm', 'Тёплая'], ['mono', 'Моно'], ['vivid', 'Яркая']];
+    const PERIODS = [['0', 'УзКорГаз (B1)'], ['1', 'Наблюдение (B2)'], ['2', 'Текущий период (R)'], ['3', 'Оптимум (R★)']];
+    const styleNow = (display.eff_chart_style === 'hbar' || display.eff_chart_style === 'vbar') ? 'bar' : display.eff_chart_style;
+    const isDiff = styleNow === 'diff';
+    el.innerHTML = `<div style="border:2px solid #facc15;border-radius:8px;padding:14px;background:#fffdf5;margin:6px 0;">
+      <div style="font-weight:700;color:#854d0e;margin-bottom:6px;font-size:1rem;">📊 Оценка эффективности <span style="font-weight:400;font-size:0.82rem;color:#92702a;">(период «${escapeHtmlW7(_prCurrentReport.title || '')}»)</span></div>
+      <div style="display:flex;align-items:center;gap:10px;margin:6px 0;font-size:0.84rem;flex-wrap:wrap;">
+        <span style="font-weight:600;color:#854d0e;">Тип:</span> ${opts('pr-eff-style', TYPES, styleNow)}
+        <span style="font-weight:600;color:#854d0e;">Ориентация:</span> ${opts('pr-eff-ori', ORI, display.eff_orientation || 'h')}
+        <span style="font-weight:600;color:#854d0e;">Цвета:</span> ${opts('pr-eff-scheme', SCHEMES, display.eff_color_scheme || 'default')}
+        <span id="pr-eff-diff-ctrls" style="display:${isDiff ? 'inline-flex' : 'none'};align-items:center;gap:6px;">
+          <span style="font-weight:600;color:#854d0e;">Разница:</span> ${opts('pr-eff-base', PERIODS, display.eff_diff_base)} → ${opts('pr-eff-target', PERIODS, display.eff_diff_target)}
+        </span>
+      </div>
+      <div style="margin:6px 0 10px;padding:6px 8px;background:#fff;border:1px solid #fde68a;border-radius:6px;">${chk}</div>
+      <div id="pr-eff-preview"></div>
+      <div style="margin-top:10px;">
+        <button id="pr-eff-attach" class="wz-btn wz-btn-success">➕ Сохранить «Оценку эффективности» в этот отчёт</button>
+        <span id="pr-eff-status" style="font-size:0.82rem;color:#10b981;margin-left:8px;"></span>
+      </div>
+    </div>`;
+    const renderPrev = () => {
+      const blk = { id: 'preff', kind: 'adaptation_effectiveness', in_report: true,
+        title: 'Оценка эффективности', params: { chapter: 'period', parts: Object.assign({}, parts) },
+        data_snapshot: snap };
+      try { if (window.renderChapter) window.renderChapter([blk], { containerId: 'pr-eff-preview', chapterTitle: 'Превью' }); } catch (e) { /* no-op */ }
+    };
+    renderPrev();
+    $('pr-eff-style')?.addEventListener('change', (e) => {
+      display.eff_chart_style = e.target.value;
+      const dc = $('pr-eff-diff-ctrls'); if (dc) dc.style.display = e.target.value === 'diff' ? 'inline-flex' : 'none';
+      renderPrev();
+    });
+    $('pr-eff-ori')?.addEventListener('change', (e) => { display.eff_orientation = e.target.value; renderPrev(); });
+    $('pr-eff-scheme')?.addEventListener('change', (e) => { display.eff_color_scheme = e.target.value; renderPrev(); });
+    $('pr-eff-base')?.addEventListener('change', (e) => { display.eff_diff_base = parseInt(e.target.value, 10); renderPrev(); });
+    $('pr-eff-target')?.addEventListener('change', (e) => { display.eff_diff_target = parseInt(e.target.value, 10); renderPrev(); });
+    el.querySelectorAll('[data-preff-part]').forEach(cb =>
+      cb.addEventListener('change', () => { parts[cb.getAttribute('data-preff-part')] = cb.checked; renderPrev(); }));
+    $('pr-eff-attach')?.addEventListener('click', async () => {
+      const st = $('pr-eff-status');
+      try {
+        const resp = await fetch('/api/customer-daily/blocks', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            well_id: state.well.id, kind: 'adaptation_effectiveness',
+            title: `Оценка эффективности — ${_prCurrentReport.title || ''}`,
+            params: { chapter: 'period', period_report_id: _prCurrentReport.id, date_from: _prCurrentReport.period_start, date_to: _prCurrentReport.period_end, parts: Object.assign({}, parts) },
+            data_snapshot: snap, in_report: true,
+          }),
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+        const j = await resp.json();
+        if (st) { st.style.color = '#10b981'; st.textContent = 'Сохранено (ID ' + (j.id || j.block_id) + ')'; }
+        _prLoadAttachedBlocks();
+      } catch (e) {
+        if (st) { st.style.color = '#dc2626'; st.textContent = 'Ошибка: ' + (e.message || e); }
+      }
+    });
+  }
+
+  // Нормализация метрик источника → единый набор ключей (как в форматтере/JS-билдере)
+  function _prMetricsFromObj(o) {
+    if (!o) return {};
+    const num = v => (v == null || isNaN(v)) ? null : Number(v);
+    const down = (o.downtime_hours != null) ? o.downtime_hours
+      : (o.shutdown_min_total != null ? o.shutdown_min_total / 60 : null);
+    return {
+      q_median: num(o.flow_median != null ? o.flow_median : o.q_total_median),
+      q_avg: num(o.flow_avg != null ? o.flow_avg : o.q_total_avg),
+      dp_median: num(o.dp_median),
+      p_tube_median: num(o.p_tube_median != null ? o.p_tube_median : o.p_wellhead_median),
+      p_line_median: num(o.p_line_median != null ? o.p_line_median : o.p_flowline_median),
+      utilization_pct: num(o.utilization_pct),
+      downtime_hours: num(down),
+    };
+  }
+
+  // Ряды для оверлея из chart_data (даунсэмпл до ~80 точек; активные q>0)
+  function _prSeriesFromChartData(cd) {
+    if (!Array.isArray(cd) || !cd.length) return { q: [], dp: [] };
+    const step = Math.max(1, Math.floor(cd.length / 80));
+    const q = [], dp = [];
+    for (let i = 0; i < cd.length; i += step) {
+      const p = cd[i] || {};
+      const qq = (p.q == null || isNaN(p.q)) ? null : Number(p.q);
+      if (qq != null && qq > 0) q.push(qq);
+      const d = (p.dp == null || isNaN(p.dp)) ? null : Number(p.dp);
+      if (d != null) dp.push(d);
+    }
+    return { q, dp };
+  }
+
+  // Доступные источники: из _prLastResult + другие сохранённые периоды
+  const _prDatesSub = (a, b) => `${(a || '').slice(0, 10)} → ${(b || '').slice(0, 10)}`;
+
+  // Источники сравнения = УЖЕ ГОТОВЫЕ данные из базы (а не пересчёт текущего):
+  //  • Этапы скважины (Наблюдение / Адаптация / Оптимум R★ / УзКорГаз B1) — из
+  //    СОХРАНЁННОГО блока адаптации (snapshot: {observation, adaptation, optimal, b1}).
+  //    Это РЕАЛЬНЫЕ этапы (свои даты), НЕ текущий период → значения не дублируются.
+  //  • Другие сохранённые отчёты-периоды (Март/Декабрь…) — из period-report по имени.
+  // Текущий период (Май) добавляется отдельно в _prBuildCmpSnapshot (свежий расчёт).
+  function _prHasMetrics(m) { return m && Object.values(m).some(v => v != null); }
+  async function _prBuildCmpSources() {
+    const out = [];
+    const wellId = state.well?.id;
+    const r = _prLastResult;
+    // 1) Этапы скважины из сохранённого блока адаптации (готовое в базе)
+    let st = null;
+    try {
+      const resp = await fetch('/api/customer-daily/blocks?well_id=' + wellId + '&kinds=adaptation_period_analysis');
+      const j = await resp.json();
+      const blocks = (j.blocks || (Array.isArray(j) ? j : [])).filter(b => (b.params && b.params.chapter) === 'adaptation');
+      if (blocks.length) st = blocks[0].data_snapshot || {};
+    } catch (e) { console.warn('cmp stage block', e); }
+    // Источник этапов: сохранённый блок (приоритет) → fallback на текущий расчёт,
+    // но НИКОГДА не берём adaptation из текущего расчёта (это и есть текущий период).
+    const obsObj = (st && st.observation) || (r && r.observation) || null;
+    const adaptObj = (st && st.adaptation) || null;   // только из сохранённого этапа!
+    const optObj = (st && st.optimal) || (r && r.optimal) || null;
+    const b1Obj = (st && st.b1) || (r && r.b1) || null;
+    const push = (key, label, obj, subFallback) => {
+      const m = _prMetricsFromObj(obj);
+      if (_prHasMetrics(m)) out.push({ key, label, sublabel: _prDatesSub(obj.date_from, obj.date_to) || subFallback || '', metrics: m });
+    };
+    if (obsObj)   push('obs',   'Наблюдение (этап)', obsObj);
+    if (adaptObj) push('adapt', 'Адаптация (этап)', adaptObj);
+    if (optObj)   push('opt',   'Оптимум R★ (адаптация)', optObj);
+    if (b1Obj && _prHasMetrics(_prMetricsFromObj(b1Obj))) out.push({ key: 'b1', label: 'УзКорГаз (B1)', sublabel: 'данные заказчика', metrics: _prMetricsFromObj(b1Obj) });
+    // 2) Другие сохранённые отчёты-периоды (Март/Декабрь) — по НАЗВАНИЮ, из base
+    try {
+      const listResp = await fetch('/api/period-report/' + wellId + '/list');
+      const list = await listResp.json();
+      for (const rep of (Array.isArray(list) ? list : [])) {
+        if (_prCurrentReport && String(rep.id) === String(_prCurrentReport.id)) continue;
+        let metrics = null;
+        try {
+          const fr = await fetch('/api/period-report/' + rep.id);
+          const full = await fr.json();
+          const blk = (full.blocks_snapshot || []).find(b => b.kind === 'period_full_analysis');
+          const ad = (blk && blk.data_snapshot) ? (blk.data_snapshot.adaptation || {}) : {};
+          metrics = _prMetricsFromObj(ad);
+        } catch (e) { /* без метрик пропускаем */ }
+        if (_prHasMetrics(metrics)) {
+          out.push({ key: 'report:' + rep.id, label: rep.title || ('Период ' + rep.id), sublabel: _prDatesSub(rep.period_start, rep.period_end), metrics });
+        }
+      }
+    } catch (e) { console.warn('cmp sources reports', e); }
+    return out;
+  }
+
+  async function _prRenderCmpSources() {
+    const box = $('pr-cmp-sources');
+    if (!box) return;
+    box.innerHTML = '<div class="wz-placeholder" style="font-size:0.85rem;">Загрузка источников…</div>';
+    _prCmpSources = await _prBuildCmpSources();
+    if (!_prCmpSources.length) {
+      box.innerHTML = '<div class="wz-placeholder" style="font-size:0.85rem; color:#b91c1c;">Нет источников. Запусти «📊 Анализ периода».</div>';
+      return;
+    }
+    box.innerHTML = _prCmpSources.map((s, i) => `
+      <label style="display:flex; align-items:flex-start; gap:8px; font-size:0.86rem; color:#1e293b; cursor:pointer;">
+        <input type="checkbox" class="pr-cmp-src" data-idx="${i}" style="margin-top:3px;">
+        <span><b>${escapeHtmlW7(s.label)}</b>${s.sublabel ? `<span style="color:#64748b; font-size:0.78rem;"> · ${escapeHtmlW7(s.sublabel)}</span>` : ''}</span>
+      </label>`).join('');
+  }
+
+  function _prBuildCmpSnapshot() {
+    const r = _prLastResult;
+    if (!r || !r.adaptation) { alert('Сначала запусти «📊 Анализ периода» — из него берётся текущий период'); return null; }
+    const checked = Array.from(document.querySelectorAll('.pr-cmp-src:checked'))
+      .map(cb => _prCmpSources[parseInt(cb.dataset.idx, 10)]).filter(Boolean);
+    if (!checked.length) { alert('Отметь галочками хотя бы один источник для сравнения'); return null; }
+    // Текущий = ИМЯ отчёта (Май/Апрель) + даты снизу; метрики — медиана за период
+    // (расчёт текущего периода). Это НЕ «Адаптация (R)» как источник.
+    return {
+      _v: 'period_comparison_v1',
+      current: {
+        label: _prCurrentReport.title || 'Текущий период',
+        sublabel: _prDatesSub(_prCurrentReport.period_start, _prCurrentReport.period_end),
+        metrics: _prMetricsFromObj(r.adaptation),
+      },
+      targets: checked.map(s => ({ key: s.key, label: s.label, sublabel: s.sublabel || '', metrics: s.metrics })),
+    };
+  }
+
+  function _prCmpRenderPreview(snap) {
+    const box = $('pr-cmp-preview');
+    if (!box || typeof window.renderChapter !== 'function') return;
+    const tmp = { id: 'prcmp-preview', kind: 'period_comparison', title: 'Сравнение метрик',
+      in_report: true, params: { chapter: 'period', parts: {} }, data_snapshot: snap };
+    renderChapter([tmp], { containerId: 'pr-cmp-preview', chapterTitle: '' });
+  }
+
+  async function _prSaveCmp() {
+    if (!_prCmpSnapshot) { alert('Сначала нажми «Построить»'); return; }
+    const wellId = state.well?.id;
+    const status = $('pr-cmp-status');
+    if (status) status.textContent = '⏳ Сохраняю…';
+    try {
+      const labels = (_prCmpSnapshot.targets || []).map(t => t.label).join(', ');
+      const resp = await fetch('/api/customer-daily/blocks', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          well_id: wellId, kind: 'period_comparison',
+          title: 'Сравнение метрик: ' + labels.slice(0, 80),
+          params: { chapter: 'period', period_report_id: _prCurrentReport.id, date_from: _prCurrentReport.period_start, date_to: _prCurrentReport.period_end, parts: {} },
+          data_snapshot: _prCmpSnapshot, comment: '', in_report: true,
+        }),
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      if (status) status.textContent = '✓ Сохранено как блок';
+      _prLoadAttachedBlocks();
+    } catch (e) { console.warn('save cmp', e); if (status) status.textContent = '⚠ ' + e.message; }
+  }
+
+  // Выбор закреплённого B1
+  function _prPickPinnedB1(baselines) {
+    if (!baselines || !baselines.length) return null;
+    // Ищем pinned или берём первый customer_report
+    const pinned = baselines.find(b => b.is_pinned);
+    if (pinned) return pinned;
+    const fromReport = baselines.find(b => b.source === 'customer_report');
+    return fromReport || baselines[0];
+  }
+
+  // Рендер результата (как wz5RenderResult)
+  function _prRenderAnalysisResult(r) {
+    const box = $('pr-result');
+    const sec = (id, title, open) =>
+      `<details class="wz5-acc"${open ? ' open' : ''}>` +
+      `<summary>${title}</summary><div id="${id}"></div></details>`;
+
+    box.innerHTML =
+      sec('pr-cards-block',  '🟧 Карточки метрик (R / R★ / B2 / B1)', true) +
+      sec('pr-cmp-block',    '📋 Таблица сравнения', true) +
+      sec('pr-charts-block', '📈 Графики (P, ΔP, Q) + события', true) +
+      sec('pr-events-block', '📋 Таблица событий', false) +
+      sec('pr-irv-block',    '🧪 ИРВ реагентов', false) +
+      sec('pr-rstar-block',  '⭐ Окно R★ (кандидаты)', false);
+
+    _prRenderCards(r);
+    _prRenderCompare(r);
+    _prRenderCharts(r);
+    _prRenderEvents(r);
+    _prRenderIRV(r);
+    _prRenderRStar(r);
+
+    // Скрыть пустые подразделы
+    ['pr-cards-block', 'pr-cmp-block', 'pr-charts-block',
+     'pr-events-block', 'pr-irv-block', 'pr-rstar-block'].forEach(id => {
+      const el = document.getElementById(id);
+      const det = el?.closest('details.wz5-acc');
+      if (det && (!el.innerHTML || !el.innerHTML.trim())) det.style.display = 'none';
+    });
+  }
+
+  // ─── 4 карточки: R / R★ / B2 / B1 (идентично wz5RenderCards) ───
+  function _prRenderCards(r) {
+    const a = r.adaptation, o = r.optimal, b2 = r.observation, b1 = r.b1;
+    const box = $('pr-cards-block');
+    if (!box) return;
+
+    const card = (cls, title, period, items) => `
+      <div class="wz5-card ${cls}">
+        <div class="wz5-card-title">${title}</div>
+        <div class="wz5-card-period">${period || '—'}</div>
+        <div class="wz5-card-grid">
+          ${items.map(([l, v]) => `<div class="lbl">${l}</div><div class="val">${v}</div>`).join('')}
+        </div>
+      </div>
+    `;
+    let html = '<div class="wz5-cards">';
+    if (a) html += card('r', 'R · Период (весь)',
+      `${(a.date_from || '').slice(0,10)} → ${(a.date_to || '').slice(0,10)} · ${a.duration_label || (a.duration_days + ' сут.')}`,
+      [
+        ['Q мед', fmt(a.flow_median)],
+        ['ΔP мед', fmt(a.dp_median)],
+        ['КИВ, %', fmt(a.utilization_pct, 1)],
+        ['Вбросов', a.reagent_count ?? '—'],
+      ]);
+    if (o) html += card('rstar', '⭐ R★ · Оптимум',
+      `${(o.date_from || '').slice(0,10)} → ${(o.date_to || '').slice(0,10)} · ${o.duration_label || (o.duration_days + ' сут.')}`,
+      [
+        ['Q мед', fmt(o.flow_median)],
+        ['ΔP мед', fmt(o.dp_median)],
+        ['КИВ, %', fmt(o.utilization_pct, 1)],
+        ['Score', o.score !== undefined ? fmt(o.score, 2) : '—'],
+      ]);
+    if (b2) html += card('b2', 'B2 · Наблюдение',
+      `${(b2.date_from || '').slice(0,10)} → ${(b2.date_to || '').slice(0,10)} · ${b2.duration_label || (b2.duration_days + ' сут.')}`,
+      [
+        ['Q мед', fmt(b2.flow_median)],
+        ['ΔP мед', fmt(b2.dp_median)],
+        ['КИВ, %', fmt(b2.utilization_pct, 1)],
+        ['Вбросов', b2.reagent_count ?? '—'],
+      ]);
+    if (b1) html += card('b1', 'B1 · Заказчик',
+      `${b1.period_from} → ${b1.period_to} · ${b1.days_count || '—'} сут.`,
+      [
+        ['Q мед', fmt(b1.q_total_median ?? b1.q_working_median)],
+        ['ΔP мед', fmt(b1.dp_median)],
+        ['P уст. мед', fmt(b1.p_wellhead_median ?? b1.p_wellhead_avg)],
+        ['Простой,ч', fmt((b1.shutdown_min_total || 0) / 60, 1)],
+      ]);
+    if (!a && !o && !b2 && !b1) {
+      html += '<div class="wz5-empty">Нет данных. Нажмите «Проанализировать».</div>';
+    }
+    html += '</div>';
+    box.innerHTML = html;
+  }
+
+  // ─── Сравнительная таблица (идентично wz5RenderCompare) ───
+  function _prRenderCompare(r) {
+    const a = r.adaptation, o = r.optimal, b2 = r.observation, b1 = r.b1;
+    const box = $('pr-cmp-block');
+    if (!box) return;
+    if (!a && !o && !b2 && !b1) {
+      box.innerHTML = '';
+      return;
+    }
+
+    // Q-метрики из B1 могут быть в q_total или q_working — выбираем что есть.
+    const b1QMed = b1 ? (b1.q_total_median ?? b1.q_working_median) : null;
+    const b1QAvg = b1 ? (b1.q_total_avg ?? b1.q_working_avg) : null;
+    const b1Shut = b1 && b1.shutdown_min_total != null ? b1.shutdown_min_total / 60 : null;
+
+    const sec = (label) => ({section: label});
+    const row = (label, unit, b1v, b2v, rv, rsv) => ({label, unit, b1v, b2v, rv, rsv});
+
+    const rows = [
+      sec('Дебит'),
+      row('Q медиана',  'тыс.м³/сут', b1QMed,        b2?.flow_median, a?.flow_median, o?.flow_median),
+      row('Q среднее',  'тыс.м³/сут', b1QAvg,        b2?.flow_avg,    a?.flow_avg,    o?.flow_avg),
+      row('Q максимум', 'тыс.м³/сут', null,          b2?.q_max,       a?.q_max,       o?.q_max),
+      row('Q накопл.',  'тыс.м³',     null,          b2?.flow_cumulative, a?.flow_cumulative, o?.flow_cumulative),
+      sec('Давления и ΔP'),
+      row('ΔP медиана',     'кгс/см²', b1?.dp_median, b2?.dp_median,        a?.dp_median,        o?.dp_median),
+      row('ΔP среднее',     'кгс/см²', b1?.dp_avg,    b2?.dp_avg,           a?.dp_avg,           o?.dp_avg),
+      row('P трубное мед.', 'кгс/см²', b1?.p_wellhead_median ?? b1?.p_wellhead_avg, b2?.p_tube_median, a?.p_tube_median, o?.p_tube_median),
+      row('P линейное мед.','кгс/см²', b1?.p_flowline_median ?? b1?.p_flowline_avg, b2?.p_line_median, a?.p_line_median, o?.p_line_median),
+      sec('Режим работы'),
+      row('КИВ',        '%',         null,          b2?.utilization_pct, a?.utilization_pct, o?.utilization_pct),
+      row('Простой',    'ч',         b1Shut,        b2?.downtime_hours,  a?.downtime_hours,  o?.downtime_hours),
+      row('Вбросов реагента','шт',   null,          b2?.reagent_count,   a?.reagent_count,   o?.reagent_count),
+      row('Продувок',   'шт',        null,          b2?.purge_count,     a?.purge_count,     o?.purge_count),
+      row('Длительность','сут',      b1?.days_count,b2?.duration_days,   a?.duration_days,   o?.duration_days),
+    ];
+
+    // Дельта-функции: учитываем, что для одних метрик «больше = лучше» (Q),
+    // а для других «меньше = лучше» (ΔP, простой, продувки).
+    const lowerIsBetter = new Set(['ΔP медиана','ΔP среднее','Простой','Продувок']);
+    const fmtDelta = (cur, base, label) => {
+      if (cur == null || base == null || base === 0 || isNaN(cur) || isNaN(base)) return ['—', 'dflat'];
+      const diff = cur - base;
+      const pct = diff / Math.abs(base) * 100;
+      const better = lowerIsBetter.has(label) ? diff < 0 : diff > 0;
+      const cls = Math.abs(pct) < 5 ? 'dflat' : (better ? 'dpos' : 'dneg');
+      const sign = diff >= 0 ? '+' : '';
+      return [`${sign}${diff.toFixed(2)} (${sign}${pct.toFixed(1)}%)`, cls];
+    };
+    const cell = (v) => v == null || isNaN(v) ? '—' : fmt(v);
+
+    let html = `
+      <div class="wz5cmp-wrap">
+        <h3 class="wz5cmp-title">🎯 Сравнение метрик: Период · R★ · B2 · B1</h3>
+        <div class="wz5cmp-subtitle">
+          Каждая метрика периода (R) и оптимума (R★) в контексте baseline'ов.
+          Зелёный = улучшение, красный = деградация, серый = без значимого изменения (&lt;5%).
+        </div>
+        <div style="overflow-x:auto;">
+        <table class="wz5cmp-table">
+          <thead><tr>
+            <th>Показатель</th>
+            <th class="col-b1">B1<br><span style="font-weight:400;">заказчик</span></th>
+            <th class="col-b2">B2<br><span style="font-weight:400;">наблюдение</span></th>
+            <th class="col-r">R<br><span style="font-weight:400;">период</span></th>
+            <th class="col-rstar">R★<br><span style="font-weight:400;">оптимум</span></th>
+            <th class="col-d">Δ R vs B2</th>
+            <th class="col-d">Δ R vs B1</th>
+            <th class="col-d">Δ R★ vs B2</th>
+          </tr></thead>
+          <tbody>
+    `;
+    for (const it of rows) {
+      if (it.section) {
+        html += `<tr class="wz5cmp-section-row"><td colspan="8">${it.section}</td></tr>`;
+        continue;
+      }
+      const [dRvsB2, cR2] = fmtDelta(it.rv, it.b2v, it.label);
+      const [dRvsB1, cR1] = fmtDelta(it.rv, it.b1v, it.label);
+      const [dRsvsB2, cRs2] = fmtDelta(it.rsv, it.b2v, it.label);
+      html += `
+        <tr>
+          <td>${it.label}<span style="color:#9ca3af; font-size:0.74rem;">, ${it.unit}</span></td>
+          <td class="col-b1">${cell(it.b1v)}</td>
+          <td class="col-b2">${cell(it.b2v)}</td>
+          <td class="col-r">${cell(it.rv)}</td>
+          <td class="col-rstar">${cell(it.rsv)}</td>
+          <td class="col-d ${cR2}">${dRvsB2}</td>
+          <td class="col-d ${cR1}">${dRvsB1}</td>
+          <td class="col-d ${cRs2}">${dRsvsB2}</td>
+        </tr>
+      `;
+    }
+    html += `</tbody></table></div>`;
+
+    // Автовыводы
+    const conclusions = [];
+    if (a?.flow_median != null && b2?.flow_median != null) {
+      const dq = a.flow_median - b2.flow_median;
+      const pq = b2.flow_median !== 0 ? dq / Math.abs(b2.flow_median) * 100 : null;
+      if (pq != null) {
+        const verb = pq > 5 ? 'вырос' : pq < -5 ? 'снизился' : 'стабилен';
+        conclusions.push(`Q периода <b>${verb}</b> на ${dq >= 0 ? '+' : ''}${dq.toFixed(2)} тыс.м³/сут (${pq >= 0 ? '+' : ''}${pq.toFixed(1)}%) <b>относительно B2</b>.`);
+      }
+    }
+    if (a?.flow_median != null && b1QMed != null) {
+      const dq = a.flow_median - b1QMed;
+      const pq = b1QMed !== 0 ? dq / Math.abs(b1QMed) * 100 : null;
+      if (pq != null) {
+        conclusions.push(`Q периода vs B1: ${dq >= 0 ? '+' : ''}${dq.toFixed(2)} тыс.м³/сут (${pq >= 0 ? '+' : ''}${pq.toFixed(1)}%).`);
+      }
+    }
+    if (o?.flow_median != null && b2?.flow_median != null) {
+      const dq = o.flow_median - b2.flow_median;
+      const pq = b2.flow_median !== 0 ? dq / Math.abs(b2.flow_median) * 100 : null;
+      if (pq != null && pq > 0) {
+        const month = dq * 30;
+        conclusions.push(`При сохранении режима R★: ожидаемая доп. добыча <b>+${month.toFixed(1)} тыс.м³ за 30 сут.</b> (vs B2).`);
+      }
+    }
+    if (a?.dp_median != null && b2?.dp_median != null) {
+      const dd = a.dp_median - b2.dp_median;
+      if (Math.abs(dd) > 0.1) {
+        conclusions.push(`ΔP ${dd < 0 ? 'уменьшилось' : 'выросло'} на ${Math.abs(dd).toFixed(2)} кгс/см² относительно наблюдения (${dd < 0 ? 'улучшение' : 'деградация'}).`);
+      }
+    }
+    if (conclusions.length) {
+      html += `<div style="margin-top:10px; font-size:0.86rem; color:#374151;">
+                 <b>Автовыводы:</b>
+                 <ul style="margin:4px 0 0 0; padding-left:20px;">
+                   ${conclusions.map(c => `<li>${c}</li>`).join('')}
+                 </ul>
+               </div>`;
+    }
+    if (!b1) html += `<div class="wz5-warn">B1 не закреплён. Зайдите в шаг 2 «Заказчик» и закрепите базовый период, чтобы видеть сравнение с данными заказчика.</div>`;
+    if (!b2) html += `<div class="wz5-warn">B2 не рассчитан. Зайдите в шаг 3 «Наблюдение» и зафиксируйте baseline.</div>`;
+
+    html += '</div>';
+    box.innerHTML = html;
+  }
+
+  // ─── Графики (идентично wz5RenderCharts) ───
+  function _prRenderCharts(r) {
+    const box = $('pr-charts-block');
+    if (!box) return;
+    const a = r.adaptation, b2 = r.observation, b1 = r.b1;
+    const cd = a?.chart_data || [];
+    if (!cd.length) {
+      box.innerHTML = '<div class="wz5-empty">Нет почасовых данных за период адаптации.</div>';
+      return;
+    }
+
+    // Определяем доступные базовые значения для каждого графика.
+    const C_B2_MEAN  = '#047857', C_B2_MED  = '#059669';
+    const C_B1_MEAN  = '#b45309', C_B1_MED  = '#d97706';
+
+    const refsForChart = {
+      flow: [
+        b2 && b2.flow_avg    != null ? {key:'flow_b2_mean', label:'B2 ср',  value:b2.flow_avg,    color:C_B2_MEAN, dash:'solid', traceLabel:'Q'} : null,
+        b2 && b2.flow_median != null ? {key:'flow_b2_med',  label:'B2 мед', value:b2.flow_median, color:C_B2_MED,  dash:'dash',  traceLabel:'Q'} : null,
+        b1 && (b1.q_total_avg ?? b1.q_working_avg) != null
+              ? {key:'flow_b1_mean', label:'B1 ср',  value:(b1.q_total_avg ?? b1.q_working_avg),    color:C_B1_MEAN, dash:'solid', traceLabel:'Q'} : null,
+        b1 && (b1.q_total_median ?? b1.q_working_median) != null
+              ? {key:'flow_b1_med',  label:'B1 мед', value:(b1.q_total_median ?? b1.q_working_median), color:C_B1_MED,  dash:'dash',  traceLabel:'Q'} : null,
+      ].filter(Boolean),
+      dp: [
+        b2 && b2.dp_avg    != null ? {key:'dp_b2_mean', label:'B2 ср',  value:b2.dp_avg,    color:C_B2_MEAN, dash:'solid', traceLabel:'ΔP'} : null,
+        b2 && b2.dp_median != null ? {key:'dp_b2_med',  label:'B2 мед', value:b2.dp_median, color:C_B2_MED,  dash:'dash',  traceLabel:'ΔP'} : null,
+        b1 && b1.dp_avg    != null ? {key:'dp_b1_mean', label:'B1 ср',  value:b1.dp_avg,    color:C_B1_MEAN, dash:'solid', traceLabel:'ΔP'} : null,
+        b1 && b1.dp_median != null ? {key:'dp_b1_med',  label:'B1 мед', value:b1.dp_median, color:C_B1_MED,  dash:'dash',  traceLabel:'ΔP'} : null,
+      ].filter(Boolean),
+      pres_tube: [
+        b2 && b2.p_tube_avg    != null ? {key:'pres_tube_b2_mean', label:'B2 трубн ср',  value:b2.p_tube_avg,    color:C_B2_MEAN, dash:'solid', traceLabel:'P трубн'} : null,
+        b2 && b2.p_tube_median != null ? {key:'pres_tube_b2_med',  label:'B2 трубн мед', value:b2.p_tube_median, color:C_B2_MED,  dash:'dash',  traceLabel:'P трубн'} : null,
+        b1 && b1.p_wellhead_avg    != null ? {key:'pres_tube_b1_mean', label:'B1 устье ср',  value:b1.p_wellhead_avg,    color:C_B1_MEAN, dash:'solid', traceLabel:'P трубн'} : null,
+        b1 && b1.p_wellhead_median != null ? {key:'pres_tube_b1_med',  label:'B1 устье мед', value:b1.p_wellhead_median, color:C_B1_MED,  dash:'dash',  traceLabel:'P трубн'} : null,
+      ].filter(Boolean),
+      pres_line: [
+        b2 && b2.p_line_avg    != null ? {key:'pres_line_b2_mean', label:'B2 лин ср',  value:b2.p_line_avg,    color:C_B2_MEAN, dash:'solid', traceLabel:'P лин'} : null,
+        b2 && b2.p_line_median != null ? {key:'pres_line_b2_med',  label:'B2 лин мед', value:b2.p_line_median, color:C_B2_MED,  dash:'dash',  traceLabel:'P лин'} : null,
+        b1 && b1.p_flowline_avg    != null ? {key:'pres_line_b1_mean', label:'B1 шлейф ср',  value:b1.p_flowline_avg,    color:C_B1_MEAN, dash:'solid', traceLabel:'P лин'} : null,
+        b1 && b1.p_flowline_median != null ? {key:'pres_line_b1_med',  label:'B1 шлейф мед', value:b1.p_flowline_median, color:C_B1_MED,  dash:'dash',  traceLabel:'P лин'} : null,
+      ].filter(Boolean),
+      down: [
+        b1 && b1.shutdown_min_avg != null
+            ? {key:'down_b1_avg', label:'B1 ср/сут (приведено к час)',
+               value: b1.shutdown_min_avg / 24, color:C_B1_MEAN, dash:'solid', traceLabel:'Простой'} : null,
+      ].filter(Boolean),
+    };
+
+    // Состояние чекбоксов: при первом рендере включаем медианы B2.
+    if (!state.steps[8]) state.steps[8] = { status: 'draft', include: true, data: {} };
+    if (!state.steps[8].data.overlayState) {
+      state.steps[8].data.overlayState = {};
+    }
+    const ov = state.steps[8].data.overlayState;
+    Object.entries(refsForChart).forEach(([key, list]) => {
+      list.forEach(item => {
+        if (ov[item.key] === undefined) {
+          ov[item.key] = (item.key.endsWith('b2_med'));
+        }
+      });
+    });
+
+    const renderToggleRow = (chartKey) => {
+      const list = refsForChart[chartKey] || [];
+      if (!list.length) return '';
+      let html = '<div style="display:flex; gap:6px; flex-wrap:wrap; margin:4px 0 6px; font-size:0.74rem;">';
+      html += '<span style="color:#6b7280;">Опорные линии:</span>';
+      for (const it of list) {
+        const checked = ov[it.key] ? 'checked' : '';
+        html += `
+          <label style="display:inline-flex; align-items:center; gap:3px; cursor:pointer;
+                        padding:1px 7px; border-radius:10px;
+                        background:${ov[it.key] ? '#fff' : '#f3f4f6'};
+                        border:1px solid ${ov[it.key] ? it.color : '#d1d5db'};
+                        color:${ov[it.key] ? it.color : '#6b7280'};">
+            <input type="checkbox" data-overlay="${chartKey}" data-key="${it.key}"
+                   ${checked} style="width:auto; margin:0;">
+            <span style="white-space:nowrap;">
+              <span style="display:inline-block; width:10px; height:2px; vertical-align:middle;
+                           background:${it.color}; margin-right:3px;
+                           border-top:${it.dash === 'dash' ? '1px dashed ' + it.color : 'none'};
+                           ${it.dash === 'dash' ? 'background:transparent;' : ''}"></span>
+              ${it.label}: <b>${fmt(it.value)}</b>
+            </span>
+          </label>`;
+      }
+      html += `<button type="button" data-overlay-toggle="${chartKey}" data-mode="all"
+                style="padding:1px 8px; font-size:0.72rem; background:#fff; border:1px solid #d1d5db;
+                       border-radius:10px; cursor:pointer; color:#374151;">все</button>`;
+      html += `<button type="button" data-overlay-toggle="${chartKey}" data-mode="none"
+                style="padding:1px 8px; font-size:0.72rem; background:#fff; border:1px solid #d1d5db;
+                       border-radius:10px; cursor:pointer; color:#374151;">ни одной</button>`;
+      html += '</div>';
+      return html;
+    };
+
+    const noRefsB1B2 = !b1 && !b2;
+    const refsHint = noRefsB1B2
+      ? '<div class="wz5-warn" style="margin-bottom:8px;">B1/B2 не заданы — на графиках не будет опорных линий. Закрепите B1 в шаге 2 и B2 в шаге 3.</div>'
+      : '';
+
+    box.innerHTML = `
+      <div class="wz-section">
+        <h3>Графики адаптации с опорными линиями B1 / B2</h3>
+        <div class="wz-step-hint" style="margin-bottom:6px;">
+          На каждом графике — свои опорные значения базовых периодов
+          (среднее и медиана для B1 и B2). Включаются/выключаются чекбоксами над графиком.
+        </div>
+        ${refsHint}
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.7rem;">
+          <div>
+            ${renderToggleRow('pres_tube')}
+            ${renderToggleRow('pres_line')}
+            <div id="pr-ch-pres" style="height:280px;"></div>
+          </div>
+          <div>
+            ${renderToggleRow('dp')}
+            <div id="pr-ch-dp" style="height:280px;"></div>
+          </div>
+          <div>
+            ${renderToggleRow('flow')}
+            <div id="pr-ch-flow" style="height:280px;"></div>
+          </div>
+          <div>
+            ${renderToggleRow('down')}
+            <div id="pr-ch-down" style="height:280px;"></div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const ts = cd.map(p => p.t);
+    const evShapes = (a.events_for_chart || []).map(ev => {
+      const colors = {reagent:'#7c3aed', purge:'#dc2626', equip:'#2563eb'};
+      return {type:'line', xref:'x', yref:'paper', x0:ev.t, x1:ev.t, y0:0, y1:1,
+              line:{color: colors[ev.type] || '#6b7280', width:1, dash:'dot'}};
+    });
+    const layout = {
+      margin:{l:50, r:30, t:36, b:40}, hovermode:'x unified',
+      font:{size:11}, legend:{orientation:'h', y:-0.18},
+    };
+    const cfg = {displaylogo:false, responsive:true};
+
+    // Сохраняем на state набор данных по графикам
+    state.steps[8].data._chartCtx = { evShapes, refsForChart };
+
+    Plotly.newPlot('pr-ch-pres', [
+      {x:ts, y:cd.map(p => p.p_tube), name:'P трубное', line:{color:'#1d4ed8', width:1.4}, mode:'lines'},
+      {x:ts, y:cd.map(p => p.p_line), name:'P линейное', line:{color:'#16a34a', width:1.4}, mode:'lines'},
+    ], {...layout, title:'Давления, кгс/см²', shapes:evShapes}, cfg);
+    Plotly.newPlot('pr-ch-dp', [
+      {x:ts, y:cd.map(p => p.dp), name:'ΔP', line:{color:'#dc2626', width:1.6}, mode:'lines',
+       fill:'tozeroy', fillcolor:'rgba(220,38,38,0.08)'},
+    ], {...layout, title:'ΔP, кгс/см²', shapes:evShapes}, cfg);
+    Plotly.newPlot('pr-ch-flow', [
+      {x:ts, y:cd.map(p => p.q), name:'Q', line:{color:'#0891b2', width:1.5}, mode:'lines',
+       fill:'tozeroy', fillcolor:'rgba(8,145,178,0.07)'},
+    ], {...layout, title:'Дебит Q, тыс.м³/сут', shapes:evShapes}, cfg);
+    Plotly.newPlot('pr-ch-down', [
+      {x:ts, y:cd.map(p => p.downtime_min || 0), name:'Простой, мин/час',
+       type:'bar', marker:{color:'rgba(220,38,38,0.5)'}},
+    ], {...layout, title:'Простой, мин/час', shapes:evShapes}, cfg);
+
+    // Применить актуальные опорные линии
+    _prUpdateOverlay('flow');
+    _prUpdateOverlay('dp');
+    _prUpdateOverlay('down');
+    _prUpdateOverlayPres();
+
+    // Привязываем чекбоксы и кнопки
+    box.querySelectorAll('input[data-overlay]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        ov[cb.dataset.key] = cb.checked;
+        _prRenderCharts(r);
+      });
+    });
+    box.querySelectorAll('[data-overlay-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const chartKey = btn.dataset.overlayToggle;
+        const list = refsForChart[chartKey] || [];
+        const enable = btn.dataset.mode === 'all';
+        list.forEach(it => { ov[it.key] = enable; });
+        _prRenderCharts(r);
+      });
+    });
+  }
+
+  // Helper: пересчитывает shapes/annotations для одного графика
+  function _prUpdateOverlay(chartKey) {
+    const ctx = state.steps[8]?.data?._chartCtx;
+    if (!ctx) return;
+    const ov = state.steps[8].data.overlayState;
+    const list = ctx.refsForChart[chartKey] || [];
+    const baseShapes = [...ctx.evShapes];
+    const annots = [];
+    list.forEach(it => {
+      if (!ov[it.key]) return;
+      baseShapes.push({
+        type:'line', xref:'paper', x0:0, x1:1, y0:it.value, y1:it.value,
+        line:{color:it.color, width:1.5, dash:it.dash},
+      });
+      annots.push({
+        x:1, xref:'paper', y:it.value, text:`${it.label}: ${fmt(it.value)}`,
+        showarrow:false, font:{size:9, color:it.color},
+        bgcolor:'rgba(255,255,255,0.85)', xanchor:'right', yanchor:'bottom',
+      });
+    });
+    const id = 'pr-ch-' + (chartKey === 'flow' ? 'flow' : (chartKey === 'dp' ? 'dp' : 'down'));
+    if (document.getElementById(id)) {
+      Plotly.relayout(id, {shapes: baseShapes, annotations: annots});
+    }
+  }
+  function _prUpdateOverlayPres() {
+    const ctx = state.steps[8]?.data?._chartCtx;
+    if (!ctx) return;
+    const ov = state.steps[8].data.overlayState;
+    const baseShapes = [...ctx.evShapes];
+    const annots = [];
+    [...(ctx.refsForChart.pres_tube || []), ...(ctx.refsForChart.pres_line || [])].forEach(it => {
+      if (!ov[it.key]) return;
+      baseShapes.push({
+        type:'line', xref:'paper', x0:0, x1:1, y0:it.value, y1:it.value,
+        line:{color:it.color, width:1.5, dash:it.dash},
+      });
+      annots.push({
+        x:1, xref:'paper', y:it.value, text:`${it.label}: ${fmt(it.value)}`,
+        showarrow:false, font:{size:9, color:it.color},
+        bgcolor:'rgba(255,255,255,0.85)', xanchor:'right', yanchor:'bottom',
+      });
+    });
+    if (document.getElementById('pr-ch-pres')) {
+      Plotly.relayout('pr-ch-pres', {shapes: baseShapes, annotations: annots});
+    }
+  }
+
+  // Русское склонение для Step 8
+  function _prPlural(n, one, few, many) {
+    const a = Math.abs(n) % 100;
+    const b = a % 10;
+    if (a >= 11 && a <= 14) return many;
+    if (b === 1) return one;
+    if (b >= 2 && b <= 4) return few;
+    return many;
+  }
+
+  // ─── Таблица событий (идентично wz5RenderEvents) ───
+  function _prRenderEvents(r) {
+    const box = $('pr-events-block');
+    if (!box) return;
+
+    const events = r.adaptation?.events_for_chart || [];
+    if (!events.length) {
+      box.innerHTML = `<div class="wz-section"><h3>События за период</h3>
+                       <div class="wz5-empty">Нет событий в выбранном периоде.</div></div>`;
+      return;
+    }
+
+    // Группируем по типу
+    const groups = {};
+    for (const ev of events) {
+      const t = ev.type || 'other';
+      if (!groups[t]) groups[t] = [];
+      groups[t].push(ev);
+    }
+    const labelByType = {
+      reagent:'Вброс реагента', purge:'Продувка',
+      equip:'Установка оборудования', other:'Прочее',
+    };
+
+    let html = `<div class="wz-section">
+      <h3>События за период (${events.length})</h3>`;
+
+    // Сводная плашка по типам
+    html += '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">';
+    Object.entries(groups).forEach(([t, list]) => {
+      html += `<span class="wz5-evt-pill ${t}">${labelByType[t] || t}: <b>${list.length}</b></span>`;
+    });
+    html += '</div>';
+
+    // Интервалы между вбросами (если их 2+)
+    const reagents = (groups.reagent || []).slice()
+      .sort((a, b) => (a.t || '').localeCompare(b.t || ''));
+    if (reagents.length >= 2) {
+      const intervals = [];
+      for (let i = 1; i < reagents.length; i++) {
+        const t1 = new Date(reagents[i-1].t || reagents[i-1].event_time);
+        const t2 = new Date(reagents[i].t || reagents[i].event_time);
+        if (isNaN(t1) || isNaN(t2)) continue;
+        const dh = (t2 - t1) / 3600000;
+        intervals.push({
+          from_t: reagents[i-1].t,
+          to_t: reagents[i].t,
+          from_reagent: reagents[i-1].reagent || '—',
+          to_reagent: reagents[i].reagent || '—',
+          hours: dh,
+        });
+      }
+      if (intervals.length) {
+        const sorted = intervals.map(x => x.hours).slice().sort((a, b) => a - b);
+        const sum = sorted.reduce((s, v) => s + v, 0);
+        const mean = sum / sorted.length;
+        const median = sorted.length % 2
+          ? sorted[(sorted.length - 1) >> 1]
+          : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
+        const min = sorted[0];
+        const max = sorted[sorted.length - 1];
+        const stdev = Math.sqrt(sorted.reduce((s, v) => s + (v - mean) ** 2, 0) / sorted.length);
+        const cv = mean > 0 ? stdev / mean : 0;
+
+        const fmtH = (h) => {
+          if (h < 24) return h.toFixed(1) + ' ч';
+          return (h / 24).toFixed(2) + ' сут';
+        };
+
+        html += `<div class="wz5cmp-wrap" style="border-color:#7c3aed; box-shadow:0 2px 8px rgba(124,58,237,0.08); margin-top:6px;">
+          <h3 class="wz5cmp-title" style="color:#5b21b6;">⏱ Интервалы между вбросами реагента</h3>
+          <div class="wz5cmp-subtitle">
+            ${intervals.length} интервал${intervals.length === 1 ? '' : (intervals.length < 5 ? 'а' : 'ов')}
+            между ${reagents.length} вбросами.
+            CV (коэф. вариации) ${cv < 0.3 ? 'низкий — режим стабильный' : cv < 0.7 ? 'средний' : 'высокий — режим нерегулярный'}.
+          </div>
+          <div style="display:flex; gap:14px; flex-wrap:wrap; margin-bottom:8px; font-size:0.86rem;">
+            <div><span style="color:#6b7280;">Среднее:</span> <b>${fmtH(mean)}</b></div>
+            <div><span style="color:#6b7280;">Медиана:</span> <b>${fmtH(median)}</b></div>
+            <div><span style="color:#6b7280;">Мин:</span> <b>${fmtH(min)}</b></div>
+            <div><span style="color:#6b7280;">Макс:</span> <b>${fmtH(max)}</b></div>
+            <div><span style="color:#6b7280;">σ:</span> <b>${fmtH(stdev)}</b></div>
+            <div><span style="color:#6b7280;">CV:</span> <b>${cv.toFixed(2)}</b></div>
+          </div>
+          <details>
+            <summary style="cursor:pointer; font-size:0.82rem; color:#5b21b6;">
+              Развернуть полный список (${intervals.length})
+            </summary>
+            <div style="overflow-x:auto; max-height:240px; overflow-y:auto; margin-top:6px;">
+              <table class="wz5-events-table">
+                <thead><tr>
+                  <th>№</th><th>Откуда</th><th>Куда</th><th>Реагенты</th><th>Интервал</th>
+                </tr></thead><tbody>
+                ${intervals.map((it, i) => `
+                  <tr>
+                    <td>${i + 1}</td>
+                    <td style="font-family:monospace;">${(it.from_t || '').replace('T', ' ').slice(0, 16)}</td>
+                    <td style="font-family:monospace;">${(it.to_t || '').replace('T', ' ').slice(0, 16)}</td>
+                    <td>${it.from_reagent} → ${it.to_reagent}</td>
+                    <td><b>${fmtH(it.hours)}</b></td>
+                  </tr>
+                `).join('')}
+              </tbody></table>
+            </div>
+          </details>
+        </div>`;
+      }
+    } else if (reagents.length === 1) {
+      html += `<div class="wz5-info">Всего один вброс реагента — интервалы не считаются.</div>`;
+    }
+
+    // Таблица всех событий
+    html += `<div style="overflow-x:auto; max-height:320px; overflow-y:auto;">
+      <table class="wz5-events-table">
+        <thead><tr>
+          <th>Время</th>
+          <th>Тип</th>
+          <th>Описание</th>
+          <th>Кол-во</th>
+          <th>P устье</th>
+          <th>P линия</th>
+        </tr></thead><tbody>`;
+    for (const ev of events) {
+      const t = (ev.t || ev.event_time || '').replace('T', ' ').slice(0, 16);
+      let typeLabel, descr;
+      if (ev.type === 'purge') {
+        typeLabel = 'Продувка';
+        descr = '—';
+      } else if (ev.type === 'reagent') {
+        typeLabel = 'Вброс реагента';
+        descr = ev.reagent || '—';
+      } else if (ev.type === 'other') {
+        typeLabel = 'Прочее';
+        descr = ev.description || ev.label || '—';
+      } else {
+        typeLabel = labelByType[ev.type] || ev.type || '—';
+        descr = ev.label || '—';
+      }
+      const qty = ev.qty != null ? ev.qty : '—';
+      const pTube = ev.p_tube != null ? ev.p_tube.toFixed(1) : '—';
+      const pLine = ev.p_line != null ? ev.p_line.toFixed(1) : '—';
+      html += `<tr>
+        <td style="font-family:monospace;">${t}</td>
+        <td><span class="wz5-evt-pill ${ev.type || 'other'}">${typeLabel}</span></td>
+        <td>${descr}</td>
+        <td style="text-align:right;">${qty}</td>
+        <td style="text-align:right;">${pTube}</td>
+        <td style="text-align:right;">${pLine}</td>
+      </tr>`;
+    }
+    html += '</tbody></table></div></div>';
+    box.innerHTML = html;
+  }
+
+  // ─── ИРВ реагентов (идентично wz5RenderIRV) ───
+  function _prRenderIRV(r) {
+    const box = $('pr-irv-block');
+    if (!box) return;
+
+    const irv = r.irv;
+    if (!irv || (!irv.scores?.length && !irv.irv_results?.length)) {
+      const summary = r.reagentSummary;
+      let msg = 'Вбросов реагента в выбранном периоде нет.';
+      if (summary && summary.warnings && summary.warnings.length) msg = summary.warnings[0];
+      if (irv && irv.warnings && irv.warnings.length) msg = irv.warnings[0];
+      box.innerHTML = `<div class="wz-section"><h3>Анализ реагентов</h3>
+                       <div class="wz5-empty">${msg}</div></div>`;
+      return;
+    }
+
+    const rows   = irv.irv_results || [];
+    const scores = (irv.scores || []).slice().sort((a, b) => (b.score || 0) - (a.score || 0));
+    const best   = irv.best_reagent;
+    const choke  = irv.choke_mm;
+    const totalInj  = irv.injections_total || rows.length;
+    const mergedInj = irv.merged_injections || rows.length;
+
+    // Цвета по реагентам (стабильная палитра)
+    const PALETTE = ['#3b82f6','#ef4444','#16a34a','#f59e0b','#8b5cf6',
+                     '#ec4899','#0ea5e9','#22c55e','#d946ef','#14b8a6'];
+    const reagentNames = [...new Set(rows.map(x => x.reagent).filter(Boolean))];
+    const colorByReagent = {};
+    reagentNames.forEach((n, i) => { colorByReagent[n] = PALETTE[i % PALETTE.length]; });
+
+    // Σ qty по каждому реагенту
+    const qtyByReagent = {};
+    const cntByReagent = {};
+    let totalQty = 0; let qtyKnownCount = 0;
+    for (const it of rows) {
+      const name = it.reagent || '';
+      if (!name) continue;
+      cntByReagent[name] = (cntByReagent[name] || 0) + 1;
+      if (it.qty != null && !isNaN(Number(it.qty))) {
+        qtyByReagent[name] = (qtyByReagent[name] || 0) + Number(it.qty);
+        totalQty += Number(it.qty); qtyKnownCount += 1;
+      }
+    }
+    const someQty = qtyKnownCount > 0;
+
+    // Период и темп
+    const pf = r.adaptation?.date_from, pt = r.adaptation?.date_to;
+    let periodDays = 0;
+    if (pf && pt) periodDays = Math.max(1, (new Date(pt) - new Date(pf)) / 86400000);
+    const ratePerDay = periodDays > 0 ? (totalInj / periodDays) : 0;
+
+    // Нарратив словами
+    const narr = [];
+    narr.push(
+      `За период (${periodDays.toFixed(0)} сут.) сделано <b>${totalInj}</b> ` +
+      _prPlural(totalInj, 'вброс', 'вброса', 'вбросов') +
+      (mergedInj !== totalInj ? ` (после группировки близких — <b>${mergedInj}</b>)` : '') + '.'
+    );
+    if (scores.length) {
+      narr.push(
+        `Применялось <b>${scores.length}</b> ` +
+        _prPlural(scores.length, 'тип реагента', 'типа реагента', 'типов реагента') + '.'
+      );
+      const byCnt = scores.slice().sort((a, b) => (b.irv_count || 0) - (a.irv_count || 0));
+      const top1 = byCnt[0], top2 = byCnt[1];
+      const sumCnt = scores.reduce((s, x) => s + (x.irv_count || 0), 0) || 1;
+      if (top1) {
+        narr.push(
+          `Чаще всего применялся <b>${top1.reagent}</b> — ${top1.irv_count} ИРВ ` +
+          `(${(top1.irv_count / sumCnt * 100).toFixed(0)}%).`
+        );
+      }
+      if (top2 && top2.irv_count > 0) {
+        narr.push(
+          `На втором месте — <b>${top2.reagent}</b> (${top2.irv_count} ИРВ, ` +
+          `${(top2.irv_count / sumCnt * 100).toFixed(0)}%).`
+        );
+      }
+    }
+    if (someQty) {
+      narr.push(
+        `Суммарный расход: <b>${totalQty.toFixed(1)}</b> ` +
+        (best && qtyByReagent[best.reagent] ? `(в т.ч. ${best.reagent} — ${qtyByReagent[best.reagent].toFixed(1)})` : '') + '.'
+      );
+    }
+    if (ratePerDay > 0) {
+      narr.push(`Темп: <b>${ratePerDay.toFixed(2)}</b> вбр./сут (≈ ${(ratePerDay * 7).toFixed(1)} вбр./нед).`);
+    }
+    if (best) {
+      const sc = best.score != null ? Math.round(best.score * 100) : null;
+      narr.push(
+        `По эффективности (Score) лидирует <b>${best.reagent}</b>` +
+        (sc != null ? ` (${sc} из 100)` : '') +
+        (best.level_name ? `, уровень: «${best.level_name}»` : '') + '.'
+      );
+    }
+
+    // HTML: топ-карточки
+    let html = `<div class="wz-section">
+      <h3>🧪 Анализ реагентов</h3>`;
+
+    html += `<div class="wz5-cards" style="margin-bottom:10px;">
+      <div class="wz5-card rstar">
+        <div class="wz5-card-title">⭐ Лучший реагент</div>
+        ${best ? `
+          <div style="font-size:1.05rem; font-weight:700; color:#92400e; margin:2px 0 4px;">
+            ${best.reagent}
+          </div>
+          <div class="wz5-card-grid">
+            <div class="lbl">Score</div><div class="val">${best.score != null ? Math.round(best.score * 100) : '—'}</div>
+            <div class="lbl">Уровень</div><div class="val" style="font-size:0.74rem;">${best.level_name || '—'}</div>
+            <div class="lbl">Q/шт мед.</div><div class="val">${fmt(best.median_q_per_unit, 2)}</div>
+            <div class="lbl">Эффект, ч</div><div class="val">${fmt(best.median_effect_hours, 1)}</div>
+          </div>` : '<div style="color:#9ca3af;">Не определён</div>'}
+      </div>
+      <div class="wz5-card" style="border-left-color:#7c3aed; background:#f5f3ff;">
+        <div class="wz5-card-title" style="color:#5b21b6;">Всего вбросов</div>
+        <div class="wz5-card-grid">
+          <div class="lbl">Событий</div><div class="val">${totalInj}</div>
+          <div class="lbl">После группировки</div><div class="val">${mergedInj}</div>
+          <div class="lbl">Типов реагентов</div><div class="val">${scores.length}</div>
+          ${ratePerDay > 0 ? `<div class="lbl">Темп, вбр./сут</div><div class="val">${ratePerDay.toFixed(2)}</div>` : ''}
+        </div>
+      </div>
+      <div class="wz5-card" style="border-left-color:#059669; background:#ecfdf5;">
+        <div class="wz5-card-title" style="color:#065f46;">Расход</div>
+        <div class="wz5-card-grid">
+          <div class="lbl">Σ qty</div><div class="val">${someQty ? totalQty.toFixed(1) : '— нет qty —'}</div>
+          ${choke != null ? `<div class="lbl">Штуцер, мм</div><div class="val">${fmt(choke, 1)}</div>` : ''}
+        </div>
+      </div>
+    </div>`;
+
+    // Нарратив словами
+    if (narr.length) {
+      html += `<div class="wz5cmp-wrap" style="border-color:#7c3aed; box-shadow:none; margin-bottom:10px;">
+        <h3 class="wz5cmp-title" style="color:#5b21b6;">📖 Описание словами</h3>
+        <div style="font-size:0.92rem; color:#4b5563; line-height:1.7;">
+          ${narr.map(s => `<div style="margin:4px 0;">▸ ${s}</div>`).join('')}
+        </div>
+      </div>`;
+    }
+
+    // Шкала эффективности реагентов
+    html += `<h4 style="margin:10px 0 6px; color:#5b21b6;">Шкала эффективности реагентов</h4>
+      <div style="overflow-x:auto; margin-bottom:14px;">
+        <table class="wz5-irv-table">
+          <thead><tr>
+            <th>Реагент</th>
+            <th>Вбросов</th>
+            <th>Валидных</th>
+            <th>Σ qty</th>
+            <th>Q/шт мед.</th>
+            <th>ΔP прирост мед.</th>
+            <th>Длит. эффекта</th>
+            <th>Score</th>
+            <th>Уровень</th>
+            <th>Деградация</th>
+            <th>Флаги</th>
+          </tr></thead><tbody>`;
+    if (!scores.length) {
+      html += `<tr><td colspan="11" class="wz5-empty">Score не рассчитан (мало данных).</td></tr>`;
+    } else {
+      for (const s of scores) {
+        const sc = s.score != null ? s.score.toFixed(2) : '—';
+        const lvl = s.level || 1;
+        const cnt = cntByReagent[s.reagent] ?? s.irv_count;
+        const qty = qtyByReagent[s.reagent];
+        const sw = colorByReagent[s.reagent] || '#9ca3af';
+        html += `<tr>
+          <td>
+            <span style="display:inline-block; width:10px; height:10px; border-radius:50%;
+                         background:${sw}; margin-right:6px; vertical-align:middle;"></span>
+            <b>${s.reagent}</b>
+          </td>
+          <td>${cnt ?? s.irv_count}</td>
+          <td>${s.valid_irv_count ?? '—'}</td>
+          <td>${qty != null ? qty.toFixed(1) : '—'}</td>
+          <td>${fmt(s.median_q_per_unit, 3)}</td>
+          <td>${fmt(s.median_dp_gain, 2)} <span style="color:#9ca3af; font-size:0.72rem;">кгс/см²</span></td>
+          <td>${fmt(s.median_effect_hours, 1)} <span style="color:#9ca3af; font-size:0.72rem;">ч</span></td>
+          <td><b>${sc}</b></td>
+          <td><span class="wz5-irv-score lvl-${lvl}" title="${s.level_name || ''}">${s.level_name || '—'}</span></td>
+          <td>${s.degradation_slope != null
+              ? `<span style="color:${s.degradation_slope < 0 ? '#b91c1c' : '#059669'};">
+                   ${s.degradation_slope >= 0 ? '+' : ''}${s.degradation_slope.toFixed(3)}/ИРВ
+                 </span>` : '—'}</td>
+          <td style="font-size:0.74rem;">
+            ${(s.flags || []).map(f => `<span class="wz5-evt-pill other" style="display:inline-block; margin:1px;">${f}</span>`).join('')}
+          </td>
+        </tr>`;
+      }
+    }
+    html += '</tbody></table></div>';
+
+    // Диаграммы
+    html += `
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px;">
+        <div>
+          <h4 style="margin:0 0 4px; color:#5b21b6; font-size:0.92rem;">Вбросы по реагентам</h4>
+          <div id="pr-reagent-pie" style="height:280px;"></div>
+        </div>
+        <div>
+          <h4 style="margin:0 0 4px; color:#5b21b6; font-size:0.92rem;">Эффективность вбросов (Score по времени)</h4>
+          <div id="pr-reagent-score-chart" style="height:280px;"></div>
+        </div>
+      </div>
+    `;
+
+    // Детально по ИРВ под expander
+    if (rows.length) {
+      html += `<details>
+        <summary style="cursor:pointer; font-size:0.86rem; color:#5b21b6; font-weight:500; margin-top:8px;">
+          Развернуть детально по ИРВ (${rows.length})
+        </summary>
+        <div style="overflow-x:auto; max-height:400px; overflow-y:auto; margin-top:6px;">
+        <table class="wz5-irv-table">
+          <thead><tr>
+            <th>Дата вброса</th>
+            <th>Реагент</th>
+            <th>qty</th>
+            <th>Длит. ИРВ, ч</th>
+            <th>Q/шт</th>
+            <th>ΔP gain</th>
+            <th>Эффект, ч</th>
+            <th>КИВ, %</th>
+            <th>Σ Q, тыс.м³</th>
+            <th>Score</th>
+            <th>Статус</th>
+          </tr></thead><tbody>`;
+      for (const it of rows) {
+        const m = it.metrics || {};
+        const t = (it.event_time || '').replace('T', ' ').slice(0, 16);
+        const inv = m.invalid_reason;
+        const ext = it.extended || {};
+        const irvScore = ext.score != null ? Math.round(ext.score) : null;
+        const cat = ext.category;
+        const catColor = cat === 'good' ? '#16a34a' : cat === 'average' ? '#ca8a04' : cat === 'weak' ? '#dc2626' : '#9ca3af';
+        const sw = colorByReagent[it.reagent] || '#9ca3af';
+        html += `<tr>
+          <td style="font-family:monospace;">${t}</td>
+          <td>
+            <span style="display:inline-block; width:8px; height:8px; border-radius:50%;
+                         background:${sw}; margin-right:5px; vertical-align:middle;"></span>
+            ${it.reagent || '—'}
+          </td>
+          <td>${it.qty != null ? it.qty : '—'}${it.merged_count > 1 ? ` <span style="color:#9ca3af; font-size:0.72rem;">(${it.merged_count})</span>` : ''}</td>
+          <td>${fmt(it.duration_hours, 1)}</td>
+          <td>${fmt(m.q_per_unit, 2)}</td>
+          <td>${fmt(m.dp_gain, 2)}</td>
+          <td>${fmt(m.effect_duration_hours, 1)}</td>
+          <td>${fmt(m.utilisation_pct, 1)}</td>
+          <td>${fmt(m.q_cumulative, 2)}</td>
+          <td>${irvScore != null
+              ? `<span style="background:${catColor}; color:#fff; padding:2px 6px; border-radius:8px; font-weight:600;">${irvScore}</span>`
+              : '—'}</td>
+          <td>${inv ? `<span style="color:#b91c1c; font-size:0.74rem;">${inv}</span>` : '<span style="color:#059669;">✓</span>'}</td>
+        </tr>`;
+      }
+      html += '</tbody></table></div></details>';
+    }
+
+    html += '</div>';
+    box.innerHTML = html;
+
+    // Plotly диаграммы
+    if (scores.length) {
+      const labels = scores.map(s => s.reagent);
+      const cnts   = scores.map(s => cntByReagent[s.reagent] ?? s.irv_count ?? 0);
+      const qtys   = scores.map(s => qtyByReagent[s.reagent] ?? 0);
+      const useQty = someQty;
+      const values = useQty ? qtys : cnts;
+      Plotly.newPlot('pr-reagent-pie', [{
+        type:'pie', hole:0.45,
+        labels: labels,
+        values: values,
+        marker:{ colors: labels.map(n => colorByReagent[n] || '#9ca3af') },
+        text: cnts.map(c => c + ' ИРВ'),
+        textinfo:'label+percent',
+        textposition:'inside',
+        hovertemplate: '<b>%{label}</b><br>%{value} ' + (useQty ? '(qty)' : 'ИРВ') +
+                       '<br>%{percent}<extra></extra>',
+      }], {
+        margin:{l:10, r:10, t:10, b:10},
+        showlegend:false,
+        font:{size:11},
+        annotations: useQty ? [{
+          font:{size:13}, showarrow:false,
+          text:'Σ qty<br>' + totalQty.toFixed(0), x:0.5, y:0.5,
+        }] : [{
+          font:{size:13}, showarrow:false,
+          text: totalInj + ' вбр.', x:0.5, y:0.5,
+        }],
+      }, {displaylogo:false, responsive:true});
+    }
+
+    if (rows.length) {
+      const traces = reagentNames.map(name => {
+        const items = rows.filter(r => r.reagent === name);
+        return {
+          type:'bar',
+          name: name,
+          x: items.map(it => it.event_time),
+          y: items.map(it => (it.extended && it.extended.score) != null
+                              ? it.extended.score : null),
+          marker:{ color: colorByReagent[name] },
+          hovertemplate: '<b>' + name + '</b><br>%{x}<br>Score: %{y}<extra></extra>',
+        };
+      });
+      Plotly.newPlot('pr-reagent-score-chart', traces, {
+        margin:{l:40, r:10, t:10, b:40},
+        xaxis:{type:'date', title:'Дата вброса'},
+        yaxis:{title:'Score (0–100)', range:[0, 100]},
+        font:{size:11},
+        legend:{orientation:'h', y:-0.18},
+        shapes:[
+          {type:'line', xref:'paper', x0:0, x1:1, y0:70, y1:70,
+           line:{color:'#16a34a', dash:'dash', width:1}},
+          {type:'line', xref:'paper', x0:0, x1:1, y0:45, y1:45,
+           line:{color:'#ca8a04', dash:'dash', width:1}},
+        ],
+        annotations:[
+          {x:1, xref:'paper', y:70, text:'70 — хороший', showarrow:false,
+           xanchor:'right', font:{size:9, color:'#16a34a'}, bgcolor:'rgba(255,255,255,0.8)'},
+          {x:1, xref:'paper', y:45, text:'45 — средний', showarrow:false,
+           xanchor:'right', font:{size:9, color:'#ca8a04'}, bgcolor:'rgba(255,255,255,0.8)'},
+        ],
+      }, {displaylogo:false, responsive:true});
+    }
+  }
+
+  // ─── R★ кандидаты (идентично wz5RenderRStar) ───
+  function _prRenderRStar(r) {
+    const box = $('pr-rstar-block');
+    if (!box) return;
+
+    const cands = r.candidates || [];
+    const o = r.optimal;
+    if (!cands.length && !o) {
+      box.innerHTML = '';
+      return;
+    }
+
+    if (!state.steps[8]) state.steps[8] = { status: 'draft', include: true, data: {} };
+    const d = state.steps[8].data;
+    if (!d.selectedRStarIdx) d.selectedRStarIdx = 0;
+
+    // Если в кандидатах нет, но есть optimal — добавим как единственного.
+    let list = cands.slice();
+    if (!list.length && o) {
+      list = [{
+        start: o.date_from, end: o.date_to,
+        q_median: o.flow_median, q_mean: o.flow_avg,
+        cv_q: o.cv_q, utilization_pct: o.utilization_pct,
+        purge_freq_per_day: o.purge_freq_per_day, score: o.score,
+      }];
+    }
+
+    let html = `<div class="wz-section">
+      <h3>⭐ Кандидаты на R★ (top-${list.length})</h3>
+      <div class="wz-step-hint" style="margin-bottom:8px;">
+        Окна стабильной работы внутри адаптации, ранжированные по Score.
+        Клик по карточке выбирает её как актуальный R★ для отчёта.
+      </div>
+      <div class="wz5-rstar-grid">`;
+    list.forEach((c, i) => {
+      const sel = (i === d.selectedRStarIdx) ? 'selected' : '';
+      const score100 = c.score != null ? Math.round(c.score * 100) : null;
+      html += `
+        <div class="wz5-rstar-card ${sel}" data-rstar-idx="${i}">
+          <div style="display:flex; align-items:center; margin-bottom:4px;">
+            <span class="wz5-rstar-rank">#${i+1}</span>
+            <b>${score100 != null ? `Score ${score100}` : 'окно ' + (i+1)}</b>
+          </div>
+          <div class="wz5-rstar-period">
+            ${(c.start || '').slice(0,10)} → ${(c.end || '').slice(0,10)}
+          </div>
+          <div class="wz5-rstar-metrics">
+            <div class="lbl">Q мед</div><div class="val">${fmt(c.q_median)}</div>
+            <div class="lbl">Q ср</div><div class="val">${fmt(c.q_mean)}</div>
+            <div class="lbl">CV (стаб.)</div><div class="val">${fmt(c.cv_q, 3)}</div>
+            <div class="lbl">КИВ, %</div><div class="val">${fmt(c.utilization_pct, 1)}</div>
+            <div class="lbl">Прод./сут</div><div class="val">${fmt(c.purge_freq_per_day, 2)}</div>
+          </div>
+        </div>
+      `;
+    });
+    html += '</div></div>';
+    box.innerHTML = html;
+
+    box.querySelectorAll('.wz5-rstar-card').forEach(el => {
+      el.addEventListener('click', () => {
+        d.selectedRStarIdx = parseInt(el.dataset.rstarIdx, 10) || 0;
+        _prRenderRStar(r);
+      });
+    });
+  }
+
+  // ─── Сохранение анализа в отчёт ───
+  async function _prSaveAnalysis() {
+    if (!_prCurrentReport || !_prLastResult) {
+      alert('Сначала выполните анализ');
+      return;
+    }
+
+    try {
+      // Формируем блок для сохранения
+      const block = {
+        kind: 'period_full_analysis',
+        title: `Анализ ${_prCurrentReport.period_start} — ${_prCurrentReport.period_end}`,
+        params: _prLastResult.params,
+        data_snapshot: {
+          adaptation: _prLastResult.adaptation,
+          observation: _prLastResult.observation,
+          optimal: _prLastResult.optimal,
+          candidates: _prLastResult.candidates,
+          comparison: _prLastResult.comparison,
+          reagentSummary: _prLastResult.reagentSummary,
+          b1: _prLastResult.b1,
+          irv: _prLastResult.irv,
+        },
+        created_at: new Date().toISOString(),
+      };
+
+      _prBlocks = [block];  // Заменяем все блоки одним полным анализом
+
+      const r = await fetch(`/api/period-report/${_prCurrentReport.id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          blocks_snapshot: _prBlocks
+        })
+      });
+      if (!r.ok) throw new Error(await r.text());
+
+      // Также сохраняем блок в customer_report_block для главы «Периоды»
+      const wellId = state.well?.id;
+      if (wellId) {
+        const blockForChapter = {
+          well_id: wellId,
+          kind: 'period_full_analysis',
+          chapter: 'period',
+          title: block.title,
+          // chapter/даты внутри params: изоляция главы (params.chapter='period')
+          // + подпись карточки/intro отчёта (date_from/date_to). parts по умолчанию.
+          params: Object.assign({}, block.params, {
+            chapter: 'period',
+            period_report_id: _prCurrentReport.id,   // изоляция отчёта
+            date_from: _prCurrentReport.period_start,
+            date_to: _prCurrentReport.period_end,
+          }),
+          data_snapshot: block.data_snapshot,
+          in_report: true,
+        };
+        await fetch('/api/customer-daily/blocks', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(blockForChapter)
+        });
+      }
+
+      alert('Отчёт сохранён');
+      _prLoadReports(state.well?.id);
+      _prLoadAttachedBlocks();  // Обновить список блоков и правую панель
+    } catch (e) {
+      console.warn('_prSaveAnalysis', e);
+      alert('Ошибка сохранения: ' + e.message);
+    }
+  }
+
+  async function _prLoadReports(wellId) {
+    const box = $('pr-reports-list');
+    if (!wellId) {
+      box.innerHTML = '<div class="wz-placeholder">Выберите скважину</div>';
+      return;
+    }
+    try {
+      const r = await fetch(`/api/period-report/${wellId}/list`);
+      const reports = await r.json();
+      if (!reports.length) {
+        box.innerHTML = '<div class="wz-placeholder" style="font-size:0.85rem;">Нет сохранённых отчётов</div>';
+        return;
+      }
+      let html = '';
+      for (const rpt of reports) {
+        const period = `${rpt.period_start} — ${rpt.period_end}`;
+        html += `
+          <div class="pr-report-item" data-id="${rpt.id}" style="
+            padding:0.6rem; border:1px solid #e5e7eb; border-radius:6px;
+            margin-bottom:0.4rem; cursor:pointer; transition:background 0.15s;
+          " onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#fff'">
+            <div style="font-weight:500; color:#1e293b; font-size:0.9rem;">${rpt.title}</div>
+            <div style="font-size:0.78rem; color:#64748b;">${period} · ${rpt.blocks_count} блоков</div>
+            <div style="display:flex; gap:0.3rem; margin-top:0.4rem;">
+              <button class="pr-edit-btn wz-btn wz-btn-outline" data-id="${rpt.id}" style="font-size:0.7rem; padding:2px 8px;">✏️ Открыть</button>
+              <button class="pr-delete-btn wz-btn wz-btn-outline" data-id="${rpt.id}" style="font-size:0.7rem; padding:2px 8px; color:#dc2626;">🗑️</button>
+            </div>
+          </div>
+        `;
+      }
+      box.innerHTML = html;
+
+      // Обработчики
+      box.querySelectorAll('.pr-edit-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          _prOpenReport(parseInt(btn.dataset.id));
+        });
+      });
+      box.querySelectorAll('.pr-delete-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          _prDeleteReport(parseInt(btn.dataset.id));
+        });
+      });
+    } catch (e) {
+      console.warn('_prLoadReports', e);
+      box.innerHTML = '<div class="wz-placeholder" style="color:#ef4444;">Ошибка загрузки</div>';
+    }
+  }
+
+  async function _prCreateReport(wellId) {
+    const dateFrom = $('pr-date-from')?.value;
+    const dateTo = $('pr-date-to')?.value;
+    const title = $('pr-title')?.value?.trim();
+
+    if (!dateFrom || !dateTo) {
+      alert('Укажите период (от и до)');
+      return;
+    }
+    if (!title) {
+      alert('Введите название отчёта');
+      return;
+    }
+
+    try {
+      const r = await fetch(`/api/period-report/${wellId}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          title,
+          period_start: dateFrom,
+          period_end: dateTo,
+          blocks_snapshot: [],
+          status: 'draft'
+        })
+      });
+      if (!r.ok) throw new Error(await r.text());
+      const created = await r.json();
+
+      // Очистить форму
+      $('pr-date-from').value = '';
+      $('pr-date-to').value = '';
+      $('pr-title').value = '';
+
+      // Обновить список и открыть
+      await _prLoadReports(wellId);
+      _prOpenReport(created.id);
+    } catch (e) {
+      console.warn('_prCreateReport', e);
+      alert('Ошибка создания отчёта: ' + e.message);
+    }
+  }
+
+  async function _prOpenReport(reportId) {
+    try {
+      const r = await fetch(`/api/period-report/${reportId}`);
+      if (!r.ok) throw new Error('Not found');
+      const report = await r.json();
+
+      _prCurrentReport = report;
+      _prBlocks = report.blocks_snapshot || [];
+      _prLastResult = null;
+
+      // Показать редактор
+      $('pr-placeholder').style.display = 'none';
+      $('pr-editor').style.display = 'block';
+      $('pr-editor-title').textContent = report.title;
+
+      // Показать даты периода
+      const periodDatesEl = $('pr-period-dates');
+      if (periodDatesEl) {
+        periodDatesEl.textContent = `${report.period_start} — ${report.period_end}`;
+      }
+
+      // Показать плитки инструментов и секции
+      const toolsTiles = $('pr-tools-tiles');
+      const secSegment = $('pr-sec-segment');
+      const secCmp = $('pr-sec-cmp');
+      if (toolsTiles) toolsTiles.style.display = 'block';
+      if (secSegment) secSegment.style.display = 'block';
+      if (secCmp) secCmp.style.display = 'block';
+
+      // Синхронизировать даты для сегментного анализа
+      const segFrom = $('pr-seg-from');
+      const segTo = $('pr-seg-to');
+      if (segFrom) segFrom.value = report.period_start;
+      if (segTo) segTo.value = report.period_end;
+
+      // Обновить well badge в сегментном анализе
+      const prWellBadge = $('pr-seg-well-badge');
+      if (prWellBadge && state.well) {
+        prWellBadge.textContent = `Скв. ${state.well.number || state.well.id || '—'}`;
+      }
+
+      // Проверяем, есть ли сохранённый анализ
+      const savedAnalysis = _prBlocks.find(b => b.kind === 'period_full_analysis');
+      if (savedAnalysis?.data_snapshot) {
+        // Восстанавливаем результат из сохранённого блока
+        _prLastResult = {
+          adaptation: savedAnalysis.data_snapshot.adaptation,
+          observation: savedAnalysis.data_snapshot.observation,
+          optimal: savedAnalysis.data_snapshot.optimal,
+          candidates: savedAnalysis.data_snapshot.candidates,
+          comparison: savedAnalysis.data_snapshot.comparison,
+          reagentSummary: savedAnalysis.data_snapshot.reagentSummary,
+          b1: savedAnalysis.data_snapshot.b1,
+          irv: savedAnalysis.data_snapshot.irv,
+          period: { from: report.period_start, to: report.period_end },
+          params: savedAnalysis.params || {},
+        };
+        // Рендерим сохранённый результат
+        _prRenderAnalysisResult(_prLastResult);
+        $('pr-actions').style.display = 'block';
+      } else {
+        // Нет сохранённого анализа — показываем placeholder
+        $('pr-result').innerHTML = `<div class="wz-placeholder" style="font-size:0.85rem; padding:2rem;">
+          Нажмите «Проанализировать» для запуска анализа
+        </div>`;
+        $('pr-actions').style.display = 'none';
+      }
+
+      // Сбрасываем конструктор сравнения и перезагружаем блоки ИМЕННО этого
+      // отчёта (изоляция по period_report_id). Без этого список/панель остаются
+      // от предыдущего отчёта.
+      _prCmpSnapshot = null;
+      const _cmpPrev = $('pr-cmp-preview'); if (_cmpPrev) _cmpPrev.innerHTML = '';
+      const _cmpSrc = $('pr-cmp-sources'); if (_cmpSrc) _cmpSrc.innerHTML = '';
+      const _cmpSave = $('pr-cmp-save-btn'); if (_cmpSave) _cmpSave.style.display = 'none';
+      const _cmpSec = $('pr-sec-compare-metrics'); if (_cmpSec) _cmpSec.style.display = 'none';
+      _prLoadAttachedBlocks();
+
+    } catch (e) {
+      console.warn('_prOpenReport', e);
+      alert('Ошибка открытия отчёта');
+    }
+  }
+
+  function _prCloseEditor() {
+    _prCurrentReport = null;
+    _prBlocks = [];
+    _prLastResult = null;
+    $('pr-editor').style.display = 'none';
+    $('pr-placeholder').style.display = 'block';
+    // Скрыть плитки и секции
+    const toolsTiles = $('pr-tools-tiles');
+    const secSegment = $('pr-sec-segment');
+    const secCmp = $('pr-sec-cmp');
+    if (toolsTiles) toolsTiles.style.display = 'none';
+    if (secSegment) secSegment.style.display = 'none';
+    if (secCmp) secCmp.style.display = 'none';
+    // Очистить список/панель — нет открытого отчёта → блоков не показываем.
+    _prLoadAttachedBlocks();
+  }
+
+  async function _prDeleteReport(reportId) {
+    if (!confirm('Удалить этот отчёт?')) return;
+
+    try {
+      const r = await fetch(`/api/period-report/${reportId}`, { method: 'DELETE' });
+      if (!r.ok) throw new Error('Delete failed');
+
+      if (_prCurrentReport?.id === reportId) {
+        _prCloseEditor();
+      }
+      _prLoadReports(state.well?.id);
+    } catch (e) {
+      console.warn('_prDeleteReport', e);
+      alert('Ошибка удаления');
+    }
+  }
+
   function renderTiles() {
     const box = $('wz-tiles');
     if (!state.well) { box.innerHTML = ''; return; }
@@ -11435,6 +14485,7 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       [5, 'R/R★ Адаптация'],
       [6, 'Сравнение'],
       [7, 'Сборка'],
+      [8, 'Периоды'],
     ];
     let html = '';
     for (const [n, name] of titles) {
@@ -11513,4 +14564,6 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
 </script>
 
 {% include "components/_sensor_customer_modal.html" %}
+{% include "components/_pressure_spectrum_modal.html" %}
+{% include "components/_param_correlation_modal.html" %}
 {% endblock %}

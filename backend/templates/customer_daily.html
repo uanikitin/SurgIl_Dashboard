@@ -6,6 +6,10 @@
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 <script src="/static/js/cmp_segments.js?v={{ time() }}"></script>
 <script src="/static/js/block_reorder.js?v={{ time() }}"></script>
+<!-- Движок главы (window.renderChapter) — нужен для розы НЕСТАБИЛЬНОСТИ
+     (kind=stability_rose). Не конфликтует с инлайновым renderChapterPreview:
+     добавляет только глобал window.renderChapter. -->
+<script src="/static/js/chapter_render.js?v={{ time() }}"></script>
 <style>
 /* ── Two-Panel layout 60/40 (ТЗ §11 этап 5) ──────────────────────── */
 /* Главный контейнер: grid с двумя колонками. Topbar и legacy-секции на всю ширину. */
@@ -1014,6 +1018,50 @@
   </div>
 
   <!-- ═══ Диагностика по критериям (роза) — аккордеон, ТЗ §11 этап 6 ═══ -->
+  <!-- ═══ 🌀 Анализ нестабильности (новая роза — кандидаты на обводнение) ═══ -->
+  <details class="cd-accordion" id="stability-section">
+    <summary>🌀 Анализ нестабильности (кандидаты на обводнение)</summary>
+    <div class="cd-accordion-body">
+      <div class="cd-hint" style="margin-bottom:10px;">
+        <b>Как задаётся период.</b> Вы выбираете <b>якорную дату</b> — момент,
+        «на какую дату» оцениваем (пусто = последняя дата). Длину окон выбирает
+        <b>алгоритм</b>: смотрит назад от даты фиксированными окнами —
+        <b>30 сут</b> на динамику (снижение/неравномерность дебита, давления),
+        <b>90 сут</b> на простои/продувки, <b>вся история</b> на отклик дебита
+        после остановки. Дополнительно вычисляется <b>L*</b> — сколько суток
+        скважина стабильна к этой дате. Окна фиксированы намеренно — чтобы
+        результат был воспроизводим и сравним между скважинами и датами
+        (свободный диапазон «от–до» позволял бы подогнать результат длиной окна).<br>
+        Центр розы = стабильно; красные лепестки наружу = тревога;
+        <b>I</b> — итоговый индекс нестабильности. Источник — суточные сводки заказчика.
+      </div>
+      <div class="cd-row" style="gap:12px; margin-bottom:10px; align-items:center; flex-wrap:wrap;">
+        <label>Источник:</label>
+        <select id="stab-source" title="Данные для расчёта"
+                style="padding:6px 10px; border:1px solid #d1d5db; border-radius:6px;">
+          <option value="well_daily" selected>УзКорГаз (суточные)</option>
+          <option value="lora">LoRa-датчики (минутные)</option>
+        </select>
+        <label>На дату (якорь):</label>
+        <input type="date" id="stab-anchor"
+               style="padding:6px 10px; border:1px solid #d1d5db; border-radius:6px;">
+        <span style="font-size:0.75rem; color:#9ca3af;">пусто = последняя дата</span>
+        <label title="Окно динамики: снижение/неравномерность дебита, давления">Окно динамики, сут:</label>
+        <input type="number" id="stab-window" min="8" max="120" placeholder="авто 30"
+               style="width:84px; padding:6px 10px; border:1px solid #d1d5db; border-radius:6px;">
+        <label title="Окно простоев/продувок">Окно простоев, сут:</label>
+        <input type="number" id="stab-window-dt" min="8" max="365" placeholder="авто 90"
+               style="width:84px; padding:6px 10px; border:1px solid #d1d5db; border-radius:6px;">
+        <button class="cd-btn" id="stab-auto-btn" title="Сбросить окна к авто">↺ Авто</button>
+        <span style="font-size:0.72rem; color:#9ca3af;">отклик Q — вся история</span>
+        <button class="cd-btn cd-btn-primary" id="stab-calc-btn">▶ Построить анализ</button>
+        <button class="cd-btn cd-btn-success" id="stab-save-btn" style="display:none;">☑ Добавить в отчёт</button>
+        <span id="stab-status" style="font-size:0.82rem; color:#6b7280;"></span>
+      </div>
+      <div id="stab-result"></div>
+    </div>
+  </details>
+
   <details class="cd-accordion" id="rose-section">
     <summary>
       📊 Диагностика по критериям
@@ -1331,7 +1379,8 @@
   // Блоки observation/adaptation НЕ должны появляться на этой странице.
   const CUSTOMER_BLOCK_KINDS = [
     'chapter_intro', 'period_analysis', 'baseline',
-    'comparison', 'criteria_rose', 'segment_analysis'
+    'comparison', 'criteria_rose', 'segment_analysis',
+    'stability_rose'
   ].join(',');
 
   // ─────────────────────────── Helpers ───────────────────────────
@@ -3677,7 +3726,18 @@
     try {
       const r = await fetch('/api/customer-daily/blocks?well_id=' + currentWellId + '&kinds=' + CUSTOMER_BLOCK_KINDS);
       const d = await r.json();
-      const blocks = d.blocks || [];
+      const all = d.blocks || [];
+      // Изоляция главы (КРИТ. ИНВАРИАНТ, CLAUDE.md): segment_analysis — общий kind
+      // для нескольких глав. В §2 «Заказчик» входят ТОЛЬКО свои (chapter='customer'
+      // или legacy без тега). Чужие сегментные блоки ('period' из мастера «Периоды»,
+      // observation/adaptation) исключаем — иначе они протекают в раздел.
+      const _FOREIGN_SEG_CH = ['observation', 'adaptation', 'period'];
+      const blocks = all.filter(b => {
+        if (b.kind !== 'segment_analysis') return true;
+        const ch = (b.params && b.params.chapter) || '';
+        const src = (b.params && b.params.source) || '';
+        return !(_FOREIGN_SEG_CH.includes(ch) || src === 'observation');
+      });
       renderAttachedBlocks(blocks);
       // Live HTML-превью главы — мгновенно при любом изменении блоков
       renderChapterPreview(blocks);
@@ -3724,6 +3784,16 @@
       ['description',           '✏️ Комментарий пользователя'],
       ['suffix_note',           '↓ Заключительный текст'],
     ],
+    stability_rose: [
+      ['prefix_note',           '↑ Вступительный текст'],
+      ['rose_chart',            '🌀 Роза нестабильности'],
+      ['contributions_chart',   '📈 Бар-чарт вкладов'],
+      ['metrics_table',         '📋 Таблица параметров'],
+      ['descriptions',          'ⓘ Описание параметров'],
+      ['description',           '✏️ Комментарий пользователя'],
+      ['recommendation',        '✍️ Рекомендации (ТПАВ)'],
+      ['suffix_note',           '↓ Заключительный текст'],
+    ],
     // Сегментный анализ: блок ПАВ-карточка + сегменты + переломы + описания.
     // По умолчанию все = true (ТЗ §0 п.3).
     segment_analysis: [
@@ -3733,7 +3803,8 @@
       ['q_segment_chart',       '📈 График Q + сегменты + переломы'],
       ['segments_table',        '📋 Таблица сегментов'],
       ['cp_descriptions',       '🔻 События переломов'],
-      ['descriptions',          '📝 Развёрнутые описания сегментов'],
+      ['descriptions',          '📝 Описание сегментов (кратко)'],
+      ['detailed',              '📑 Развёрнутый анализ сегментов (подробно)'],
       ['description',           '✏️ Комментарий пользователя'],
       ['suffix_note',           '↓ Заключительный текст'],
     ],
@@ -3987,6 +4058,12 @@
 
               ${_renderPartsToggles(b)}
 
+              ${b.kind === 'stability_rose' ? `
+              <label class="cd-card-note-label">✍️ Рекомендации (ТПАВ) — попадёт в PDF, редактируется</label>
+              <textarea class="cd-card-note atc-recommend" data-id="${b.id}" rows="6"
+                        placeholder="Рекомендация по результатам оценки нестабильности...">${(((b.params && b.params.recommendation) || window.STABILITY_RECOMMENDATION_DEFAULT) || '').replace(/</g,'&lt;')}</textarea>
+              ` : ''}
+
               <label class="cd-card-note-label">↓ Заключение к блоку (после содержимого в PDF)</label>
               <textarea class="cd-card-note atc-postnote" data-id="${b.id}" rows="2"
                         placeholder="Выводы, переход к следующему разделу...">${suffixNote.replace(/</g,'&lt;')}</textarea>
@@ -4161,6 +4238,8 @@
     _bindNote('.atc-introtext', 'text');
     // baseline justification — обоснование выбора B1 (params.justification)
     _bindNote('.atc-justification', 'justification');
+    // stability_rose рекомендации ТПАВ (params.recommendation)
+    _bindNote('.atc-recommend', 'recommendation');
 
     // Per-block parts (атомарные тогглы внутри блока). На change шлём
     // PUT с обновлённым params.parts. Берём блок из массива blocks,
@@ -6201,6 +6280,86 @@
   // ═══════════════════════════════════════════════════════════════════
 
   const ROSE_KEYS = ['decline', 'p_wh_down', 'p_wh_cv', 'p_fl_up', 'shutdown', 'freq'];
+  // ───────── 🌀 Анализ нестабильности (новая роза) ─────────
+  // Превью рисуется движком window.renderChapter (chapter_render.js), где
+  // реализован kind='stability_rose'. Не зависит от инлайнового рендера страницы.
+  let _stabLastSnap = null;
+  async function stabBuild() {
+    const well = $('cd-well-select')?.value;
+    const st = $('stab-status');
+    if (!well) { if (st) st.textContent = 'Сначала выберите скважину'; return; }
+    const anchor = ($('stab-anchor')?.value || '').trim() || null;
+    const wd = parseInt(($('stab-window')?.value || '').trim(), 10);
+    const window_days = (Number.isFinite(wd) && wd >= 8) ? wd : null;
+    const wdt = parseInt(($('stab-window-dt')?.value || '').trim(), 10);
+    const downtime_window_days = (Number.isFinite(wdt) && wdt >= 8) ? wdt : null;
+    const source = $('stab-source')?.value || 'well_daily';
+    if (st) st.textContent = '⏳ Считаю…';
+    try {
+      const r = await fetch('/api/customer-daily/stability-rose/preview', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ well, anchor, window_days, downtime_window_days, source }),
+      });
+      const d = await r.json();
+      if (!d || !d.ok) {
+        if (st) st.textContent = '⚠ ' + ((d && d.error) || 'ошибка расчёта');
+        $('stab-save-btn').style.display = 'none'; _stabLastSnap = null;
+        $('stab-result').innerHTML = '';
+        return;
+      }
+      _stabLastSnap = d;
+      if (st) st.textContent = `I=${d.index_I} · стаб. ${d.L_star} дн · ${d.verdict}`;
+      const block = {
+        id: 'stabprev', kind: 'stability_rose', title: 'Анализ нестабильности',
+        data_snapshot: d, params: { chapter: 'customer' }, in_report: true, comment: '',
+      };
+      if (typeof window.renderStabilityBlock === 'function') {
+        $('stab-result').innerHTML = '<div id="stabblk-stabprev"></div>';
+        window.renderStabilityBlock(block, 'stabblk-stabprev');
+      } else {
+        $('stab-result').innerHTML = '<div style="color:#dc2626;">Движок розы не загружен (chapter_render.js).</div>';
+      }
+      $('stab-save-btn').style.display = currentWellId ? '' : 'none';
+    } catch (e) {
+      if (st) st.textContent = 'Ошибка: ' + e.message;
+    }
+  }
+  async function stabSave() {
+    if (!_stabLastSnap || !currentWellId) return;
+    const well = $('cd-well-select')?.value || _stabLastSnap.well_number;
+    const title = `Анализ нестабильности · скв.${well} · ${_stabLastSnap.anchor} · I=${_stabLastSnap.index_I}`;
+    const st = $('stab-status');
+    if (st) st.textContent = '⏳ Сохраняю…';
+    try {
+      const r = await fetch('/api/customer-daily/blocks', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          well_id: currentWellId, kind: 'stability_rose', title,
+          params: { well_number: well, anchor: _stabLastSnap.anchor, chapter: 'customer' },
+          data_snapshot: _stabLastSnap, comment: '', in_report: true,
+        }),
+      });
+      const d = await r.json();
+      if (d && d.id) {
+        if (st) st.textContent = '✓ Добавлено в отчёт (id=' + d.id + ')';
+        if (typeof refreshAttachedBlocks === 'function') refreshAttachedBlocks();
+      } else {
+        if (st) st.textContent = 'Ошибка: ' + JSON.stringify(d);
+      }
+    } catch (e) {
+      if (st) st.textContent = 'Ошибка: ' + e.message;
+    }
+  }
+  $('stab-calc-btn')?.addEventListener('click', stabBuild);
+  $('stab-save-btn')?.addEventListener('click', stabSave);
+  // «↺ Авто» — сброс обоих окон к автоматическому выбору (поля пустые = авто).
+  $('stab-auto-btn')?.addEventListener('click', () => {
+    if ($('stab-window')) $('stab-window').value = '';
+    if ($('stab-window-dt')) $('stab-window-dt').value = '';
+    const st = $('stab-status');
+    if (st) st.textContent = 'Окна сброшены к авто (30 / 90). Нажмите «Построить».';
+  });
+
   let roseLastResult = null;
 
   function roseUpdatePeriodBadge() {
@@ -6735,6 +6894,9 @@
         _renderBlockChartsInline(b);
       } else if (b.kind === 'criteria_rose') {
         _renderRoseBlockCharts(b);
+      } else if (b.kind === 'stability_rose') {
+        if (typeof window.renderStabilityBlock === 'function')
+          window.renderStabilityBlock(b, 'stabblk-' + b.id);
       } else if (b.kind === 'comparison') {
         _renderComparisonBlockChart(b);
       } else if (b.kind === 'segment_analysis') {
@@ -6979,6 +7141,12 @@
           </table>`;
       }
       return hdrHtml + chartBox + tableHtml + comment;
+    }
+
+    if (b.kind === 'stability_rose') {
+      // Розу нестабильности рисует движок window.renderStabilityBlock
+      // (chapter_render.js). Здесь — контейнер; рендер в chart-диспетче ниже.
+      return `<div id="stabblk-${b.id}"></div>`;
     }
 
     if (b.kind === 'criteria_rose') {

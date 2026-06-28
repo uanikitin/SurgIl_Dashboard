@@ -165,11 +165,28 @@
               });
             }
           }
+          // §3.1 период/описание + §3.2 список датчиков (паритет с PDF) — лёгкий запрос
+          // для главы Наблюдение. Мягко: при сбое раздел просто не показывается.
+          let obsIntro = null;
+          if (config.chapter_filter === 'observation') {
+            try {
+              const iu = new URL('/api/adaptation-report/observation-intro', window.location.origin);
+              iu.searchParams.set('well_id', wellId);
+              const ir = await fetch(iu.toString());
+              if (ir.ok) { const ij = await ir.json(); if (ij && ij.ok) obsIntro = ij.intro; }
+            } catch (e) { /* без §3.1/§3.2 */ }
+          }
           window.renderChapter(blocks, {
             containerId:  htmlContent.id,
             countId:      countEl ? countEl.id : null,
             chapterTitle: config.title || 'Глава',
             useUserOrder: config.useUserOrder || false,
+            // Общий вводный текст + §3.1/§3.2 + «Формулы и методика» — для главы
+            // Наблюдение по умолчанию показываем (паритет с PDF §3 / §3.2.1).
+            showObsIntro: (config.chapter_filter === 'observation'),
+            obsIntro: obsIntro,
+            showFormulas: (config.chapter_filter === 'observation') &&
+                          (config.showFormulas !== false),
           });
         } catch (e) {
           htmlContent.innerHTML =

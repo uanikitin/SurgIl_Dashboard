@@ -15,6 +15,22 @@
   'use strict';
   function $(id) { return document.getElementById(id); }
 
+  // Дефолтный текст блока «Рекомендации (ТПАВ)» для анализа нестабильности.
+  // ЗЕРКАЛО: backend/services/adaptation_report_service.py (STABILITY_RECOMMENDATION_DEFAULT)
+  // и backend/templates/customer_daily.html (префилл textarea). Менять — во всех трёх.
+  const STABILITY_RECOMMENDATION_DEFAULT =
+    'По результатам оценки критериев нестабильности скважина рекомендуется к постановке ' +
+    'на наблюдение для сбора фактических данных о режимах работы.\n\n' +
+    'Для этого необходимо:\n' +
+    '1. Установить систему мониторинга SMOD с фиксацией устьевых параметров — давления ' +
+    'на устье (трубного) и давления в линии за штуцером (линейного).\n' +
+    '2. Выполнить детальный анализ и сопоставление полученных данных: оценить ключевые ' +
+    'параметры дебита с учётом фактического рабочего времени скважины.\n' +
+    '3. На основании сопоставления фактических данных принять окончательное решение о ' +
+    'целесообразности проведения работ по адаптации технологии применения ТПАВ для ' +
+    'данной скважины.';
+  window.STABILITY_RECOMMENDATION_DEFAULT = STABILITY_RECOMMENDATION_DEFAULT;
+
   // ===== PART_LABELS + _getPartsForBlock (извлечено 1-в-1) =====
   const PART_LABELS = {
     chapter_intro: [
@@ -52,6 +68,16 @@
       ['description',           '✏️ Комментарий пользователя'],
       ['suffix_note',           '↓ Заключительный текст'],
     ],
+    stability_rose: [
+      ['prefix_note',           '↑ Вступительный текст'],
+      ['rose_chart',            '🌀 Роза нестабильности'],
+      ['contributions_chart',   '📈 Бар-чарт вкладов'],
+      ['metrics_table',         '📋 Таблица параметров'],
+      ['descriptions',          'ⓘ Описание параметров'],
+      ['description',           '✏️ Комментарий пользователя'],
+      ['recommendation',        '✍️ Рекомендации (ТПАВ)'],
+      ['suffix_note',           '↓ Заключительный текст'],
+    ],
     // Сегментный анализ: блок ПАВ-карточка + сегменты + переломы + описания.
     // По умолчанию все = true (ТЗ §0 п.3).
     segment_analysis: [
@@ -61,7 +87,8 @@
       ['q_segment_chart',       '📈 График Q + сегменты + переломы'],
       ['segments_table',        '📋 Таблица сегментов'],
       ['cp_descriptions',       '🔻 События переломов'],
-      ['descriptions',          '📝 Развёрнутые описания сегментов'],
+      ['descriptions',          '📝 Описание сегментов (кратко)'],
+      ['detailed',              '📑 Развёрнутый анализ сегментов (подробно)'],
       ['description',           '✏️ Комментарий пользователя'],
       ['suffix_note',           '↓ Заключительный текст'],
     ],
@@ -129,21 +156,58 @@
     ],
     // Сопоставление LoRa и УзКорГаз (observation chapter)
     sensor_customer_comparison: [
+      ['methodology',       '📖 Методика сравнения'],
       ['show_q_chart',      '📈 График дебита Q'],
       ['show_dp_chart',     '📈 График перепада ΔP'],
+      ['trend_character',   '📈 Сравнение характера динамики'],
       ['show_table',        '📋 Таблица посуточного сравнения'],
       ['show_conclusion',   '📝 Заключение'],
+    ],
+    pressure_spectrum: [
+      ['show_ptube_chart',  '📊 Гистограмма P устьевого'],
+      ['show_dp_chart',     '📊 Гистограмма ΔP'],
+      ['show_metrics_table','📋 Таблица метрик стабильности'],
+      ['show_comparison',   '🔀 Сравнение спектров'],
+      ['show_method_note',  '📖 Описание метода'],
+      ['description',       '✏️ Комментарий пользователя'],
+    ],
+    param_correlation: [
+      ['show_chart',        '📈 График зависимости (scatter + регрессия)'],
+      ['show_stats',        '📋 Параметры регрессии'],
+      ['show_method_note',  '📖 Описание метода'],
+      ['description',       '✏️ Комментарий пользователя'],
     ],
     // ─── Adaptation blocks (Step 5 wizard) ───
     adaptation_period_analysis: [
       ['prefix_note',        '↑ Вступительный текст'],
+      ['setup_description',  '📋 Описание установки (ШУ, мониторинг, расчёт дебита)'],
+      ['sensor_table',       '📋 Параметры датчиков (Табл. 2.1)'],
+      ['flow_methodology',   '📐 Формулы и методика расчёта дебита'],
       ['intro',              '📋 Введение (период, датчики SMOD)'],
       ['charts',             '📈 Графики (P, ΔP, Q) + события'],
+      ['downtime_chart',     '🟩 Рабочее/нерабочее время (посуточно)'],
+      ['stats_table',        '📊 Статистические показатели'],
       ['events_table',       '📋 Таблица событий'],
+      ['events_stats',       '🟦 Статистика событий (плитки)'],
       ['metrics_cards',      '🟧 Карточки метрик (R, R★, B2, B1)'],
       ['comparison_table',   '📋 Таблица сравнения (Наблюд. → Адапт.)'],
       ['trends',             '📉 Тренды (Q, ΔP)'],
-      ['segment_analysis',   '🔍 Сегментный анализ'],
+      ['description',        '✏️ Комментарий пользователя'],
+      ['suffix_note',        '↓ Заключительный текст'],
+    ],
+    adaptation_effectiveness: [
+      ['intro',              '📋 Вводное описание'],
+      ['summary_table',      '📋 Сводная таблица'],
+      ['chart_q',            '📈 Диаграмма «Дебит Q»'],
+      ['chart_dp',           '📈 Диаграмма «Перепад ΔP»'],
+      ['chart_downtime',     '📈 Диаграмма «Нерабочее время»'],
+      ['captions',           '💬 Пояснения к диаграммам'],
+      ['series_b1',          '🏢 Данные УзКорГаз (суточные сводки)'],
+      ['series_b2',          '🔭 Данные наблюдения (B2)'],
+      ['series_r',           '🧪 Данные адаптации (R)'],
+      ['verdict',            '📝 Заключение'],
+      ['recommendation',     '✍️ Рекомендации'],
+      ['prefix_note',        '↑ Вступительный текст'],
       ['description',        '✏️ Комментарий пользователя'],
       ['suffix_note',        '↓ Заключительный текст'],
     ],
@@ -157,10 +221,12 @@
     reagent_irv_summary: [
       ['prefix_note',        '↑ Вступительный текст'],
       ['cards',              '🟧 Карточки (лучший / вбросы / расход)'],
-      ['narrative',          '📖 Описание словами'],
+      ['narrative',          '📖 Описание'],
       ['scores_table',       '📋 Шкала эффективности реагентов'],
+      ['periodicity_table',  '⏱ Анализ периодичности вбросов'],
+      ['intervals_chart',    '📊 Диаграмма интервалов между вбросами'],
       ['charts',             '📈 Графики (вбросы / Score по времени)'],
-      ['detailed',           '🔻 Детально по ИРВ (таблица)'],
+      ['detailed',           '🔻 Детализация по ИРВ (таблица)'],
       ['description',        '✏️ Комментарий пользователя'],
       ['suffix_note',        '↓ Заключительный текст'],
     ],
@@ -170,6 +236,15 @@
     ['prefix_note',          '↑ Вступительный текст'],
     ['justification',        '✓ Обоснование выбора B1 (описательный текст)'],
     ...PART_LABELS.period_analysis.filter(([k]) => k !== 'prefix_note'),
+  ];
+  // Глава «Отчёт за период»: period_full_analysis = зеркало adaptation_period_analysis
+  // (тот же снапшот и набор частей). Источник истины — один PART_LABELS-список.
+  PART_LABELS.period_full_analysis = PART_LABELS.adaptation_period_analysis;
+  // Сравнение метрик периода (parity с PERIOD_PART_LABELS в adaptation_wizard.html).
+  PART_LABELS.period_comparison = [
+    ['summary_table',  '📋 Таблица сравнения метрик'],
+    ['overlay_charts', '📈 Графики-оверлеи (Q / ΔP)'],
+    ['description',    '✏️ Текстовое описание сравнения'],
   ];
 
   // Parts с дефолтом OFF (альтернативные представления, опциональные раскладки)
@@ -205,6 +280,7 @@
       period_analysis:      ['§', '#dcfce7', '#166534', 'Анализ периода'],
       comparison:           ['↔', '#ede9fe', '#5b21b6', 'Сравнение участков'],
       criteria_rose:        ['◉', '#fee2e2', '#991b1b', 'Роза критериев'],
+      stability_rose:       ['🌀', '#fee2e2', '#991b1b', 'Роза нестабильности'],
       segment_analysis:     ['🔬', '#f3e8ff', '#5b21b6', 'Сегментный анализ'],
       // Observation (датчики)
       observation_analysis: ['📊', '#cffafe', '#0891b2', 'Анализ (датчики)'],
@@ -215,6 +291,10 @@
       adaptation_period_analysis: ['📊', '#fed7aa', '#c2410c', 'Анализ адаптации'],
       optimal_window:             ['R★', '#d1fae5', '#166534', 'Окно R★'],
       reagent_irv_summary:        ['💊', '#fef3c7', '#92400e', 'Реагенты (ИРВ)'],
+      adaptation_effectiveness:   ['📊', '#fef9c3', '#854d0e', 'Оценка эффективности'],
+      // Отчёт за период (Step 8 wizard)
+      period_full_analysis:       ['📊', '#dbeafe', '#1e40af', 'Анализ периода'],
+      period_comparison:          ['↔', '#ede9fe', '#5b21b6', 'Сравнение (период)'],
     })[kind] || ['•', '#f3f4f6', '#374151', kind];
     return `<span title="${k[3]}" style="display:inline-block; padding:1px 7px;
             border-radius:3px; background:${k[1]}; color:${k[2]};
@@ -602,8 +682,16 @@
     const segs = snap.segments_extended || [];
     const cpMarks = snap.cp_marks || [];
     const dualSummary = snap.dual_summary || {};
-    const descriptions = snap.descriptions || [];
-    const cpDescs = snap.cp_descriptions || [];
+    // Описания сегментов могут лежать в разных местах снимка в зависимости от пути
+    // сохранения блока (standalone segment_analysis vs sub-section адаптации).
+    const descriptions = snap.descriptions
+      || (snap.interpretation && snap.interpretation.descriptions)
+      || (snap.segment_analysis && snap.segment_analysis.interpretation
+          && snap.segment_analysis.interpretation.descriptions)
+      || [];
+    const cpDescs = snap.cp_descriptions
+      || (snap.interpretation && snap.interpretation.cp_descriptions)
+      || [];
     const includePav = snap.include_pav_recommendation === true;
     const pav = (includePav && snap.pav) ? snap.pav : null;
 
@@ -619,6 +707,9 @@
                  font-size:0.85rem; color:#4c1d95; line-height:1.5;">${text}</p>`;
 
     let html = '';
+
+    // Цель раздела (парность с PDF)
+    html += `<div style="font-size:0.82rem; color:#475569; font-style:italic; line-height:1.5; margin-bottom:10px;">Цель раздела — разбить кривую дебита на характерные участки (рост / плато / спад) по точкам перелома и оценить реакцию скважины на вбросы реагента. По каждому сегменту приведены тренды и признаки выноса воды (ПАВ), что помогает понять, как реагент влияет на режим в динамике.</div>`;
 
     // ─── 0. Header ────────────────────────────────────────────────
     html += `<div style="font-size:0.85rem; color:#374151; margin-bottom:8px;">
@@ -863,6 +954,9 @@
 
     let html = '';
 
+    // Цель раздела (парность с PDF)
+    html += `<div style="font-size:0.82rem; color:#475569; font-style:italic; line-height:1.5; margin-bottom:10px;">Цель раздела — наложить выбранные участки работы скважины на один график и сопоставить их по ключевым показателям и трендам, чтобы оценить изменение режима между участками.</div>`;
+
     // Header
     html += `<div style="font-size:0.85rem; color:#374151; margin-bottom:8px;">
         <b>Сравнение:</b> ${segsCmp.length} сегментов
@@ -963,6 +1057,20 @@
       ${snap.well_number ? `, скв. ${_escHtml(snap.well_number)}` : ''}
     </div>`;
 
+    // Аналитический вводный абзац (паритет с .tex §3.4.N sensor_customer_comparison).
+    html += `<div style="font-size:0.85rem; color:#374151; margin-bottom:8px;">
+      За выбранный период выполнено сопоставление показателей, полученных датчиками давления
+      (LoRa) в реальном времени, с суточными сводками заказчика (УзКорГаз) для оценки
+      согласованности данных мониторинга и отчётности. На графиках ниже показаны расчётный
+      дебит Q и перепад давления ΔP по обоим источникам с линейными трендами.
+    </div>`;
+
+    // Методика сопоставления (манометры LoRa ↔ суточные сводки УзКорГаз)
+    if (on('methodology') && snap.methodology) {
+      html += `<div style="font-size:0.8rem; color:#475569; background:#f8fafc; border-left:3px solid #94a3b8; padding:7px 10px; margin-bottom:12px; line-height:1.5;">
+        <b>Методика:</b> ${_escHtml(snap.methodology)}</div>`;
+    }
+
     // Summary tiles
     html += `<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
       <div style="background:#fff; border:1px solid #e0e0e0; border-radius:4px; padding:6px 10px; min-width:100px;">
@@ -974,8 +1082,20 @@
         <div style="font-weight:600;">${fmt(summary.customer_q_avg)}</div>
       </div>
       <div style="background:#fff; border:1px solid #e0e0e0; border-radius:4px; padding:6px 10px; min-width:100px;">
-        <div style="font-size:0.7rem; color:#666;">Δ Q</div>
+        <div style="font-size:0.7rem; color:#666;">Δ Q рабочий</div>
         <div style="font-weight:600;">${fmt(summary.delta_q_avg, 3)} (${fmtPct(summary.delta_q_pct)})</div>
+      </div>
+      <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:4px; padding:6px 10px; min-width:100px;">
+        <div style="font-size:0.7rem; color:#666;">Q общий LoRa (ср.)</div>
+        <div style="font-weight:600;">${fmt(summary.sensor_q_total_avg)}</div>
+      </div>
+      <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:4px; padding:6px 10px; min-width:100px;">
+        <div style="font-size:0.7rem; color:#666;">Q общий УзКорГаз (ср.)</div>
+        <div style="font-weight:600;">${fmt(summary.customer_q_total_avg)}</div>
+      </div>
+      <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:4px; padding:6px 10px; min-width:100px;">
+        <div style="font-size:0.7rem; color:#666;">Δ Q общий</div>
+        <div style="font-weight:600;">${fmt(summary.delta_q_total_avg, 3)} (${fmtPct(summary.delta_q_total_pct)})</div>
       </div>
       <div style="background:#fff; border:1px solid #e0e0e0; border-radius:4px; padding:6px 10px; min-width:100px;">
         <div style="font-size:0.7rem; color:#666;">ΔP LoRa (ср.)</div>
@@ -1011,6 +1131,98 @@
         </div>`;
       }
       html += `</div>`;
+      html += `<div style="font-size:0.78rem; color:#6b7280; margin:-4px 0 12px; line-height:1.45;">
+        <i>Как читать:</i> ось X — дата; сплошные синие линии — данные датчика LoRa,
+        пунктирные оранжевые — суточные сводки заказчика (УзКорГаз). Пунктир того же цвета — линейный тренд.
+        Расхождение линий = разница между мониторингом в реальном времени и отчётными данными заказчика.
+      </div>`;
+    }
+
+    // График относительного отклонения Δ% по дням — с настраиваемыми зонами допуска
+    const _dispT = snap.display || {};
+    const _t1 = Number(_dispT.dev_tol_green) > 0 ? Number(_dispT.dev_tol_green) : 15;
+    const _t2 = Number(_dispT.dev_tol_amber) > _t1 ? Number(_dispT.dev_tol_amber) : _t1 + 1;
+    const _t1s = _t1.toFixed(0), _t2s = _t2.toFixed(0);
+    // Текстовый итог отклонения — считаем под текущие пороги (живёт в модалке/HTML;
+    // PARITY с _deviation_summary_from_daily в comparison_service).
+    const _devText = (() => {
+      const dv = dailyDiff.filter(r => r.delta_q != null && r.sensor_q).map(r => [r.date, r.delta_q / r.sensor_q * 100]);
+      if (!dv.length) return '';
+      const n = dv.length;
+      const g = dv.filter(([, p]) => Math.abs(p) <= _t1).length;
+      const a = dv.filter(([, p]) => Math.abs(p) > _t1 && Math.abs(p) <= _t2).length;
+      const r = dv.filter(([, p]) => Math.abs(p) > _t2).length;
+      const w = dv.reduce((m, x) => Math.abs(x[1]) > Math.abs(m[1]) ? x : m, dv[0]);
+      return `Относительное отклонение LoRa от УзКорГаз (к данным LoRa) по дням: в допуске ±${_t1s}% — ${g} из ${n} дн.; повышенное ${_t1s}–${_t2s}% — ${a} дн.; значительное >${_t2s}% — ${r} дн. Максимум ${Math.abs(w[1]).toFixed(0)}% (${w[0]}, LoRa ${w[1] > 0 ? 'выше' : 'ниже'} заказчика).`;
+    })();
+    html += `<div style="margin-bottom:8px;">
+      <div style="font-weight:500; font-size:0.85rem; margin-bottom:2px;">Относительное отклонение (LoRa − УзКорГаз) / LoRa, % — зоны допуска</div>
+      <div style="font-size:0.74rem; color:#6b7280; margin-bottom:4px;">🟩 ±${_t1s}% — в допуске · 🟧 ${_t1s}–${_t2s}% — повышенное · 🟥 &gt;${_t2s}% — значительное расхождение.</div>
+      <div id="${idPrefix}chart-dev" style="height:220px;"></div>
+      ${_devText ? `<div style="font-size:0.8rem; color:#374151; margin-top:4px; line-height:1.45;">${_escHtml(_devText)}</div>` : ''}
+    </div>`;
+
+    // Анализ согласия (отклонение / тренды / смещение / разброс / задержка)
+    const analysis = snap.analysis || {};
+    const aRows = [analysis.q_working, analysis.q_total, analysis.dp].filter(a => a && !a.insufficient);
+    if (aRows.length) {
+      const fmtA = (v, d = 1) => (v == null || isNaN(v)) ? '—' : Number(v).toFixed(d);
+      html += `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;margin-bottom:12px;">
+        <div style="font-weight:600;font-size:0.85rem;margin-bottom:4px;">⚖️ Анализ согласия LoRa / УзКорГаз</div>`;
+      aRows.forEach(a => { html += `<div style="font-size:0.82rem;margin:2px 0;line-height:1.4;">• ${_escHtml(a.verdict)}</div>`; });
+      html += `<table class="cd-table" style="font-size:0.78rem;width:100%;margin-top:6px;">
+        <thead><tr><th style="text-align:left;">Показатель</th><th>Смещение,%</th><th>Разброс MAPE,%</th><th>Форма r</th><th>Тренд</th><th>Задержка,дн</th></tr></thead><tbody>`;
+      aRows.forEach(a => {
+        const tm = a.trend_match == null ? '—' : (a.trend_match ? 'совпадает' : 'расходится');
+        html += `<tr><td style="text-align:left;">${_escHtml(a.label)}</td>
+          <td style="text-align:right;">${fmtA(a.bias_pct, 0)}</td>
+          <td style="text-align:right;">${fmtA(a.mape, 0)}</td>
+          <td style="text-align:right;">${a.pearson_r == null ? '—' : fmtA(a.pearson_r, 2)}</td>
+          <td style="text-align:center;">${tm}</td>
+          <td style="text-align:right;">${a.best_lag_days || 0}</td></tr>`;
+      });
+      html += `</tbody></table>
+        <div style="font-size:0.74rem;color:#6b7280;margin-top:4px;">Смещение — систематическая разница величин; MAPE — случайный разброс; r — совпадение формы; задержка — сдвиг по дням (кросс-корреляция).</div>
+      </div>`;
+    }
+
+    // Сравнение характера динамики по ТРЁМ показателям (Q раб / Q общ / ΔP).
+    // Каждый — несколько устойчивых мер (общий тренд + форма с учётом задержки).
+    const tcList = (snap.trend_characters && snap.trend_characters.length)
+      ? snap.trend_characters
+      : (snap.trend_character ? [snap.trend_character] : []);
+    const tcShow = on('trend_character') ? tcList.filter(t => t && (t.sensor_seq || t.verdict)) : [];
+    if (tcShow.length) {
+      const lvlColor = (lvl) => ({ full: '#16a34a', partial: '#d97706', none: '#dc2626' }[lvl] || '#6b7280');
+      const otTxt = (t) => (t.overall_match == null) ? '—'
+        : (t.overall_match ? `совпадает (оба — ${_escHtml(t.overall_sensor || '')})`
+          : `расходится (LoRa — ${_escHtml(t.overall_sensor || '')}, УзКГ — ${_escHtml(t.overall_customer || '')})`);
+      const shapeTxt = (t) => (t.shape_corr == null) ? '—'
+        : `r=${Number(t.shape_corr).toFixed(2)}${t.best_lag ? ` (лаг ~${Math.abs(t.best_lag)} дн)` : ''}`;
+      const dayTxt = (t) => (t.agreement_pct == null) ? '—'
+        : `${t.agreement_pct}%${(t.agreement_lag_pct != null && t.agreement_lag_pct !== t.agreement_pct) ? ` (с лагом ${t.agreement_lag_pct}%)` : ''}`;
+      let rows = '';
+      tcShow.forEach(t => {
+        rows += `<tr>
+          <td style="text-align:left;">${_escHtml(t.label || '—')}</td>
+          <td style="text-align:left;">${_escHtml(t.sensor_seq || '—')}</td>
+          <td style="text-align:left;">${_escHtml(t.customer_seq || '—')}</td>
+          <td style="text-align:left;color:${t.overall_match ? '#16a34a' : (t.overall_match === false ? '#dc2626' : '#6b7280')};">${otTxt(t)}</td>
+          <td style="text-align:center;">${shapeTxt(t)}</td>
+          <td style="text-align:center;">${dayTxt(t)}</td>
+        </tr>`;
+      });
+      let verdicts = '';
+      tcShow.forEach(t => { if (t.verdict) verdicts += `<div style="font-size:0.8rem;color:${lvlColor(t.match_level)};line-height:1.45;margin-top:2px;">• ${_escHtml(t.verdict)}</div>`; });
+      html += `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;margin-bottom:12px;">
+        <div style="font-weight:600;font-size:0.85rem;margin-bottom:4px;">📈 Сравнение характера динамики (LoRa vs УзКорГаз)</div>
+        <table class="cd-table" style="font-size:0.78rem;width:100%;margin-bottom:4px;">
+          <thead><tr><th style="text-align:left;">Показатель</th><th style="text-align:left;">LoRa: фазы</th><th style="text-align:left;">УзКГ: фазы</th><th style="text-align:left;">Общий тренд</th><th>Форма</th><th>Посуточно</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        ${verdicts}
+        <div style="font-size:0.73rem;color:#6b7280;margin-top:3px;line-height:1.4;">Оценка по устойчивым мерам — общий тренд и форма с учётом задержки; посуточное совпадение справочно (чувствительно к суточной дискретности сводок заказчика).</div>
+      </div>`;
     }
 
     // Daily diff table
@@ -1021,11 +1233,14 @@
           <table class="cd-table" style="font-size:0.78rem;">
             <thead><tr>
               <th>Дата</th>
-              <th>Q LoRa</th>
-              <th>Q УзКорГаз</th>
-              <th>Δ Q</th>
+              <th>Q раб LoRa</th>
+              <th>Q раб УзКГ</th>
+              <th>Δ Q раб</th>
+              <th>Q общ LoRa</th>
+              <th>Q общ УзКГ</th>
+              <th>Δ Q общ</th>
               <th>ΔP LoRa</th>
-              <th>ΔP УзКорГаз</th>
+              <th>ΔP УзКГ</th>
               <th>Δ ΔP</th>
             </tr></thead>
             <tbody>`;
@@ -1041,12 +1256,20 @@
           <td style="text-align:right;">${fmt(r.sensor_q)}</td>
           <td style="text-align:right;">${fmt(r.customer_q)}</td>
           <td style="text-align:right;">${fmtDelta(r.delta_q)}</td>
+          <td style="text-align:right;">${fmt(r.sensor_q_total)}</td>
+          <td style="text-align:right;">${fmt(r.customer_q_total)}</td>
+          <td style="text-align:right;">${fmtDelta(r.delta_q_total)}</td>
           <td style="text-align:right;">${fmt(r.sensor_dp)}</td>
           <td style="text-align:right;">${fmt(r.customer_dp)}</td>
           <td style="text-align:right;">${fmtDelta(r.delta_dp)}</td>
         </tr>`;
       });
-      html += `</tbody></table></div></div>`;
+      html += `</tbody></table></div>
+        <div style="font-size:0.78rem; color:#6b7280; margin-top:4px; line-height:1.45;">
+          Колонки: Q раб — рабочий дебит (без простоев), Q общ — общий дебит за сутки;
+          LoRa — наши датчики, УзКГ — сводки заказчика; Δ — разница (LoRa − УзКГ);
+          ΔP — перепад давления. Значения по дням за период сопоставления.
+        </div></div>`;
     }
 
     // Conclusion
@@ -1057,6 +1280,432 @@
     }
 
     return html;
+  }
+
+  // ===== buildPressureSpectrumComparison — сравнение спектра с наложенными =====
+  // ЕДИНЫЙ источник вердикта сравнения (DRY+PARITY): зовётся и live-превью
+  // (_buildPressureSpectrumHtml), и виджетом — он встраивает результат в
+  // snapshot.comparison, чтобы PDF-форматтер (_format_pressure_spectrum)
+  // только ОТОБРАЖАЛ его, без дублирования логики. База = текущий спектр
+  // (snap.signals), опора = каждый снимок из snap.overlays.
+  const _PS_CLASS_RU = { stable: 'стабильно', moderate: 'умеренно', unstable: 'нестабильно', degenerate: 'вырождено', no_data: 'нет данных' };
+  function _psBuildComparison(snap, chapter) {
+    const overlays = (snap && snap.overlays) || [];
+    if (!overlays.length || !snap.signals) return null;
+    const isAdapt = (chapter || (snap && snap._chapter)) === 'adaptation';
+    const SIG = [['p_tube', 'P устьевое'], ['dp', 'ΔP']];
+    const num = (v) => (v == null || isNaN(v)) ? null : Number(v);
+    const f = (v, d = 2) => (v == null) ? '—' : Number(v).toFixed(d);
+    const items = overlays.map((ov) => {
+      const signals = SIG.map(([key, label]) => {
+        const b = ((snap.signals[key] || {}).metrics) || {};
+        const o = (((ov.signals || {})[key] || {}).metrics) || {};
+        const bMed = num(b.median), oMed = num(o.median);
+        const bNiqr = num(b.niqr), oNiqr = num(o.niqr);
+        const bClass = (snap.signals[key] || {}).stability_class;
+        const oClass = ((ov.signals || {})[key] || {}).stability_class;
+        let verdict = '';
+        if (bMed != null && oMed != null) {
+          const dMed = bMed - oMed;
+          const dNiqr = (bNiqr != null && oNiqr != null) ? bNiqr - oNiqr : null;
+          const parts = [];
+          // ── Смещение медианы (вправо/вверх = рост — положительно) ──
+          const dTxt = `медиана ${f(oMed)}→${f(bMed)} (${dMed >= 0 ? '+' : ''}${f(dMed)})`;
+          if (key === 'dp') {
+            if (dMed > 0) parts.push(`${dTxt}: перепад ΔP вырос → увеличение дебита (положительно)`);
+            else if (dMed < 0) parts.push(`${dTxt}: перепад ΔP снизился → снижение дебита`);
+            else parts.push(`${dTxt}: перепад без изменений`);
+          } else {
+            if (dMed > 0) parts.push(`${dTxt}: рост медианного устьевого давления (положительно)`);
+            else if (dMed < 0) parts.push(`${dTxt}: снижение медианного устьевого давления`);
+            else parts.push(`${dTxt}: медианное давление без изменений`);
+          }
+          // ── Ширина спектра. Сужение — однозначно улучшение. Расширение —
+          //    НЕ интерпретируем однозначно (особенно на адаптации: переходные
+          //    процессы, реакция на вброс реагента). ──
+          if (dNiqr != null) {
+            const rel = oNiqr > 0 ? dNiqr / oNiqr : 0;
+            const nTxt = `nIQR ${f(oNiqr, 3)}→${f(bNiqr, 3)}`;
+            if (rel < -0.05) {
+              parts.push(`${nTxt}: спектр сузился — улучшение, более стабильная работа`);
+            } else if (rel > 0.05) {
+              parts.push(isAdapt
+                ? `${nTxt}: спектр расширился — на этапе адаптации это может быть переходным процессом (выход на режим) или реакцией на вброс реагента, не обязательно ухудшение`
+                : `${nTxt}: спектр расширился — возможно менее стабильная работа (оценивать с учётом режима и продувок/вбросов)`);
+            } else {
+              parts.push(`${nTxt}: ширина спектра почти не изменилась`);
+            }
+          }
+          if (bClass && oClass && bClass !== oClass) {
+            parts.push(`класс стабильности: ${_PS_CLASS_RU[oClass] || oClass}→${_PS_CLASS_RU[bClass] || bClass}`);
+          }
+          verdict = label + ': ' + parts.join('; ') + '.';
+        }
+        return { key, label, base_median: bMed, ov_median: oMed,
+          base_niqr: bNiqr, ov_niqr: oNiqr, base_class: bClass, ov_class: oClass, verdict };
+      });
+      return { label: ov.label || '', period: ov.period || {}, signals };
+    });
+    return { base_period: snap.period || {}, items };
+  }
+  window.buildPressureSpectrumComparison = _psBuildComparison;
+
+  // ===== _buildPressureSpectrumHtml — спектр распределения давления (стабильность) =====
+  // PARITY: при изменении таблицы/секций синхронно править
+  // _format_pressure_spectrum (adaptation_report_service.py) и .tex-ветку.
+  function _buildPressureSpectrumHtml(snap, block, idPrefix) {
+    if (!snap || !snap.signals) return '<div style="color:#9ca3af;">Снапшот спектра не загружен.</div>';
+    const parts = (block.params && block.params.parts) || {};
+    const on = (k) => parts[k] !== false;
+    const fmt = (v, d = 2) => (v == null || isNaN(v)) ? '—' : Number(v).toFixed(d);
+    const period = snap.period || {};
+    const sigs = snap.signals || {};
+
+    const CLASS_LABELS = { stable: 'стабильно', moderate: 'умеренно', unstable: 'нестабильно', degenerate: 'вырождено', no_data: 'нет данных' };
+    const CLASS_COLORS = { stable: '#16a34a', moderate: '#d97706', unstable: '#dc2626', degenerate: '#6b7280', no_data: '#6b7280' };
+    const NORM_LABELS = { normal: 'нормальное', near_normal: 'близко к норм.', non_normal: 'не нормальное' };
+
+    let html = '';
+    html += `<div style="font-size:0.9rem; color:#374151; margin-bottom:8px;">
+      <b>Период:</b> ${_escHtml(period.from || '—')} — ${_escHtml(period.to || '—')}${snap.well_number ? `, скв. ${_escHtml(snap.well_number)}` : ''}
+      &nbsp;·&nbsp; бины: P ${fmt(snap.bin_width_pressure, 2)} / ΔP ${fmt(snap.bin_width_dp, 2)} кгс/см²
+    </div>`;
+    // Аналитический вводный абзац (паритет с .tex §3.4.N pressure_spectrum).
+    html += `<div style="font-size:0.85rem; color:#374151; margin-bottom:8px;">
+      Для оценки устойчивости режима за период построены спектры распределения устьевого
+      давления и перепада ΔP. На графиках ниже показано, как часто встречаются те или иные
+      уровни давления: узкий выраженный пик отвечает устойчивому режиму, широкое
+      распределение — повышенной изменчивости работы скважины.
+    </div>`;
+    if (snap.block_status && snap.block_status !== 'ok') {
+      html += `<div style="background:#fef3c7;border-left:3px solid #f59e0b;padding:6px 10px;font-size:0.82rem;margin-bottom:8px;">⚠ Статус данных: ${_escHtml(snap.block_status)}.</div>`;
+    }
+    if (on('show_ptube_chart') || on('show_dp_chart')) {
+      html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px;">`;
+      if (on('show_ptube_chart')) html += `<div><div style="font-weight:500;font-size:0.85rem;margin-bottom:4px;">Устьевое давление P_уст</div><div id="${idPrefix}chart-ptube" style="height:270px;"></div></div>`;
+      if (on('show_dp_chart')) html += `<div><div style="font-weight:500;font-size:0.85rem;margin-bottom:4px;">Перепад ΔP</div><div id="${idPrefix}chart-dp" style="height:270px;"></div></div>`;
+      html += `</div>`;
+    }
+    if (on('show_metrics_table')) {
+      const mA = (sigs.p_tube && sigs.p_tube.metrics) || {};
+      const mB = (sigs.dp && sigs.dp.metrics) || {};
+      const row = (label, key, d = 2) => `<tr><td style="text-align:left;">${label}</td><td style="text-align:right;">${fmt(mA[key], d)}</td><td style="text-align:right;">${fmt(mB[key], d)}</td></tr>`;
+      const pc = (sigs.p_tube || {}).stability_class || 'no_data';
+      const dc = (sigs.dp || {}).stability_class || 'no_data';
+      html += `<table class="cd-table" style="font-size:0.8rem;width:100%;margin-bottom:8px;">
+        <thead><tr><th style="text-align:left;">Метрика</th><th style="text-align:right;">P устьевое</th><th style="text-align:right;">ΔP</th></tr></thead><tbody>
+        ${row('Медиана, кгс/см²', 'median')}
+        ${row('IQR (P25–P75)', 'iqr')}
+        ${row('nIQR = IQR/медиана', 'niqr', 3)}
+        ${row('σ (std)', 'std')}
+        ${row('CV, %', 'cv_median', 1)}
+        ${row('Размах P10–P90', 'w90')}
+        ${row('Асимметрия', 'skewness')}
+        ${row('Эксцесс', 'kurtosis')}
+        <tr><td style="text-align:left;">Распределение</td><td style="text-align:right;">${NORM_LABELS[mA.normality] || '—'}</td><td style="text-align:right;">${NORM_LABELS[mB.normality] || '—'}</td></tr>
+        <tr><td style="text-align:left;">Стабильность</td>
+          <td style="text-align:right;color:${CLASS_COLORS[pc]};font-weight:600;">${CLASS_LABELS[pc] || pc}</td>
+          <td style="text-align:right;color:${CLASS_COLORS[dc]};font-weight:600;">${CLASS_LABELS[dc] || dc}</td></tr>
+        </tbody></table>`;
+      const fl = snap.flags || {};
+      const warns = [];
+      if (fl.high_variability) warns.push('повышенная вариативность (CV&gt;15%)');
+      if (fl.outliers_present) warns.push('присутствуют выбросы');
+      if (fl.short_period) warns.push('короткий период (&lt;2 сут)');
+      if (warns.length) html += `<div style="font-size:0.78rem;color:#92400e;margin-bottom:8px;">⚠ ${warns.join('; ')}.</div>`;
+    }
+    // Авто-описание полученных данных (по P_уст и ΔP)
+    if (on('show_metrics_table')) {
+      const dp_ = (sigs.p_tube || {}).description, dd_ = (sigs.dp || {}).description;
+      if (dp_ || dd_) {
+        html += `<div style="font-size:0.82rem;color:#374151;line-height:1.5;margin-bottom:8px;">
+          <b>Описание данных:</b>
+          ${dp_ ? `<div style="margin-top:3px;">• ${_escHtml(dp_)}</div>` : ''}
+          ${dd_ ? `<div style="margin-top:3px;">• ${_escHtml(dd_)}</div>` : ''}
+        </div>`;
+      }
+    }
+    // ── Сравнение с наложенными спектрами (если выбраны) ──
+    // Свой период — это ДВА графика выше (раздельно). Наложение — отдельные
+    // графики НИЖЕ (ps-…-chart-*-cmp) + таблица и вердикты.
+    if (on('show_comparison')) {
+      const _chapter = (block.params && block.params.chapter) || '';
+      const cmp = (window.buildPressureSpectrumComparison) ? window.buildPressureSpectrumComparison(snap, _chapter) : null;
+      if (cmp && cmp.items.length) {
+        html += `<div style="margin:10px 0;">
+          <div style="font-weight:600;font-size:0.86rem;margin-bottom:5px;">🔀 Сравнение спектров (наложение)</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px;">
+            <div><div style="font-weight:500;font-size:0.82rem;margin-bottom:4px;">P устьевое — наложение</div><div id="${idPrefix}chart-ptube-cmp" style="height:270px;"></div></div>
+            <div><div style="font-weight:500;font-size:0.82rem;margin-bottom:4px;">ΔP — наложение</div><div id="${idPrefix}chart-dp-cmp" style="height:270px;"></div></div>
+          </div>`;
+        cmp.items.forEach((it) => {
+          html += `<div style="font-size:0.82rem;margin-bottom:8px;">
+            <div style="color:#475569;margin-bottom:2px;">Относительно «${_escHtml(it.label)}»:</div>
+            <table class="cd-table" style="font-size:0.78rem;width:100%;margin:3px 0;">
+              <thead><tr><th style="text-align:left;">Сигнал</th><th>Медиана (опорн.→текущ.)</th><th>nIQR (опорн.→текущ.)</th><th>Стабильность</th></tr></thead><tbody>`;
+          it.signals.forEach((s) => {
+            const oc = CLASS_LABELS[s.ov_class] || s.ov_class || '—';
+            const bc = CLASS_LABELS[s.base_class] || s.base_class || '—';
+            html += `<tr><td style="text-align:left;">${s.label}</td>
+              <td style="text-align:center;">${fmt(s.ov_median)} → ${fmt(s.base_median)}</td>
+              <td style="text-align:center;">${fmt(s.ov_niqr, 3)} → ${fmt(s.base_niqr, 3)}</td>
+              <td style="text-align:center;">${oc} → ${bc}</td></tr>`;
+          });
+          html += `</tbody></table>`;
+          it.signals.forEach((s) => { if (s.verdict) html += `<div style="margin-top:2px;color:#374151;">• ${_escHtml(s.verdict)}</div>`; });
+          html += `</div>`;
+        });
+        html += `</div>`;
+      }
+    }
+    if (on('show_method_note')) {
+      html += `<details style="font-size:0.8rem;color:#475569;margin-bottom:6px;">
+        <summary style="cursor:pointer;color:#2563eb;">📖 Описание метода</summary>
+        <div style="margin-top:6px;line-height:1.45;">
+        <b>Спектр распределения давления</b> показывает стабильность работы скважины — не среднее давление, а то, как часто давление отклоняется от рабочего. Гистограмма: по горизонтали давление, по вертикали — число минут с этим давлением. Узкий острый пик = стабильный режим; растянутое плоское распределение = нестабильный. Цвет графика отражает оценку: зелёный — стабильно, оранжевый — умеренно, красный — нестабильно.
+        <br><br>Отслеживаемые параметры (для оценки изменения режима):
+        <ul style="margin:4px 0 4px 18px;padding:0;">
+          <li><b>Ширина спектра</b> — основной показатель <b>nIQR</b> (межквартильный размах ÷ медиана): чем шире, тем хуже стабильность. Заметные выбросы и высокая вариативность (CV) дополнительно ухудшают оценку, даже если ядро узкое.</li>
+          <li><b>Нормальность</b> — форма распределения. Для скважины идеальная нормальность почти недостижима, поэтому «близко к нормальному» считается нормой и серьёзно не штрафуется.</li>
+          <li><b>Медиана</b> — положение рабочей точки. Для ΔP: чем больше медиана по абсолютному значению, тем выше дебит. Сдвиг медианы между этапами = изменение режима.</li>
+        </ul>
+        При сравнении этапов важно: сузился ли спектр (стало стабильнее), сместилась ли медиана (особенно ΔP — индикатор дебита), изменилась ли форма.
+        </div></details>`;
+    }
+    const comment = block.comment || (block.params && block.params.comment) || '';
+    if (on('description') && comment) {
+      html += `<div style="background:#f1f5f9;border-left:2px solid #94a3b8;padding:5px 8px;font-style:italic;font-size:0.85rem;">${_escHtml(comment)}</div>`;
+    }
+    return html;
+  }
+
+  // ===== _renderPressureSpectrumCharts — Plotly-гистограммы P_уст и ΔP =====
+  function _renderPressureSpectrumCharts(snap, idPrefix) {
+    if (!window.Plotly || !snap || !snap.signals) return;
+    const sigs = snap.signals;
+    // Наложенные спектры (сравнение этапов). Свой период рисуется БЕЗ наложений
+    // (raw «мин»), а наложение — на отдельных графиках …-cmp, где Y нормируется
+    // в «% времени» (формы периодов разной длины сопоставимы) + легенда.
+    const overlays = ((snap.overlays || []).filter((o) => o && o.signals));
+    const hasOverlays = overlays.length > 0;
+    // Настройки отображения (регулируются в модалке, хранятся в snapshot.display)
+    const disp = snap.display || {};
+    const ctype = disp.chart_type || 'stairs';   // 'stairs' | 'bars' | 'lines' | 'stems'
+    const colorAuto = disp.color_auto !== false;  // по умолчанию — цвет по стабильности
+    const customColor = disp.color || '#2563eb';
+    const layout = {
+      height: 270, bargap: 0.04,
+      plot_bgcolor: '#fff', paper_bgcolor: '#fff', font: { family: 'Arial, sans-serif', size: 11 },
+    };
+    const cfg = { responsive: true, displayModeBar: false };
+    const gridStyle = { gridcolor: '#eef1f4', zeroline: false, linecolor: '#cbd5e1', ticks: 'outside', tickcolor: '#cbd5e1' };
+
+    const STAB = {
+      stable:     { line: '#16a34a', fill: 'rgba(22,163,74,0.18)' },
+      moderate:   { line: '#d97706', fill: 'rgba(217,119,6,0.18)' },
+      unstable:   { line: '#dc2626', fill: 'rgba(220,38,38,0.18)' },
+      degenerate: { line: '#6b7280', fill: 'rgba(107,114,128,0.18)' },
+      no_data:    { line: '#9ca3af', fill: 'rgba(156,163,175,0.18)' },
+    };
+    const OVERLAY_PALETTE = ['#7c3aed', '#0891b2', '#db2777', '#65a30d', '#ea580c'];
+    function hexToRgba(hex, a) {
+      const h = (hex || '').replace('#', '');
+      if (h.length < 6) return 'rgba(37,99,235,' + a + ')';
+      const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+      return `rgba(${r},${g},${b},${a})`;
+    }
+    function colorFor(sig) {
+      if (colorAuto) { const c = STAB[sig.stability_class] || STAB.no_data; return c; }
+      return { line: customColor, fill: hexToRgba(customColor, 0.18) };
+    }
+    // Адаптивная шкала X: робастное окно median ± 4·IQR, зажатое в [min, max].
+    function xRange(sig) {
+      const m = sig.metrics || {};
+      if (m.median == null || m.iqr == null) return null;
+      const K = 4;
+      const dmin = (m.min != null) ? m.min : 0;
+      const dmax = (m.max != null) ? m.max : (m.median + 1);
+      let lo = Math.max(dmin, m.median - K * m.iqr);
+      let hi = Math.min(dmax, m.median + K * m.iqr);
+      if (!(hi > lo)) { lo = dmin; hi = dmax; }
+      const pad = Math.max(hi - lo, 1e-6) * 0.1;
+      return [Math.max(0, lo - pad), hi + pad];
+    }
+    // Трейсы одного сигнала с заданным стилем. В norm-режиме counts → % времени.
+    function mkTraces(sig, colObj, name, dash, opacity, norm) {
+      const edges = sig.bin_edges, counts = sig.counts || [];
+      if (!edges || edges.length < 2) return [];
+      const total = counts.reduce((a, b) => a + (b || 0), 0) || 1;
+      const k = norm ? (100 / total) : 1;
+      const Y = counts.map((c) => (c || 0) * k);
+      const line = colObj.line, fill = colObj.fill;
+      if (ctype === 'bars') {
+        const centers = [], widths = [];
+        for (let i = 0; i < Y.length; i++) { centers.push((edges[i] + edges[i + 1]) / 2); widths.push(edges[i + 1] - edges[i]); }
+        return [{ x: centers, y: Y, width: widths, type: 'bar', marker: { color: line, line: { width: 0 } }, opacity: opacity, name: name }];
+      } else if (ctype === 'lines') {
+        const centers = [];
+        for (let i = 0; i < Y.length; i++) centers.push((edges[i] + edges[i + 1]) / 2);
+        return [{ x: centers, y: Y, type: 'scatter', mode: 'lines', line: { color: line, width: 1.8, shape: 'spline', dash: dash }, fill: 'tozeroy', fillcolor: fill, name: name, opacity: opacity }];
+      } else if (ctype === 'stems') {
+        const lx = [], ly = [], cx = [], cy = [];
+        for (let i = 0; i < Y.length; i++) {
+          const c = (edges[i] + edges[i + 1]) / 2;
+          cx.push(c); cy.push(Y[i]);
+          lx.push(c, c, null); ly.push(0, Y[i], null);
+        }
+        return [
+          { x: lx, y: ly, type: 'scatter', mode: 'lines', line: { color: line, width: 1.3, dash: 'dash' }, hoverinfo: 'skip', name: name, showlegend: false },
+          { x: cx, y: cy, type: 'scatter', mode: 'markers', marker: { color: line, size: 6, symbol: 'triangle-up' }, name: name, opacity: opacity },
+        ];
+      }
+      // stairs (лесенка) — по умолчанию
+      const xs = [], ys = [];
+      for (let i = 0; i < Y.length; i++) { xs.push(edges[i]); ys.push(Y[i]); xs.push(edges[i + 1]); ys.push(Y[i]); }
+      return [{ x: xs, y: ys, type: 'scatter', mode: 'lines', line: { color: line, width: 1.6, shape: 'linear', dash: dash }, fill: 'tozeroy', fillcolor: fill, name: name, opacity: opacity }];
+    }
+    function gaussianTrace(sig, norm) {
+      const showNormal = !!disp.show_normal && !norm;  // гауссиану прячем при наложении
+      const m = sig.metrics || {};
+      if (!(showNormal && m.std > 0 && sig.n_points > 0)) return null;
+      const edges = sig.bin_edges;
+      const mu = m.mean, sd = m.std, N = sig.n_points, bw = sig.bin_width || (edges[1] - edges[0]);
+      const x0 = edges[0], x1 = edges[edges.length - 1], steps = 120, nx = [], ny = [];
+      const k = norm ? (bw * 100) : (N * bw);
+      for (let i = 0; i <= steps; i++) {
+        const x = x0 + (x1 - x0) * i / steps;
+        const pdf = Math.exp(-((x - mu) * (x - mu)) / (2 * sd * sd)) / (sd * Math.sqrt(2 * Math.PI));
+        nx.push(x); ny.push(pdf * k);
+      }
+      return { x: nx, y: ny, type: 'scatter', mode: 'lines', line: { color: '#7c3aed', width: 1.8 }, name: 'Нормальное', hoverinfo: 'skip' };
+    }
+    // withOverlays=false → свой период раздельно (raw «мин»); true → наложение
+    // (норм. «% времени» + легенда), рисуется в отдельные …-cmp графики.
+    function draw(elId, baseSig, key, title, withOverlays) {
+      const el = document.getElementById(elId);
+      if (!el || !baseSig || !baseSig.bin_edges || baseSig.bin_edges.length < 2) return;
+      const norm = !!withOverlays && hasOverlays;
+      const per = snap.period || {};
+      const baseName = norm ? ('Текущий (' + (per.from || '') + '—' + (per.to || '') + ')') : title;
+      let traces = mkTraces(baseSig, colorFor(baseSig), baseName, 'solid', 0.82, norm);
+      const gt = gaussianTrace(baseSig, norm); if (gt) traces.push(gt);
+      const shapes = [];
+      const bm = baseSig.metrics || {};
+      if (bm.median != null) shapes.push({ type: 'line', xref: 'x', yref: 'paper', x0: bm.median, x1: bm.median, y0: 0, y1: 1, line: { color: '#111827', width: 1.5, dash: 'dash' } });
+      let xr = xRange(baseSig);
+      if (norm) {
+        overlays.forEach((ov, idx) => {
+          const osig = (ov.signals || {})[key];
+          if (!osig || !osig.bin_edges || osig.bin_edges.length < 2) return;
+          const pc = OVERLAY_PALETTE[idx % OVERLAY_PALETTE.length];
+          traces = traces.concat(mkTraces(osig, { line: pc, fill: hexToRgba(pc, 0.08) }, ov.label || ('Спектр ' + (idx + 1)), 'dot', 0.55, norm));
+          const om = osig.metrics || {};
+          if (om.median != null) shapes.push({ type: 'line', xref: 'x', yref: 'paper', x0: om.median, x1: om.median, y0: 0, y1: 1, line: { color: pc, width: 1, dash: 'dot' } });
+          const r = xRange(osig);
+          if (xr && r) xr = [Math.min(xr[0], r[0]), Math.max(xr[1], r[1])];
+        });
+      }
+      const xaxis = Object.assign({ title: { text: 'кгс/см²', font: { size: 9 } } }, gridStyle);
+      if (xr) { xaxis.range = xr; } else { xaxis.rangemode = 'tozero'; }
+      try {
+        Plotly.newPlot(el, traces, {
+          ...layout, margin: { l: 48, r: 16, t: norm ? 40 : 26, b: 38 },
+          title: { text: title, font: { size: 11 } },
+          showlegend: norm,
+          legend: norm ? { orientation: 'h', y: 1.16, x: 0, font: { size: 9 } } : undefined,
+          xaxis: xaxis,
+          yaxis: Object.assign({ title: { text: norm ? '% времени' : 'мин', font: { size: 9 } }, rangemode: 'tozero' }, gridStyle), shapes,
+        }, cfg);
+      } catch (e) { console.warn('ps-chart', e); }
+    }
+    // Свой период — два раздельных графика (без наложения).
+    draw(idPrefix + 'chart-ptube', sigs.p_tube, 'p_tube', 'P устьевое', false);
+    draw(idPrefix + 'chart-dp', sigs.dp, 'dp', 'ΔP', false);
+    // Наложение — отдельные графики ниже (если выбраны спектры для сравнения).
+    if (hasOverlays) {
+      draw(idPrefix + 'chart-ptube-cmp', sigs.p_tube, 'p_tube', 'P устьевое — наложение', true);
+      draw(idPrefix + 'chart-dp-cmp', sigs.dp, 'dp', 'ΔP — наложение', true);
+    }
+  }
+
+  // ===== _buildParamCorrelationHtml — зависимость двух параметров (scatter+регрессия) =====
+  // PARITY: при изменении синхронно править _format_param_correlation + .tex-ветку.
+  function _buildParamCorrelationHtml(snap, block, idPrefix) {
+    if (!snap || !snap.points) return '<div style="color:#9ca3af;">Снапшот зависимости не загружен.</div>';
+    const parts = (block.params && block.params.parts) || {};
+    const on = (k) => parts[k] !== false;
+    const fmt = (v, d = 3) => (v == null || isNaN(v)) ? '—' : Number(v).toFixed(d);
+    const period = snap.period || {};
+    const xs = snap.x || {}, ys = snap.y || {};
+    const r = snap.regression || {};
+
+    let html = '';
+    html += `<div style="font-size:0.9rem; color:#374151; margin-bottom:8px;">
+      <b>Период:</b> ${_escHtml(period.from || '—')} — ${_escHtml(period.to || '—')}${snap.well_number ? `, скв. ${_escHtml(snap.well_number)}` : ''}
+      &nbsp;·&nbsp; <b>${_escHtml(xs.label || 'X')}</b> → <b>${_escHtml(ys.label || 'Y')}</b>, точек: ${snap.n_points || 0}
+    </div>`;
+    if (snap.warning) {
+      html += `<div style="background:#fee2e2;border-left:3px solid #dc2626;padding:6px 10px;font-size:0.82rem;margin-bottom:8px;color:#991b1b;">⚠ ${_escHtml(snap.warning)}</div>`;
+    }
+    if (snap.block_status && snap.block_status !== 'ok') {
+      html += `<div style="background:#fef3c7;border-left:3px solid #f59e0b;padding:6px 10px;font-size:0.82rem;margin-bottom:8px;">⚠ Статус данных: ${_escHtml(snap.block_status)}.</div>`;
+    }
+    if (on('show_chart')) {
+      html += `<div id="${idPrefix}chart" style="height:300px; margin-bottom:8px;"></div>`;
+    }
+    if (on('show_stats') && r && r.slope != null) {
+      const trend = r.slope > 0 ? 'прямая (рост Y с ростом X)' : (r.slope < 0 ? 'обратная (падение Y с ростом X)' : 'нет');
+      const strength = r.r2 >= 0.7 ? 'сильная' : (r.r2 >= 0.4 ? 'умеренная' : 'слабая');
+      html += `<table class="cd-table" style="font-size:0.8rem;width:100%;margin-bottom:8px;">
+        <tbody>
+        <tr><td style="text-align:left;">Наклон (slope), ${_escHtml(ys.unit || '')}/${_escHtml(xs.unit || '')}</td><td style="text-align:right;">${fmt(r.slope, 4)}</td></tr>
+        <tr><td style="text-align:left;">Свободный член (intercept)</td><td style="text-align:right;">${fmt(r.intercept, 3)}</td></tr>
+        <tr><td style="text-align:left;">R² (сила связи)</td><td style="text-align:right;font-weight:600;">${fmt(r.r2, 3)} — ${strength}</td></tr>
+        <tr><td style="text-align:left;">Зависимость</td><td style="text-align:right;">${trend}</td></tr>
+        </tbody></table>`;
+    }
+    if (on('show_method_note')) {
+      html += `<details style="font-size:0.8rem;color:#475569;margin-bottom:6px;">
+        <summary style="cursor:pointer;color:#2563eb;">📖 Описание метода</summary>
+        <div style="margin-top:6px;line-height:1.45;">
+        График показывает <b>зависимость двух параметров</b>: каждая точка — минутный замер (${_escHtml(xs.label || 'X')} по горизонтали, ${_escHtml(ys.label || 'Y')} по вертикали). Линия — регрессия методом наименьших квадратов; <b>наклон</b> показывает, насколько Y растёт с ростом X, а <b>R²</b> — насколько тесно они связаны (1 — идеально, 0 — нет связи). Для ΔP→Q положительный наклон подтверждает: больше перепад — выше дебит. При сравнении этапов сдвиг линии вверх/круче = улучшение режима.
+        </div></details>`;
+    }
+    const comment = block.comment || (block.params && block.params.comment) || '';
+    if (on('description') && comment) {
+      html += `<div style="background:#f1f5f9;border-left:2px solid #94a3b8;padding:5px 8px;font-style:italic;font-size:0.85rem;">${_escHtml(comment)}</div>`;
+    }
+    return html;
+  }
+
+  // ===== _renderParamCorrelationCharts — Plotly scatter + линия регрессии =====
+  function _renderParamCorrelationCharts(snap, idPrefix) {
+    if (!window.Plotly || !snap || !snap.points) return;
+    const el = document.getElementById(idPrefix + 'chart');
+    if (!el) return;
+    const px = snap.points.x || [], py = snap.points.y || [];
+    const xs = snap.x || {}, ys = snap.y || {};
+    const r = snap.regression || {};
+    const traces = [{
+      x: px, y: py, type: 'scatter', mode: 'markers', name: 'точки',
+      marker: { color: 'rgba(37,99,235,0.45)', size: 4 },
+    }];
+    if (r && r.slope != null && r.x_min != null && r.x_max != null) {
+      const x0 = r.x_min, x1 = r.x_max;
+      traces.push({
+        x: [x0, x1], y: [r.slope * x0 + r.intercept, r.slope * x1 + r.intercept],
+        type: 'scatter', mode: 'lines', name: 'регрессия',
+        line: { color: '#dc2626', width: 2 },
+      });
+    }
+    const layout = {
+      height: 290, margin: { l: 50, r: 15, t: 24, b: 40 }, showlegend: false,
+      title: { text: `${xs.label || 'X'} → ${ys.label || 'Y'}`, font: { size: 11 } },
+      xaxis: { title: { text: (xs.label || 'X') + (xs.unit ? ', ' + xs.unit : ''), font: { size: 9 } } },
+      yaxis: { title: { text: (ys.label || 'Y') + (ys.unit ? ', ' + ys.unit : ''), font: { size: 9 } } },
+    };
+    try { Plotly.newPlot(el, traces, layout, { responsive: true, displayModeBar: false }); }
+    catch (e) { console.warn('pc-chart', e); }
   }
 
   // ===== _buildObservationBlockHtml — рендер observation блоков (датчики) =====
@@ -1083,6 +1732,12 @@
         Период: <b>${_escHtml(dFrom)}</b> → <b>${_escHtml(dTo)}</b> (${days} сут.)
         <br>Источник: данные датчиков давления.
       </div>`;
+      // Аналитический вводный абзац (паритет с .tex §3.4.N интро).
+      html += `<div style="font-size:0.85rem; color:#374151; margin-bottom:8px;">
+        За указанный период по минутным данным датчиков давления (UniTool) выполнен
+        анализ фактического режима работы скважины. Ниже приведены ключевые показатели
+        режима, их сводные таблицы и графики динамики во времени.
+      </div>`;
     }
 
     // ─── Metrics table ───
@@ -1090,23 +1745,25 @@
     // 1) wz3obs_v1 (плоский): q_total_avg, q_total_median, dp_avg, dp_median, p_wellhead_median, p_flowline_median
     // 2) observation_v1.0 (вложенный): metrics.q.mean, metrics.q.median, ...
     // 3) obs_baseline_v1 (вложенный): metrics.q.mean, metrics.p_tube.median, + metrics.downtime
+    // Метрики объявлены на уровне функции (а не внутри if metrics_table) —
+    // их использует и таблица, и блок плиток metrics_tiles. Иначе ReferenceError
+    // (q_avg is not defined) при включённых плитках без таблицы.
+    const m = snap.metrics || {};
+    // wz3obs_v1 flat format с fallback на nested
+    const q_avg = snap.q_total_avg ?? m.q?.mean;
+    const q_med = snap.q_total_median ?? m.q?.median;
+    const dp_avg = snap.dp_avg ?? m.dp?.mean;
+    const dp_med = snap.dp_median ?? m.dp?.median;
+    const p_tube_med = snap.p_wellhead_median ?? m.p_tube?.median;
+    const p_line_med = snap.p_flowline_median ?? m.p_line?.median;
+    // wz3obs_v1 downtime
+    const shutdown_min = snap.shutdown_min_total;
+    const working_hours = snap.working_hours;
+    // obs_baseline_v1 downtime (nested)
+    const downtime = m.downtime || {};
+    const downtime_hours = downtime.total_hours;
+    const downtime_pct = downtime.downtime_pct_of_period;
     if (on('metrics_table')) {
-      const m = snap.metrics || {};
-      // wz3obs_v1 flat format с fallback на nested
-      const q_avg = snap.q_total_avg ?? m.q?.mean;
-      const q_med = snap.q_total_median ?? m.q?.median;
-      const dp_avg = snap.dp_avg ?? m.dp?.mean;
-      const dp_med = snap.dp_median ?? m.dp?.median;
-      const p_tube_med = snap.p_wellhead_median ?? m.p_tube?.median;
-      const p_line_med = snap.p_flowline_median ?? m.p_line?.median;
-      // wz3obs_v1 downtime
-      const shutdown_min = snap.shutdown_min_total;
-      const working_hours = snap.working_hours;
-      // obs_baseline_v1 downtime (nested)
-      const downtime = m.downtime || {};
-      const downtime_hours = downtime.total_hours;
-      const downtime_pct = downtime.downtime_pct_of_period;
-
       const hasData = q_avg != null || q_med != null || dp_avg != null;
       if (hasData) {
         // Для observation_baseline показываем расширенную таблицу с min/max/direction
@@ -1175,6 +1832,12 @@
           const purgeCount = snap.purge_count ?? 0;
           const days = snap.days || 0;
 
+          // Лид-ин перед таблицей (паритет с .tex «В таблице сведены…»).
+          html += `<div style="font-size:0.82rem; color:#374151; margin-bottom:6px;">
+            В таблице сведены средние и медианные значения ключевых параметров режима за
+            период — расчётного дебита, перепада давления, устьевого и линейного давления;
+            ниже — показатели использования рабочего времени и число технологических событий.
+          </div>`;
           html += `<div style="margin-bottom:12px;">
             <table style="width:100%; font-size:0.82rem; border-collapse:collapse;">
               <thead><tr style="background:linear-gradient(to right, #fef9c3, #fef3c7);">
@@ -1256,6 +1919,14 @@
     // observation_analysis: 4 отдельных графика
     if (kind === 'observation_analysis') {
       const useGrid = on('charts_grid');
+      // Подпись графика (стиль Адаптации: серый, мелкий, под рисунком)
+      const _cap = (txt) => `<div style="font-size:0.78rem; color:#6b7280; margin-top:4px; margin-bottom:8px; padding:0 4px; line-height:1.45;">${txt}</div>`;
+      // Вводное пояснение «что изображено» (стиль Адаптации)
+      html += `<div style="font-size:0.84rem; color:#4b5563; line-height:1.5; margin:8px 0 8px;">
+        Ниже — динамика ключевых параметров за период блока по данным датчиков давления
+        (минутные ряды, тот же конвейер, что страница скважины). Розовые зоны на графиках —
+        интервалы простоя; зелёные маркеры — вбросы реагента.
+      </div>`;
       if (useGrid) {
         // 2×2 сетка графиков
         html += `<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:8px 0;">`;
@@ -1264,21 +1935,25 @@
         const h = useGrid ? '200px' : '240px';
         html += `<div id="prev-${bid}-obs-pres" style="height:${h};
                       background:#fafafa; border-radius:4px;"></div>`;
+        if (!useGrid) html += _cap(`<b>Рис.</b> Устьевое (P трубное, синий) и линейное (P шлейф, красный) давление, кгс/см². Разница между кривыми — перепад ΔP.`);
       }
       if (on('chart_dp')) {
         const h = useGrid ? '200px' : '240px';
         html += `<div id="prev-${bid}-obs-dp" style="height:${h};
                       background:#fafafa; border-radius:4px;"></div>`;
+        if (!useGrid) html += _cap(`<b>Рис.</b> Перепад давления ΔP = max(0, P трубное − P линейное), кгс/см². Рост ΔP — увеличение дебита; падение — возможное накопление жидкости.`);
       }
       if (on('chart_q')) {
         const h = useGrid ? '200px' : '240px';
         html += `<div id="prev-${bid}-obs-q" style="height:${h};
                       background:#fafafa; border-radius:4px;"></div>`;
+        if (!useGrid) html += _cap(`<b>Рис.</b> Расчётный мгновенный дебит газа Q, тыс.м³/сут (по давлению на штуцере). Розовые зоны — простои.`);
       }
       if (on('chart_utilization')) {
         const h = useGrid ? '180px' : '200px';
         html += `<div id="prev-${bid}-obs-util" style="height:${h};
                       background:#fafafa; border-radius:4px;"></div>`;
+        if (!useGrid) html += _cap(`<b>Рис.</b> Учёт рабочего времени по дням: зелёное — рабочие часы, красное — простой. КИВ — доля рабочего времени за период.`);
       }
       if (useGrid) {
         html += `</div>`;
@@ -1314,7 +1989,8 @@
         const eventsToShow = obsEvents.slice(0, 30);
         eventsToShow.forEach((e, i) => {
           const bg = i % 2 === 0 ? '#fff' : '#fafafa';
-          const icon = e.type === 'purge' ? '💨' : e.type === 'reagent' ? '💊' : e.type === 'equipment' ? '🔧' : '•';
+          const isEquip = e.type === 'equip' || e.type === 'equipment';
+          const icon = e.type === 'purge' ? '💨' : e.type === 'reagent' ? '💊' : isEquip ? '🔧' : '•';
           let typeLabel, descr;
           if (e.type === 'purge') {
             typeLabel = 'Продувка';
@@ -1322,8 +1998,8 @@
           } else if (e.type === 'reagent') {
             typeLabel = 'Вброс реагента';
             descr = e.reagent || e.label || '—';
-          } else if (e.type === 'equipment') {
-            typeLabel = 'Оборудование';
+          } else if (isEquip) {
+            typeLabel = 'Установка оборудования';
             descr = e.description || e.label || '—';
           } else if (e.type === 'other') {
             typeLabel = 'Прочее';
@@ -1365,7 +2041,7 @@
 
         const reagentEvents = obsEvents.filter(e => e.type === 'reagent');
         const purgeEvents = obsEvents.filter(e => e.type === 'purge');
-        const equipEvents = obsEvents.filter(e => e.type === 'equipment');
+        const equipEvents = obsEvents.filter(e => e.type === 'equip' || e.type === 'equipment');
         html += `<div style="font-size:0.8rem; color:#6b7280; margin-top:6px; padding:6px 8px; background:#f9fafb; border-radius:4px;">
           <b>Итого:</b> ${reagentEvents.length} вбросов реагента,
           ${purgeEvents.length} продувок${equipEvents.length ? `, ${equipEvents.length} событий оборудования` : ''}.
@@ -1400,26 +2076,26 @@
       if (cmpB1.status === 'ok') {
         const d = cmpB1.deltas || {};
         let rows = '';
-        ['p_tube', 'p_line', 'dp', 'q'].forEach(k => {
+        // Ключи дельт snapshot: *_mean (каждый {abs, pct}). Паритет с PDF
+        // (_format_observation_rfc_block): колонки Метрика | Δ абс. | Δ %.
+        [['p_tube_mean', 'P уст.'], ['p_line_mean', 'P лин.'], ['dp_mean', 'ΔP'], ['q_mean', 'Q']].forEach(([k, label]) => {
           const dv = d[k];
           if (!dv) return;
           const arrow = dv.pct > 0 ? '↑' : dv.pct < 0 ? '↓' : '→';
           const color = Math.abs(dv.pct) > 10 ? '#dc2626' : '#374151';
           rows += `<tr>
-            <td style="padding:2px 6px;">${_escHtml(k)}</td>
-            <td style="text-align:right; padding:2px 6px;">${fmt(dv.baseline_value)}</td>
-            <td style="text-align:right; padding:2px 6px;">${fmt(dv.current_value)}</td>
+            <td style="padding:2px 6px;">${_escHtml(label)}</td>
+            <td style="text-align:right; padding:2px 6px;">${fmt(dv.abs)}</td>
             <td style="text-align:right; padding:2px 6px; color:${color};">${arrow} ${fmt(dv.pct, 1)}%</td>
           </tr>`;
         });
         html += `<div style="margin:8px 0;">
-          <div style="font-weight:600; font-size:0.85rem; margin-bottom:4px;">⚖️ Сравнение с baseline</div>
+          <div style="font-weight:600; font-size:0.85rem; margin-bottom:4px;">⚖️ Сравнение с базовым периодом (B1)</div>
           <table style="width:100%; font-size:0.78rem; border-collapse:collapse;">
             <tr style="background:#f3f4f6;">
               <th style="text-align:left; padding:3px 6px;">Метрика</th>
-              <th style="text-align:right; padding:3px 6px;">B1</th>
-              <th style="text-align:right; padding:3px 6px;">Текущий</th>
-              <th style="text-align:right; padding:3px 6px;">Δ</th>
+              <th style="text-align:right; padding:3px 6px;">Δ абс.</th>
+              <th style="text-align:right; padding:3px 6px;">Δ %</th>
             </tr>
             ${rows}
           </table>
@@ -1447,7 +2123,7 @@
                                       background:${d.severity === 'warning' ? '#fef3c7' : '#fee2e2'};
                                       border-left:3px solid ${d.severity === 'warning' ? '#f59e0b' : '#dc2626'};
                                       font-size:0.78rem; border-radius:2px;">
-          ${_escHtml(d.message || d)}
+          ${_escHtml(d.verdict || d.message || '')}
         </div>`).join('')}
       </div>`;
     }
@@ -1457,15 +2133,18 @@
     if (on('segments_table') && segments.length) {
       let rows = '';
       segments.forEach((s, i) => {
-        const trend = s.trend || s.regime || '—';
-        const trendColor = trend === 'rise' ? '#16a34a' : trend === 'decay' ? '#dc2626' : '#374151';
+        // Ключи snapshot: start_date/end_date/mean_q/mean_dp/direction
+        // (направление rising/falling/stable). Паритет с PDF (_format_observation_rfc_block).
+        const dir = s.direction || '';
+        const dirArrow = ({rising: '↑', falling: '↓', stable: '→'})[dir] || '—';
+        const trendColor = dir === 'rising' ? '#16a34a' : dir === 'falling' ? '#dc2626' : '#374151';
         rows += `<tr>
-          <td style="padding:2px 6px;">${i + 1}</td>
-          <td style="padding:2px 6px;">${_escHtml(s.from || '—')}</td>
-          <td style="padding:2px 6px;">${_escHtml(s.to || '—')}</td>
-          <td style="text-align:right; padding:2px 6px;">${fmt(s.q_mean)}</td>
-          <td style="text-align:right; padding:2px 6px;">${fmt(s.dp_mean)}</td>
-          <td style="padding:2px 6px; color:${trendColor};">${_escHtml(trend)}</td>
+          <td style="padding:2px 6px;">${s.num || (i + 1)}</td>
+          <td style="padding:2px 6px;">${_escHtml(s.start_date || '—')}</td>
+          <td style="padding:2px 6px;">${_escHtml(s.end_date || '—')}</td>
+          <td style="text-align:right; padding:2px 6px;">${fmt(s.mean_q)}</td>
+          <td style="text-align:right; padding:2px 6px;">${fmt(s.mean_dp)}</td>
+          <td style="padding:2px 6px; color:${trendColor};">${dirArrow}</td>
         </tr>`;
       });
       html += `<div style="margin:8px 0;">
@@ -1487,13 +2166,40 @@
     // ─── Changepoints (for observation_segment) ───
     const changepoints = snap.changepoints || [];
     if (on('changepoints') && changepoints.length) {
+      // Тип впадина/вершина по знаку Δ ДО и ПОСЛЕ перелома (та же логика, что в PDF cp_rows).
+      const SRC = { confirmed: 'подтв. обоими', only_total: 'только Q общ', only_working: 'только Q раб' };
+      let prevM = null;
+      const tdS = 'padding:3px 8px; border:1px solid #e5e7eb;';
+      const rowsHtml = changepoints.map((cp, i) => {
+        const m = cp.magnitude_pct;
+        let arrow = '—', typ = '—';
+        if (m != null) {
+          if (prevM != null && prevM > 0 && m < 0) { arrow = '∧'; typ = 'вершина'; }
+          else if (prevM != null && prevM < 0 && m > 0) { arrow = '∨'; typ = 'впадина'; }
+          else if (m >= 0) { arrow = '↗'; typ = 'рост'; }
+          else { arrow = '↘'; typ = 'спад'; }
+          prevM = m;
+        }
+        const qd = m != null ? ((m >= 0 ? '+' : '') + Number(m).toFixed(1) + '%') : '—';
+        return `<tr>
+          <td style="${tdS}">${_escHtml(cp.date || cp.datetime || '—')}</td>
+          <td style="${tdS} text-align:center;">${_escHtml(cp.tag || ('CP' + (i + 1)))}</td>
+          <td style="${tdS} text-align:center;">${arrow} ${typ}</td>
+          <td style="${tdS} text-align:right;">${qd}</td>
+          <td style="${tdS}">${_escHtml(SRC[cp.source] || cp.source || '')}</td>
+        </tr>`;
+      }).join('');
       html += `<div style="margin:8px 0;">
-        <div style="font-weight:600; font-size:0.85rem; margin-bottom:4px;">🔻 Точки перелома (${changepoints.length})</div>
-        ${changepoints.map(cp => `<div style="padding:3px 8px; margin:2px 0;
-                                               background:#f3e8ff; border-left:3px solid #7c3aed;
-                                               font-size:0.78rem; border-radius:2px;">
-          ${_escHtml(cp.datetime || cp.date || '—')}: ${_escHtml(cp.description || cp.type || '—')}
-        </div>`).join('')}
+        <div style="font-weight:600; font-size:0.85rem; margin-bottom:2px;">🔻 Точки перелома (${changepoints.length})</div>
+        <div style="font-size:0.74rem; color:#6b7280; font-style:italic; margin-bottom:5px;">Тип: <b>∧</b> вершина (рост→спад), <b>∨</b> впадина (спад→рост), ↗ рост, ↘ спад. Метка «только Q общ» — паспортный дебит (возможный артефакт), «только Q раб» — фактический сдвиг режима, «подтв. обоими» — надёжный.</div>
+        <table style="border-collapse:collapse; width:100%; font-size:0.78rem;">
+          <thead><tr style="background:#f3f4f6; font-weight:600;">
+            <td style="${tdS}">Дата / время</td><td style="${tdS} text-align:center;">CP</td>
+            <td style="${tdS} text-align:center;">Тип</td><td style="${tdS} text-align:right;">ΔQ</td>
+            <td style="${tdS}">Метка</td>
+          </tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
       </div>`;
     }
 
@@ -1623,7 +2329,7 @@
             line:{color:'#ef6c00', width:1.6}, fill:'tozeroy',
             fillcolor:'rgba(239,108,0,0.1)', connectgaps:false
           }];
-          try { Plotly.newPlot(elDp, traces, {...layout, title:'Перепад ΔP, кгс/см²', yaxis:{title:'кгс/см²'}, shapes:allShapes}, cfg); }
+          try { Plotly.newPlot(elDp, traces, {...layout, title:'Перепад ΔP, кгс/см²', yaxis:{title:'кгс/см²', rangemode:'tozero'}, shapes:allShapes}, cfg); }
           catch(e) { console.warn('obs-dp', e); }
         }
       }
@@ -1940,6 +2646,68 @@
    *
    * Снапшот: { adaptation, observation, b1, comparison, optimal, segment_analysis? }
    */
+  // ===== Статические блоки этапа адаптации (ПАРНОСТЬ HTML↔PDF). При правке
+  //       синхронно менять adaptation_report.tex (ветка adaptation_period_analysis). =====
+  function _adaptSetupDescriptionHtml(wellNumber) {
+    const wn = wellNumber ? ('№' + _escHtml(String(wellNumber))) : 'скважины';
+    return `<div style="margin-bottom:12px; padding:12px 14px; background:#f8fafc; border-left:4px solid #3b82f6; border-radius:4px; font-size:0.86rem; line-height:1.6; color:#374151;">
+      Для адаптации технологии и оптимизации работы скважины с применением ТПАВ на устье скважины ${wn} установлено шлюзовое устройство для дозирования ТПАВ (ШУ-50-З5-550, ТУ У 29.5-40846045-002:2018). Для on-line мониторинга устьевых параметров (давление на буфере, давление в линии за штуцером) установлен комплект системы мониторинга SMOD-03.001U.
+      <br><br>До начала работ по выбору типа и периодичности дозирования реагента, с целью уточнения текущих режимов работы скважины, предварительного анализа и прогноза, проводилась фиксация и запись базовых рабочих параметров скважины (устьевое давление, давление в линии за штуцером) системой мониторинга технологических параметров SMOD-03.001U. Технические характеристики измерительных датчиков приведены в Табл. 2.1.
+      <br><br>На основании данных, полученных с датчиков системы мониторинга, проведён расчёт текущего дебита скважины. Расчёт текущего дебита газа выполнен с использованием эмпирических коэффициентов СП ООО «Uz-Kor Gas Chemical».
+    </div>`;
+  }
+  const _SENSOR_PARAMS = [
+    ['Напряжение питания', '3.6 В DC, литий-ионный батарейный источник'],
+    ['Диапазон давления', '−0.1–6 МПа'],
+    ['Ток возбуждения', '0.2 мА'],
+    ['Интерфейс связи', 'беспроводной сигнал (wireless)'],
+    ['Рабочая температура', '−20–60 °C'],
+    ['Рабочая влажность', '0–80 % RH'],
+    ['Точность измерения', '0.5 % FS'],
+    ['Интервал между измерениями', '60 сек'],
+  ];
+  function _sensorParamsTableHtml() {
+    const rows = _SENSOR_PARAMS.map(([k, v]) => `<tr><td style="text-align:left;">${_escHtml(k)}</td><td style="text-align:left;">${_escHtml(v)}</td></tr>`).join('');
+    return `<div style="margin-bottom:12px;">
+      <div style="font-weight:600; font-size:0.86rem; margin-bottom:4px;">Табл. 2.1. Параметры измерительных датчиков (SMOD)</div>
+      <table class="cd-table" style="font-size:0.82rem; width:100%;">
+        <thead><tr><th style="text-align:left;">Параметр датчика</th><th style="text-align:left;">Значение</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }
+  function _flowMethodologyHtml() {
+    return `<div style="margin-bottom:12px; padding:12px 14px; background:#fafafa; border:1px solid #e5e7eb; border-radius:6px; font-size:0.84rem; line-height:1.55; color:#374151;">
+      <div style="font-weight:700; font-size:0.92rem; margin-bottom:6px;">📐 Методика расчёта дебита</div>
+      Расчётный дебит газа определяется по модифицированной формуле <b>Гилберта-Пирвердяна</b>, связывающей перепад давлений через штуцер (P<sub>тр</sub> и P<sub>шл</sub>) с расходом газа.
+      <div style="background:#fff; border:1px solid #e0e0e0; border-radius:6px; padding:10px 14px; margin:8px 0; font-family:monospace; font-size:0.82rem;">
+        <div style="color:#666; font-size:0.78rem;">Докритический режим (r &lt; 0.5):</div>
+        <div style="color:#1565c0;">Q = M · (C₁·P<sub>тр</sub> − C₂·P<sub>шл</sub>) · d² / C₃</div>
+        <div style="color:#666; font-size:0.78rem; margin-top:6px;">Критический режим (r ≥ 0.5):</div>
+        <div style="color:#c62828;">Q = M · C₁·P<sub>тр</sub> · (1 − r) · d² / C₃</div>
+        <div style="color:#888; font-size:0.76rem; margin-top:4px;">где r = P<sub>шл</sub> / P<sub>тр</sub> — отношение давлений</div>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px; font-size:0.8rem;">
+        <div><b>Q</b> — дебит газа, тыс. м³/сут</div><div><b>M</b> — калибровочный множитель (4.1)</div>
+        <div><b>P<sub>тр</sub></b> — давление устья, кгс/см²</div><div><b>P<sub>шл</sub></b> — давление шлейфа, кгс/см²</div>
+        <div><b>d</b> — диаметр штуцера, мм</div><div><b>C₁, C₂, C₃</b> — эмпирические константы</div>
+      </div>
+      <div style="font-weight:600; margin:8px 0 2px;">Алгоритм</div>
+      <ol style="margin:0; padding-left:18px; font-size:0.8rem;">
+        <li>Чтение давлений из БД (pressure_raw)</li>
+        <li>Очистка: отрицательные/нулевые → NaN, интерполяция (ffill/bfill)</li>
+        <li>Сглаживание: фильтр Савицкого-Голея (окно 17, полином 3, 2 прохода)</li>
+        <li>Расчёт дебита по формуле для каждой минутной записи</li>
+        <li>Детекция продувок (маркеры БД start→press→stop + алгоритмически)</li>
+        <li>Потери при стравливании: уравнение Бернулли через штуцер (фаза venting)</li>
+        <li>Простои: P<sub>тр</sub> ≤ P<sub>шл</sub> (дебит = 0, потерь нет)</li>
+        <li>Накопленный дебит: интеграция трапециями (Δt = 1/1440 сут)</li>
+      </ol>
+      <div style="font-weight:600; margin:8px 0 2px;">Потери при стравливании (продувка)</div>
+      <div style="font-family:monospace; font-size:0.82rem; color:#c62828;">Q<sub>loss</sub> = C<sub>d</sub> · A · √(2·ΔP / ρ)</div>
+      <div style="font-size:0.76rem; color:#888;">C<sub>d</sub>=0.9 (коэфф. расхода), A=π·d²/4 (сечение штуцера продувки), ΔP=P<sub>уст</sub>−P<sub>атм</sub>, ρ — плотность газа при P<sub>уст</sub>.</div>
+    </div>`;
+  }
   function _buildAdaptationPeriodAnalysisHtml(snap, block, parts) {
     if (!snap || (!snap.adaptation && !snap.observation)) {
       return `<div style="color:#9ca3af; padding:12px;">Снимок данных пуст.</div>`;
@@ -1971,6 +2739,20 @@
     const dFrom = (p.date_from || adapt.date_from || '—').slice(0, 10);
     const dTo = (p.date_to || adapt.date_to || '—').slice(0, 10);
 
+    const _wn = snap.well_number || (adapt.intro && adapt.intro.well_number) || (block.params && block.params.well_number) || '';
+    // ── Описание установки (ШУ, мониторинг, расчёт дебита) — парность с PDF ──
+    if (on('setup_description')) {
+      html += _adaptSetupDescriptionHtml(_wn);
+    }
+    // ── Параметры датчиков (Табл. 2.1) ──
+    if (on('sensor_table')) {
+      html += _sensorParamsTableHtml();
+    }
+    // ── Формулы и методика расчёта дебита (тоггл, default on) ──
+    if (on('flow_methodology')) {
+      html += _flowMethodologyHtml();
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // 1. ВВЕДЕНИЕ (intro) — текст о периоде и датчиках
     // ═══════════════════════════════════════════════════════════════════
@@ -1994,6 +2776,14 @@
       html += `<h4 style="margin:14px 0 8px; font-size:0.95rem; color:#1f2937;">
         📊 Графики параметров за период адаптации
       </h4>`;
+      // 1.2 — переходный текст с описанием графиков
+      html += `<div style="font-size:0.84rem; color:#4b5563; line-height:1.5; margin-bottom:10px;">
+        Ниже показана динамика ключевых параметров скважины за период адаптации по данным
+        датчиков давления (1 измерение/мин). На графиках отображены: <b>устьевое и линейное
+        давление</b> (Рис. 4.1), <b>перепад ΔP</b> между ними (Рис. 4.2) и <b>расчётный дебит
+        газа Q</b> (Рис. 4.3). Маркеры на графиках — события периода: точки — вбросы реагента,
+        вертикальные линии — продувки.
+      </div>`;
 
       // 2. График давлений (P устье + P линия)
       html += `<div style="margin-bottom:12px;">
@@ -2022,6 +2812,69 @@
           ${adapt.flow_median ? `Медиана Q = ${fmt(adapt.flow_median)} тыс.м³/сут.` : ''}
         </div>
       </div>`;
+    }
+
+    // 1.3 — Посуточный график рабочего/нерабочего времени
+    if (on('downtime_chart') && chartData.length > 0) {
+      html += `<div style="margin-bottom:12px;">
+        <div id="adapt-${bid}-downtime" style="height:260px; background:#fafafa; border:1px solid #e5e7eb; border-radius:6px;"></div>
+        <div style="font-size:0.78rem; color:#6b7280; margin-top:4px; padding:0 4px;">
+          <b>Рис. 4.4.</b> Рабочее и нерабочее время по суткам. Зелёным (полупрозрачно) — часы работы,
+          красным — простой. Высота столбца — число часов с данными за сутки.
+        </div>
+      </div>`;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 4.5. ТАБЛИЦА СТАТИСТИЧЕСКИХ ПОКАЗАТЕЛЕЙ (1.4)
+    // Считается из chart_data — тот же источник, что и в PDF (парность).
+    // ═══════════════════════════════════════════════════════════════════
+    if (on('stats_table') && chartData.length > 0) {
+      // Активные точки: q>0 (отсев простоя/ложных нулей — инвариант проекта).
+      const _active = chartData.filter(p => p.q != null && Number(p.q) > 0);
+      const _stat = (key) => {
+        const xs = _active.map(p => p[key]).filter(v => v != null && !isNaN(v)).map(Number);
+        if (!xs.length) return null;
+        const n = xs.length;
+        const mean = xs.reduce((s, x) => s + x, 0) / n;
+        const srt = xs.slice().sort((a, b) => a - b);
+        const median = n % 2 ? srt[(n - 1) / 2] : (srt[n / 2 - 1] + srt[n / 2]) / 2;
+        const sd = Math.sqrt(xs.reduce((s, x) => s + (x - mean) ** 2, 0) / n);
+        return { mean, median, min: srt[0], max: srt[n - 1], sd };
+      };
+      const sRows = [
+        ['Дебит Q, тыс.м³/сут', _stat('q')],
+        ['P трубное, кгс/см²', _stat('p_tube')],
+        ['P линейное, кгс/см²', _stat('p_line')],
+        ['Перепад ΔP, кгс/см²', _stat('dp')],
+      ].filter(r => r[1]);
+      if (sRows.length) {
+        const thS = 'padding:5px 8px; border-bottom:2px solid #d1d5db; text-align:right; font-size:0.74rem; color:#6b7280; background:#f9fafb;';
+        const tdS = 'padding:4px 8px; border-bottom:1px solid #eee; text-align:right;';
+        const body = sRows.map(([lbl, s]) => `<tr>
+            <td style="${tdS} text-align:left;">${lbl}</td>
+            <td style="${tdS}">${fmt(s.mean)}</td><td style="${tdS}">${fmt(s.median)}</td>
+            <td style="${tdS}">${fmt(s.min)}</td><td style="${tdS}">${fmt(s.max)}</td>
+            <td style="${tdS}">${fmt(s.sd)}</td></tr>`).join('');
+        const wh = adapt.working_hours, kiv = adapt.utilization_pct, dwh = adapt.downtime_hours;
+        const nDown = (adapt.downtime_periods_list || []).length;
+        html += `<div style="margin:12px 0;">
+          <div style="font-weight:600; color:#374151; margin-bottom:3px; font-size:0.88rem;">Табл. Статистические показатели за период</div>
+          <div style="font-size:0.78rem; color:#6b7280; margin-bottom:6px;">Сводные статистики по активным точкам (исключены простои): среднее, медиана, минимум, максимум и стандартное отклонение σ по дебиту Q и давлениям; ниже — сводка режима работы (продувки, рабочее время/КИВ, простои).</div>
+          <table style="width:100%; border-collapse:collapse; font-size:0.82rem;">
+            <thead><tr>
+              <th style="${thS} text-align:left;">Показатель</th><th style="${thS}">Среднее</th>
+              <th style="${thS}">Медиана</th><th style="${thS}">Мин</th><th style="${thS}">Макс</th>
+              <th style="${thS}">σ</th>
+            </tr></thead><tbody>${body}</tbody>
+          </table>
+          <div style="margin-top:8px; font-size:0.82rem; color:#4b5563; display:flex; gap:18px; flex-wrap:wrap;">
+            <span><b>Продувки:</b> ${adapt.purge_count != null ? adapt.purge_count : '—'}</span>
+            <span><b>Рабочее время:</b> ${wh != null ? fmt(wh, 1) + ' ч' : '—'}${kiv != null ? ` (КИВ ${fmt(kiv, 1)}%)` : ''}</span>
+            <span><b>Простои:</b> ${dwh != null ? fmt(dwh, 1) + ' ч' : '—'}${nDown ? ` (${nDown} периодов)` : ''}</span>
+          </div>
+        </div>`;
+      }
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -2065,9 +2918,10 @@
         </tr>`;
       });
 
-      html += `<h4 style="margin:16px 0 8px; font-size:0.95rem; color:#1f2937;">
-        📋 События за период (${events.length})
+      html += `<h4 style="margin:16px 0 4px; font-size:0.95rem; color:#1f2937;">
+        📋 Табл. События за период (${events.length})
       </h4>
+      <div style="font-size:0.78rem; color:#6b7280; margin-bottom:6px;">Хронология событий за период: вбросы реагента (с указанием названия и количества), продувки и прочие события; для каждого приведены давления устья и линии на момент события.</div>
       <table style="width:100%; font-size:0.8rem; border-collapse:collapse; border:1px solid #e5e7eb;">
         <thead>
           <tr style="background:#f3f4f6;">
@@ -2083,20 +2937,30 @@
         <tbody>${evRows}</tbody>
       </table>`;
 
-      // Итого
-      const reagentEvents = events.filter(e => e.type === 'reagent');
-      const purgeEvents = events.filter(e => e.type === 'purge');
-      html += `<div style="font-size:0.8rem; color:#6b7280; margin-top:6px; padding:6px 8px; background:#f9fafb; border-radius:4px;">
-        <b>Итого:</b> ${reagentEvents.length} вбросов реагента
-        ${adapt.reagent_qty ? `(${fmt(adapt.reagent_qty, 1)} ед.)` : ''},
-        ${purgeEvents.length} продувок.
-      </div>`;
-
       if (events.length > 30) {
         html += `<div style="font-size:0.75rem; color:#9ca3af; margin-top:4px;">
           ... показаны первые 30 из ${events.length} событий
         </div>`;
       }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 5.1. ПЛИТКИ «СТАТИСТИКА СОБЫТИЙ» (1.6) — после таблицы событий
+    // ═══════════════════════════════════════════════════════════════════
+    if (on('events_stats') && events.length > 0) {
+      const reagentEv = events.filter(e => e.type === 'reagent');
+      const purgeEv = events.filter(e => e.type === 'purge');
+      const otherEv = events.filter(e => e.type !== 'reagent' && e.type !== 'purge');
+      const evTile = (bg, bd, title, big, sub) => `<div style="flex:1; min-width:150px; background:${bg};
+          border:1px solid ${bd}; border-left:4px solid ${bd}; border-radius:8px; padding:10px 12px;">
+        <div style="font-size:0.72rem; font-weight:700; text-transform:uppercase; color:#6b7280;">${title}</div>
+        <div style="font-size:1.3rem; font-weight:700; color:#374151; margin:2px 0;">${big}</div>
+        <div style="font-size:0.78rem; color:#6b7280;">${sub}</div></div>`;
+      html += `<div style="display:flex; gap:10px; flex-wrap:wrap; margin:10px 0;">
+        ${evTile('#ecfdf5', '#16a34a', 'Вбросы реагента', reagentEv.length, adapt.reagent_qty != null ? `Σ ${fmt(adapt.reagent_qty, 1)} ед.` : '&nbsp;')}
+        ${evTile('#eff6ff', '#3b82f6', 'Продувки', purgeEv.length, '&nbsp;')}
+        ${evTile('#f9fafb', '#9ca3af', 'Прочие события', otherEv.length, '&nbsp;')}
+      </div>`;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -2150,40 +3014,89 @@
     // ═══════════════════════════════════════════════════════════════════
     // 7. ТАБЛИЦА СРАВНЕНИЯ (Наблюдение → Адаптация)
     // ═══════════════════════════════════════════════════════════════════
-    if (on('comparison_table') && Object.keys(cmp).length > 0) {
-      const row = (label, obsVal, adaptVal, delta, deltaPct, bg = '#fff') => `
-        <tr style="background:${bg};">
-          <td style="padding:5px 8px;">${label}</td>
-          <td style="text-align:right; padding:5px 8px;">${fmt(obsVal)}</td>
-          <td style="text-align:right; padding:5px 8px;">${fmt(adaptVal)}</td>
-          <td style="text-align:right; padding:5px 8px; font-weight:600; color:${delta > 0 ? '#16a34a' : delta < 0 ? '#dc2626' : '#6b7280'};">${fmtSgn(delta)}</td>
-          <td style="text-align:right; padding:5px 8px; color:${deltaPct > 0 ? '#16a34a' : deltaPct < 0 ? '#dc2626' : '#6b7280'};">${fmtPct(deltaPct)}</td>
+    if (on('comparison_table') && (adapt || obs || b1 || opt)) {
+      // Богатая таблица: B1 · B2 · R · R★ + дельты (ΔR vs B2, ΔR vs B1, ΔR★ vs B2).
+      // Зеркало wz5RenderCompare (страница анализа) — единая логика.
+      const b1QMed = b1 ? (b1.q_total_median ?? b1.q_working_median ?? b1.flow_median) : null;
+      const b1QAvg = b1 ? (b1.q_total_avg ?? b1.q_working_avg ?? b1.flow_avg) : null;
+      const b1Shut = b1 && b1.shutdown_min_total != null ? b1.shutdown_min_total / 60
+                     : (b1 ? b1.downtime_hours : null);
+      const cmpRows = [
+        { section: 'Дебит' },
+        { l: 'Q медиана', u: 'тыс.м³/сут', b1: b1QMed, b2: obs.flow_median, r: adapt.flow_median, rs: opt.flow_median },
+        { l: 'Q среднее', u: 'тыс.м³/сут', b1: b1QAvg, b2: obs.flow_avg, r: adapt.flow_avg, rs: opt.flow_avg },
+        { l: 'Q максимум', u: 'тыс.м³/сут', b1: null, b2: obs.q_max, r: adapt.q_max, rs: opt.q_max },
+        { l: 'Q накопл.', u: 'тыс.м³', b1: null, b2: obs.flow_cumulative, r: adapt.flow_cumulative, rs: opt.flow_cumulative },
+        { section: 'Давления и ΔP' },
+        { l: 'ΔP медиана', u: 'кгс/см²', b1: b1.dp_median, b2: obs.dp_median, r: adapt.dp_median, rs: opt.dp_median },
+        { l: 'ΔP среднее', u: 'кгс/см²', b1: b1.dp_avg, b2: obs.dp_avg, r: adapt.dp_avg, rs: opt.dp_avg },
+        { l: 'P трубное мед.', u: 'кгс/см²', b1: (b1.p_wellhead_median ?? b1.p_tube_median), b2: obs.p_tube_median, r: adapt.p_tube_median, rs: opt.p_tube_median },
+        { l: 'P линейное мед.', u: 'кгс/см²', b1: (b1.p_flowline_median ?? b1.p_line_median), b2: obs.p_line_median, r: adapt.p_line_median, rs: opt.p_line_median },
+        { section: 'Режим работы' },
+        { l: 'КИВ', u: '%', b1: null, b2: obs.utilization_pct, r: adapt.utilization_pct, rs: opt.utilization_pct },
+        { l: 'Простой', u: 'ч', b1: b1Shut, b2: obs.downtime_hours, r: adapt.downtime_hours, rs: opt.downtime_hours },
+        { l: 'Вбросов реагента', u: 'шт', b1: null, b2: obs.reagent_count, r: adapt.reagent_count, rs: opt.reagent_count },
+        { l: 'Продувок', u: 'шт', b1: null, b2: obs.purge_count, r: adapt.purge_count, rs: opt.purge_count },
+        { l: 'Длительность', u: 'сут', b1: b1.days_count, b2: obs.duration_days, r: adapt.duration_days, rs: opt.duration_days },
+      ];
+      const lowerBetter = new Set(['ΔP медиана', 'ΔP среднее', 'Простой', 'Продувок']);
+      const dCell = (cur, base, label) => {
+        if (cur == null || base == null || base === 0 || isNaN(cur) || isNaN(base)) return ['—', '#6b7280'];
+        const diff = cur - base, pct = diff / Math.abs(base) * 100;
+        const better = lowerBetter.has(label) ? diff < 0 : diff > 0;
+        const color = Math.abs(pct) < 5 ? '#6b7280' : (better ? '#16a34a' : '#dc2626');
+        const s = diff >= 0 ? '+' : '';
+        return [`${s}${diff.toFixed(2)} (${s}${pct.toFixed(1)}%)`, color];
+      };
+      const c = (v) => (v == null || isNaN(v)) ? '—' : fmt(v);
+      let body = '';
+      for (const it of cmpRows) {
+        if (it.section) { body += `<tr><td colspan="8" style="padding:6px 8px; background:#f3f4f6; font-weight:700; font-size:0.78rem; text-transform:uppercase; color:#6b7280;">${it.section}</td></tr>`; continue; }
+        const [d1, k1] = dCell(it.r, it.b2, it.l);
+        const [d2, k2] = dCell(it.r, it.b1, it.l);
+        const [d3, k3] = dCell(it.rs, it.b2, it.l);
+        const td = 'text-align:right; padding:4px 8px; border-bottom:1px solid #eee;';
+        body += `<tr>
+          <td style="text-align:left; padding:4px 8px; border-bottom:1px solid #eee;">${it.l}<span style="color:#9ca3af; font-size:0.74rem;">, ${it.u}</span></td>
+          <td style="${td}">${c(it.b1)}</td><td style="${td}">${c(it.b2)}</td>
+          <td style="${td} font-weight:600;">${c(it.r)}</td><td style="${td} background:#fffbeb;">${c(it.rs)}</td>
+          <td style="${td} color:${k1};">${d1}</td><td style="${td} color:${k2};">${d2}</td><td style="${td} color:${k3};">${d3}</td>
         </tr>`;
-
-      html += `<h4 style="margin:16px 0 8px; font-size:0.95rem; color:#1f2937;">
-        📊 Сравнение: Наблюдение → Адаптация
-      </h4>
-      <table style="width:100%; font-size:0.82rem; border-collapse:collapse; border:1px solid #e5e7eb;">
-        <thead>
-          <tr style="background:#f3f4f6;">
-            <th style="text-align:left; padding:8px; border-bottom:2px solid #d1d5db;">Параметр</th>
-            <th style="text-align:right; padding:8px; border-bottom:2px solid #d1d5db; color:#6366f1;">B2 (Набл.)</th>
-            <th style="text-align:right; padding:8px; border-bottom:2px solid #d1d5db; color:#f59e0b;">R (Адапт.)</th>
-            <th style="text-align:right; padding:8px; border-bottom:2px solid #d1d5db;">Δ</th>
-            <th style="text-align:right; padding:8px; border-bottom:2px solid #d1d5db;">Δ %</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${row('Q медианный, тыс.м³/сут', obs.flow_median, adapt.flow_median, cmp.delta_flow_median, cmp.delta_flow_median_pct)}
-          ${row('Q средний, тыс.м³/сут', obs.flow_avg, adapt.flow_avg, cmp.delta_flow_avg, cmp.delta_flow_avg_pct, '#fafafa')}
-          ${row('ΔP медиана, кгс/см²', obs.dp_median, adapt.dp_median, cmp.delta_dp, cmp.delta_dp_pct)}
-          ${row('P труб. медиана, кгс/см²', obs.p_tube_median, adapt.p_tube_median, cmp.delta_p_tube, cmp.delta_p_tube_pct, '#fafafa')}
-          ${row('P лин. медиана, кгс/см²', obs.p_line_median, adapt.p_line_median, cmp.delta_p_line, cmp.delta_p_line_pct)}
-          ${row('КИВ, %', obs.utilization_pct, adapt.utilization_pct, cmp.delta_utilization_pct, null, '#fafafa')}
-          ${row('Продувок', obs.purge_count, adapt.purge_count, cmp.delta_purge_count, null)}
-          ${row('Вбросов реагента', obs.reagent_count, adapt.reagent_count, cmp.delta_reagent_count, null, '#fafafa')}
-        </tbody>
-      </table>`;
+      }
+      const th = 'padding:6px 8px; border-bottom:2px solid #d1d5db; font-size:0.74rem; text-align:right; color:#374151;';
+      html += `<div style="font-size:0.82rem; color:#475569; line-height:1.5; margin:14px 0 4px;">Для оценки результатов адаптации показатели сравниваются с базовыми периодами: <b>B2</b> — этап наблюдения (до начала работ) и <b>B1</b> — данные заказчика (УзКорГаз). Это позволяет отделить технологический эффект от естественной динамики скважины и оценить как фактический режим адаптации (<b>R</b>), так и выбранное оптимальное окно (<b>R★</b>).</div>
+      <h4 style="margin:8px 0 4px; font-size:0.95rem; color:#1f2937;">🎯 Сравнение метрик: Адаптация · R★ · B2 · B1</h4>
+      <div style="font-size:0.78rem; color:#6b7280; margin-bottom:6px;">Каждая метрика R и R★ в контексте baseline'ов. Зелёный = улучшение, красный = деградация, серый = без значимого изменения (&lt;5%).</div>
+      <div style="overflow-x:auto;"><table style="width:100%; font-size:0.8rem; border-collapse:collapse;">
+        <thead><tr>
+          <th style="${th} text-align:left;">Показатель</th>
+          <th style="${th}">B1<br>УзКорГаз</th><th style="${th}">B2<br>наблюдение</th>
+          <th style="${th}">R<br>адаптация</th><th style="${th} background:#fffbeb;">R★<br>оптимум</th>
+          <th style="${th}">Δ R vs B2</th><th style="${th}">Δ R vs B1</th><th style="${th}">Δ R★ vs B2</th>
+        </tr></thead><tbody>${body}</tbody></table></div>`;
+      // Детальное пояснение баз сравнения и метрик (парность с PDF)
+      const optDays = (opt.duration_days != null && !isNaN(opt.duration_days)) ? opt.duration_days : '~3';
+      html += `<div style="font-size:0.8rem; color:#374151; line-height:1.5; margin:8px 0 4px; padding:10px 12px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px;">
+        <div style="font-weight:600; margin-bottom:3px;">Базы сравнения (что это за период):</div>
+        <ul style="margin:0 0 6px; padding-left:18px;">
+          <li><b>B1 — База заказчика:</b> официальные суточные показатели заказчика (УзКорГаз) до наблюдения — исходная точка «как было».</li>
+          <li><b>B2 — Наблюдение:</b> период наблюдения без активного дозирования реагента — фон, относительно которого оценивается эффект адаптации.</li>
+          <li><b>R — Адаптация:</b> весь период активного дозирования реагента.</li>
+          <li><b>R★ — Оптимум:</b> лучший подпериод внутри адаптации (${optDays} сут.), выбранный скользящим окном по максимуму композитного Score (стабильность Q, прирост ΔP, КИВ, минимум простоев).</li>
+        </ul>
+        <div style="font-weight:600; margin-bottom:3px;">Метрики (как считаются на каждом периоде):</div>
+        <ul style="margin:0 0 6px; padding-left:18px;">
+          <li><b>Q медиана / среднее</b> — центральная / средняя суточная добыча газа (тыс.м³/сут) по суточным значениям периода; медиана устойчива к выбросам.</li>
+          <li><b>Q максимум / накопл.</b> — наибольшая суточная и суммарная добыча за период.</li>
+          <li><b>ΔP медиана / среднее</b> — перепад «трубное − линейное» (кгс/см²); в данной оценке снижение ΔP трактуется как улучшение.</li>
+          <li><b>P трубное / линейное мед.</b> — медианные устьевое (трубное) и линейное давления (кгс/см²).</li>
+          <li><b>КИВ, %</b> — коэффициент использования времени: доля рабочего времени без простоев за период.</li>
+          <li><b>Простой, ч</b> — суммарная длительность простоев (меньше — лучше).</li>
+          <li><b>Вбросов реагента / Продувок, шт</b> — число вбросов реагента и продувок за период.</li>
+          <li><b>Длительность, сут</b> — длина соответствующего периода.</li>
+        </ul>
+        <div><b>Дельты:</b> Δ R vs B2 — эффект адаптации относительно наблюдения; Δ R vs B1 — относительно базы заказчика; Δ R★ vs B2 — эффект лучшего окна относительно наблюдения. Цвет: зелёный — улучшение, красный — деградация, серый — изменение &lt;5%. Для ΔP, простоев и продувок «улучшение» означает снижение.</div>
+      </div>`;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -2210,56 +3123,19 @@
             <b>P лин:</b> ${trendArrow(adapt.p_line_trend)} ${fmt(adapt.p_line_trend.slope_per_day, 3)} кгс/см²/день
           </div>` : ''}
         </div>
+        <div style="font-size:0.78rem; color:#6b7280; margin-top:8px; line-height:1.45;">
+          Тренд — наклон линейной регрессии показателя за период (изменение в сутки); «знач.» —
+          статистически значимый тренд по критерию Манна–Кендалла. Рост Q и ΔP при снижении
+          P трубного указывает на эффективную очистку ствола реагентом.
+        </div>
       </div>`;
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // 9. СЕГМЕНТНЫЙ АНАЛИЗ (если есть данные)
+    // 9. СЕГМЕНТНЫЙ АНАЛИЗ — УБРАН из отчёта (1.7/3.1).
+    // Сегментный анализ — отдельный функционал (своя плитка/блок segment_analysis),
+    // не должен дублироваться внутри «Полного анализа».
     // ═══════════════════════════════════════════════════════════════════
-    if (on('segment_analysis') && seg && (seg.changepoints || seg.interpretation || seg.cp_marks)) {
-      const interp = seg.interpretation || {};
-      const cpMarks = seg.cp_marks || [];
-
-      html += `<h4 style="margin:18px 0 8px; font-size:0.95rem; color:#1f2937;">
-        🔍 Сегментный анализ
-      </h4>`;
-
-      // График сегментов (контейнер для Plotly)
-      if (seg.chart_data) {
-        html += `<div style="margin-bottom:12px;">
-          <div id="adapt-${bid}-segments" style="height:280px; background:#fafafa; border:1px solid #e5e7eb; border-radius:6px;"></div>
-          <div style="font-size:0.78rem; color:#6b7280; margin-top:4px; padding:0 4px;">
-            <b>Рис. 4.4.</b> Сегментный анализ дебита. Вертикальные линии — точки изменения режима (changepoints).
-          </div>
-        </div>`;
-      }
-
-      // Changepoints
-      if (cpMarks.length > 0) {
-        html += `<div style="margin-bottom:10px; font-size:0.82rem;">
-          <b>Точки изменения режима:</b>
-          ${cpMarks.slice(0, 10).map(cp => `<span style="display:inline-block; margin:2px 4px; padding:2px 8px; background:#fef3c7; border-radius:4px; font-size:0.78rem;">${_escHtml(cp.tag)}: ${_escHtml((cp.date || '').slice(0, 16))}</span>`).join('')}
-          ${cpMarks.length > 10 ? `<span style="color:#9ca3af;">... и ещё ${cpMarks.length - 10}</span>` : ''}
-        </div>`;
-      }
-
-      // Описания сегментов
-      const descriptions = interp.descriptions || [];
-      if (descriptions.length > 0) {
-        html += `<div style="margin-bottom:10px; padding:8px 10px; background:#fefce8; border-radius:4px; font-size:0.82rem;">
-          <b>Сегменты:</b><br>
-          ${descriptions.slice(0, 8).map(d => `<div style="margin-top:3px;">• ${_escHtml(d)}</div>`).join('')}
-          ${descriptions.length > 8 ? `<div style="color:#9ca3af; margin-top:4px;">... и ещё ${descriptions.length - 8} сегментов</div>` : ''}
-        </div>`;
-      }
-
-      // Сводка
-      if (interp.summary) {
-        html += `<div style="padding:10px 12px; background:#ecfdf5; border-left:4px solid #22c55e; border-radius:4px; font-size:0.84rem; line-height:1.5;">
-          <b>Сводка:</b> ${_escHtml(interp.summary)}
-        </div>`;
-      }
-    }
 
     // ═══════════════════════════════════════════════════════════════════
     // R★ ОПТИМАЛЬНОЕ ОКНО (отдельный блок если score высокий)
@@ -2268,8 +3144,13 @@
       const r = opt;
       html += `<div style="margin-top:16px; padding:12px 14px; background:#ecfdf5;
                           border:2px solid #22c55e; border-radius:8px;">
-        <div style="font-weight:700; color:#166534; font-size:1rem; margin-bottom:8px;">
+        <div style="font-weight:700; color:#166534; font-size:1rem; margin-bottom:6px;">
           ⭐ R★ Оптимальное окно
+        </div>
+        <div style="font-size:0.78rem; color:#4b5563; margin-bottom:8px; line-height:1.45;">
+          Методика выбора: внутри этапа адаптации скользящим окном (≈3 сут.) ищется подпериод
+          с наилучшим композитным Score (0–100), агрегирующим стабильность дебита (низкий CV),
+          максимум Q, высокий КИВ и минимум продувок. Сравнение «до/после» ведётся именно по этому окну.
         </div>
         <div style="font-size:0.9rem; margin-bottom:8px;">
           <b>${_escHtml((r.date_from || '').slice(0, 10))}</b> — <b>${_escHtml((r.date_to || '').slice(0, 10))}</b>
@@ -2293,12 +3174,311 @@
     if (adapt.narrative) {
       html += `<div style="margin-top:14px; padding:12px 14px; background:#f9fafb;
                           border-left:4px solid #6b7280; border-radius:4px;">
-        <div style="font-weight:600; color:#374151; margin-bottom:6px;">📝 Автоматическое описание периода</div>
         <div style="font-size:0.84rem; line-height:1.6; white-space:pre-wrap; color:#4b5563;">${_escHtml(adapt.narrative)}</div>
       </div>`;
     }
 
+    // ВЫВОДЫ — вынесены в отдельный блок adaptation_effectiveness (3.3),
+    // см. _buildAdaptationEffectivenessHtml. Здесь больше не рендерятся.
+
     return html;
+  }
+
+  /**
+   * _buildAdaptationEffectivenessHtml — ОТДЕЛЬНЫЙ блок «Оценка эффективности» (3.3).
+   * snapshot: { optimal, observation, b1 } (+ params.recommendation).
+   * Содержит: диаграмму B2↔R★ (adapt-{id}-eff), дельты, вердикт, ручные рекомендации.
+   */
+  function _buildAdaptationEffectivenessHtml(snap, block, parts) {
+    snap = snap || {};
+    parts = parts || {};
+    const on = (k) => parts[k] !== false;  // настройки «что включать» (params.parts)
+    const fmt = (v, d = 2) => (v == null || isNaN(v)) ? '—' : Number(v).toFixed(d);
+    const fmtSgn = (v, d = 2) => (v == null || isNaN(v)) ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(d);
+    const opt = snap.optimal || {}, obs = snap.observation || {}, b1 = snap.b1 || {}, ad = snap.adaptation || {};
+    const p = (block && block.params) || {};
+    const bid = (block && block.id) || 'x';
+    if (!(opt.flow_median != null || opt.score != null)) {
+      return '<div style="color:#9ca3af; padding:12px;">Недостаточно данных для оценки эффективности.</div>';
+    }
+    const oq = opt.flow_median, bq = obs.flow_median;
+    const odp = opt.dp_median, bdp = obs.dp_median;
+    const ou = opt.utilization_pct, bu = obs.utilization_pct;
+    const b1q = b1.flow_median || b1.q_total_median;
+
+    const lines = []; let dq = null;
+    if (oq != null && bq != null) {
+      dq = oq - bq;
+      const dqPct = bq ? (dq / bq * 100) : null;
+      const pct = dqPct != null ? ` (${fmtSgn(dqPct, 1)}%)` : '';
+      lines.push(`Дебит Q (медиана): наблюдение (B2) ${fmt(bq)} → оптимум (R★) ${fmt(oq)} — отклонение ${fmtSgn(dq)} тыс.м³/сут${pct}.`);
+    }
+    if (odp != null && bdp != null) lines.push(`Перепад ΔP: B2 ${fmt(bdp)} → R★ ${fmt(odp)} — отклонение ${fmtSgn(odp - bdp)} кгс/см².`);
+    if (ou != null && bu != null) lines.push(`Рабочее время (КИВ): B2 ${fmt(bu, 1)}% → R★ ${fmt(ou, 1)}% — отклонение ${fmtSgn(ou - bu, 1)} п.п.`);
+    if (oq != null && b1q != null) lines.push(`Сравнение с базой заказчика (B1): Q ${fmt(b1q)} → ${fmt(oq)} — отклонение ${fmtSgn(oq - b1q)} тыс.м³/сут.`);
+
+    // Вердикт: ФАКТ (R адаптация vs B2) + накопленная добыча + ПОТЕНЦИАЛ (R★).
+    // R — фактический режим с переходными процессами; R★ — потенциал (оптимистический).
+    const EFF_DQ_GOOD = 3.0;
+    const rq = (ad.flow_avg != null) ? ad.flow_avg : ad.flow_median;
+    const bqAvg = (obs.flow_avg != null) ? obs.flow_avg : bq;
+    const adDays = ad.duration_days || 0;
+    const adCum = ad.flow_cumulative;
+    const vparts = [];  // структурированное заключение: [{lead, body}]
+    // 1. Фактический результат: всего газа за период + рост среднесуточного дебита + доп. добыча
+    if (rq != null && bqAvg != null) {
+      const dqf = rq - bqAvg;
+      const pctf = bqAvg ? (dqf / bqAvg * 100) : null;
+      let body = '';
+      if (adCum != null && adDays) body += `За ${adDays} сут адаптации скважина дала ≈ ${fmt(adCum, 1)} тыс.м³ газа (накопленная добыча этапа). `;
+      body += `Среднесуточный дебит вырос с ${fmt(bqAvg)} тыс.м³/сут (наблюдение, B2) до ${fmt(rq)} тыс.м³/сут (адаптация, R) — увеличение ${fmtSgn(dqf)} тыс.м³/сут${pctf != null ? ` (${fmtSgn(pctf, 1)}%)` : ''}.`;
+      if (adDays) { const extra = dqf * adDays; body += ` Относительно режима наблюдения за этот период дополнительно получено ≈ ${fmt(extra, 1)} тыс.м³.`; }
+      vparts.push({ lead: 'Фактический результат', body });
+    }
+    // 2. Переходные режимы — почему средний R занижен
+    vparts.push({ lead: 'Переходные режимы', body: 'Период адаптации включает вывод скважины на установившийся режим, поэтому часть периода занимают переходные процессы — средний дебит R занижает достигнутый рабочий уровень.' });
+    // 3. Оптимальное окно R★ — реально достигнутый максимум В ХОДЕ работ (не сценарий, не прогноз)
+    if (dq != null) {
+      const pctO = bq ? (dq / bq * 100) : null;
+      vparts.push({ lead: 'Оптимальное окно', body: `R★ — окно наилучшей фактической работы скважины в ходе адаптации (реально достигнутый максимум, не прогноз). В этом окне среднесуточный дебит составил ${fmt(oq)} тыс.м³/сут — на ${fmtSgn(dq)} тыс.м³/сут${pctO != null ? ` (${fmtSgn(pctO, 1)}%)` : ''} выше наблюдения; это показывает устойчиво достижимый уровень режима${dq >= EFF_DQ_GOOD ? '. Технологический эффект значительный — рекомендуется продолжить работы' : ''}.` });
+    }
+    const recommend = (p.recommendation || '').trim();
+    // Разделяем дельты: отдельно vs Наблюдение (B2) и vs Заказчик (B1).
+    const linesB2 = [], linesB1 = [];
+    if (oq != null && bq != null) {
+      const pct = bq ? ` (${fmtSgn(dq / bq * 100, 1)}%)` : '';
+      linesB2.push(`Дебит Q: ${fmt(bq)} → ${fmt(oq)} — ${fmtSgn(dq)} тыс.м³/сут${pct}.`);
+    }
+    if (odp != null && bdp != null) linesB2.push(`Перепад ΔP: ${fmt(bdp)} → ${fmt(odp)} — ${fmtSgn(odp - bdp)} кгс/см².`);
+    if (ou != null && bu != null) linesB2.push(`Рабочее время (КИВ): ${fmt(bu, 1)}% → ${fmt(ou, 1)}% — ${fmtSgn(ou - bu, 1)} п.п.`);
+    const b1dp = b1.dp_median;
+    if (oq != null && b1q != null) {
+      const pct = b1q ? ` (${fmtSgn((oq - b1q) / b1q * 100, 1)}%)` : '';
+      linesB1.push(`Дебит Q: ${fmt(b1q)} → ${fmt(oq)} — ${fmtSgn(oq - b1q)} тыс.м³/сут${pct}.`);
+    }
+    if (odp != null && b1dp != null) linesB1.push(`Перепад ΔP: ${fmt(b1dp)} → ${fmt(odp)} — ${fmtSgn(odp - b1dp)} кгс/см².`);
+
+    // ── Гейтинг по настройкам блока (params.parts) ──
+    const showB2 = on('series_b2'), showB1 = on('series_b1');
+    // Тексты описаний/пояснений — ЕДИНЫЙ источник с PDF (.tex). При правке текста
+    // синхронно менять captions/intro в adaptation_report.tex (ветка effectiveness).
+    const EFF_INTRO = 'Оценка эффективности сопоставляет ключевые показатели работы скважины по периодам: B1 — данные заказчика (УзКорГаз), B2 — наблюдение, R — адаптация, R★ — выбранное оптимальное окно. По каждому показателю видно изменение режима и технологический эффект перехода к оптимальному режиму R★.';
+    const EFF_CAP_Q = 'На рисунке отображено сравнение показателей суточного дебита Q (тыс.м³/сут) по периодам. Чем выше столбец — тем больше добыча; рост к R★ соответствует положительному технологическому эффекту.';
+    const EFF_CAP_DP = 'На рисунке отображено сравнение перепада давления ΔP (кгс/см²) по периодам. Рост ΔP при дозировании реагента — признак вспенивания и выноса воды из ствола скважины.';
+    const EFF_CAP_DOWN = 'На рисунке отображено сравнение нерабочего времени / простоев (ч) по периодам. Меньше простоев — стабильнее и эффективнее работа скважины.';
+    const cap = (txt) => on('captions') ? `<div style="font-size:0.8rem; color:#713f12; margin:2px 0 8px; line-height:1.45;">${_escHtml(txt)}</div>` : '';
+    // Per-metric акцент рамки/заголовка — чтобы 3 графика не сливались (цвет
+    // столбцов = период, а рамка/заголовок = показатель). Каждый — своя карточка.
+    const _metCard = (acc, tint, icon, num, title, divId, capTxt) =>
+      `<div style="border:1px solid ${tint.b}; border-left:4px solid ${acc}; background:${tint.bg}; border-radius:7px; padding:7px 10px 5px; margin-bottom:10px;">
+        <div style="font-size:0.88rem; font-weight:700; color:${acc}; margin-bottom:2px;">${icon} ${num}. ${title}</div>
+        <div id="${divId}" style="height:210px; width:100%;"></div>${capTxt}</div>`;
+    const chartsHtml =
+      (on('chart_q') ? _metCard('#4f46e5', { b: '#c7d2fe', bg: 'rgba(79,70,229,0.05)' }, '⛽', 1, 'Дебит Q (тыс.м³/сут) — больше лучше', `adapt-${bid}-eff-q`, cap(EFF_CAP_Q)) : '') +
+      (on('chart_dp') ? _metCard('#0d9488', { b: '#99f6e4', bg: 'rgba(13,148,136,0.05)' }, '📉', 2, 'Перепад ΔP (кгс/см²) — рост = вынос воды', `adapt-${bid}-eff-dp`, cap(EFF_CAP_DP)) : '') +
+      (on('chart_downtime') ? _metCard('#e11d48', { b: '#fecdd3', bg: 'rgba(225,29,72,0.05)' }, '⏱', 3, 'Нерабочее время / простой (ч) — меньше лучше', `adapt-${bid}-eff-down`, cap(EFF_CAP_DOWN)) : '');
+    const colB2 = showB2 ? `<div><div style="font-weight:600; color:#713f12; font-size:0.86rem; margin-bottom:4px;">Относительно наблюдения (B2)</div>
+          <ul style="margin:0; padding-left:18px; font-size:0.83rem; line-height:1.6; color:#713f12;">
+            ${linesB2.map(l => `<li>${_escHtml(l)}</li>`).join('') || '<li>—</li>'}</ul></div>` : '';
+    const colB1 = showB1 ? `<div><div style="font-weight:600; color:#713f12; font-size:0.86rem; margin-bottom:4px;">Относительно данных УзКорГаз (суточные сводки)</div>
+          <ul style="margin:0; padding-left:18px; font-size:0.83rem; line-height:1.6; color:#713f12;">
+            ${linesB1.map(l => `<li>${_escHtml(l)}</li>`).join('') || '<li>—</li>'}</ul></div>` : '';
+    const nCols = (showB2 ? 1 : 0) + (showB1 ? 1 : 0);
+    const deltasHtml = nCols ? `<div style="display:grid; grid-template-columns:${nCols === 2 ? '1fr 1fr' : '1fr'}; gap:12px;">${colB2}${colB1}</div>` : '';
+
+    // ── Сводная таблица: столбцы по периодам, фильтр теми же series-тогглами,
+    //    что и диаграммы (снятие B1/B2/R убирает столбец и здесь, и на графике) ──
+    const b1down = (b1.shutdown_min_total != null) ? b1.shutdown_min_total / 60 : b1.downtime_hours;
+    const tCols = [
+      { on: on('series_b1'), label: 'УзКорГаз (сводки)', q: b1q,           dp: b1.dp_median,  down: b1down,             kiv: b1.utilization_pct,  score: b1.score },
+      { on: on('series_b2'), label: 'B2 (Наблюдение)', q: obs.flow_median, dp: obs.dp_median, down: obs.downtime_hours, kiv: obs.utilization_pct, score: obs.score },
+      { on: on('series_r'),  label: 'R (Адаптация)',   q: ad.flow_median,  dp: ad.dp_median,  down: ad.downtime_hours,  kiv: ad.utilization_pct,  score: ad.score },
+      { on: true,            label: 'R★ (Оптимум)',    q: opt.flow_median, dp: opt.dp_median, down: opt.downtime_hours, kiv: opt.utilization_pct, score: opt.score },
+    ].filter(c => c.on);
+    let tableHtml = '';
+    if (on('summary_table') && tCols.length) {
+      const tRows = [['Дебит Q (рабочий), тыс.м³/сут', 'q', 2], ['Перепад ΔP, кгс/см²', 'dp', 2],
+        ['Нерабочее время, ч', 'down', 1], ['КИВ (рабочее время), %', 'kiv', 1]];
+      const head = tCols.map(c => `<th style="text-align:right;">${_escHtml(c.label)}</th>`).join('');
+      let body = tRows.map(([lbl, key, d]) =>
+        `<tr><td style="text-align:left;">${lbl}</td>${tCols.map(c => `<td style="text-align:right;">${fmt(c[key], d)}</td>`).join('')}</tr>`).join('');
+      if (tCols.some(c => c.score != null && !isNaN(c.score))) {
+        body += `<tr><td style="text-align:left;">Score (0–100)</td>${tCols.map(c => `<td style="text-align:right;">${(c.score == null || isNaN(c.score)) ? '—' : Number(c.score).toFixed(0)}</td>`).join('')}</tr>`;
+      }
+      tableHtml = `<table class="cd-table" style="font-size:0.82rem;width:100%;margin-bottom:12px;">
+        <thead><tr><th style="text-align:left;">Показатель</th>${head}</tr></thead>
+        <tbody>${body}</tbody></table>`;
+    }
+
+    let html = `<div style="margin-top:8px; padding:14px; background:#fef9c3; border:2px solid #facc15; border-radius:8px;">
+      <div style="font-weight:700; color:#854d0e; margin-bottom:10px; font-size:0.95rem;">📊 Оценка эффективности</div>
+      ${on('intro') ? `<div style="font-size:0.84rem; color:#713f12; margin-bottom:10px; line-height:1.5;">${_escHtml(EFF_INTRO)}</div>` : ''}
+      ${tableHtml}
+      ${chartsHtml ? `<div style="margin-bottom:12px;">${chartsHtml}</div>` : ''}
+      ${deltasHtml}
+      ${(on('verdict') && vparts.length) ? `<div style="margin-top:12px; padding:12px 14px; background:#fef9c3; border-left:4px solid #eab308; border-radius:6px; color:#713f12; font-size:0.88rem; line-height:1.5;">
+        <div style="font-weight:700; margin-bottom:6px; font-size:0.92rem;">📝 Заключение по эффективности</div>
+        ${vparts.map((pp) => `<p style="margin:6px 0;"><strong style="color:#854d0e;">${_escHtml(pp.lead)}.</strong> ${_escHtml(pp.body)}</p>`).join('')}
+      </div>` : ''}
+      ${(on('recommendation') && recommend) ? `<div style="margin-top:10px; padding:10px 12px; background:#fffbeb; border:1px dashed #d97706; border-radius:6px; font-size:0.85rem; color:#713f12;"><b>Рекомендации:</b> ${_escHtml(recommend)}</div>` : ''}
+    </div>`;
+    return html;
+  }
+
+  // ═══ period_comparison — сравнение метрик периода с выбранными источниками ═══
+  // snapshot: { _v:'period_comparison_v1', current:{label,metrics,series},
+  //            targets:[{key,label,metrics,series}], }
+  // metrics: { q_median, q_avg, dp_median, p_tube_median, p_line_median,
+  //            utilization_pct, downtime_hours }; series: { q:[...], dp:[...] }.
+  // PARITY: эта же логика — в .tex (_attached_blocks.tex, ветка period_comparison)
+  // и форматтере _format_period_block. Графики prcmp-{id}-q/-dp снимаются в PDF.
+  const PCMP_ROWS = [
+    ['Дебит Q (медиана), тыс.м³/сут', 'q_median', 2],
+    ['Дебит Q (среднее), тыс.м³/сут', 'q_avg', 2],
+    ['Перепад ΔP (медиана), кгс/см²', 'dp_median', 2],
+    ['P трубное (медиана), кгс/см²', 'p_tube_median', 2],
+    ['P линейное (медиана), кгс/см²', 'p_line_median', 2],
+    ['КИВ (рабочее время), %', 'utilization_pct', 1],
+    ['Простой, ч', 'downtime_hours', 1],
+  ];
+  const PCMP_LOWER_BETTER = { dp_median: 1, downtime_hours: 1 };
+
+  function _pcmpDeltaCell(cur, val, d, lowerBetter) {
+    if (cur == null || val == null || isNaN(cur) || isNaN(val) || cur === 0)
+      return { txt: '—', color: '#6b7280' };
+    const diff = val - cur;
+    const pct = diff / Math.abs(cur) * 100;
+    const better = lowerBetter ? (diff < 0) : (diff > 0);
+    const color = Math.abs(pct) < 5 ? '#6b7280' : (better ? '#15803d' : '#b91c1c');
+    const s = diff >= 0 ? '+' : '';
+    return { txt: `${s}${diff.toFixed(d)} (${s}${pct.toFixed(1)}%)`, color };
+  }
+
+  function _pcmpTextLines(cur, targets, fmt) {
+    const cm = cur.metrics || {};
+    const lines = [];
+    const sgn = (v, d = 2) => (v == null || isNaN(v)) ? '—' : (v >= 0 ? '+' : '') + Number(v).toFixed(d);
+    targets.forEach(t => {
+      const tm = t.metrics || {};
+      const parts = [];
+      if (cm.q_median != null && tm.q_median != null) {
+        const dd = cm.q_median - tm.q_median;
+        const pct = tm.q_median ? ` (${sgn(dd / Math.abs(tm.q_median) * 100, 1)}%)` : '';
+        parts.push(`дебит Q ${fmt(tm.q_median)} → ${fmt(cm.q_median)} (${sgn(dd)} тыс.м³/сут${pct})`);
+      }
+      if (cm.dp_median != null && tm.dp_median != null)
+        parts.push(`перепад ΔP ${fmt(tm.dp_median)} → ${fmt(cm.dp_median)} (${sgn(cm.dp_median - tm.dp_median)} кгс/см²)`);
+      if (cm.utilization_pct != null && tm.utilization_pct != null)
+        parts.push(`КИВ ${fmt(tm.utilization_pct, 1)}% → ${fmt(cm.utilization_pct, 1)}% (${sgn(cm.utilization_pct - tm.utilization_pct, 1)} п.п.)`);
+      if (parts.length) lines.push(`Относительно «${t.label}»: ${parts.join('; ')}.`);
+    });
+    return lines;
+  }
+
+  function _buildPeriodComparisonHtml(snap, block, parts) {
+    parts = parts || {};
+    const on = (k) => parts[k] !== false;
+    const fmt = (v, d = 2) => (v == null || isNaN(v)) ? '—' : Number(v).toFixed(d);
+    const bid = (block && block.id) || 'x';
+    const cur = (snap && snap.current) || null;
+    const targets = (snap && snap.targets) || [];
+    if (!cur || !targets.length) {
+      return '<div style="color:#9ca3af; padding:12px;">Выберите хотя бы один источник для сравнения (наблюдение / адаптация / другой период).</div>';
+    }
+    const cm = cur.metrics || {};
+    // Стиль/форма — как блок «Оценка эффективности» Адаптации (жёлтая карточка,
+    // per-метрика карточки графиков, подписи, блок «Заключение»). Выбор источников
+    // (динамические колонки) — наш, остаётся.
+    const introTxt = `Текущий период «${cur.label || 'текущий'}» (медиана за период) сопоставлен с выбранными источниками: наблюдение (B2), оптимум R★ (адаптация), УзКорГаз (B1) и другие сохранённые периоды. В таблице справа от значения — отклонение (Δ, %) относительно текущего; на диаграммах столбец = источник.`;
+    const introHtml = on('intro') ? `<div style="font-size:0.84rem; color:#713f12; margin-bottom:10px; line-height:1.5;">${_escHtml(introTxt)}</div>` : '';
+
+    const _hcell = (label, sub) => `<th style="text-align:right;"><div>${_escHtml(label || '')}</div>${sub ? `<div style="font-weight:400; font-size:0.72rem; color:#a16207;">${_escHtml(sub)}</div>` : ''}</th>`;
+    let tableHtml = '';
+    if (on('summary_table')) {
+      const head = `<th style="text-align:left;">Показатель</th>` +
+        _hcell(cur.label || 'Текущий период', cur.sublabel) +
+        targets.map(t => _hcell(t.label, t.sublabel)).join('');
+      const body = PCMP_ROWS.map(([lbl, key, d]) => {
+        const curV = cm[key];
+        const cells = targets.map(t => {
+          const v = (t.metrics || {})[key];
+          const dc = _pcmpDeltaCell(curV, v, d, !!PCMP_LOWER_BETTER[key]);
+          return `<td style="text-align:right;">${fmt(v, d)}<div style="font-size:0.72rem; color:${dc.color};">${dc.txt}</div></td>`;
+        }).join('');
+        return `<tr><td style="text-align:left;">${lbl}</td><td style="text-align:right; background:#fefce8; font-weight:600;">${fmt(curV, d)}</td>${cells}</tr>`;
+      }).join('');
+      tableHtml = `<table class="cd-table" style="font-size:0.82rem; width:100%; margin-bottom:12px;">
+        <thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+    }
+
+    // Per-метрика карточки графиков (зеркало _metCard в adaptation_effectiveness).
+    const PCMP_CAP_Q = 'Сравнение суточного дебита Q (тыс.м³/сут) по источникам. Чем выше столбец — тем больше добыча.';
+    const PCMP_CAP_DP = 'Сравнение перепада давления ΔP (кгс/см²) по источникам. Рост ΔP — признак выноса воды/вспенивания.';
+    const PCMP_CAP_DOWN = 'Сравнение нерабочего времени / простоя (ч) по источникам. Меньше простоя — стабильнее работа.';
+    const cap = (txt) => on('captions') ? `<div style="font-size:0.8rem; color:#713f12; margin:2px 0 8px; line-height:1.45;">${_escHtml(txt)}</div>` : '';
+    const _metCard = (acc, tint, icon, num, title, divId, capTxt) =>
+      `<div style="border:1px solid ${tint.b}; border-left:4px solid ${acc}; background:${tint.bg}; border-radius:7px; padding:7px 10px 5px; margin-bottom:10px;">
+        <div style="font-size:0.88rem; font-weight:700; color:${acc}; margin-bottom:2px;">${icon} ${num}. ${title}</div>
+        <div id="${divId}" style="height:230px; width:100%;"></div>${capTxt}</div>`;
+    let chartsHtml = '';
+    if (on('overlay_charts')) {
+      chartsHtml =
+        _metCard('#4f46e5', { b: '#c7d2fe', bg: 'rgba(79,70,229,0.05)' }, '⛽', 1, 'Дебит Q (тыс.м³/сут) — больше лучше', `prcmp-${bid}-q`, cap(PCMP_CAP_Q)) +
+        _metCard('#0d9488', { b: '#99f6e4', bg: 'rgba(13,148,136,0.05)' }, '📉', 2, 'Перепад ΔP (кгс/см²) — рост = вынос воды', `prcmp-${bid}-dp`, cap(PCMP_CAP_DP)) +
+        _metCard('#e11d48', { b: '#fecdd3', bg: 'rgba(225,29,72,0.05)' }, '⏱', 3, 'Нерабочее время / простой (ч) — меньше лучше', `prcmp-${bid}-down`, cap(PCMP_CAP_DOWN));
+    }
+
+    // Блок «Заключение» (жёлтый, как в Адаптации).
+    let verdictHtml = '';
+    if (on('description')) {
+      const lines = _pcmpTextLines(cur, targets, fmt);
+      if (lines.length) {
+        verdictHtml = `<div style="margin-top:12px; padding:12px 14px; background:#fef9c3; border-left:4px solid #eab308; border-radius:6px; color:#713f12; font-size:0.88rem; line-height:1.5;">
+          <div style="font-weight:700; margin-bottom:6px; font-size:0.92rem;">📝 Заключение по сравнению</div>
+          <ul style="margin:0; padding-left:18px;">${lines.map(l => `<li>${_escHtml(l)}</li>`).join('')}</ul>
+        </div>`;
+      }
+    }
+
+    return `<div style="margin-top:8px; padding:14px; background:#fef9c3; border:2px solid #facc15; border-radius:8px;">
+      <div style="font-weight:700; color:#854d0e; margin-bottom:10px; font-size:0.95rem;">📊 Оценка эффективности (сравнение периодов)</div>
+      ${introHtml}
+      ${tableHtml}
+      ${chartsHtml ? `<div style="margin-bottom:4px;">${chartsHtml}</div>` : ''}
+      ${verdictHtml}
+    </div>`;
+  }
+
+  // Столбчатые диаграммы по метрикам (как adaptation_effectiveness): по одному
+  // bar-чарту на метрику, столбцы = текущий период + выбранные источники.
+  const PCMP_CHART_PALETTE = ['#4f46e5', '#f59e0b', '#94a3b8', '#3b82f6', '#22c55e', '#dc2626', '#0891b2', '#be185d'];
+  function _renderPeriodComparisonCharts(snap, idPrefix) {
+    if (!window.Plotly || !snap) return;
+    const cur = snap.current; const targets = snap.targets || [];
+    if (!cur) return;
+    // Подпись столбца: имя сверху + даты мелким снизу (Plotly поддерживает <br>/<span>).
+    const _catLabel = (s) => (s.label || '') + (s.sublabel ? `<br><span style="font-size:9px;color:#64748b">${s.sublabel}</span>` : '');
+    const cats = [_catLabel(cur)].concat(targets.map(_catLabel));
+    const colors = cats.map((_, i) => PCMP_CHART_PALETTE[i % PCMP_CHART_PALETTE.length]);
+    const cfg = { displaylogo: false, responsive: true, modeBarButtonsToRemove: ['lasso2d', 'select2d'] };
+    const metricsArr = [cur.metrics || {}].concat(targets.map(t => t.metrics || {}));
+    const plot = (suffix, key, unit, dec) => {
+      const el = document.getElementById(idPrefix + suffix);
+      if (!el) return;
+      const v = metricsArr.map(m => { const x = m[key]; return (x == null || isNaN(x)) ? null : Number(x); });
+      if (!v.some(x => x != null)) { el.innerHTML = '<div style="color:#9ca3af;font-size:0.8rem;text-align:center;padding-top:70px;">нет данных</div>'; return; }
+      const traces = [{ type: 'bar', x: cats, y: v, marker: { color: colors }, width: 0.55,
+        text: v.map(x => x == null ? '' : x.toFixed(dec)), textposition: 'outside', textfont: { size: 13 }, cliponaxis: false,
+        hovertemplate: '%{x}<br>%{y:.' + dec + 'f} ' + unit + '<extra></extra>' }];
+      const layout = { margin: { l: 56, r: 16, t: 18, b: 64 }, font: { size: 13 },
+        yaxis: { title: { text: unit, font: { size: 12 } }, rangemode: 'tozero', tickfont: { size: 12 } },
+        xaxis: { tickfont: { size: 11 }, automargin: true }, showlegend: false, bargap: 0.4,
+        plot_bgcolor: '#fff', paper_bgcolor: '#fff' };
+      try { Plotly.newPlot(el, traces, layout, cfg); } catch (e) { console.warn('prcmp bar ' + suffix, e); }
+    };
+    plot('q', 'q_median', 'тыс.м³/сут', 2);
+    plot('dp', 'dp_median', 'кгс/см²', 2);
+    plot('down', 'downtime_hours', 'ч', 1);
   }
 
   /**
@@ -2323,6 +3503,11 @@
     };
 
     let html = '';
+
+    // Цель раздела (парность с PDF)
+    const _owFrom = (r.date_from || r.start || p.optimal_from || '').slice(0, 10);
+    const _owTo = (r.date_to || r.end || p.optimal_to || '').slice(0, 10);
+    html += `<div style="font-size:0.82rem; color:#475569; font-style:italic; line-height:1.5; margin-bottom:10px;">Цель раздела — выделить внутри этапа адаптации оптимальное окно работы R★ и зафиксировать его параметры как целевой режим. Окно выбирается по совокупному показателю эффективности (Score): максимум дебита при стабильном режиме (узкий разброс давлений) и минимуме простоев${(_owFrom && _owTo) ? `. Установлено в период ${_escHtml(_owFrom)} — ${_escHtml(_owTo)}` : ''}.</div>`;
 
     // ─── Заголовок с Score ───
     html += `<div style="padding:12px; background:linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
@@ -2501,11 +3686,16 @@
 
     let html = '';
 
+    // ─── Заголовок подраздела ───
+    html += `<div style="font-weight:700; color:#92400e; font-size:0.95rem; margin-bottom:6px;">🧪 Анализ эффективности реагентов</div>`;
+    // Цель раздела (парность с PDF)
+    html += `<div style="font-size:0.82rem; color:#6b5b3e; font-style:italic; line-height:1.5; margin-bottom:10px;">Для оценки эффективности и выбора оптимального режима и типа реагента проведено исследование интервалов реагентного воздействия (ИРВ) — от вброса до следующего вброса/продувки. По каждому ИРВ рассчитаны расширенные метрики (прирост ΔP, удельный дебит, длительность эффекта и др.) и сводный показатель эффективности Score; выполнен анализ периодичности вбросов и динамики эффективности по реагентам.</div>`;
+
     // ─── Карточки: Лучший / Всего вбросов / Расход ───
     if (on('cards')) {
-      const cardCss = 'background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px 12px; border-left:4px solid #d1d5db; flex:1; min-width:200px;';
+      const cardCss = 'background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px 12px; border-left:4px solid #d1d5db; min-width:0;';
       const grid = 'display:grid; grid-template-columns:1fr auto; gap:3px 10px; font-size:0.82rem;';
-      html += `<div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+      html += `<div style="display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-bottom:12px;">
         <div style="${cardCss} border-left-color:#f59e0b; background:linear-gradient(120deg,#fef3c7,#fde68a);">
           <div style="font-size:0.74rem; font-weight:700; text-transform:uppercase; color:#92400e;">⭐ Лучший реагент</div>
           ${best ? `<div style="font-size:1.05rem; font-weight:700; color:#92400e; margin:2px 0 4px;">${_escHtml(best.reagent)}</div>
@@ -2538,7 +3728,6 @@
     // ─── Описание словами ───
     if (on('narrative') && narr.length) {
       html += `<div style="background:#fff; border:1px solid #ddd6fe; border-radius:8px; padding:12px 14px; margin-bottom:12px;">
-        <div style="font-weight:600; color:#5b21b6; margin-bottom:6px;">📖 Описание словами</div>
         <div style="font-size:0.9rem; color:#4b5563; line-height:1.7;">
           ${narr.map(s => `<div style="margin:4px 0;">▸ ${s}</div>`).join('')}
         </div>
@@ -2576,7 +3765,16 @@
           <td style="${tdL} font-size:0.74rem;">${flags}</td>
         </tr>`;
       }
-      html += `<div style="font-weight:600; color:#5b21b6; margin:6px 0;">Шкала эффективности реагентов</div>
+      html += `<div style="font-weight:600; color:#5b21b6; margin:6px 0 2px;">Табл. Шкала эффективности реагентов</div>
+        <div style="font-size:0.78rem; color:#6b7280; margin-bottom:6px; line-height:1.45;">
+          Метод ИРВ (Интервал Реагентного Воздействия): анализируется каждый отрезок «от вброса до следующего вброса/продувки». По каждому реагенту считается сводный <b>Score (0–100)</b>, агрегирующий расширенные метрики. Пояснение колонок:
+          <b>Вбросов</b> — число ИРВ; <b>Валидных</b> — пригодных к расчёту; <b>Σ qty</b> — суммарный расход;
+          <b>Q/шт мед.</b> — медианный прирост дебита на единицу реагента (тыс.м³/сут);
+          <b>ΔP прирост</b> — медианный рост перепада после вброса (кгс/см²);
+          <b>Длит. эффекта</b> — медианная длительность эффекта (ч);
+          <b>Уровень</b> — качественная оценка по Score; <b>Деградация</b> — тренд Score от вброса к вбросу;
+          <b>Флаги</b> — предупреждения (мало данных, нестабильность и т.п.).
+        </div>
         <div style="overflow-x:auto; margin-bottom:8px;">
         <table style="width:100%; border-collapse:collapse; font-size:0.82rem;">
           <thead><tr>
@@ -2586,6 +3784,69 @@
             <th style="${th}">Деградация</th><th style="${thL}">Флаги</th>
           </tr></thead><tbody>${body}</tbody>
         </table></div>`;
+
+      // ─── Как считается Score (методика, парность с PDF) ───
+      html += `<div style="margin:8px 0 10px; padding:10px 12px; background:#faf5ff; border:1px solid #e9d5ff; border-radius:8px; font-size:0.8rem; color:#374151; line-height:1.5;">
+        <b>Как считается Score (оценка эффективности реагента).</b> Score — единая оценка по каждому ИРВ (от вброса до следующего), агрегирующая <b>7 метрик</b> формы кривой ΔP с весами (Σ весов = 1):
+        <ul style="margin:4px 0; padding-left:18px;">
+          <li><b>Прирост ΔP_peak</b> (вес 0.25) — макс. рост перепада над фоном (0–3 кгс/см²); больше — лучше.</li>
+          <li><b>Длительность плато</b> (0.20) — суммарное время стабильного действия (0–6 ч); больше — лучше.</li>
+          <li><b>Длительность спада</b> (0.15) — суммарное время затухания (0–12 ч); дольше — лучше.</li>
+          <li><b>Скорость спада</b> (0.15) — |наклон| затухания (0–1 кгс/см²/ч); меньше — лучше.</li>
+          <li><b>Время отклика</b> (0.10) — от вброса до начала роста (0–2 ч); меньше — лучше.</li>
+          <li><b>Скорость роста</b> (0.10) — наклон первого подъёма (0–1 кгс/см²/ч); больше — лучше.</li>
+          <li><b>КИВ</b> (0.05) — доля рабочего времени (0–100%); больше — лучше.</li>
+        </ul>
+        Каждая метрика нормируется в [0..1], затем Score = 100 × Σ(вес × норм. значение). Пороги: <b style="color:#16a34a;">≥70 — хороший</b>, <b style="color:#ca8a04;">45–70 — средний</b>, <b style="color:#dc2626;">&lt;45 — слабый</b>.
+      </div>`;
+    }
+
+    // ─── Анализ периодичности вбросов (2.7) + диаграмма интервалов (2.8) ───
+    {
+      const _bid = (block && block.id) || 'x';
+      const _times = rows.map(r => r.event_time).filter(Boolean)
+        .map(t => new Date(t).getTime()).filter(x => !isNaN(x)).sort((a, b) => a - b);
+      const fmtH = (h) => h >= 24 ? (h / 24).toFixed(2) + ' сут' : h.toFixed(1) + ' ч';
+      if (on('periodicity_table') && _times.length >= 2) {
+        const iv = []; for (let i = 1; i < _times.length; i++) iv.push((_times[i] - _times[i - 1]) / 3600000);
+        const n = iv.length, mean = iv.reduce((s, x) => s + x, 0) / n;
+        const srt = iv.slice().sort((a, b) => a - b);
+        const median = n % 2 ? srt[(n - 1) / 2] : (srt[n / 2 - 1] + srt[n / 2]) / 2;
+        const sd = Math.sqrt(iv.reduce((s, x) => s + (x - mean) ** 2, 0) / n);
+        const cv = mean > 0 ? sd / mean : 0;
+        const regime = cv < 0.3 ? 'регулярный' : cv < 0.6 ? 'умеренно нерегулярный' : 'нерегулярный';
+        const chip = (l, v) => `<span style="margin-right:16px; white-space:nowrap;"><b>${l}:</b> ${v}</span>`;
+        // Детальная таблица интервалов (от вброса до следующего)
+        const srtRows = rows.filter(r => r.event_time).slice()
+          .sort((a, b) => new Date(a.event_time) - new Date(b.event_time));
+        let ivBody = '';
+        for (let i = 0; i < srtRows.length - 1; i++) {
+          const t0 = (srtRows[i].event_time || '').replace('T', ' ').slice(0, 16);
+          const t1 = (srtRows[i + 1].event_time || '').replace('T', ' ').slice(0, 16);
+          const h = (new Date(srtRows[i + 1].event_time) - new Date(srtRows[i].event_time)) / 3600000;
+          ivBody += `<tr><td style="padding:3px 8px; border-bottom:1px solid #eee;">${i + 1}</td>
+            <td style="padding:3px 8px; border-bottom:1px solid #eee; font-family:monospace;">${_escHtml(t0)}</td>
+            <td style="padding:3px 8px; border-bottom:1px solid #eee; font-family:monospace;">${_escHtml(t1)}</td>
+            <td style="padding:3px 8px; border-bottom:1px solid #eee;">${_escHtml(srtRows[i].reagent || '—')} → ${_escHtml(srtRows[i + 1].reagent || '—')}</td>
+            <td style="padding:3px 8px; border-bottom:1px solid #eee; text-align:right; font-weight:600;">${fmtH(h)}</td></tr>`;
+        }
+        html += `<div style="margin:10px 0; padding:10px 12px; background:#faf5ff; border:1px solid #e9d5ff; border-radius:8px;">
+          <div style="font-weight:600; color:#5b21b6; margin-bottom:2px;">⏱ Табл. Анализ периодичности вбросов</div>
+          <div style="font-size:0.78rem; color:#6b7280; margin-bottom:6px;">${n} интервалов между ${_times.length} вбросами. CV = σ/среднее — мера регулярности дозирования: режим <b>${regime}</b>.</div>
+          <div style="font-size:0.84rem; color:#374151; margin-bottom:6px;">${chip('Среднее', fmtH(mean))}${chip('Медиана', fmtH(median))}${chip('Мин', fmtH(srt[0]))}${chip('Макс', fmtH(srt[n - 1]))}${chip('σ', fmtH(sd))}${chip('CV', cv.toFixed(2))}</div>
+          <details><summary style="cursor:pointer; color:#5b21b6; font-size:0.82rem;">Полный список интервалов (${n})</summary>
+            <table style="width:100%; border-collapse:collapse; font-size:0.8rem; margin-top:6px;">
+              <thead><tr style="background:#f5f3ff;"><th style="padding:4px 8px; text-align:left;">№</th><th style="padding:4px 8px; text-align:left;">От вброса</th><th style="padding:4px 8px; text-align:left;">До вброса</th><th style="padding:4px 8px; text-align:left;">Реагент</th><th style="padding:4px 8px; text-align:right;">Интервал</th></tr></thead>
+              <tbody>${ivBody}</tbody></table></details>
+        </div>`;
+      }
+      if (on('intervals_chart') && _times.length >= 2) {
+        html += `<div style="margin-bottom:10px;">
+          <div style="font-weight:600; color:#5b21b6; font-size:0.9rem; margin-bottom:4px;">Диаграмма интервалов между вбросами</div>
+          <div id="irv-${_bid}-intervals" style="height:260px;"></div>
+          <div style="font-size:0.78rem; color:#6b7280; margin-top:4px;">Ступенчатая линия — длительность интервала (ч) между последовательными вбросами по их номеру; точки окрашены по реагенту начала интервала. Высокая неравномерность ступеней = нерегулярный режим дозирования.</div>
+        </div>`;
+      }
     }
 
     // ─── Детально по ИРВ (раскрывающаяся таблица) ───
@@ -2619,7 +3880,7 @@
         </tr>`;
       }
       html += `<details style="margin-bottom:8px;">
-        <summary style="cursor:pointer; color:#5b21b6; font-weight:500; font-size:0.86rem;">Развернуть детально по ИРВ (${rows.length})</summary>
+        <summary style="cursor:pointer; color:#5b21b6; font-weight:500; font-size:0.86rem;">Детализация по интервалам реагентного воздействия (ИРВ) — развернуть (${rows.length})</summary>
         <div style="overflow-x:auto; max-height:400px; overflow-y:auto; margin-top:6px;">
         <table style="width:100%; border-collapse:collapse; font-size:0.8rem;">
           <thead><tr>
@@ -2629,17 +3890,24 @@
             <th style="${th}">Score</th><th style="${thL}">Статус</th>
           </tr></thead><tbody>${body}</tbody>
         </table></div></details>`;
+      html += `<div style="font-size:0.78rem; color:#6b7280; margin:-2px 0 8px; line-height:1.45;">
+        <i>Колонка «Статус»:</i> <span style="color:#059669;">✓</span> — ИРВ <b>валиден</b> (пригоден к расчёту Score и вошёл в сводную оценку реагента). Если указана причина («мало данных», «нет роста ΔP», «короткий интервал») — ИРВ <b>исключён</b> из расчёта Score. Критерии валидности — в методике расчёта реагентов.
+      </div>`;
     }
 
     // ─── Графики: вбросы по реагентам (donut) + Score по времени ───
     if (on('charts') && (scores.length || rows.length)) {
       const bid = (block && block.id) || 'x';
-      html += `<div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:8px;">
-        <div><div style="font-weight:600; color:#5b21b6; font-size:0.9rem; margin-bottom:4px;">Вбросы по реагентам</div>
-          <div id="irv-${bid}-pie" style="height:280px;"></div></div>
-        <div><div style="font-weight:600; color:#5b21b6; font-size:0.9rem; margin-bottom:4px;">Эффективность вбросов (Score по времени)</div>
-          <div id="irv-${bid}-score" style="height:280px;"></div></div>
-      </div>`;
+      // Круговая — компактно по центру; Score — на всю ширину (так PNG-снимок
+      // получается широким и чётким при выводе в PDF на всю ширину страницы).
+      html += `<div style="margin-bottom:10px;">
+          <div style="font-weight:600; color:#5b21b6; font-size:0.9rem; margin-bottom:4px;">Вбросы по реагентам</div>
+          <div id="irv-${bid}-pie" style="height:300px; max-width:460px; margin:0 auto;"></div>
+          <div style="font-size:0.78rem; color:#6b7280; margin-top:4px;">Круговая диаграмма: доля каждого реагента в суммарном расходе (Σ qty); подписи — число ИРВ. Показывает структуру применения реагентов.</div></div>
+        <div style="margin-bottom:8px;">
+          <div style="font-weight:600; color:#5b21b6; font-size:0.9rem; margin-bottom:4px;">Эффективность вбросов (Score по времени)</div>
+          <div id="irv-${bid}-score" style="height:300px; width:100%;"></div>
+          <div style="font-size:0.78rem; color:#6b7280; margin-top:4px;">Столбики — Score (0–100) каждого вброса во времени, цвет по реагенту; пунктир: 70 — «хороший», 45 — «средний». Динамика качества вбросов.</div></div>`;
     }
 
     return html;
@@ -2707,26 +3975,242 @@
       });
       try {
         window.Plotly.newPlot(scEl, traces, {
-          margin: { l: 40, r: 10, t: 10, b: 40 },
-          xaxis: { type: 'date', title: 'Дата вброса' },
-          yaxis: { title: 'Score (0–100)', range: [0, 100] },
-          font: { size: 11 }, legend: { orientation: 'h', y: -0.18 },
+          margin: { l: 48, r: 14, t: 10, b: 70 }, bargap: 0.3,
+          xaxis: { type: 'date', title: { text: 'Дата вброса', font: { size: 12 }, standoff: 8 }, tickfont: { size: 11 } },
+          yaxis: { title: { text: 'Score (0–100)', font: { size: 12 } }, range: [0, 100], tickfont: { size: 11 } },
+          font: { size: 12 }, legend: { orientation: 'h', y: -0.32, x: 0.5, xanchor: 'center', font: { size: 11 } },
           shapes: [
-            { type: 'line', xref: 'paper', x0: 0, x1: 1, y0: 70, y1: 70, line: { color: '#16a34a', dash: 'dash', width: 1 } },
-            { type: 'line', xref: 'paper', x0: 0, x1: 1, y0: 45, y1: 45, line: { color: '#ca8a04', dash: 'dash', width: 1 } },
+            { type: 'line', xref: 'paper', x0: 0, x1: 1, y0: 70, y1: 70, line: { color: '#16a34a', dash: 'dash', width: 1.5 } },
+            { type: 'line', xref: 'paper', x0: 0, x1: 1, y0: 45, y1: 45, line: { color: '#ca8a04', dash: 'dash', width: 1.5 } },
           ],
           annotations: [
-            { x: 1, xref: 'paper', y: 70, text: '70 — хороший', showarrow: false, xanchor: 'right', font: { size: 9, color: '#16a34a' }, bgcolor: 'rgba(255,255,255,0.8)' },
-            { x: 1, xref: 'paper', y: 45, text: '45 — средний', showarrow: false, xanchor: 'right', font: { size: 9, color: '#ca8a04' }, bgcolor: 'rgba(255,255,255,0.8)' },
+            { x: 1, xref: 'paper', y: 70, text: '70 — хороший', showarrow: false, xanchor: 'right', yanchor: 'bottom', font: { size: 11, color: '#16a34a' }, bgcolor: 'rgba(255,255,255,0.85)' },
+            { x: 1, xref: 'paper', y: 45, text: '45 — средний', showarrow: false, xanchor: 'right', yanchor: 'bottom', font: { size: 11, color: '#ca8a04' }, bgcolor: 'rgba(255,255,255,0.85)' },
           ],
+        }, { displaylogo: false, responsive: true });
+      } catch (e) { /* no-op */ }
+    }
+
+    // 3) Интервалы между вбросами — СТУПЕНЧАТЫЙ график (stair), отличный по
+    // стилю от столбчатого Score-графика. Линия-ступень = интервал по № вброса;
+    // точки окрашены по реагенту начала интервала. — 2.8
+    const ivEl = document.getElementById(idPrefix + 'intervals');
+    if (ivEl && rows.length >= 2) {
+      const srt = rows.filter(r => r.event_time).slice()
+        .sort((a, b) => new Date(a.event_time) - new Date(b.event_time));
+      const xs = [], ys = [];
+      const byReagent = {};  // реагент → точки (для легенды по цвету)
+      for (let i = 0; i < srt.length - 1; i++) {
+        const h = (new Date(srt[i + 1].event_time) - new Date(srt[i].event_time)) / 3600000;
+        if (isNaN(h)) continue;
+        const name = srt[i].reagent || '—';
+        xs.push(i + 1); ys.push(h);
+        const g = (byReagent[name] = byReagent[name] || { x: [], y: [], hov: [] });
+        g.x.push(i + 1); g.y.push(h);
+        g.hov.push(`${name}<br>${(srt[i].event_time || '').slice(0, 16)}<br>интервал ${h.toFixed(1)} ч`);
+      }
+      // Ступенчатая линия (без легенды) + точки по реагентам (с легендой по цвету).
+      const ivTraces = [{
+        type: 'scatter', mode: 'lines', x: xs, y: ys,
+        line: { shape: 'hv', color: '#7c3aed', width: 2 },
+        fill: 'tozeroy', fillcolor: 'rgba(124,58,237,0.08)',
+        showlegend: false, hoverinfo: 'skip',
+      }];
+      for (const name of Object.keys(byReagent)) {
+        const g = byReagent[name];
+        ivTraces.push({
+          type: 'scatter', mode: 'markers', name: name, x: g.x, y: g.y,
+          marker: { color: colorByReagent[name] || '#9ca3af', size: 10, line: { color: '#fff', width: 1 } },
+          text: g.hov, hovertemplate: '%{text}<extra></extra>',
+        });
+      }
+      try {
+        window.Plotly.newPlot(ivEl, ivTraces, {
+          margin: { l: 52, r: 12, t: 12, b: 64 },
+          xaxis: { title: { text: '№ интервала между вбросами', font: { size: 12 } }, tickfont: { size: 11 }, dtick: 1 },
+          yaxis: { title: { text: 'Интервал, ч', font: { size: 12 } }, tickfont: { size: 11 }, rangemode: 'tozero' },
+          font: { size: 12 }, showlegend: true,
+          legend: { orientation: 'h', y: -0.28, x: 0.5, xanchor: 'center', font: { size: 11 },
+                    title: { text: 'Реагент начала интервала:', font: { size: 11 } } },
         }, { displaylogo: false, responsive: true });
       } catch (e) { /* no-op */ }
     }
   }
 
+  // Блок «Оценка эффективности»: 3 ОТДЕЛЬНЫХ графика (разные размерности) —
+  // Дебит Q, Перепад ΔP, Нерабочее время — столбики по B1/B2/R/R★.
+  function _renderEffectivenessChart(snap, idPrefix, parts) {
+    if (!window.Plotly || !snap) return;
+    parts = parts || {};
+    const on = (k) => parts[k] !== false;
+    const opt = snap.optimal || {}, obs = snap.observation || {},
+          b1 = snap.b1 || {}, ad = snap.adaptation || {};
+    const disp = snap.display || {};
+    // Тип: bar | lollipop | dot | diff (разница/эффект). Совместимость: старые
+    // hbar/vbar = bar с заданной ориентацией.
+    const style = disp.eff_chart_style || 'hbar';
+    const baseStyle = (style === 'hbar' || style === 'vbar') ? 'bar' : style;
+    let horiz;
+    if (style === 'hbar') horiz = true;
+    else if (style === 'vbar') horiz = false;
+    else horiz = (disp.eff_orientation || 'v') === 'h';   // ориентация для всех типов (bar по умолч. вертик.)
+    // Цветовые схемы [B1, B2, R, R★]
+    const SCHEMES = {
+      default: ['#f59e0b', '#94a3b8', '#3b82f6', '#22c55e'],
+      cool:    ['#06b6d4', '#94a3b8', '#6366f1', '#10b981'],
+      warm:    ['#f97316', '#a8a29e', '#e11d48', '#f59e0b'],
+      mono:    ['#cbd5e1', '#94a3b8', '#64748b', '#1e293b'],
+      vivid:   ['#a855f7', '#94a3b8', '#ec4899', '#14b8a6'],
+    };
+    const fullColors = SCHEMES[disp.eff_color_scheme] || SCHEMES.default;
+    const want = [on('series_b1'), on('series_b2'), on('series_r'), true];
+    const idx = [0, 1, 2, 3].filter((i) => want[i]);
+    const FULL_CATS = ['Данные УзКорГаз<br>(суточные сводки)', 'B2 (Наблюдение)', 'R (Адаптация)', 'R★ (Оптимум)'];
+    const cats = FULL_CATS.filter((_, i) => want[i]);
+    const colors = fullColors.filter((_, i) => want[i]);
+    const b1q = b1.flow_median != null ? b1.flow_median : b1.q_total_median;
+    const b1down = b1.shutdown_min_total != null ? b1.shutdown_min_total / 60 : b1.downtime_hours;
+    const cfg = { displaylogo: false, responsive: true, modeBarButtonsToRemove: ['lasso2d', 'select2d'] };
+    // diff: между какими периодами фиксируем разницу (база → цель)
+    const clampI = (x, def) => Math.max(0, Math.min(3, (x == null ? def : x)));
+    const baseIdx = clampI(disp.eff_diff_base, 1);    // по умолч. B2 (наблюдение)
+    const tgtIdx = clampI(disp.eff_diff_target, 3);   // по умолч. R★ (оптимум)
+    const num = (x) => (x == null || isNaN(x)) ? null : Number(x);
+    const noData = (el) => { el.innerHTML = '<div style="color:#9ca3af;font-size:0.8rem;text-align:center;padding-top:70px;">нет данных</div>'; };
+    // Оси под ориентацию: cat-ось (категории) + val-ось (значения)
+    const axes = (unit) => {
+      const valAx = { title: { text: unit, font: { size: 12 } }, rangemode: 'tozero', zeroline: true, zerolinecolor: '#cbd5e1', gridcolor: '#eef1f4', tickfont: { size: 11 } };
+      const catAx = { automargin: true, tickfont: { size: 12 } };
+      if (horiz) { catAx.autorange = 'reversed'; return { xaxis: valAx, yaxis: catAx, margin: { l: 8, r: 92, t: 16, b: 30 } }; }
+      return { xaxis: catAx, yaxis: valAx, margin: { l: 56, r: 16, t: 16, b: 56 } };
+    };
+    const plot = (suffix, vals, unit, dec, betterUp) => {
+      const el = document.getElementById(idPrefix + suffix);
+      if (!el) return;
+      let traces, layout;
+      // ── Диаграмма «Разница / эффект»: периоды + опорная линия базы + зона
+      //    улучшения (фон) + дельты-бейджи относительно базы ──
+      if (baseStyle === 'diff') {
+        const v = idx.map((i) => vals[i]).map(num);
+        if (!v.some((x) => x != null)) { noData(el); return; }
+        const baseV = num(vals[baseIdx]);
+        const fin = v.filter((x) => x != null).concat(baseV != null ? [baseV] : []);
+        const maxV = fin.length ? Math.max.apply(null, fin) : 1;
+        const lbls = v.map((x) => x == null ? '' : x.toFixed(dec) + ' ' + unit);
+        const bd = horiz ? { orientation: 'h', y: cats, x: v } : { x: cats, y: v };
+        traces = [Object.assign({ type: 'bar', marker: { color: colors, line: { width: 0 } }, width: 0.6,
+          text: lbls, textposition: 'inside', insidetextanchor: horiz ? 'start' : 'middle', textfont: { size: 12, color: '#fff' }, cliponaxis: false,
+          hovertemplate: '%{' + (horiz ? 'y' : 'x') + '}<br>%{' + (horiz ? 'x' : 'y') + ':.' + dec + 'f} ' + unit + '<extra></extra>' }, bd)];
+        const shapes = [], anns = [];
+        if (baseV != null) {
+          if (horiz) {
+            shapes.push({ type: 'rect', xref: 'x', yref: 'paper', x0: baseV, x1: maxV * 1.2, y0: 0, y1: 1, fillcolor: 'rgba(34,197,94,0.07)', line: { width: 0 }, layer: 'below' });
+            shapes.push({ type: 'line', xref: 'x', yref: 'paper', x0: baseV, x1: baseV, y0: 0, y1: 1, line: { color: '#475569', width: 1.6, dash: 'dash' } });
+          } else {
+            shapes.push({ type: 'rect', xref: 'paper', yref: 'y', x0: 0, x1: 1, y0: baseV, y1: maxV * 1.2, fillcolor: 'rgba(34,197,94,0.07)', line: { width: 0 }, layer: 'below' });
+            shapes.push({ type: 'line', xref: 'paper', yref: 'y', x0: 0, x1: 1, y0: baseV, y1: baseV, line: { color: '#475569', width: 1.6, dash: 'dash' } });
+          }
+          idx.forEach((gi, k) => {
+            if (gi === baseIdx || v[k] == null) return;
+            const delta = v[k] - baseV;
+            const improved = (delta > 0) === betterUp;
+            const col = improved ? '#16a34a' : '#dc2626';
+            const pct = baseV ? (delta / Math.abs(baseV) * 100) : null;
+            const txt = (delta >= 0 ? '▲ +' : '▼ ') + delta.toFixed(dec) + (pct != null ? ' (' + (delta >= 0 ? '+' : '') + pct.toFixed(0) + '%)' : '');
+            anns.push(horiz
+              ? { x: v[k], y: cats[k], text: txt, showarrow: false, xanchor: 'left', xshift: 6, font: { size: 12, color: col }, bgcolor: 'rgba(255,255,255,0.92)', bordercolor: col, borderwidth: 1, borderpad: 2 }
+              : { x: cats[k], y: v[k], text: txt, showarrow: false, yanchor: 'bottom', yshift: 6, font: { size: 12, color: col }, bgcolor: 'rgba(255,255,255,0.92)', bordercolor: col, borderwidth: 1, borderpad: 2 });
+          });
+        }
+        layout = Object.assign({ font: { size: 13 }, showlegend: false, bargap: 0.45, plot_bgcolor: '#fff', paper_bgcolor: '#fff', shapes: shapes, annotations: anns,
+          title: { text: 'Эффект относительно базы (' + FULL_CATS[baseIdx].replace('<br>', ' ') + ')', font: { size: 12, color: '#475569' } } }, axes(unit));
+        layout.margin = horiz ? { l: 8, r: 160, t: 30, b: 30 } : { l: 56, r: 16, t: 42, b: 56 };
+        try { Plotly.newPlot(el, traces, layout, cfg); } catch (e) { console.warn('eff diff ' + suffix, e); }
+        return;
+      }
+      // ── bar / lollipop / dot ──
+      const v = idx.map((i) => vals[i]).map(num);
+      if (!v.some((x) => x != null)) { noData(el); return; }
+      const lbls = v.map((x) => x == null ? '' : x.toFixed(dec) + ' ' + unit);
+      const txtPos = horiz ? 'middle right' : 'top center';
+      let effAnns = [], effShapes = [], effRange = null;   // линии баз + зона + дельты R,R★ к базам
+      if (baseStyle === 'lollipop') {
+        const lc = [], lv = [];
+        cats.forEach((c, i) => { if (v[i] != null) { lc.push(c, c, null); lv.push(0, v[i], null); } });
+        const stem = horiz ? { x: lv, y: lc } : { x: lc, y: lv };
+        const mk = horiz ? { x: v, y: cats } : { x: cats, y: v };
+        traces = [
+          Object.assign({ type: 'scatter', mode: 'lines', line: { color: '#cbd5e1', width: 2.5 }, hoverinfo: 'skip' }, stem),
+          Object.assign({ type: 'scatter', mode: 'markers+text', marker: { color: colors, size: 17, line: { color: '#fff', width: 1.5 } }, text: lbls, textposition: txtPos, textfont: { size: 13, color: '#374151' }, cliponaxis: false }, mk),
+        ];
+      } else if (baseStyle === 'dot') {
+        const mk = horiz ? { x: v, y: cats } : { x: cats, y: v };
+        traces = [Object.assign({ type: 'scatter', mode: 'markers+text', marker: { color: colors, size: 19, symbol: 'circle', line: { color: '#fff', width: 2 } }, text: lbls, textposition: txtPos, textfont: { size: 13, color: '#374151' }, cliponaxis: false }, mk)];
+      } else {  // СОВРЕМЕННЫЙ дизайн (lollipop с якорем B2) — стержень B2→значение = дельта;
+        //          одна якорная вертикаль B2; цвет = направление (лучше/хуже базы); чистый текст.
+        const baseB2 = num(vals[1]);    // якорь = наблюдение (точка отсчёта эффекта)
+        const PCOL = ['#9e9e9e', '#455a64', '#1976d2', '#2e7d32'];   // B1, B2, R, R★
+        const GOODC = { 2: '#1976d2', 3: '#2e7d32' };
+        const cat = (gi) => FULL_CATS[gi].replace('<br>', ' ');
+        const dirColor = (gi, val) => {
+          if (gi !== 2 && gi !== 3) return PCOL[gi];
+          if (baseB2 == null) return GOODC[gi];
+          return (betterUp ? (val > baseB2) : (val < baseB2)) ? GOODC[gi] : '#c62828';
+        };
+        // Строки снизу вверх: B1, B2, R, R★ (фильтр по idx → можно скрыть любой период).
+        const rows = [0, 1, 2, 3].filter((gi) => idx.indexOf(gi) >= 0 && num(vals[gi]) != null);
+        const yCats = rows.map(cat);
+        traces = [];
+        rows.forEach((gi) => {
+          const val = num(vals[gi]);
+          const color = dirColor(gi, val);
+          if (gi !== 1 && baseB2 != null) {   // стержень от B2 до значения (кроме самой базы)
+            traces.push({ type: 'scatter', mode: 'lines', x: [baseB2, val], y: [cat(gi), cat(gi)], line: { color: color, width: 3 }, hoverinfo: 'skip', showlegend: false });
+          }
+          traces.push({ type: 'scatter', mode: 'markers', x: [val], y: [cat(gi)], marker: { size: 15, color: color }, showlegend: false,
+            hovertemplate: cat(gi) + ': %{x:.' + dec + 'f} ' + unit + '<extra></extra>' });
+          if (gi === 1) {
+            effAnns.push({ x: val, y: cat(gi), text: 'база', showarrow: false, xanchor: 'right', xshift: -10, font: { size: 11, color: '#455a64' } });
+          } else if ((gi === 2 || gi === 3) && baseB2 != null) {
+            const d = val - baseB2, pct = baseB2 ? (d / Math.abs(baseB2) * 100) : null;
+            const txt = (d >= 0 ? '+' : '') + d.toFixed(dec) + ' ' + unit + (pct != null ? ' (' + (d >= 0 ? '+' : '') + pct.toFixed(0) + '%)' : '');
+            effAnns.push({ x: val, y: cat(gi), text: txt, showarrow: false, xanchor: 'left', xshift: 12, font: { size: 12, color: color }, bgcolor: 'rgba(255,255,255,0.7)' });
+          } else {
+            effAnns.push({ x: val, y: cat(gi), text: val.toFixed(dec) + ' ' + unit, showarrow: false, xanchor: 'left', xshift: 12, font: { size: 11, color: '#9e9e9e' }, bgcolor: 'rgba(255,255,255,0.7)' });
+          }
+        });
+        if (baseB2 != null) effShapes.push({ type: 'line', xref: 'x', yref: 'paper', x0: baseB2, x1: baseB2, y0: 0, y1: 1, line: { color: '#455a64', width: 1.5 } });
+        const allv = rows.map((gi) => num(vals[gi])).filter((x) => x != null);
+        if (baseB2 != null) allv.push(baseB2);
+        const mx2 = allv.length ? Math.max.apply(null, allv) : 1;
+        const TINT = { 'eff-q': 'rgba(79,70,229,0.04)', 'eff-dp': 'rgba(13,148,136,0.04)', 'eff-down': 'rgba(225,29,72,0.04)' };
+        layout = {
+          font: { size: 13 }, showlegend: false, plot_bgcolor: TINT[suffix] || '#fff', paper_bgcolor: '#fff',
+          margin: { l: 8, r: 175, t: 14, b: 34 }, annotations: effAnns, shapes: effShapes,
+          xaxis: { title: { text: unit, font: { size: 12 } }, rangemode: 'tozero', range: [0, mx2 * 1.12], zeroline: false, showgrid: false, tickfont: { size: 11 } },
+          yaxis: { categoryarray: yCats, categoryorder: 'array', automargin: true, tickfont: { size: 12 } },
+        };
+        try { Plotly.newPlot(el, traces, layout, cfg); } catch (e) { console.warn('eff lollipop ' + suffix, e); }
+        return;
+      }
+      const TINT = { 'eff-q': 'rgba(79,70,229,0.045)', 'eff-dp': 'rgba(13,148,136,0.05)', 'eff-down': 'rgba(225,29,72,0.045)' };
+      layout = Object.assign({ font: { size: 13 }, showlegend: false, bargap: 0.42, plot_bgcolor: TINT[suffix] || '#fff', paper_bgcolor: '#fff', annotations: effAnns, shapes: effShapes }, axes(unit));
+      if (effRange) {
+        if (horiz) { layout.xaxis = Object.assign({}, layout.xaxis, { range: effRange }); layout.margin = Object.assign({}, layout.margin, { r: 150 }); }
+        else { layout.yaxis = Object.assign({}, layout.yaxis, { range: effRange }); }
+      }
+      try { Plotly.newPlot(el, traces, layout, cfg); } catch (e) { console.warn('eff ' + suffix, e); }
+    };
+    // betterUp: рост хорош для Q и ΔP (больше дебит/вынос воды), плох для простоев.
+    plot('eff-q', [b1q, obs.flow_median, ad.flow_median, opt.flow_median], 'тыс.м³/сут', 2, true);
+    plot('eff-dp', [b1.dp_median, obs.dp_median, ad.dp_median, opt.dp_median], 'кгс/см²', 2, true);
+    plot('eff-down', [b1down, obs.downtime_hours, ad.downtime_hours, opt.downtime_hours], 'ч', 1, false);
+  }
+
   // Рендер Plotly-графиков для adaptation_period_analysis
   function _renderAdaptationCharts(snap, idPrefix) {
     if (!window.Plotly || !snap || !snap.adaptation) return;
+
     const cd = snap.adaptation.chart_data;
     if (!cd || !cd.length) return;
 
@@ -2859,12 +4343,54 @@
           });
         }
 
+        // 1.9 — отметка окна R★ на графике дебита
+        const _flowShapes = makeEventShapes(qMin, qMax);
+        const _opt = snap.optimal || {};
+        const _flowAnnos = [];
+        if (_opt.date_from && _opt.date_to) {
+          _flowShapes.push({ type: 'rect', xref: 'x', yref: 'paper',
+            x0: _opt.date_from, x1: _opt.date_to, y0: 0, y1: 1,
+            fillcolor: 'rgba(34,197,94,0.13)', line: { width: 0 }, layer: 'below' });
+          _flowAnnos.push({ x: _opt.date_from, xref: 'x', y: 1, yref: 'paper',
+            text: 'R★', showarrow: false, xanchor: 'left', yanchor: 'top',
+            font: { size: 11, color: '#15803d' }, bgcolor: 'rgba(255,255,255,0.8)' });
+        }
         Plotly.newPlot(elFlow, traces, {
           ...layout, title: { text: 'Дебит Q, тыс.м³/сут', font: {size: 12} },
-          shapes: makeEventShapes(qMin, qMax),
+          shapes: _flowShapes, annotations: _flowAnnos,
           yaxis: { title: 'тыс.м³/сут', range: [qMin, qMax] },
         }, cfg);
       } catch (e) { console.warn('adapt chart flow', e); }
+    }
+
+    // ────────────────────────────────────────────────
+    // 1.3 Посуточный график рабочего/нерабочего времени
+    // ────────────────────────────────────────────────
+    const elDown = document.getElementById(idPrefix + 'downtime');
+    if (elDown) {
+      try {
+        const cdd = snap.adaptation.chart_data || [];
+        const work = {}, down = {};
+        for (const p of cdd) {
+          const day = (p.t || '').slice(0, 10); if (!day) continue;
+          const q = p.q;
+          if (q != null && !isNaN(q) && Number(q) > 0) work[day] = (work[day] || 0) + 1;
+          else down[day] = (down[day] || 0) + 1;
+        }
+        const days = [...new Set([...Object.keys(work), ...Object.keys(down)])].sort();
+        Plotly.newPlot(elDown, [
+          { type: 'bar', name: 'Работа, ч', x: days, y: days.map(d => work[d] || 0),
+            marker: { color: 'rgba(22,163,74,0.45)', line: { color: '#16a34a', width: 1 } } },
+          { type: 'bar', name: 'Простой, ч', x: days, y: days.map(d => down[d] || 0),
+            marker: { color: 'rgba(220,38,38,0.85)' } },
+        ], {
+          barmode: 'stack', title: { text: 'Рабочее / нерабочее время по суткам, ч', font: { size: 12 } },
+          margin: { l: 44, r: 12, t: 34, b: 54 }, font: { size: 11 },
+          xaxis: { type: 'category', tickfont: { size: 10 } },
+          yaxis: { title: 'часов', rangemode: 'tozero' },
+          legend: { orientation: 'h', y: -0.24 },
+        }, cfg);
+      } catch (e) { console.warn('adapt chart downtime', e); }
     }
 
     // ────────────────────────────────────────────────
@@ -2921,6 +4447,146 @@
   }
 
   // ===== _renderBlockSummaryHtml (извлечено 1-в-1) =====
+  // Роза НЕСТАБИЛЬНОСТИ — Plotly (геометрия база=50: зелёный внутрь / красный
+  // наружу, серый диск 0-50, красное кольцо 75-100, пунктир порога, полигон,
+  // числа на концах) + горизонтальный бар вкладов. Определена ЗДЕСЬ (источник
+  // истины), чтобы PDF снимал те же графики через plotly_png_service.
+  function _renderStabilityRoseCharts(b) {
+    if (typeof Plotly === 'undefined') return;
+    const bid = b.id || 'x';
+    const snap = b.data_snapshot || {};
+    const AX = ['trend', 'rough', 'cyc', 'dp', 'uplift', 'freq', 'purge'];
+    const petals = snap.petals || {};
+    const labelsShort = snap.labels_short || {};
+    const labels = snap.labels || {};
+    const theta = AX.map(k => (labelsShort[k] || k).replace(/\n/g, ' '));
+    const vals = AX.map(k => +(petals[k] ?? 0));
+    const BASE = 50;
+    const slot = 360 / AX.length;
+    const traces = [];
+    traces.push({ type: 'barpolar', r: AX.map(() => 50), theta: theta, base: 0,
+      width: AX.map(() => 1), marker: { color: 'rgba(221,227,237,0.55)' }, hoverinfo: 'skip', showlegend: false });
+    traces.push({ type: 'barpolar', r: AX.map(() => 25), theta: theta, base: 75,
+      width: AX.map(() => 1), marker: { color: 'rgba(214,39,40,0.10)' }, hoverinfo: 'skip', showlegend: false });
+    // ЧИСТЫЙ ЦЕНТР: тревожные оси (v>50) — красный лепесток НАРУЖУ за порог;
+    // спокойные (v<50) — короткий зелёный штрих у порога (центр пустой, серый диск).
+    const GSTUB = 5;
+    const redR = [], redB = [], redT = [], grnR = [], grnB = [], grnT = [];
+    AX.forEach((k, i) => {
+      const v = vals[i];
+      if (v > BASE) { redR.push(v - BASE); redB.push(BASE); redT.push(theta[i]); }
+      else if (v < BASE) { const s = Math.min(BASE - v, GSTUB); grnR.push(s); grnB.push(BASE - s); grnT.push(theta[i]); }
+    });
+    if (redR.length) traces.push({ type: 'barpolar', r: redR, base: redB, theta: redT,
+      width: redR.map(() => 0.55), marker: { color: '#d62728', line: { color: '#7a1010', width: 0.8 } },
+      hoverinfo: 'skip', showlegend: false });
+    if (grnR.length) traces.push({ type: 'barpolar', r: grnR, base: grnB, theta: grnT,
+      width: grnR.map(() => 0.55), marker: { color: '#28a745', line: { color: '#155724', width: 0.6 } },
+      hoverinfo: 'skip', showlegend: false });
+    // пунктир порога 50
+    traces.push({ type: 'scatterpolar', r: AX.map(() => 50).concat([50]), theta: theta.concat([theta[0]]),
+      mode: 'lines', line: { color: '#5a6f8a', width: 1.2, dash: 'dash' }, hoverinfo: 'skip', showlegend: false });
+    // числа: тревожные — снаружи у конца лепестка; спокойные — у порога (центр чистый)
+    traces.push({ type: 'scatterpolar',
+      r: vals.map(v => v >= BASE ? Math.min(v + 6, 97) : 44), theta: theta,
+      mode: 'text', text: vals.map(v => Math.round(v).toString()),
+      textfont: { size: 11, color: vals.map(v => v >= BASE ? '#7a1010' : '#155724'), family: 'Arial Black' },
+      hoverinfo: 'skip', showlegend: false });
+    const layout = {
+      polar: {
+        radialaxis: { range: [0, 100], tickvals: [25, 50, 75, 100],
+          ticktext: ['25', '50 — порог', '75', '100'], tickfont: { size: 9, color: '#888' }, angle: 90 },
+        angularaxis: { direction: 'clockwise', rotation: 90, tickfont: { size: 10, color: '#374151' } },
+        bgcolor: '#fff',
+      },
+      margin: { t: 34, r: 70, b: 34, l: 70 }, paper_bgcolor: '#fff',
+      title: { text: 'Роза нестабильности', font: { size: 13, color: '#374151' } },
+    };
+    try { Plotly.newPlot('prev-' + bid + '-strose', traces, layout, { displayModeBar: false, responsive: true }); }
+    catch (e) { console.warn('strose', e); }
+
+    const contrib = snap.contributions || {};
+    const weights = snap.weights || {};
+    const items = AX.map(k => ({ full: (labels[k] || k), got: +(contrib[k] ?? 0),
+      max: 100 * (+(weights[k] ?? 0)), w: +(weights[k] ?? 0) })).sort((a, b2) => a.got - b2.got);
+    const yb = items.map(it => it.full);
+    const maxX = Math.max(20, Math.max.apply(null, items.map(it => it.max)) * 1.4);
+    const bt = [
+      { type: 'bar', orientation: 'h', y: yb, x: items.map(it => it.got), marker: { color: '#d62728' },
+        text: items.map(it => it.got.toFixed(1)), textposition: 'inside', textfont: { color: '#fff' },
+        hovertemplate: '%{y}: %{x:.1f}<extra></extra>', showlegend: false },
+      { type: 'bar', orientation: 'h', y: yb, x: items.map(it => Math.max(0, it.max - it.got)),
+        marker: { color: '#e6e6e6' }, text: items.map(it => 'вес ' + it.w.toFixed(2)), textposition: 'outside',
+        textfont: { size: 9, color: '#6b7280' }, hoverinfo: 'skip', showlegend: false },
+    ];
+    const blay = { barmode: 'stack', margin: { t: 28, r: 80, b: 32, l: 175 },
+      xaxis: { title: { text: 'Вклад = вес × лепесток', font: { size: 10 } }, range: [0, maxX] },
+      yaxis: { automargin: true }, paper_bgcolor: '#fff', plot_bgcolor: '#fff',
+      title: { text: 'Вклад в нестабильность · I=' + ((snap.index_I != null) ? snap.index_I : 0), font: { size: 13, color: '#374151' } } };
+    try { Plotly.newPlot('prev-' + bid + '-strosebar', bt, blay, { displayModeBar: false, responsive: true }); }
+    catch (e) { console.warn('strosebar', e); }
+  }
+
+  // ===== _renderWorksAnalysisChart — Plotly radar для works_analysis (_v='2') =====
+  // Контейнер: prev-{bid}-worksrose (высота 360px, строится в _renderBlockSummaryHtml).
+  // В compare-режиме два контура: «Период» (синий) и «До работ» (серый, пунктир).
+  function _renderWorksAnalysisChart(snap, bid) {
+    if (typeof Plotly === 'undefined') return;
+    const el = document.getElementById('prev-' + bid + '-worksrose');
+    if (!el) return;
+    const pm = snap.period_main || {};
+    const pr = snap.period_ref  || null;
+    const isCompare = snap.mode === 'compare' && !!pr;
+
+    const axes = pm.rose_axes   || [];
+    const vals = pm.rose_values || [];
+    if (!axes.length) {
+      el.innerHTML = '<div style="color:#9ca3af; padding:15px; text-align:center;">Нет данных розы</div>';
+      return;
+    }
+
+    // Замыкаем полигон (scatterpolar требует повтора первого элемента)
+    const theta = axes.concat([axes[0]]);
+    const r1    = vals.map(Number).concat([+(vals[0] || 0)]);
+
+    const traces = [];
+    traces.push({
+      type: 'scatterpolar', r: r1, theta: theta,
+      fill: 'toself', fillcolor: 'rgba(59,130,246,0.15)',
+      line: { color: '#3b82f6', width: 2 },
+      name: 'Период', mode: 'lines+markers',
+      marker: { size: 5, color: '#3b82f6' },
+    });
+
+    if (isCompare && pr) {
+      const vals2 = pr.rose_values || [];
+      const r2    = vals2.map(Number).concat([+(vals2[0] || 0)]);
+      traces.push({
+        type: 'scatterpolar', r: r2, theta: theta,
+        fill: 'toself', fillcolor: 'rgba(156,163,175,0.15)',
+        line: { color: '#9ca3af', width: 2, dash: 'dash' },
+        name: 'До работ', mode: 'lines+markers',
+        marker: { size: 5, color: '#9ca3af' },
+      });
+    }
+
+    const layout = {
+      polar: {
+        radialaxis: { range: [0, 100], tickvals: [25, 50, 75, 100],
+          tickfont: { size: 9, color: '#888' }, angle: 90 },
+        angularaxis: { direction: 'clockwise', rotation: 90, tickfont: { size: 9, color: '#374151' } },
+        bgcolor: '#fff',
+      },
+      showlegend: isCompare,
+      legend: { x: 1.05, y: 1, font: { size: 10 } },
+      margin: { t: 34, r: isCompare ? 100 : 70, b: 34, l: 70 },
+      paper_bgcolor: '#fff',
+      title: { text: 'Профиль эффективности (больше = лучше)', font: { size: 12, color: '#374151' } },
+    };
+    try { Plotly.newPlot(el, traces, layout, { displayModeBar: false, responsive: true }); }
+    catch (e) { console.warn('worksrose', e); }
+  }
+
   function _renderBlockSummaryHtml(b) {
     const snap = b.data_snapshot || {};
     const p = b.params || {};
@@ -2958,6 +4624,18 @@
     if (b.kind === 'sensor_customer_comparison') {
       const bid = b.id || 'x';
       return _buildSensorCustomerComparisonHtml(snap, b, `scc-${bid}-`);
+    }
+
+    // ─── pressure_spectrum: спектр распределения давления (стабильность) ───
+    if (b.kind === 'pressure_spectrum') {
+      const bid = b.id || 'x';
+      return _buildPressureSpectrumHtml(snap, b, `ps-${bid}-`);
+    }
+
+    // ─── param_correlation: зависимость двух параметров (scatter + регрессия) ───
+    if (b.kind === 'param_correlation') {
+      const bid = b.id || 'x';
+      return _buildParamCorrelationHtml(snap, b, `pc-${bid}-`);
     }
 
     // baseline/period_analysis — данные заказчика (UzKorGaz)
@@ -3043,31 +4721,178 @@
       return hdrHtml + chartBox + tableHtml + comment;
     }
 
+    if (b.kind === 'stability_rose') {
+      // Роза НЕСТАБИЛЬНОСТИ (кандидаты на обводнение). Геометрия: база=50,
+      // зелёный лепесток внутрь / красный наружу. Графики Plotly рисуются в
+      // _renderStabilityRoseCharts (в этом же файле — источник истины, PDF
+      // снимает те же графики через plotly_png_service).
+      const bid = b.id || 'x';
+      const AX = ['trend', 'rough', 'cyc', 'dp', 'uplift', 'freq', 'purge'];
+      const labels = snap.labels || {};
+      const petals = snap.petals || {};
+      const contrib = snap.contributions || {};
+      const weights = snap.weights || {};
+      const descr = snap.descriptions || {};
+      const I = (snap.index_I != null) ? +snap.index_I : 0;
+      const lvl = snap.level || (snap.is_candidate ? 'candidate' : 'stable');
+      const lvlColor = lvl === 'candidate' ? '#d62728' : lvl === 'watch' ? '#d97706' : '#28a745';
+      const _w = snap.windows || { trend_days: 30, downtime_days: 90 };
+      const effMode = snap.analysis_mode === 'effectiveness';
+      const eff = snap.effectiveness || {};
+      const hdrHtml = `
+        <div style="font-size:0.85rem;">
+          Скважина: <b>${_escHtml(snap.well_number)}</b>, на дату <b>${_escHtml(snap.anchor)}</b>,
+          штуцер <b>${snap.choke_mm ?? '—'} мм</b>, данных <b>${snap.n_days || 0}</b> сут.
+          (источник: ${snap.source === 'lora' ? 'LoRa минутные' : 'УзКорГаз суточные'}).
+        </div>
+        <div style="font-size:0.74rem; color:#6b7280; margin-top:2px;">
+          Период: окна назад от даты — динамика дебита/давлений <b>${_w.trend_days}</b> сут${snap.window_auto === false ? ' (задано вручную)' : ''},
+          простои/продувки <b>${_w.downtime_days}</b> сут, отклик дебита после остановки — вся история.
+          L* — длина стабильного периода к этой дате.
+        </div>
+        ${(snap.data_quality && snap.data_quality !== 'normal') ? `
+        <div style="font-size:0.74rem; margin-top:3px; padding:3px 8px; border-radius:3px;
+             background:${snap.data_quality === 'insufficient' ? '#fef2f2' : '#fff7ed'};
+             color:${snap.data_quality === 'insufficient' ? '#991b1b' : '#9a3412'};
+             border-left:3px solid ${snap.data_quality === 'insufficient' ? '#dc2626' : '#f59e0b'};">
+          ⚠ Достоверность снижена: рабочих точек в окне динамики — <b>${snap.n_work ?? '?'}</b>
+          ${snap.data_quality === 'insufficient'
+            ? '(&lt; 8 — оси динамики обнулены, оценка по простоям/продувкам).'
+            : '(&lt; 14 — тренд/давления оценены грубо).'}
+        </div>` : ''}
+        <div style="font-size:1.0rem; font-weight:700; margin:4px 0; color:${lvlColor};">
+          ${effMode
+            ? `🧪 Режим: оценка ПАВ · ${_escHtml(snap.verdict || '')}`
+            : `Индекс нестабильности I = ${I.toFixed(1)} / 100 · L* = ${snap.L_star ?? 0} дн. · ${_escHtml(snap.verdict || '')}`}
+        </div>
+        ${effMode ? `
+        <div style="font-size:0.74rem; color:#6b7280; margin-top:2px; padding:3px 8px;
+             background:#ecfdf5; border-left:3px solid #10b981; border-radius:3px;">
+          Скважина на ПАВ-лечении (вбросов: <b>${eff.injections_total ?? '?'}</b>${eff.best_reagent ? ', реагент: <b>' + _escHtml(eff.best_reagent) + '</b>' : ''}).
+          Колебания/прирост Q — реакция на ПАВ, не нестабильность. Оси ниже — справочно
+          (индекс кандидатства I=${I.toFixed(1)} не применяется).
+        </div>` : ''}
+        ${comment}`;
+      const roseBox = (parts.rose_chart !== false)
+        ? `<div id="prev-${bid}-strose" style="height:340px;"></div>` : '';
+      const barBox = (parts.contributions_chart !== false)
+        ? `<div id="prev-${bid}-strosebar" style="height:240px; margin-top:6px;"></div>` : '';
+      let tableHtml = '';
+      if (parts.metrics_table !== false) {
+        let rows = '';
+        AX.forEach(k => {
+          const v = +(petals[k] ?? 0);
+          const w = +(weights[k] ?? 0);
+          const cv = +(contrib[k] ?? 0);
+          const zone = v < 33 ? 'спокоен' : v < 66 ? 'внимание' : 'тревога';
+          const zc = v < 33 ? '#16a34a' : v < 66 ? '#d97706' : '#dc2626';
+          rows += `<tr><td style="padding:2px 6px;">${_escHtml(labels[k] || k)}</td>
+                       <td style="text-align:right; padding:2px 6px; font-weight:600;">${v.toFixed(0)}</td>
+                       <td style="text-align:right; padding:2px 6px;">${w.toFixed(2)}</td>
+                       <td style="text-align:right; padding:2px 6px; color:#d62728;">${cv.toFixed(1)}</td>
+                       <td style="padding:2px 6px; color:${zc};">${zone}</td></tr>`;
+        });
+        tableHtml = `
+          <table style="width:100%; margin-top:6px; font-size:0.78rem; border-collapse:collapse;">
+            <tr style="background:#f3f4f6;">
+              <th style="text-align:left; padding:3px 6px;">Параметр</th>
+              <th style="text-align:right; padding:3px 6px;">Значение</th>
+              <th style="text-align:right; padding:3px 6px;">Вес</th>
+              <th style="text-align:right; padding:3px 6px;">Вклад</th>
+              <th style="text-align:left; padding:3px 6px;">Зона</th>
+            </tr>
+            ${rows}
+          </table>`;
+      }
+      let descrHtml = '';
+      if (parts.descriptions !== false && descr && Object.keys(descr).length) {
+        descrHtml = `
+          <div style="margin-top:6px; font-size:0.76rem; color:#374151;">
+            <div style="font-weight:600; margin-bottom:2px;">Описание параметров:</div>
+            ${AX.map(k => `<div style="margin:2px 0;"><b>${_escHtml(labels[k] || k)}.</b> ${_escHtml(descr[k] || '')}</div>`).join('')}
+          </div>`;
+      }
+      // Переходной/вводный блок: назначение анализа + суть метода. Параметризован
+      // из снимка (источник, якорь, окна). Parity с PDF — _format_stability_rose_block.
+      let methodHtml = '';
+      if (parts.method !== false) {
+        const _srcLbl = snap.source === 'lora' ? 'LoRa (минутные)' : 'УзКорГаз (суточные)';
+        methodHtml = `
+          <div style="font-size:0.78rem; color:#374151; margin-bottom:8px; padding:8px 10px;
+               background:#f8fafc; border-left:3px solid #2563eb; border-radius:4px;">
+            <b>Назначение и метод.</b> Для анализа стабильности работы скважины и оценки
+            кандидата на проведение работ по оптимизации с применением <b>ТПАВ</b>
+            проводился анализ данных <b>${_escHtml(_srcLbl)}</b> по суточным дебитам на
+            дату <b>${_escHtml(snap.anchor || '—')}</b>. Метод основан на выявлении
+            признаков нестабильной работы скважины (накопление и периодический вынос
+            жидкости) по фиксированным окнам наблюдения: динамика дебита и давлений —
+            <b>${_w.trend_days}</b> сут, простои и продувки — <b>${_w.downtime_days}</b> сут,
+            отклик дебита после остановки — вся доступная история. Окна фиксированы
+            намеренно — чтобы результат был воспроизводим и сравним между скважинами и
+            датами. По каждому из 7 параметров рассчитывается отклонение от стабильного
+            режима (0 — спокоен, 100 — максимум нестабильности); их взвешенная сумма даёт
+            индекс нестабильности <b>I</b> (0–100), а <b>L*</b> — число суток устойчивой
+            работы к указанной дате. Чем больше красных лепестков наружу — тем выше
+            вероятность, что скважина является кандидатом на обводнение и обработку ТПАВ.
+          </div>`;
+      }
+      // Рекомендации (ТПАВ): редактируемый текст (params.recommendation), при
+      // пустом — дефолт STABILITY_RECOMMENDATION_DEFAULT. Только для режима
+      // нестабильности (кандидат), не для оценки ПАВ. Parity: _format_stability_block.
+      let recHtml = '';
+      if (!effMode && parts.recommendation !== false) {
+        const recText = (p.recommendation || '').trim() || STABILITY_RECOMMENDATION_DEFAULT;
+        recHtml = `<div style="margin-top:8px; padding:10px 12px; background:#fffbeb;
+             border:1px dashed #d97706; border-radius:6px; font-size:0.82rem;
+             color:#713f12; white-space:pre-wrap;"><b>Рекомендации:</b>\n${_escHtml(recText)}</div>`;
+      }
+      return methodHtml + hdrHtml + roseBox + barBox + tableHtml + descrHtml + recHtml;
+    }
+
     if (b.kind === 'criteria_rose') {
       // WYSIWYG: реальные Plotly роза + бар + таблица. Контейнеры с уникальными
       // id, Plotly.newPlot вызывается из renderChapterPreview после insert.
       const bid = b.id || 'x';
       const h = snap.history || {};
+      // Формат сырого значения метрики — 1:1 как PDF (_fmt_raw в _format_rose_block).
+      const _fmtRaw = (v) => {
+        if (v == null || !isFinite(v)) return '—';
+        const av = Math.abs(v);
+        if (av >= 100) return v.toFixed(1);
+        if (av >= 1)   return v.toFixed(2);
+        if (av >= 0.01) return v.toFixed(3);
+        return v.toFixed(4);
+      };
+      // Русская подпись режима — 1:1 как PDF (mode_label в _format_rose_block).
+      const _modeLabel = {
+        balanced: 'сбалансированный', liquid: 'жидкость/обводнение',
+        gsp: 'газ-сепаратор/шлейф', purge_cycles: 'продувочные циклы',
+        custom: 'пользовательские веса',
+      }[snap.mode] || (snap.mode || '—');
       const hdrHtml = `
         <div style="font-size:0.85rem;">
-          Скв. <b>${_escHtml(snap.well_number)}</b>, период <b>${_escHtml(snap.period_from)}…${_escHtml(snap.period_to)}</b>
-          (${snap.period_days || '?'} сут.), штуцер <b>${h.choke_mm ?? '—'} мм</b>,
-          режим <b>${_escHtml(snap.mode || '—')}</b>,
+          Скважина: <b>${_escHtml(snap.well_number)}</b>, период <b>${_escHtml(snap.period_from)} — ${_escHtml(snap.period_to)}</b>
+          (${snap.period_days || '?'} дн.), штуцер <b>${h.choke_mm ?? '—'} мм</b>,
+          режим <b>${_escHtml(_modeLabel)}</b>,
           окон в истории: <b>${h.windows_count || 0}</b>.
         </div>
-        <div style="font-size:1.4rem; font-weight:700; color:#d62728; margin:4px 0;">
-          Балл: ${(snap.score ?? 0).toFixed(1)} / 100
-        </div>`;
+        <div style="font-size:1.0rem; font-weight:700; color:#1f2937; margin:4px 0;">
+          Балл кандидата: ${(snap.score ?? 0).toFixed(1)} из 100
+        </div>
+        ${comment}`;
       // Контейнеры для розы и бар-чарта
       const roseBox = (parts.rose_chart !== false)
         ? `<div id="prev-${bid}-rose" style="height:280px;"></div>` : '';
       const barBox = (parts.contributions_chart !== false)
         ? `<div id="prev-${bid}-rosebar" style="height:200px; margin-top:6px;"></div>` : '';
-      // Таблица 6 метрик
+      // Таблица 6 критериев — колонки/значения/зоны 1:1 как PDF (Табл. 2.N.1).
       let tableHtml = '';
       if (parts.metrics_table !== false) {
         const ranks = snap.ranks || {};
         const contrib = snap.contributions || {};
+        const currentRaw = snap.current_raw || {};
+        const historyMed = snap.history_median_raw || {};
+        const units = snap.units || {};
         const labels = snap.labels || {
           decline: 'Снижение Q', p_wh_down: 'Снижение P устья',
           p_wh_cv: 'Волатильность P устья', p_fl_up: 'Рост P шлейфа',
@@ -3078,21 +4903,27 @@
         KEYS.forEach(k => {
           const r = ranks[k];
           const c = contrib[k] || {};
-          const zone = r == null ? '—'
-            : r > 75 ? '<span style="color:#dc2626; font-weight:600;">риск</span>'
-            : r > 50 ? '<span style="color:#d97706;">хуже нормы</span>'
-            : r < 50 ? '<span style="color:#16a34a;">лучше нормы</span>'
+          const zone = r == null ? 'нет данных'
+            : r > 75 ? 'риск (>75)'
+            : r > 50 ? 'хуже нормы'
+            : r < 50 ? 'лучше нормы'
             : 'норма';
           rows += `<tr><td style="padding:2px 6px;">${_escHtml(labels[k] || k)}</td>
+                       <td style="text-align:right; padding:2px 6px; font-family:monospace;">${_fmtRaw(currentRaw[k])}</td>
+                       <td style="text-align:right; padding:2px 6px; font-family:monospace; color:#6b7280;">${_fmtRaw(historyMed[k])}</td>
+                       <td style="text-align:center; padding:2px 6px;">${_escHtml(units[k] || '')}</td>
                        <td style="text-align:right; padding:2px 6px; font-weight:600;">${r == null ? '—' : r.toFixed(0)}</td>
                        <td style="text-align:right; padding:2px 6px;">${(c.weight ?? 0).toFixed(2)}</td>
-                       <td style="text-align:right; padding:2px 6px; color:#d62728;">${(c.actual ?? 0).toFixed(1)}</td>
+                       <td style="text-align:right; padding:2px 6px; color:#d62728;">${(c.actual ?? 0).toFixed(2)}</td>
                        <td style="padding:2px 6px;">${zone}</td></tr>`;
         });
         tableHtml = `
           <table style="width:100%; margin-top:6px; font-size:0.78rem; border-collapse:collapse;">
             <tr style="background:#f3f4f6;">
               <th style="text-align:left; padding:3px 6px;">Критерий</th>
+              <th style="text-align:right; padding:3px 6px;">Период</th>
+              <th style="text-align:right; padding:3px 6px;">Норма</th>
+              <th style="text-align:center; padding:3px 6px;">Ед.</th>
               <th style="text-align:right; padding:3px 6px;">Ранг</th>
               <th style="text-align:right; padding:3px 6px;">Вес</th>
               <th style="text-align:right; padding:3px 6px;">Вклад</th>
@@ -3110,7 +4941,16 @@
             ⚠ ${_escHtml(w)}
           </div>`).join('');
       }
-      return hdrHtml + roseBox + barBox + tableHtml + warnHtml + comment;
+      // Поясняющий абзац «Как читать» — 1:1 как PDF (adaptation_report.tex).
+      const howToHtml = `
+        <div style="margin-top:6px; font-size:0.72rem; color:#6b7280; font-style:italic;">
+          Как читать: серая зона (r≤50) — ось внутри = период не хуже медианы
+          собственных окон. Красный лепесток наружу — хуже нормы; зелёный внутрь —
+          лучше. Светло-красное кольцо 75–100 — зона риска. Число у конца лепестка —
+          точный ранг 0–100. Бар-чарт: цифра у полосы = ранг × вес;
+          сумма = балл кандидата.
+        </div>`;
+      return hdrHtml + roseBox + barBox + tableHtml + warnHtml + howToHtml;
     }
 
     // ─── Observation blocks (датчики) ───
@@ -3122,11 +4962,167 @@
     if (b.kind === 'adaptation_period_analysis') {
       return _buildAdaptationPeriodAnalysisHtml(snap, b, parts) + comment;
     }
+    // ─── Period report block (Step 8 wizard): зеркало adaptation_period_analysis,
+    //     тот же снапшот → тот же рендер (PARITY HTML↔PDF). ───
+    if (b.kind === 'period_full_analysis') {
+      return _buildAdaptationPeriodAnalysisHtml(snap, b, parts) + comment;
+    }
+    // ─── Сравнение метрик периода (выбранные источники) ───
+    if (b.kind === 'period_comparison') {
+      return _buildPeriodComparisonHtml(snap, b, parts) + comment;
+    }
     if (b.kind === 'optimal_window') {
       return _buildOptimalWindowHtml(snap, b, parts) + comment;
     }
     if (b.kind === 'reagent_irv_summary') {
       return _buildReagentIrvSummaryHtml(snap, b, parts) + comment;
+    }
+    if (b.kind === 'adaptation_effectiveness') {
+      return _buildAdaptationEffectivenessHtml(snap, b, parts) + comment;
+    }
+
+    if (b.kind === 'works_analysis') {
+      // _v='2' снимок: роза 8 осей + описание + Δ-таблица + Балл БЭР.
+      // SOURCE OF TRUTH для PARITY: PDF (Фаза 4) зеркалит эту ветку.
+      // Plotly-роза рендерится в _renderWorksAnalysisChart (пост-вставочный хук).
+      const bid  = b.id || 'x';
+      const pm   = snap.period_main || {};
+      const pr   = snap.period_ref  || null;
+      const isCompare = snap.mode === 'compare' && !!pr;
+      const flags  = snap.flags        || {};
+      const descrs = snap.descriptions || {};
+
+      // Локальный форматировщик чисел
+      const _fmtN = (v, dec) => {
+        if (v == null || !isFinite(+v)) return '—';
+        return (+v).toFixed(dec != null ? dec : 2);
+      };
+
+      // Балл БЭР: цвет по порогам (≥70 зел, 55-69 светло-зел, 45-54 сер, 30-44 ор, <30 красн)
+      const scoreVal   = snap.score_ber;
+      const scoreColor = scoreVal == null  ? '#6b7280'
+        : scoreVal >= 70 ? '#16a34a'
+        : scoreVal >= 55 ? '#65a30d'
+        : scoreVal >= 45 ? '#6b7280'
+        : scoreVal >= 30 ? '#d97706'
+        : '#dc2626';
+
+      // 1. Шапка
+      const hdrHtml = '<div style="font-size:0.85rem; margin-bottom:4px;">'
+        + 'Период: <b>' + _escHtml(pm.from || '—') + ' — ' + _escHtml(pm.to || '—') + '</b>'
+        + ' (' + (pm.days || '?') + ' дн., ' + (pm.n_points || '?') + ' точек)'
+        + (isCompare
+          ? '; сравнение с <b>' + _escHtml(pr.from || '—') + ' — ' + _escHtml(pr.to || '—') + '</b>'
+          : '')
+        + '.</div>'
+        + comment;
+
+      // 2. Контейнер розы (single и compare; Plotly вызывается в пост-вставочном хуке)
+      const roseBox = '<div id="prev-' + bid + '-worksrose" style="height:360px; margin-top:8px;"></div>';
+
+      // 3. Описание (из снимка, заморожено)
+      const descrHtml = pm.description
+        ? '<div style="margin-top:8px; font-size:0.82rem; color:#374151;">' + _escHtml(pm.description) + '</div>'
+        : '';
+      const roseNoteHtml = descrs.rose_note
+        ? '<div style="margin-top:4px; font-size:0.72rem; color:#6b7280;">' + _escHtml(descrs.rose_note) + '</div>'
+        : '';
+
+      // 3b. Метрики периода (в single — основной контент; в compare — справочно)
+      let metricsHtml = '';
+      const _pm = pm.metrics || {};
+      const _ps = pm.purge_stats || {};
+      const _metRows = [
+        { label: 'Дебит Q, тыс.м³/сут',    v: _fmtN(_pm.median_flow_rate, 2) },
+        { label: 'ΔP, кгс/см²',             v: _fmtN(_pm.median_dp, 2) },
+        { label: 'Загрузка, %',              v: _fmtN(_pm.utilization_pct, 1) },
+        { label: 'Частота вбросов, шт/сут', v: _fmtN(_pm.inj_freq, 3) },
+        { label: 'Продувок за период',      v: _fmtN(_ps.count, 0) },
+      ].filter(function(r) { return r.v !== '—'; });
+      if (_metRows.length) {
+        metricsHtml = '<table style="margin-top:8px; border-collapse:collapse; font-size:0.78rem;">'
+          + _metRows.map(function(r) {
+              return '<tr><td style="padding:2px 8px 2px 0; color:#6b7280;">' + r.label + '</td>'
+                   + '<td style="font-weight:600; font-family:monospace; padding:2px 0;">' + r.v + '</td></tr>';
+            }).join('')
+          + '</table>';
+      }
+
+      // 4. Балл БЭР + вердикт (только compare)
+      let scoreHtml = '';
+      if (isCompare) {
+        if (scoreVal != null) {
+          scoreHtml = '<div style="margin-top:10px; display:flex; align-items:flex-start; gap:16px; flex-wrap:wrap;">'
+            + '<div>'
+            + '<div style="font-size:2.0rem; font-weight:700; color:' + scoreColor + '; line-height:1.1;">'
+            + (+scoreVal).toFixed(1) + '</div>'
+            + '<div style="font-size:0.72rem; color:#6b7280;">Балл БЭР / 100</div>'
+            + '</div>'
+            + (snap.verdict_text
+              ? '<div style="flex:1; min-width:180px; padding-top:4px;">'
+                + '<div style="font-size:0.88rem; font-weight:600; color:#1f2937;">' + _escHtml(snap.verdict_text) + '</div>'
+                + '</div>'
+              : '')
+            + '</div>';
+        }
+        if (descrs.score_disclaimer) {
+          scoreHtml += '<div style="margin-top:4px; font-size:0.70rem; color:#9ca3af;">'
+            + _escHtml(descrs.score_disclaimer) + '</div>';
+        }
+      }
+
+      // 5. Δ-таблица (только compare)
+      let deltaHtml = '';
+      if (isCompare && snap.delta_table && snap.delta_table.length) {
+        let dtRows = '';
+        snap.delta_table.forEach(function(row) {
+          const dc = row.good === true  ? '#16a34a'
+                   : row.good === false ? '#dc2626'
+                   : '#6b7280';
+          const dv = row.delta;
+          const fmtVal = (v) => (v == null || !isFinite(+v))
+            ? '—'
+            : (+v).toFixed(2) + (row.unit ? ' ' + row.unit : '');
+          const ds = (dv == null || !isFinite(+dv))
+            ? '—'
+            : ((+dv > 0 ? '+' : '') + (+dv).toFixed(2) + (row.unit ? ' ' + row.unit : ''));
+          dtRows += '<tr>'
+            + '<td style="padding:3px 6px; font-size:0.78rem;">' + _escHtml(row.label || row.key || '') + '</td>'
+            + '<td style="text-align:right; padding:3px 6px; font-size:0.78rem; font-family:monospace;">' + fmtVal(row.value_ref) + '</td>'
+            + '<td style="text-align:right; padding:3px 6px; font-size:0.78rem; font-family:monospace;">' + fmtVal(row.value_main) + '</td>'
+            + '<td style="text-align:right; padding:3px 6px; font-size:0.78rem; font-family:monospace; font-weight:600; color:' + dc + ';">' + ds + '</td>'
+            + '</tr>';
+        });
+        deltaHtml = '<table style="width:100%; margin-top:8px; border-collapse:collapse;">'
+          + '<thead><tr style="background:#f3f4f6;">'
+          + '<th style="text-align:left; padding:4px 6px; font-size:0.76rem; font-weight:600;">Критерий</th>'
+          + '<th style="text-align:right; padding:4px 6px; font-size:0.76rem; font-weight:600;">До</th>'
+          + '<th style="text-align:right; padding:4px 6px; font-size:0.76rem; font-weight:600;">Период</th>'
+          + '<th style="text-align:right; padding:4px 6px; font-size:0.76rem; font-weight:600;">Δ</th>'
+          + '</tr></thead>'
+          + '<tbody>' + dtRows + '</tbody>'
+          + '</table>';
+      }
+
+      // 6. Флаги-предупреждения
+      let flagsHtml = '';
+      if (flags.insufficient_data) {
+        flagsHtml += '<div style="margin-top:6px; padding:5px 10px; background:#fef3c7; border-left:3px solid #f59e0b; font-size:0.78rem; color:#92400e; border-radius:3px;">&#9888; Недостаточно данных в периоде — результаты ориентировочны.</div>';
+      }
+      if (flags.insufficient_ref) {
+        flagsHtml += '<div style="margin-top:6px; padding:5px 10px; background:#fef3c7; border-left:3px solid #f59e0b; font-size:0.78rem; color:#92400e; border-radius:3px;">&#9888; Недостаточно данных в эталонном периоде — сравнение ориентировочно.</div>';
+      }
+      if (flags.external_pline) {
+        flagsHtml += '<div style="margin-top:6px; padding:5px 10px; background:#fef3c7; border-left:3px solid #f59e0b; font-size:0.78rem; color:#92400e; border-radius:3px;">&#9888; Снижение ΔP связано с ростом давления в шлейфе — внешний фактор.</div>';
+      }
+      if (flags.choke_changed) {
+        flagsHtml += '<div style="margin-top:6px; padding:5px 10px; background:#fef3c7; border-left:3px solid #f59e0b; font-size:0.78rem; color:#92400e; border-radius:3px;">&#9888; Штуцер менялся — Q/ΔP сравнивать осторожно.</div>';
+      }
+      if (flags.purges_no_markers) {
+        flagsHtml += '<div style="margin-top:6px; padding:5px 10px; background:#fef3c7; border-left:3px solid #f59e0b; font-size:0.78rem; color:#92400e; border-radius:3px;">&#9888; Продувки без маркеров — точность снижена.</div>';
+      }
+
+      return hdrHtml + roseBox + descrHtml + roseNoteHtml + metricsHtml + scoreHtml + deltaHtml + flagsHtml;
     }
 
     // Fallback для неизвестных kinds
@@ -3332,35 +5328,65 @@
     if (!window.Plotly) return;
 
     var curves = snap.curves || {};
+    // Умеренная высота + компактная горизонтальная легенда (мелкий шрифт, короткие
+    // имена). Q и ΔP — половинной ширины (2 колонки) → легенда в 2 ряда; dev —
+    // полная ширина. В PDF Q и ΔP ставятся рядом (0.49\textwidth).
     var layout = {
-      height: 200,
-      margin: { l: 50, r: 20, t: 20, b: 40 },
-      legend: { orientation: 'h', y: -0.25 },
+      height: 250,
+      margin: { l: 50, r: 16, t: 16, b: 56 },
+      legend: { orientation: 'h', y: -0.30, x: 0, font: { size: 10 } },
       showlegend: true,
     };
     var config = { responsive: true, displayModeBar: false };
 
-    // Q chart — рендерится только если элемент есть (создан в _buildSensorCustomerComparisonHtml)
+    // Линия линейного тренда по ряду {dates, values}
+    function trendTrace(series, color, name) {
+      if (!series || !series.dates || series.dates.length < 2) return null;
+      var ds = series.dates, vs = series.values || [];
+      var idx = [], yy = [];
+      for (var i = 0; i < ds.length; i++) { if (vs[i] != null && !isNaN(vs[i])) { idx.push(i); yy.push(Number(vs[i])); } }
+      if (idx.length < 2) return null;
+      var nn = idx.length, sx = 0, sy = 0, sxx = 0, sxy = 0;
+      for (var j = 0; j < nn; j++) { sx += idx[j]; sy += yy[j]; sxx += idx[j] * idx[j]; sxy += idx[j] * yy[j]; }
+      var den = nn * sxx - sx * sx; if (den === 0) return null;
+      var slope = (nn * sxy - sx * sy) / den, intercept = (sy - slope * sx) / nn;
+      var i0 = idx[0], i1 = idx[nn - 1];
+      return { x: [ds[i0], ds[i1]], y: [slope * i0 + intercept, slope * i1 + intercept],
+               mode: 'lines', name: name, line: { color: color, dash: 'dash', width: 1.3 },
+               hoverinfo: 'skip', showlegend: false };
+    }
+
+    // Q chart — наложение двух дебитов (рабочий + общий) LoRa vs УзКорГаз
     var qEl = document.getElementById(idPrefix + 'chart-q');
-    if (qEl && curves.sensor_q && curves.customer_q) {
-        var qTraces = [
-          {
-            x: curves.sensor_q.dates || [],
-            y: curves.sensor_q.values || [],
-            name: 'LoRa',
-            mode: 'lines+markers',
-            marker: { size: 4 },
+    var hasQ = (curves.sensor_q && curves.customer_q) ||
+               (curves.sensor_q_total && curves.customer_q_total);
+    if (qEl && hasQ) {
+        var qTraces = [];
+        if (curves.sensor_q) qTraces.push({
+            x: curves.sensor_q.dates || [], y: curves.sensor_q.values || [],
+            name: 'LoRa Q раб.', mode: 'lines+markers', marker: { size: 4 },
             line: { color: '#1976d2' },
-          },
-          {
-            x: curves.customer_q.dates || [],
-            y: curves.customer_q.values || [],
-            name: 'УзКорГаз',
-            mode: 'lines+markers',
-            marker: { size: 4 },
+        });
+        if (curves.customer_q) qTraces.push({
+            x: curves.customer_q.dates || [], y: curves.customer_q.values || [],
+            name: 'УзКГ Q раб.', mode: 'lines+markers', marker: { size: 4 },
             line: { color: '#ff9800', dash: 'dot' },
-          },
-        ];
+        });
+        if (curves.sensor_q_total) qTraces.push({
+            x: curves.sensor_q_total.dates || [], y: curves.sensor_q_total.values || [],
+            name: 'LoRa Q общ.', mode: 'lines+markers', marker: { size: 4 },
+            line: { color: '#0d47a1', width: 1.2 },
+        });
+        if (curves.customer_q_total) qTraces.push({
+            x: curves.customer_q_total.dates || [], y: curves.customer_q_total.values || [],
+            name: 'УзКГ Q общ.', mode: 'lines+markers', marker: { size: 4 },
+            line: { color: '#e65100', dash: 'dot', width: 1.2 },
+        });
+        // Линии трендов (рабочий дебит)
+        var tS = trendTrace(curves.sensor_q, '#1976d2', 'тренд LoRa');
+        var tC = trendTrace(curves.customer_q, '#ff9800', 'тренд УзКГ');
+        if (tS) qTraces.push(tS);
+        if (tC) qTraces.push(tC);
         try {
           Plotly.newPlot(qEl, qTraces, { ...layout, yaxis: { title: 'тыс.м³/сут' } }, config);
         } catch (e) {
@@ -3390,10 +5416,67 @@
           },
         ];
         try {
-          Plotly.newPlot(dpEl, dpTraces, { ...layout, yaxis: { title: 'кгс/см²' } }, config);
+          // ΔP — шкала от нуля (перепад не бывает отрицательным).
+          Plotly.newPlot(dpEl, dpTraces, { ...layout, yaxis: { title: 'кгс/см²', rangemode: 'tozero' } }, config);
         } catch (e) {
           dpEl.innerHTML = '<div style="color:#dc2626;">Ошибка: ' + e.message + '</div>';
         }
+    }
+
+    // График ОТНОСИТЕЛЬНОГО отклонения Δ% = (LoRa − УзКГ)/УзКГ·100 по дням,
+    // с зонами допуска: зелёная ±15%, жёлтая 15–30%, красная >30%.
+    var devEl = document.getElementById(idPrefix + 'chart-dev');
+    var dd = snap.daily_diff || [];
+    if (devEl && dd.length) {
+      // Стиль и ПОРОГИ зон допуска — настраиваются в модалке (snapshot.display)
+      var _disp = snap.display || {};
+      var devStyle = _disp.dev_style || 'line';
+      var tol1 = (Number(_disp.dev_tol_green) > 0) ? Number(_disp.dev_tol_green) : 15;
+      var tol2 = (Number(_disp.dev_tol_amber) > tol1) ? Number(_disp.dev_tol_amber) : tol1 + 1;
+      var ddates = [], dpct = [], dcolors = [];
+      dd.forEach(function (r) {
+        // Относительно данных LoRa (сравниваем заказчика с нашим датчиком = эталон)
+        var pct = (r.delta_q != null && r.sensor_q) ? (r.delta_q / r.sensor_q * 100) : null;
+        ddates.push(r.date); dpct.push(pct);
+        var a = (pct == null || !isFinite(pct)) ? null : Math.abs(pct);
+        dcolors.push(a == null ? '#9ca3af' : (a <= tol1 ? '#16a34a' : (a <= tol2 ? '#f59e0b' : '#dc2626')));
+      });
+      var finite = dpct.filter(function (v) { return v != null && isFinite(v); });
+      var amax = finite.length ? Math.max(tol2 + 5, Math.ceil(Math.max.apply(null, finite.map(Math.abs)) / 5) * 5) : tol2 + 5;
+      var band = function (y0, y1, color) { return { type: 'rect', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: y0, y1: y1, fillcolor: color, line: { width: 0 }, layer: 'below' }; };
+      var hline = function (y) { return { type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: y, y1: y, line: { color: '#9ca3af', width: 1, dash: 'dot' } }; };
+      var devShapes = [
+        band(-tol1, tol1, 'rgba(22,163,74,0.12)'),
+        band(tol1, tol2, 'rgba(245,158,11,0.12)'), band(-tol2, -tol1, 'rgba(245,158,11,0.12)'),
+        band(tol2, amax, 'rgba(220,38,38,0.09)'), band(-amax, -tol2, 'rgba(220,38,38,0.09)'),
+        hline(tol1), hline(-tol1), hline(tol2), hline(-tol2),
+      ];
+      var hov = '%{x}<br>Δ %{y:.0f}%<extra></extra>';
+      var devTraces;
+      if (devStyle === 'bar') {
+        devTraces = [{ x: ddates, y: dpct, type: 'bar', marker: { color: dcolors }, hovertemplate: hov }];
+      } else if (devStyle === 'stem') {
+        var lx = [], ly = [];
+        ddates.forEach(function (d, i) { lx.push(d, d, null); ly.push(0, dpct[i], null); });
+        devTraces = [
+          { x: lx, y: ly, type: 'scatter', mode: 'lines', line: { color: '#94a3b8', width: 1.3 }, hoverinfo: 'skip', showlegend: false },
+          { x: ddates, y: dpct, type: 'scatter', mode: 'markers', marker: { color: dcolors, size: 9, line: { color: '#fff', width: 1 } }, hovertemplate: hov },
+        ];
+      } else if (devStyle === 'area') {
+        devTraces = [
+          { x: ddates, y: dpct, type: 'scatter', mode: 'lines', line: { color: '#64748b', width: 1.5 }, fill: 'tozeroy', fillcolor: 'rgba(100,116,139,0.12)', hoverinfo: 'skip', showlegend: false },
+          { x: ddates, y: dpct, type: 'scatter', mode: 'markers', marker: { color: dcolors, size: 7 }, hovertemplate: hov },
+        ];
+      } else {  // 'line' — линия с маркерами (по умолчанию)
+        devTraces = [
+          { x: ddates, y: dpct, type: 'scatter', mode: 'lines', line: { color: '#64748b', width: 1.5 }, hoverinfo: 'skip', showlegend: false },
+          { x: ddates, y: dpct, type: 'scatter', mode: 'markers', marker: { color: dcolors, size: 8, line: { color: '#fff', width: 1 } }, hovertemplate: hov },
+        ];
+      }
+      var devLayout = { ...layout, showlegend: false, shapes: devShapes,
+        yaxis: { title: 'Δ, % к LoRa', range: [-amax, amax], zeroline: true, zerolinecolor: '#111827', zerolinewidth: 1.5 } };
+      try { Plotly.newPlot(devEl, devTraces, devLayout, config); }
+      catch (e) { devEl.innerHTML = '<div style="color:#dc2626;">Ошибка: ' + e.message + '</div>'; }
     }
   }
 
@@ -3403,6 +5486,93 @@
   //  Графики (_render*Charts) вызываются опционально — через typeof guard
   //  (в этой версии движка только текст; графики — следующий под-шаг).
   // ─────────────────────────────────────────────────────────────────
+  // ===== _buildSensorParamsHtml — таблица техпараметров датчиков (статическая) =====
+  // Зеркало adaptation_report.tex §3.2 «Технические параметры». PARITY HTML↔PDF.
+  function _buildSensorParamsHtml() {
+    var rows = [
+      ['Напряжение питания', '3,6 В DC, литий-ионная батарея'],
+      ['Диапазон давления', '−0,1…6 МПа'],
+      ['Ток возбуждения', '0,2 мА'],
+      ['Интерфейс связи', 'беспроводной сигнал'],
+      ['Рабочая температура', '−20…+60 °C'],
+      ['Рабочая влажность', '0…80 % RH'],
+      ['Точность измерения', '0,5 % FS (от полной шкалы)'],
+      ['Интервал между измерениями', '60 сек'],
+    ];
+    var tr = rows.map(function(r){
+      return '<tr><td style="padding:3px 8px;border:1px solid #e5e7eb;">' + _escHtml(r[0]) +
+        '</td><td style="padding:3px 8px;border:1px solid #e5e7eb;text-align:right;">' + _escHtml(r[1]) + '</td></tr>';
+    }).join('');
+    return '<div style="margin:8px 0 14px;">' +
+      '<div style="font-weight:600; font-size:0.88rem; color:#374151; margin-bottom:3px;">Табл. 3.1.1. Технические параметры измерительных датчиков</div>' +
+      '<table style="width:100%; border-collapse:collapse; font-size:0.82rem;">' +
+      '<thead><tr style="background:#f3f4f6;"><th style="text-align:left;padding:4px 8px;border:1px solid #e5e7eb;">Параметр</th>' +
+      '<th style="text-align:right;padding:4px 8px;border:1px solid #e5e7eb;">Значение</th></tr></thead><tbody>' + tr +
+      '</tbody></table></div>';
+  }
+
+  // ===== _buildObsIntroSectionsHtml — §3.1 период/описание + §3.2 список датчиков =====
+  // Динамические данные (cfg.obsIntro) с эндпоинта /observation-intro. PARITY с PDF §3.1/§3.2.
+  function _buildObsIntroSectionsHtml(intro) {
+    if (!intro) return '';
+    var h = '';
+    if (intro.intro_text) {
+      h += '<div style="font-weight:600;font-size:0.95rem;color:#374151;margin:10px 0 3px;">3.1. Период и описание этапа</div>';
+      h += '<div style="font-size:0.84rem;color:#374151;line-height:1.55;margin-bottom:10px;">' + _escHtml(intro.intro_text) + '</div>';
+    }
+    var sensors = intro.sensors || [];
+    if (sensors.length) {
+      var tr = sensors.map(function(s){
+        return '<tr><td style="padding:3px 8px;border:1px solid #e5e7eb;">'+_escHtml(s.serial||'—')+
+          '</td><td style="padding:3px 8px;border:1px solid #e5e7eb;">'+_escHtml(s.label||'—')+
+          '</td><td style="padding:3px 8px;border:1px solid #e5e7eb;">'+_escHtml(s.position_label||s.position||'—')+
+          '</td><td style="padding:3px 8px;border:1px solid #e5e7eb;text-align:right;">'+_escHtml(s.installed_at_fmt||'—')+'</td></tr>';
+      }).join('');
+      h += '<div style="font-weight:600;font-size:0.95rem;color:#374151;margin:10px 0 3px;">3.2. Датчики давления</div>';
+      h += '<div style="font-weight:600;font-size:0.85rem;color:#374151;margin-bottom:3px;">Табл. 3.1. Датчики, на которых построен этап.</div>';
+      h += '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;"><thead><tr style="background:#f3f4f6;">'+
+        '<th style="text-align:left;padding:4px 8px;border:1px solid #e5e7eb;">Серийный номер</th>'+
+        '<th style="text-align:left;padding:4px 8px;border:1px solid #e5e7eb;">Метка</th>'+
+        '<th style="text-align:left;padding:4px 8px;border:1px solid #e5e7eb;">Положение</th>'+
+        '<th style="text-align:right;padding:4px 8px;border:1px solid #e5e7eb;">Дата установки</th></tr></thead><tbody>'+tr+'</tbody></table>';
+    }
+    return h;
+  }
+
+  // ===== _buildFormulasHtml — статическая секция «Формулы и методика» =====
+  // Зеркало adaptation_report.tex §3.2.1 (PARITY HTML↔PDF). Текст со страницы скважины.
+  function _buildFormulasHtml() {
+    return '<div style="margin:8px 0 16px; padding:10px 12px; background:#f8fafc;' +
+      ' border:1px solid #e2e8f0; border-radius:6px;">' +
+      '<div style="font-weight:600; font-size:0.95rem; color:#374151; margin-bottom:6px;">3.2.1. Формулы и методика расчёта</div>' +
+      '<div style="font-size:0.84rem; color:#374151; line-height:1.5;">' +
+      'Расчётный дебит газа определяется по модифицированной формуле Гилберта—Пирвердяна, ' +
+      'связывающей перепад давлений на штуцере (P<sub>тр</sub> и P<sub>шл</sub>) с расходом газа.' +
+      '<div style="margin:8px 0; font-family:serif;"><b>Докритический режим</b> (r &lt; 0,5):<br>' +
+      '<span style="margin-left:12px;">Q = M · (C₁ · P<sub>тр</sub> − C₂ · P<sub>шл</sub>) · d² / C₃</span></div>' +
+      '<div style="margin:8px 0; font-family:serif;"><b>Критический режим</b> (r ≥ 0,5):<br>' +
+      '<span style="margin-left:12px;">Q = M · C₁ · P<sub>тр</sub> · (1 − r) · d² / C₃,&nbsp;&nbsp; r = P<sub>шл</sub> / P<sub>тр</sub></span></div>' +
+      '<b>Обозначения:</b> Q — дебит газа, тыс.м³/сут; M — калибровочный множитель (M=4,1); ' +
+      'P<sub>тр</sub> — устьевое (трубное) давление, кгс/см²; P<sub>шл</sub> — давление шлейфа, кгс/см²; ' +
+      'd — диаметр штуцера, мм; C₁=2,919, C₂=4,654, C₃=286,95 — эмпирические константы; r — отношение давлений.' +
+      '<div style="margin-top:8px;"><b>Алгоритм расчёта:</b><ol style="margin:4px 0 0 18px; padding:0;">' +
+      '<li>Чтение минутных данных давления из БД (pressure_raw).</li>' +
+      '<li>Очистка: отрицательные и нулевые значения → NaN, интерполяция (ffill/bfill).</li>' +
+      '<li>Сглаживание: фильтр Савицкого—Голея (окно 17, полином 3, 2 прохода).</li>' +
+      '<li>Расчёт дебита по формуле для каждой минутной записи.</li>' +
+      '<li>Детекция продувок по маркерам в БД и алгоритмически по кривой давления.</li>' +
+      '<li>Потери при стравливании — по уравнению Бернулли через штуцер (только фаза продувки).</li>' +
+      '<li>Простои: периоды P<sub>тр</sub> ≤ P<sub>шл</sub> (дебит = 0, потерь нет).</li>' +
+      '<li>Накопленный дебит — интегрирование трапециями (Δt = 1/1440 сут.).</li></ol></div>' +
+      '<div style="margin-top:8px;"><b>Продувка и простой:</b><br>' +
+      '• <i>Продувка (стравливание):</i> задвижка открыта, газ стравливается в атмосферу; потери считаются через штуцер (Бернулли).<br>' +
+      '• <i>Простой</i> (P<sub>тр</sub> ≤ P<sub>шл</sub>): газ не поступает в шлейф, дебит = 0; потерь нет.</div>' +
+      '<div style="margin-top:8px;"><b>Потери при стравливании:</b> Q<sub>loss</sub> = C<sub>d</sub> · A · √(2·ΔP / ρ), ' +
+      'где C<sub>d</sub> = 0,9 — коэффициент расхода; A = π·d²/4 — сечение штуцера продувки; ' +
+      'ΔP = P<sub>уст</sub> − P<sub>атм</sub>; ρ — плотность газа при P<sub>уст</sub>.</div>' +
+      '</div></div>';
+  }
+
   function renderChapter(allBlocks, cfg) {
     cfg = cfg || {};
     var content = $(cfg.containerId);
@@ -3450,6 +5620,9 @@
         adaptation_period_analysis: 1,
         optimal_window: 2,
         reagent_irv_summary: 3,
+        // Отчёт за период (Step 8 wizard)
+        period_full_analysis: 1,
+        period_comparison: 2,
       };
       inReport.sort(function (a, b) {
         var ka = KIND_ORDER[a.kind] || 99;
@@ -3469,8 +5642,30 @@
               ' В отчёт включено: ' + inReport.length + '.</div>';
     }
 
+    // Общий вводный текст главы «Наблюдение» (паритет с PDF §3, начало главы).
+    if (cfg.showObsIntro === true) {
+      html += '<div style="font-size:0.84rem; color:#374151; line-height:1.55; margin:6px 0 14px;">' +
+        '<b>Этап наблюдения</b> — период фиксации фактического режима работы скважины по данным ' +
+        'датчиков давления (UniTool) до начала адаптации. <b>Цель этапа:</b> получить эталонную ' +
+        'картину работы скважины (расчётный дебит, перепад давления, устьевое и линейное давление, ' +
+        'простои), с которой далее сравнивается режим на этапе адаптации.</div>';
+      // §3.1 период/описание + §3.2 список датчиков (динамические данные с эндпоинта).
+      if (cfg.obsIntro && typeof _buildObsIntroSectionsHtml === 'function') {
+        html += _buildObsIntroSectionsHtml(cfg.obsIntro);
+      }
+      // Таблица техпараметров датчиков (§3.2, паритет с PDF).
+      if (typeof _buildSensorParamsHtml === 'function') html += _buildSensorParamsHtml();
+    }
+
+    // Секция «Формулы и методика» (вкл/выкл галочкой в настройках главы) —
+    // тот же статический текст, что в PDF (adaptation_report.tex §3.2.1). PARITY.
+    if (cfg.showFormulas === true && typeof _buildFormulasHtml === 'function') {
+      html += _buildFormulasHtml();
+    }
+
     var numPrefix = cfg.numPrefix || '';
     inReport.forEach(function (b, i) {
+     try {
       var subIdx = numPrefix + (i + 1);
       var title = _escHtml(b.title || ('Блок #' + b.id));
       var parts = _getPartsForBlock(b);
@@ -3491,16 +5686,23 @@
         '<span style="font-weight:600; color:#374151;">' + subIdx + '. ' + title + '</span>' +
         _kindBadge(b.kind) + '</div>' +
         preHtml + _renderBlockSummaryHtml(b) + sufHtml + '</div>';
+     } catch (e) {
+       console.warn('renderChapter block html', b && b.id, e);
+       html += '<div style="color:#dc2626;font-size:0.8rem;">Блок #' + (b && b.id) + ': ошибка рендера.</div>';
+     }
     });
     content.innerHTML = html;
 
     // Графики — опционально (следующий под-шаг). Без них движок рендерит текст.
     inReport.forEach(function (b) {
+     try {
       // baseline/period_analysis — данные заказчика (UzKorGaz)
       if (b.kind === 'baseline' || b.kind === 'period_analysis') {
         if (typeof _renderBlockChartsInline === 'function') _renderBlockChartsInline(b);
       } else if (b.kind === 'criteria_rose') {
         if (typeof _renderRoseBlockCharts === 'function') _renderRoseBlockCharts(b);
+      } else if (b.kind === 'stability_rose') {
+        if (typeof _renderStabilityRoseCharts === 'function') _renderStabilityRoseCharts(b);
       } else if (b.kind === 'comparison') {
         if (typeof _renderComparisonBlockChart === 'function') _renderComparisonBlockChart(b);
       } else if (b.kind === 'segment_analysis') {
@@ -3513,20 +5715,42 @@
         }
       } else if (b.kind === 'sensor_customer_comparison') {
         _renderSensorCustomerComparisonCharts(b.data_snapshot || {}, 'scc-' + b.id + '-');
+      } else if (b.kind === 'pressure_spectrum') {
+        _renderPressureSpectrumCharts(b.data_snapshot || {}, 'ps-' + b.id + '-');
+      } else if (b.kind === 'param_correlation') {
+        _renderParamCorrelationCharts(b.data_snapshot || {}, 'pc-' + b.id + '-');
       } else if (b.kind && b.kind.startsWith('observation_')) {
         // Observation блоки (датчики) — рендерим Plotly графики
         if (typeof _renderObservationBlockCharts === 'function') {
           _renderObservationBlockCharts(b);
         }
-      } else if (b.kind === 'adaptation_period_analysis') {
-        // Adaptation блок — рендерим Plotly графики (давления, ΔP, Q)
+      } else if (b.kind === 'adaptation_period_analysis' || b.kind === 'period_full_analysis') {
+        // Adaptation / Отчёт за период — те же Plotly графики (давления, ΔP, Q).
+        // Префикс 'adapt-{id}-' общий: block.id уникален, .tex берёт те же ключи.
         _renderAdaptationCharts(b.data_snapshot || {}, 'adapt-' + b.id + '-');
+      } else if (b.kind === 'period_comparison') {
+        // Сравнение метрик периода — overlay Q/ΔP (prcmp-{id}-q/-dp).
+        _renderPeriodComparisonCharts(b.data_snapshot || {}, 'prcmp-' + b.id + '-');
       } else if (b.kind === 'reagent_irv_summary') {
         // ИРВ — donut «вбросы по реагентам» + Score по времени
         _renderReagentIrvCharts(b.data_snapshot || {}, 'irv-' + b.id + '-');
+      } else if (b.kind === 'adaptation_effectiveness') {
+        // Оценка эффективности — диаграммы B1/B2/R/R★ (фильтр столбцов по parts)
+        _renderEffectivenessChart(b.data_snapshot || {}, 'adapt-' + b.id + '-', (b.params && b.params.parts) || {});
+      } else if (b.kind === 'works_analysis') {
+        _renderWorksAnalysisChart(b.data_snapshot || {}, b.id || 'x');
       }
+     } catch (e) { console.warn('renderChapter block charts', b && b.id, e); }
     });
   }
 
   window.renderChapter = renderChapter;
+  // Точечный рендер ОДНОГО блока «роза нестабильности» в контейнер (без обёртки
+  // главы) — для превью на странице Заказчика (аккордеон) и правой панели.
+  window.renderStabilityBlock = function (b, containerId) {
+    var el = document.getElementById(containerId);
+    if (!el) return;
+    try { el.innerHTML = _renderBlockSummaryHtml(b); } catch (e) { console.warn('stab html', e); return; }
+    try { _renderStabilityRoseCharts(b); } catch (e) { console.warn('stab charts', e); }
+  };
 })();

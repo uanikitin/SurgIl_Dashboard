@@ -539,7 +539,7 @@ def render_analysis(snapshot: dict, ctx: RenderContext) -> RenderResult:
         )
 
     if _part_on(ctx, "metrics_table"):
-        latex_parts.append("\\begin{tabular}{lrr}")
+        latex_parts.append("\\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lrr}")
         latex_parts.append("\\toprule")
         latex_parts.append("Показатель & Среднее & Медиана \\\\")
         latex_parts.append("\\midrule")
@@ -548,7 +548,7 @@ def render_analysis(snapshot: dict, ctx: RenderContext) -> RenderResult:
                 f"{latex_escape(label)} & {_fmt(snapshot.get(k_avg))} & {_fmt(snapshot.get(k_med))} \\\\"
             )
         latex_parts.append("\\bottomrule")
-        latex_parts.append("\\end{tabular}\n")
+        latex_parts.append("\\end{tabular*}\n")
 
     # ─── Figures (4 графика) ───
     figures: list[FigureRef] = []
@@ -807,7 +807,7 @@ def _latex_metrics_tabular(metrics: dict) -> str:
 
     rows = [
         r"{\footnotesize",
-        r"\begin{tabular}{lrrrrrr}",
+        r"\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lrrrrrr}",
         r"\toprule",
         r"\textbf{Параметр} & \textbf{Среднее} & \textbf{Медиана} & \textbf{Мин} & \textbf{Макс} & \textbf{Std} & \textbf{Тренд} \\",
         r"\midrule",
@@ -831,7 +831,7 @@ def _latex_metrics_tabular(metrics: dict) -> str:
             f"& --- & {_fmt_latex(downtime.get('downtime_pct_of_period'))}\\% & --- & --- \\\\"
         )
 
-    rows += [r"\bottomrule", r"\end{tabular}", r"}"]
+    rows += [r"\bottomrule", r"\end{tabular*}", r"}"]
     return "\n".join(rows)
 
 
@@ -925,7 +925,7 @@ def _latex_segments_tabular(segments: list) -> str:
 
     rows = [
         r"{\footnotesize",
-        r"\begin{tabular}{cllrlrrrr}",
+        r"\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}cllrlrrrr}",
         r"\toprule",
         r"\textbf{\#} & \textbf{Начало} & \textbf{Конец} & \textbf{Дни} "
         r"& \textbf{Направление} & \textbf{$Q$} & \textbf{$P_\text{шл}$} & \textbf{$P_\text{уст}$} & \textbf{$\Delta P$} & \textbf{Наклон} \\",
@@ -949,7 +949,7 @@ def _latex_segments_tabular(segments: list) -> str:
             f"& {_fmt_latex(seg.get('mean_dp'))} "
             f"& {_fmt_latex(seg.get('slope_q_per_day'))} \\\\"
         )
-    rows += [r"\bottomrule", r"\end{tabular}", r"}"]
+    rows += [r"\bottomrule", r"\end{tabular*}", r"}"]
     return "\n".join(rows)
 
 
@@ -958,7 +958,7 @@ def _latex_changepoints_tabular(changepoints: list) -> str:
         return ""
     rows = [
         r"{\footnotesize",
-        r"\begin{tabular}{lrr}",
+        r"\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lrr}",
         r"\toprule",
         r"\textbf{Дата} & \textbf{Величина, \%} & \textbf{Уверенность} \\",
         r"\midrule",
@@ -970,7 +970,7 @@ def _latex_changepoints_tabular(changepoints: list) -> str:
         mag = _fmt_latex(cp.get("magnitude_pct"))
         conf = _fmt_latex(cp.get("confidence"))
         rows.append(f"{cp_date} & {mag} & {conf} \\\\")
-    rows += [r"\bottomrule", r"\end{tabular}", r"}"]
+    rows += [r"\bottomrule", r"\end{tabular*}", r"}"]
     return "\n".join(rows)
 
 
@@ -1694,7 +1694,7 @@ def _latex_b1_deltas_tabular(with_b1: dict, diagnostics: list | None) -> str:
 
     rows = [
         r"{\footnotesize",
-        r"\begin{tabular}{lrrl}",
+        r"\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lrrl}",
         r"\toprule",
         r"\textbf{Метрика} & \textbf{$\Delta$ абс.} & \textbf{$\Delta$ \%} & \textbf{Вердикт} \\",
         r"\midrule",
@@ -1714,7 +1714,7 @@ def _latex_b1_deltas_tabular(with_b1: dict, diagnostics: list | None) -> str:
         )
         verdict = latex_escape(_verdict_for(diagnostics, diag_target, "vs_b1"))
         rows.append(f"{label} & {abs_val} & {pct_val} & {verdict} \\\\")
-    rows += [r"\bottomrule", r"\end{tabular}", r"}"]
+    rows += [r"\bottomrule", r"\end{tabular*}", r"}"]
     if not has_any_row:
         return r"\textit{Нет данных о дельтах.}"
     return "\n".join(rows)
@@ -1794,7 +1794,7 @@ def _latex_customer_comparison_tabular(
 
     table_lines = [
         r"{\footnotesize",
-        r"\begin{tabular}{lrrrrl}",
+        r"\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lrrrrl}",
         r"\toprule",
         r"\textbf{Дата} & \textbf{Наш $Q$} & \textbf{$Q$ заказчика} "
         r"& \textbf{$\Delta$ абс.} & \textbf{$\Delta$ \%} & \textbf{Статус} \\",
@@ -1818,7 +1818,7 @@ def _latex_customer_comparison_tabular(
         shown += 1
         if shown >= 10:
             break
-    table_lines += [r"\bottomrule", r"\end{tabular}", r"}"]
+    table_lines += [r"\bottomrule", r"\end{tabular*}", r"}"]
     if len(daily_table) > shown:
         table_lines.append(
             r"\textit{Показано " + str(shown) + " из "
@@ -1921,11 +1921,18 @@ def render_segment_analysis(snapshot: dict, ctx: RenderContext) -> RenderResult:
         "unknown": "#9ca3af",
     }
     seg_type_labels = {
+        # Стандартные типы из timeseries_analyzer
         "stable": "Стабильный",
         "rising": "Рост",
         "falling": "Падение",
         "volatile": "Волатильный",
         "unknown": "Неопределён",
+        # Типы из segment_analysis_module (PELT)
+        "initial": "Начальный",
+        "decline": "Снижение",
+        "rise": "Рост",
+        "sharp_decline": "Резкое снижение",
+        "sharp_rise": "Резкий рост",
     }
 
     # ── Chart generation (only for PDF, skip_figures=False) ──
@@ -2083,7 +2090,7 @@ def render_segment_analysis(snapshot: dict, ctx: RenderContext) -> RenderResult:
 
     # Segments table in LaTeX
     if segments and (display_settings.get("show_segments_table", True) or _part_on(ctx, "segments_table")):
-        latex_parts.append(r"\begin{tabular}{|c|l|c|c|r|r|}")
+        latex_parts.append(r"\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}|c|l|c|c|r|r|}")
         latex_parts.append(r"\hline")
         latex_parts.append(r"\textbf{\#} & \textbf{Тип} & \textbf{С} & \textbf{По} & \textbf{Ср.} & \textbf{Тренд} \\")
         latex_parts.append(r"\hline")
@@ -2101,7 +2108,7 @@ def render_segment_analysis(snapshot: dict, ctx: RenderContext) -> RenderResult:
                 f"{num} & {latex_escape(label)} & {date_from} & {date_to} & {mean_str} & {slope_str} \\\\"
             )
         latex_parts.append(r"\hline")
-        latex_parts.append(r"\end{tabular}")
+        latex_parts.append(r"\end{tabular*}")
         latex_parts.append("")
 
     # Interpretation in LaTeX
@@ -2246,7 +2253,7 @@ def render_segment_comparison(snapshot: dict, ctx: RenderContext) -> RenderResul
         deltas = diff_table.get("deltas", {})
         if deltas:
             latex_parts.append(r"{\footnotesize \textbf{Различия:}}")
-            latex_parts.append(r"\begin{tabular}{|l|r|r|}")
+            latex_parts.append(r"\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}|l|r|r|}")
             latex_parts.append(r"\hline")
             latex_parts.append(r"\textbf{Метрика} & \textbf{Δ абс.} & \textbf{Δ \%} \\")
             latex_parts.append(r"\hline")
@@ -2261,7 +2268,7 @@ def render_segment_comparison(snapshot: dict, ctx: RenderContext) -> RenderResul
                 pct_str = f"{pct_val}\\%" if pct_val is not None else "—"
                 latex_parts.append(f"{label} & {abs_str} & {pct_str} \\\\")
             latex_parts.append(r"\hline")
-            latex_parts.append(r"\end{tabular}")
+            latex_parts.append(r"\end{tabular*}")
             latex_parts.append("")
 
     # Summary

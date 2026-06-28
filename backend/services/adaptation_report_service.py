@@ -736,15 +736,24 @@ def collect_stage_stats(
     # Маркеры событий для графиков (все значимые типы) — полные данные
     # Добавлены p_tube, p_line из самого события (давления на момент фиксации)
     event_markers: list[dict] = []
+    # equip-события (установка датчиков) — это СТАРТ наблюдения и могут произойти
+    # чуть раньше старта данных (за тот же день). Чтобы «Установлено новые датчики»
+    # попадало в таблицу событий, окно для equip расширяем до начала суток старта.
+    _equip_start = local_start.replace(hour=0, minute=0, second=0, microsecond=0)
     marker_rows = db.execute(text("""
         SELECT event_time, event_type, reagent, qty, description, p_tube, p_line
         FROM events
         WHERE well = :wno
           AND event_type IN ('purge', 'reagent', 'equip', 'other')
-          AND event_time >= :start AND event_time <= :end
+          AND event_time <= :end
+          AND (
+                event_time >= :start
+                OR (event_type = 'equip' AND event_time >= :equip_start)
+          )
         ORDER BY event_time
     """), {
         "wno": str(well.number), "start": local_start, "end": local_end,
+        "equip_start": _equip_start,
     }).fetchall()
     for r in marker_rows:
         if r[0]:
@@ -1946,11 +1955,11 @@ def generate_stage_narrative(
     kiv = stage.get("utilization_pct")
     dwh = stage.get("downtime_hours") or 0
     if hwd > 0:
-        parts = [f"Скважина работала {wh} ч из {hwd} ч наблюдения"]
+        parts = [f"Скважина работала {wh:.1f} ч из {hwd:.1f} ч наблюдения"]
         if kiv is not None:
             parts.append(f"коэффициент использования времени (КИВ) составил {kiv:.1f}%")
         if dwh > 0:
-            parts.append(f"зафиксировано {dwh} ч простоев")
+            parts.append(f"зафиксировано {dwh:.1f} ч простоев")
         lines.append(". ".join(parts) + ".")
     else:
         lines.append("За этап отсутствуют данные давления для анализа времени работы.")
@@ -2549,22 +2558,35 @@ def _build_observation_intro(
         "Шлюз устьевой ШУ\\,50--36--550."
     )
 
-    # Текст-вступление целиком (для LaTeX). Список датчиков — в отдельной
-    # таблице через шаблон, здесь только основная фраза.
+    # Текст-вступление: ГРАМОТНО СОСТАВЛЕННЫЙ по данным датчиков (не дословные тезисы).
+    # ЧИСТЫЙ текст (без LaTeX-разметки) — используется и в PDF (§3.1), и в HTML
+    # (через /observation-intro). Смысл: НАБЛЮДЕНИЕ за фактическим режимом, НЕ адаптация.
     if sensors:
-        sensor_count = len(sensors)
+        # Позиции установки (устье/шлейф) для осмысленной фразы.
+        seen_pos: list[str] = []
+        for s in sensors:
+            pl = s.get("position_label")
+            if pl and pl not in seen_pos:
+                seen_pos.append(pl)
+        pos_phrase = (" и ".join(f"на {p}е" if p.endswith("ь") else f"на {p}"
+                                 for p in seen_pos)
+                      if seen_pos else "на устье и на шлейфе")
         intro_text = (
-            f"С {acceptance_fmt} скважина принята для проведения работ по "
-            f"адаптации согласно договору. Установлено {sensor_count} "
-            f"датчик(ов) давления (см. таблицу 3.0); "
-            f"для дозирования реагента на устье установлен Шлюз устьевой "
-            f"ШУ\\,50--36--550."
+            f"С {acceptance_fmt} на скважине ведётся наблюдение за фактическим режимом "
+            f"её работы: непрерывно фиксируются устьевое и линейное давление, по которым "
+            f"рассчитывается дебит газа и учитываются простои, — с целью анализа текущего "
+            f"состояния скважины до начала работ по адаптации. Измерения выполняются "
+            f"автономными датчиками давления системы SMOD, установленными {pos_phrase} "
+            f"(перечень датчиков приведён в табл. 3.1, их технические характеристики — "
+            f"в табл. 3.1.1)."
         )
     else:
         intro_text = (
-            f"С {acceptance_fmt} скважина принята для проведения работ по "
-            f"адаптации согласно договору. Для дозирования реагента на "
-            f"устье установлен Шлюз устьевой ШУ\\,50--36--550."
+            f"С {acceptance_fmt} на скважине ведётся наблюдение за фактическим режимом "
+            f"её работы: непрерывно фиксируются устьевое и линейное давление, по которым "
+            f"рассчитывается дебит газа и учитываются простои, — с целью анализа текущего "
+            f"состояния скважины до начала работ по адаптации. Измерения выполняются "
+            f"датчиками давления системы SMOD."
         )
 
     return {
@@ -3164,6 +3186,10 @@ def collect_report_data(
     # (старое поведение, может приводить к накоплению файлов). Роутер
     # `_build_pdf_response` создаёт TemporaryDirectory и передаёт его сюда.
     chart_dir: Path | None = None,
+    # period_report_id — изоляция отчётов главы «Отчёт за период»: в PDF попадают
+    # только period-блоки этого сохранённого отчёта (params.period_report_id).
+    # None → все period-блоки скважины (обратная совместимость).
+    period_report_id: int | None = None,
 ) -> dict[str, Any]:
     """Собрать все данные для отчёта об адаптации.
 
@@ -3273,6 +3299,8 @@ def collect_report_data(
     # плитка блока, графики этапа в этом превью не показываются).
     _need_obs    = (fast_chapter_only in (None, "observation"))
     _need_adapt  = (fast_chapter_only in (None, "adaptation"))
+    _need_period = (fast_chapter_only in (None, "period"))
+    _need_works  = (fast_chapter_only in (None, "works"))
     _need_customer = (fast_chapter_only in (None, "customer_data"))
     _need_optimal = (fast_chapter_only in (None, "adaptation"))
     _need_reagent = include_reagent_effectiveness and (fast_chapter_only in (None, "adaptation"))
@@ -3323,6 +3351,8 @@ def collect_report_data(
         # Только блоки — никаких customer_chapter, baselines, well_tech.
         observation_blocks: list[dict] = []
         adaptation_blocks:  list[dict] = []
+        period_blocks:      list[dict] = []
+        works_blocks:       list[dict] = []  # глава «Стабильность в период работ»
         try:
             from backend.services import customer_daily_service as csvc
             csvc.ensure_blocks_table(db)
@@ -3341,6 +3371,9 @@ def collect_report_data(
                     "comment":       b.get("comment"),
                     "params":        p,
                     "data_snapshot": b.get("data_snapshot") or {},
+                    # parts (тумблеры PDF, в т.ч. charts_grid для 2×2) — из params.parts,
+                    # иначе data_snapshot.parts. Без этого 2×2 в PDF не включалось.
+                    "parts":         p.get("parts") or (b.get("data_snapshot") or {}).get("parts") or {},
                 })
             elif kind == "segment_analysis":
                 # segment_analysis: observation или adaptation в зависимости от chapter
@@ -3359,6 +3392,32 @@ def collect_report_data(
                     })
                 elif p.get("chapter") == "adaptation":
                     adaptation_blocks.append({
+                        "block_id":      b.get("id"),
+                        "well_id":       well.id,
+                        "kind":          "segment_analysis",
+                        "title":         b.get("title"),
+                        "comment":       b.get("comment"),
+                        "params":        p,
+                        "data_snapshot": b.get("data_snapshot") or {},
+                        "parts":         p.get("parts") or {},
+                        "prefix_note":   p.get("prefix_note") or "",
+                        "suffix_note":   p.get("suffix_note") or "",
+                    })
+                elif p.get("chapter") == "period":
+                    period_blocks.append({
+                        "block_id":      b.get("id"),
+                        "well_id":       well.id,
+                        "kind":          "segment_analysis",
+                        "title":         b.get("title"),
+                        "comment":       b.get("comment"),
+                        "params":        p,
+                        "data_snapshot": b.get("data_snapshot") or {},
+                        "parts":         p.get("parts") or {},
+                        "prefix_note":   p.get("prefix_note") or "",
+                        "suffix_note":   p.get("suffix_note") or "",
+                    })
+                elif p.get("chapter") == "works":
+                    works_blocks.append({
                         "block_id":      b.get("id"),
                         "well_id":       well.id,
                         "kind":          "segment_analysis",
@@ -3398,9 +3457,39 @@ def collect_report_data(
                         "prefix_note":   p.get("prefix_note") or "",
                         "suffix_note":   p.get("suffix_note") or "",
                     })
+                elif p.get("chapter") == "period":
+                    period_blocks.append({
+                        "block_id":      b.get("id"),
+                        "well_id":       well.id,
+                        "kind":          "segment_comparison",
+                        "title":         b.get("title"),
+                        "comment":       b.get("comment"),
+                        "params":        p,
+                        "data_snapshot": b.get("data_snapshot") or {},
+                        "parts":         p.get("parts") or {},
+                        "prefix_note":   p.get("prefix_note") or "",
+                        "suffix_note":   p.get("suffix_note") or "",
+                    })
+                elif p.get("chapter") == "works":
+                    works_blocks.append({
+                        "block_id":      b.get("id"),
+                        "well_id":       well.id,
+                        "kind":          "segment_comparison",
+                        "title":         b.get("title"),
+                        "comment":       b.get("comment"),
+                        "params":        p,
+                        "data_snapshot": b.get("data_snapshot") or {},
+                        "parts":         p.get("parts") or {},
+                        "prefix_note":   p.get("prefix_note") or "",
+                        "suffix_note":   p.get("suffix_note") or "",
+                    })
             elif kind in ("adaptation_period_analysis", "adaptation_comparison",
-                          "optimal_window", "reagent_irv_summary"):
-                adaptation_blocks.append({
+                          "optimal_window", "reagent_irv_summary",
+                          "adaptation_effectiveness"):
+                _eff_target = (period_blocks
+                               if (kind == "adaptation_effectiveness" and p.get("chapter") == "period")
+                               else adaptation_blocks)
+                _eff_target.append({
                     "block_id":      b.get("id"),
                     "well_id":       well.id,
                     "kind":          kind,
@@ -3409,7 +3498,27 @@ def collect_report_data(
                     "params":        p,
                     "data_snapshot": b.get("data_snapshot") or {},
                 })
-            elif kind == "sensor_customer_comparison":
+            elif kind in ("period_full_analysis", "period_comparison"):
+                period_blocks.append({
+                    "block_id":      b.get("id"),
+                    "well_id":       well.id,
+                    "kind":          kind,
+                    "title":         b.get("title"),
+                    "comment":       b.get("comment"),
+                    "params":        p,
+                    "data_snapshot": b.get("data_snapshot") or {},
+                })
+            elif kind == "works_analysis":
+                works_blocks.append({
+                    "block_id":      b.get("id"),
+                    "well_id":       well.id,
+                    "kind":          kind,
+                    "title":         b.get("title"),
+                    "comment":       b.get("comment"),
+                    "params":        p,
+                    "data_snapshot": b.get("data_snapshot") or {},
+                })
+            elif kind in ("sensor_customer_comparison", "pressure_spectrum", "param_correlation"):
                 # Роутинг по chapter/source
                 block_data = {
                     "block_id":      b.get("id"),
@@ -3422,6 +3531,10 @@ def collect_report_data(
                 }
                 if p.get("chapter") == "observation" or p.get("source") == "observation":
                     observation_blocks.append(block_data)
+                elif p.get("chapter") == "period":
+                    period_blocks.append(block_data)
+                elif p.get("chapter") == "works":
+                    works_blocks.append(block_data)
                 else:
                     adaptation_blocks.append(block_data)
 
@@ -3441,6 +3554,10 @@ def collect_report_data(
                 observation_blocks_fmt.append(
                     _format_sensor_customer_comparison(ob, render_charts=render_charts, chart_dir=None)
                 )
+            elif kind == "pressure_spectrum":
+                observation_blocks_fmt.append(_format_pressure_spectrum(ob))
+            elif kind == "param_correlation":
+                observation_blocks_fmt.append(_format_param_correlation(ob))
             else:
                 observation_blocks_fmt.append(
                     _format_observation_block(ob, render_charts=render_charts)
@@ -3461,10 +3578,26 @@ def collect_report_data(
                 adaptation_blocks_fmt.append(
                     _format_sensor_customer_comparison(ab, render_charts=render_charts, chart_dir=None)
                 )
+            elif kind == "pressure_spectrum":
+                adaptation_blocks_fmt.append(_format_pressure_spectrum(ab))
+            elif kind == "param_correlation":
+                adaptation_blocks_fmt.append(_format_param_correlation(ab))
             else:
                 adaptation_blocks_fmt.append(
                     _format_adaptation_block(ab, render_charts=render_charts, db=db)
                 )
+
+        period_blocks_fmt = [
+            _format_period_block_with_meta(pb, render_charts=render_charts, db=db, chart_dir=None)
+            for pb in period_blocks
+            if (period_report_id is None
+                or (pb.get("params") or {}).get("period_report_id") == period_report_id)
+        ]
+
+        works_blocks_fmt = [
+            _format_works_block(wb)
+            for wb in works_blocks
+        ]
 
         return {
             "ok": True,
@@ -3486,6 +3619,8 @@ def collect_report_data(
             "customer_chapter": None,
             "observation_blocks": observation_blocks_fmt,
             "adaptation_blocks": adaptation_blocks_fmt,
+            "period_blocks": period_blocks_fmt,
+            "works_blocks": works_blocks_fmt,
             "b2_tile": None, "b1_tile": None,
         }
 
@@ -3503,12 +3638,33 @@ def collect_report_data(
     except Exception:
         log.warning("Early blocks fetch failed for well %s, will use live calculation", well.id)
 
-    # Сбор статистики обоих этапов
-    # Для obs_stats: сначала ищем snapshot observation_analysis,
-    # если нет — fallback на collect_stage_stats.
-    _obs_snapshot = _find_matching_observation_block(_early_blocks, obs_from, obs_to)
+    # Даты этапа наблюдения для всей главы (stats, события, датчики §3.2, §3.1).
+    # ПРАВИЛО: УВАЖАЕМ переданный период (выбор пользователя в мастере — таймлайн,
+    # «до первого вброса», well_status, ручной). Авто-детект включаем ТОЛЬКО если
+    # переданный период ВЫРОЖДЕННЫЙ/заглушка (напр. 01.01.2025, < ~1.5 сут) — тогда
+    # берём event-based «от установки до первого вброса» (suggest_stages_from_events),
+    # тот же источник, что радио «до первого вброса» в мастере (НЕ well_status, иначе
+    # для скв. с расходящимся well_status период «уезжает» и события не совпадают).
+    _io_from, _io_to = obs_from, obs_to
+    try:
+        _df_chk, _dt_chk = _to_dt(obs_from, False), _to_dt(obs_to, True)
+        _span_ok = (_dt_chk - _df_chk).total_seconds() > 36 * 3600
+    except Exception:
+        _span_ok = False
+    if not _span_ok:
+        try:
+            _sug = suggest_stages_from_events(db, well.id)
+            if _sug.get("obs_from") and _sug.get("obs_to"):
+                _io_from, _io_to = _sug["obs_from"], _sug["obs_to"]
+        except Exception:
+            pass
+
+    # Сбор статистики этапа наблюдения по ФАКТИЧЕСКИМ датам.
+    # Для obs_stats: сначала ищем snapshot observation_analysis, если нет —
+    # fallback на collect_stage_stats.
+    _obs_snapshot = _find_matching_observation_block(_early_blocks, _io_from, _io_to)
     _obs_from_snap = (
-        _stats_from_observation_snapshot(_obs_snapshot, obs_from, obs_to)
+        _stats_from_observation_snapshot(_obs_snapshot, _io_from, _io_to)
         if _obs_snapshot else None
     )
     if _obs_from_snap:
@@ -3516,7 +3672,7 @@ def collect_report_data(
         log.debug("obs_stats for well %s: using snapshot", well.number)
     else:
         obs_stats = collect_stage_stats(
-            db, well, choke_mm, obs_from, obs_to,
+            db, well, choke_mm, _io_from, _io_to,
             render_charts=(_stage_render and _need_obs), chart_tag="obs",
             dp_threshold=dp_threshold,
         )
@@ -3528,10 +3684,9 @@ def collect_report_data(
         else obs_stats.get("description") or obs_note
     )
 
-    # Вступление к §3.1: дата приёмки + датчики + шлюз дозирования.
     try:
         obs_stats["intro"] = _build_observation_intro(
-            db, well.id, obs_from, obs_to,
+            db, well.id, _io_from, _io_to,
         )
     except Exception:
         log.exception("observation intro build failed for well %s", well.id)
@@ -3676,8 +3831,11 @@ def collect_report_data(
     customer_chapter = None
     observation_blocks: list[dict] = []
     adaptation_blocks: list[dict] = []
+    period_blocks: list[dict] = []  # глава «Отчёт за период» (chapter='period')
+    works_blocks:  list[dict] = []  # глава «Стабильность в период работ» (chapter='works')
     comparisons_input: list[dict] = []
     rose_blocks_input: list[dict] = []
+    stability_blocks_input: list[dict] = []
     segment_blocks_input: list[dict] = []  # PLAN B — kind='segment_analysis'
     chapter_intros_input: list[dict] = []
     periods_input = list(customer_periods or [])
@@ -3719,6 +3877,7 @@ def collect_report_data(
                 "data_snapshot": snap,
                 "is_baseline":  (kind == "baseline"),
                 "justification": p.get("justification") or "",
+                "sort_order":  int(b.get("sort_order") or 0),
             })
         elif kind == "comparison":
             comparisons_input.append({
@@ -3728,6 +3887,7 @@ def collect_report_data(
                 "params":        p,
                 "data_snapshot": snap,
                 "parts":         p.get("parts") or {},
+                "sort_order":    int(b.get("sort_order") or 0),
             })
         elif kind == "criteria_rose":
             rose_blocks_input.append({
@@ -3737,6 +3897,17 @@ def collect_report_data(
                 "params":        p,
                 "data_snapshot": snap,
                 "parts":         p.get("parts") or {},
+                "sort_order":    int(b.get("sort_order") or 0),
+            })
+        elif kind == "stability_rose":
+            stability_blocks_input.append({
+                "block_id":      b.get("id"),
+                "title":         b.get("title"),
+                "comment":       b.get("comment"),
+                "params":        p,
+                "data_snapshot": snap,
+                "parts":         p.get("parts") or {},
+                "sort_order":    int(b.get("sort_order") or 0),
             })
         elif kind == "segment_analysis":
             # Блоки из wizard'а Наблюдения (chapter=observation) → глава 3 (Наблюдение)
@@ -3769,8 +3940,40 @@ def collect_report_data(
                     "prefix_note":   p.get("prefix_note") or "",
                     "suffix_note":   p.get("suffix_note") or "",
                 })
-            else:
-                # PLAN B: Core Segment Analysis интегрирован в PDF главы 2.
+            elif p.get("chapter") == "period":
+                # Сегментный анализ для главы «Отчёт за период»
+                period_blocks.append({
+                    "block_id":      b.get("id"),
+                    "well_id":       well.id,
+                    "kind":          "segment_analysis",
+                    "title":         b.get("title"),
+                    "comment":       b.get("comment"),
+                    "params":        p,
+                    "data_snapshot": snap,
+                    "parts":         p.get("parts") or {},
+                    "prefix_note":   p.get("prefix_note") or "",
+                    "suffix_note":   p.get("suffix_note") or "",
+                })
+            elif p.get("chapter") == "works":
+                # Сегментный анализ для главы «Стабильность в период работ»
+                works_blocks.append({
+                    "block_id":      b.get("id"),
+                    "well_id":       well.id,
+                    "kind":          "segment_analysis",
+                    "title":         b.get("title"),
+                    "comment":       b.get("comment"),
+                    "params":        p,
+                    "data_snapshot": snap,
+                    "parts":         p.get("parts") or {},
+                    "prefix_note":   p.get("prefix_note") or "",
+                    "suffix_note":   p.get("suffix_note") or "",
+                })
+            elif p.get("chapter") in (None, "", "customer"):
+                # §2 «Заказчик»: ТОЛЬКО свои сегментные блоки (chapter='customer'
+                # либо legacy без тега). Блоки ДРУГИХ глав в §2 НЕ попадают:
+                # observation/adaptation отсечены выше, 'period' (мастер «Периоды»)
+                # и любые иные главы — отсекаются здесь. Изоляция блоков по главам
+                # (КРИТИЧЕСКИЙ ИНВАРИАНТ, CLAUDE.md).
                 segment_blocks_input.append({
                     "block_id":      b.get("id"),
                     "title":         b.get("title"),
@@ -3780,6 +3983,7 @@ def collect_report_data(
                     "parts":         p.get("parts") or {},
                     "prefix_note":   p.get("prefix_note") or "",
                     "suffix_note":   p.get("suffix_note") or "",
+                    "sort_order":    int(b.get("sort_order") or 0),
                 })
         elif kind == "segment_comparison":
             # segment_comparison из wizard'а Наблюдения → observation_blocks
@@ -3810,6 +4014,32 @@ def collect_report_data(
                     "prefix_note":   p.get("prefix_note") or "",
                     "suffix_note":   p.get("suffix_note") or "",
                 })
+            elif p.get("chapter") == "period":
+                period_blocks.append({
+                    "block_id":      b.get("id"),
+                    "well_id":       well.id,
+                    "kind":          "segment_comparison",
+                    "title":         b.get("title"),
+                    "comment":       b.get("comment"),
+                    "params":        p,
+                    "data_snapshot": snap,
+                    "parts":         p.get("parts") or {},
+                    "prefix_note":   p.get("prefix_note") or "",
+                    "suffix_note":   p.get("suffix_note") or "",
+                })
+            elif p.get("chapter") == "works":
+                works_blocks.append({
+                    "block_id":      b.get("id"),
+                    "well_id":       well.id,
+                    "kind":          "segment_comparison",
+                    "title":         b.get("title"),
+                    "comment":       b.get("comment"),
+                    "params":        p,
+                    "data_snapshot": snap,
+                    "parts":         p.get("parts") or {},
+                    "prefix_note":   p.get("prefix_note") or "",
+                    "suffix_note":   p.get("suffix_note") or "",
+                })
         elif kind == "observation_analysis":
             # Обогащаем события в snapshot данными из БД
             if snap and snap.get("adaptation"):
@@ -3824,18 +4054,41 @@ def collect_report_data(
                 "params":        p,
                 "data_snapshot": snap,
             })
+        elif kind in ("observation_baseline", "observation_period", "observation_segment"):
+            # RFC-блоки наблюдения (Шаг 3 мастера) → глава 3.
+            # Рендерятся форматтером _format_observation_rfc_block (паритет с
+            # chapter_render.js::_buildObservationBlockHtml). Графики — те же
+            # Plotly (prev-{id}-obs-metrics/ts/cmp/seg), снимаются в роутере.
+            observation_blocks.append({
+                "block_id":      b.get("id"),
+                "well_id":       well.id,
+                "kind":          kind,
+                "title":         b.get("title"),
+                "comment":       b.get("comment"),
+                "params":        p,
+                "data_snapshot": snap,
+                "parts":         p.get("parts") or {},
+                "prefix_note":   p.get("prefix_note") or "",
+                "suffix_note":   p.get("suffix_note") or "",
+            })
         elif kind in (
             "adaptation_period_analysis",
             "adaptation_comparison",
             "optimal_window",
             "reagent_irv_summary",
+            "adaptation_effectiveness",
         ):
             # Обогащаем события в snapshot данными из БД (p_tube, p_line, reagent, qty, description)
             if snap and snap.get("adaptation"):
                 evts = snap["adaptation"].get("events_for_chart")
                 if evts:
                     _enrich_events_from_db(db, evts, str(well.number))
-            adaptation_blocks.append({
+            # «Оценка эффективности» (adaptation_effectiveness) с chapter='period' —
+            # переиспользуем kind в главе «Отчёт за период» → в period_blocks.
+            _eff_target = (period_blocks
+                           if (kind == "adaptation_effectiveness" and p.get("chapter") == "period")
+                           else adaptation_blocks)
+            _eff_target.append({
                 "block_id":      b.get("id"),
                 "well_id":       well.id,
                 "kind":          kind,
@@ -3844,9 +4097,37 @@ def collect_report_data(
                 "params":        p,
                 "data_snapshot": snap,
             })
-        elif kind == "sensor_customer_comparison":
-            # Сопоставление данных LoRa / УзКорГаз → глава Наблюдение или Адаптация
-            # в зависимости от params.chapter / params.source
+        elif kind in ("period_full_analysis", "period_comparison"):
+            # Глава «Отчёт за период» (Шаг 8 мастера). Снапшот period_full_analysis
+            # идентичен adaptation_period_analysis — обогащаем события так же.
+            if snap and snap.get("adaptation"):
+                evts = snap["adaptation"].get("events_for_chart")
+                if evts:
+                    _enrich_events_from_db(db, evts, str(well.number))
+            period_blocks.append({
+                "block_id":      b.get("id"),
+                "well_id":       well.id,
+                "kind":          kind,
+                "title":         b.get("title"),
+                "comment":       b.get("comment"),
+                "params":        p,
+                "data_snapshot": snap,
+            })
+        elif kind == "works_analysis":
+            # Глава «Стабильность в период работ» — изолированный блок.
+            # Нет событий для обогащения (нет chart_data в снимке).
+            works_blocks.append({
+                "block_id":      b.get("id"),
+                "well_id":       well.id,
+                "kind":          kind,
+                "title":         b.get("title"),
+                "comment":       b.get("comment"),
+                "params":        p,
+                "data_snapshot": snap,
+            })
+        elif kind in ("sensor_customer_comparison", "pressure_spectrum", "param_correlation"):
+            # Переиспользуемые блоки (сопоставление LoRa/УзКорГаз, спектр давления,
+            # зависимость параметров) → глава по params.chapter/source
             block_data = {
                 "block_id":      b.get("id"),
                 "well_id":       well.id,
@@ -3858,6 +4139,10 @@ def collect_report_data(
             }
             if p.get("chapter") == "observation" or p.get("source") == "observation":
                 observation_blocks.append(block_data)
+            elif p.get("chapter") == "period":
+                period_blocks.append(block_data)
+            elif p.get("chapter") == "works":
+                works_blocks.append(block_data)
             else:
                 adaptation_blocks.append(block_data)
 
@@ -3866,7 +4151,7 @@ def collect_report_data(
     #   б) в БД есть хотя бы один блок period_analysis/comparison/baseline
     #      (флаг от фронта может быть False, если форма Шага 2 пустая —
     #      но блоки в БД сами по себе должны попадать в PDF).
-    _has_customer_blocks = bool(periods_input or comparisons_input or rose_blocks_input or chapter_intros_input or segment_blocks_input)
+    _has_customer_blocks = bool(periods_input or comparisons_input or rose_blocks_input or stability_blocks_input or chapter_intros_input or segment_blocks_input)
     try:
         from backend.services import customer_baseline_service as bsvc
         _has_baselines = bool(bsvc.list_baselines(db, well.id))
@@ -3961,6 +4246,7 @@ def collect_report_data(
                 analysis["suffix_note_tex"] = _tex_escape(_suf) if _suf else ""
                 # ── baseline-специфика (ТЗ §3 раздел 4): обоснование выбора ──
                 analysis["is_baseline"] = bool(p.get("is_baseline"))
+                analysis["sort_order"] = int(p.get("sort_order") or 0)
                 _just = str(p.get("justification") or "").strip()
                 analysis["justification"] = _just
                 analysis["justification_tex"] = _tex_escape(_just) if _just else ""
@@ -3998,6 +4284,11 @@ def collect_report_data(
                             chart_dir=chart_dir,
                         ),
                     )
+                # Роза НЕСТАБИЛЬНОСТИ (графики через Plotly, как в гл. Адаптация).
+                stability_blocks_fmt = [
+                    _format_stability_block(sb)
+                    for sb in stability_blocks_input
+                ]
                 # PLAN B — Сегментный анализ: отдельный подраздел.
                 segment_blocks_fmt = [
                     _format_segment_block(
@@ -4006,24 +4297,52 @@ def collect_report_data(
                     )
                     for sb in segment_blocks_input
                 ]
-                # Принцип ТЗ: «раздел заканчивается выбором базового периода
-                # и метриками» — поэтому baseline-блоки выносим из общего
-                # списка periods и рендерим ОТДЕЛЬНО, последним подразделом
-                # главы. Порядок главы 2:
-                #   1. period_analysis (анализы периодов)
-                #   2. comparison      (сравнения участков)
-                #   3. criteria_rose   (диагностика — роза критериев)
-                #   4. baseline (B1)   ← всегда последним
                 periods_only = [a for a in periods_data if not a.get("is_baseline")]
                 baselines_only = [a for a in periods_data if a.get("is_baseline")]
+
+                # ── Единый упорядоченный список блоков §2 (PARITY с HTML) ──
+                # HTML-превью (renderChapterPreview, customer_daily.html) сортирует
+                # блоки СТРОГО по sort_order, без группировки по типу, и нумерует
+                # подряд 2.1, 2.2, … LaTeX обходит ИМЕННО этот список одним циклом
+                # с диспетчеризацией по _kind — порядок и нумерация идентичны HTML.
+                # Каждому форматированному блоку проставляем _kind/_sort, тип
+                # baseline идёт по своему sort_order (НЕ принудительно последним —
+                # как и в HTML; оператор сам ставит его в конец перетаскиванием).
+                _ordered = []
+                for a in periods_data:
+                    a["_kind"] = "baseline" if a.get("is_baseline") else "period_analysis"
+                    a["_sort"] = int(a.get("sort_order") or 0)
+                    _ordered.append(a)
+                for _fmt, _src in zip(comparisons_fmt, comparisons_input):
+                    _fmt["_kind"] = "comparison"
+                    _fmt["_sort"] = int(_src.get("sort_order") or 0)
+                    _ordered.append(_fmt)
+                for _fmt, _src in zip(segment_blocks_fmt, segment_blocks_input):
+                    _fmt["_kind"] = "segment_analysis"
+                    _fmt["_sort"] = int(_src.get("sort_order") or 0)
+                    _ordered.append(_fmt)
+                for _fmt, _src in zip(rose_blocks_fmt, rose_blocks_input):
+                    _fmt["_kind"] = "criteria_rose"
+                    _fmt["_sort"] = int(_src.get("sort_order") or 0)
+                    _ordered.append(_fmt)
+                for _fmt, _src in zip(stability_blocks_fmt, stability_blocks_input):
+                    _fmt["_kind"] = "stability_rose"
+                    _fmt["_sort"] = int(_src.get("sort_order") or 0)
+                    _ordered.append(_fmt)
+                _ordered.sort(key=lambda x: x.get("_sort") or 0)
+                for _i, _it in enumerate(_ordered, start=1):
+                    _it["_sub_idx"] = _i
+
                 customer_chapter = {
                     "baselines": baselines,
                     "periods": periods_only,
                     "comparisons": comparisons_fmt,
                     "segment_blocks": segment_blocks_fmt,
                     "rose_blocks": rose_blocks_fmt,
+                    "stability_blocks": stability_blocks_fmt,
                     "baseline_blocks": baselines_only,
                     "chapter_intros": chapter_intros_input,
+                    "ordered": _ordered,
                 }
         except Exception:
             log.exception("Customer chapter build failed for well %s", well.id)
@@ -4154,6 +4473,14 @@ def collect_report_data(
             observation_blocks_fmt.append(
                 _format_sensor_customer_comparison(ob, render_charts=render_charts, chart_dir=chart_dir)
             )
+        elif kind == "pressure_spectrum":
+            observation_blocks_fmt.append(_format_pressure_spectrum(ob))
+        elif kind == "param_correlation":
+            observation_blocks_fmt.append(_format_param_correlation(ob))
+        elif kind in ("observation_baseline", "observation_period", "observation_segment"):
+            observation_blocks_fmt.append(
+                _format_observation_rfc_block(ob, render_charts=render_charts)
+            )
         else:
             # observation_analysis и другие
             observation_blocks_fmt.append(
@@ -4184,11 +4511,32 @@ def collect_report_data(
             adaptation_blocks_fmt.append(
                 _format_sensor_customer_comparison(ab, render_charts=render_charts, chart_dir=chart_dir)
             )
+        elif kind == "pressure_spectrum":
+            adaptation_blocks_fmt.append(_format_pressure_spectrum(ab))
+        elif kind == "param_correlation":
+            adaptation_blocks_fmt.append(_format_param_correlation(ab))
         else:
             # adaptation_period_analysis, adaptation_comparison, optimal_window, etc.
             adaptation_blocks_fmt.append(
                 _format_adaptation_block(ab, render_charts=render_charts, db=db)
             )
+
+    # ── Форматирование period_blocks (глава «Отчёт за период») ──
+    # Гейтим _need_period: при превью других глав период не форматируем (не идёт
+    # в их PDF). period_full_analysis/period_comparison + общие аналитич. блоки.
+    period_blocks_fmt = [
+        _format_period_block_with_meta(pb, render_charts=render_charts, db=db, chart_dir=chart_dir)
+        for pb in period_blocks
+        if (period_report_id is None
+            or (pb.get("params") or {}).get("period_report_id") == period_report_id)
+    ] if _need_period else []
+
+    # ── Форматирование works_blocks (глава «Стабильность в период работ») ──
+    # Нет Plotly-графиков и chart_dir — только таблицы/текст из снимка.
+    works_blocks_fmt = [
+        _format_works_block(wb)
+        for wb in works_blocks
+    ] if _need_works else []
 
     return {
         "ok": True,
@@ -4220,6 +4568,8 @@ def collect_report_data(
         "customer_chapter": customer_chapter,
         "observation_blocks": observation_blocks_fmt,
         "adaptation_blocks": adaptation_blocks_fmt,
+        "period_blocks": period_blocks_fmt,
+        "works_blocks": works_blocks_fmt,
         # ── Плитки утверждённых baseline для §2 / §3 PDF ──
         # B2 нужна на §3 (наблюдение); B1 — на §2 (заказчик).
         # render_charts на B2 = тяжёлый рендер 3 PNG → выключаем при превью
@@ -4302,6 +4652,21 @@ def _fmt_signed(val, decimals: int = 2, suffix: str = "") -> str:
         return f"{fv:+.{decimals}f}{suffix}"
     except (TypeError, ValueError):
         return "---"
+
+
+_SEGMENT_TYPE_RU = {
+    "initial": "Начальный",
+    "stable": "Стабильный",
+    "rise": "Рост",
+    "decline": "Снижение",
+    "sharp_rise": "Резкий рост",
+    "sharp_decline": "Резкое снижение",
+}
+
+
+def _translate_segment_type(type_str: str) -> str:
+    """Перевод типа сегмента на русский (парность с HTML)."""
+    return _SEGMENT_TYPE_RU.get(type_str, type_str)
 
 
 def _fmt_date(d) -> str:
@@ -4556,6 +4921,13 @@ def _format_sensor_customer_comparison(
     from backend.services.daily_report_service import _tex_escape
 
     snap = b.get("data_snapshot") or {}
+    # Дополняем снапшот производными полями анализа (старые блоки) — чтобы PDF
+    # показывал тот же анализ, что HTML/модалка (принцип «всё из анализа → отчёт»).
+    try:
+        from backend.services.comparison_service import enrich_scc_snapshot
+        enrich_scc_snapshot(snap)
+    except Exception:
+        pass
     params = b.get("params") or {}
     title = b.get("title") or "Сопоставление LoRa / УзКорГаз"
     comment = b.get("comment") or ""
@@ -4586,6 +4958,9 @@ def _format_sensor_customer_comparison(
         "customer_q_avg": fmt(summary.get("customer_q_avg")),
         "delta_q_avg": fmt(summary.get("delta_q_avg"), 3),
         "delta_q_pct": fmt_pct(summary.get("delta_q_pct")),
+        "sensor_q_total_avg": fmt(summary.get("sensor_q_total_avg")),
+        "customer_q_total_avg": fmt(summary.get("customer_q_total_avg")),
+        "delta_q_total_pct": fmt_pct(summary.get("delta_q_total_pct")),
         "sensor_dp_avg": fmt(summary.get("sensor_dp_avg")),
         "customer_dp_avg": fmt(summary.get("customer_dp_avg")),
         "delta_dp_avg": fmt(summary.get("delta_dp_avg"), 3),
@@ -4611,10 +4986,13 @@ def _format_sensor_customer_comparison(
 
     # TODO: рендер графиков PNG если render_charts и chart_dir
 
-    # Генерация latex_content для рендеринга в шаблоне
+    # Генерация latex_content для рендеринга в шаблоне.
+    # Заголовок и Plotly-график (scc-{id}-chart-q) добавляет шаблон §3.4.
+    # Гейтинг новых секций по params.parts (default ON)
+    _parts = params.get("parts") or {}
+    _scc_on = lambda k: _parts.get(k) is not False  # noqa: E731
+
     latex_lines = []
-    # Заголовок
-    latex_lines.append(f"\\subsubsection*{{{_tex_escape(title)}}}")
     latex_lines.append(r"{\footnotesize")
     latex_lines.append(f"\\textbf{{Период:}} {period_from}~--~{period_to}")
     if comment.strip():
@@ -4622,20 +5000,33 @@ def _format_sensor_customer_comparison(
     latex_lines.append("}")
     latex_lines.append("")
 
+    # Методика сопоставления (манометры LoRa ↔ суточные сводки УзКорГаз)
+    methodology = snap.get("methodology") or ""
+    if methodology and _scc_on("methodology"):
+        latex_lines.append(r"{\footnotesize \textbf{Методика:} %s\par}" % _tex_escape(methodology))
+        latex_lines.append("")
+
     # Сводная таблица
     if summary_fmt.get("sensor_q_avg") and summary_fmt.get("customer_q_avg"):
         latex_lines.append(r"{\scriptsize \textbf{Табл.} Сводка сравнения.}")
         latex_lines.append(r"\vspace{0.2em}")
+        latex_lines.append("")
         latex_lines.append(r"{\footnotesize")
         latex_lines.append(r"\begin{tabularx}{\textwidth}{|X|R{2.5cm}|R{2.5cm}|R{2cm}|}")
         latex_lines.append(r"\hline")
         latex_lines.append(r"\textbf{Показатель} & \textbf{LoRa (датчик)} & \textbf{УзКорГаз} & \textbf{$\Delta$} \\")
         latex_lines.append(r"\hline")
         latex_lines.append(
-            f"$Q$ средн., тыс.м$^3$/сут & {summary_fmt['sensor_q_avg']} & "
+            f"$Q$ рабочий средн., тыс.м$^3$/сут & {summary_fmt['sensor_q_avg']} & "
             f"{summary_fmt['customer_q_avg']} & {summary_fmt['delta_q_pct']} \\\\"
         )
         latex_lines.append(r"\hline")
+        if summary_fmt.get("sensor_q_total_avg") and summary_fmt.get("sensor_q_total_avg") != "—":
+            latex_lines.append(
+                f"$Q$ общий средн., тыс.м$^3$/сут & {summary_fmt['sensor_q_total_avg']} & "
+                f"{summary_fmt['customer_q_total_avg']} & {summary_fmt['delta_q_total_pct']} \\\\"
+            )
+            latex_lines.append(r"\hline")
         if summary_fmt.get("sensor_dp_avg"):
             latex_lines.append(
                 f"$\\Delta P$ средн., кгс/см$^2$ & {summary_fmt['sensor_dp_avg']} & "
@@ -4643,6 +5034,123 @@ def _format_sensor_customer_comparison(
             )
             latex_lines.append(r"\hline")
         latex_lines.append(r"\end{tabularx}}")
+        latex_lines.append("")
+
+    # Посуточная таблица сравнения (на всю ширину страницы) — паритет с HTML
+    if daily_diff:
+        latex_lines.append(r"\vspace{0.3em}")
+        latex_lines.append(r"{\scriptsize \textbf{Табл.} Посуточное сравнение LoRa / УзКорГаз.}")
+        latex_lines.append(r"\vspace{0.15em}")
+        latex_lines.append("")
+        latex_lines.append(r"{\scriptsize")
+        latex_lines.append(r"\begin{tabularx}{\textwidth}{|c|*{9}{>{\RaggedLeft\arraybackslash}X|}}")
+        latex_lines.append(r"\hline")
+        latex_lines.append(
+            r"\textbf{Дата} & \textbf{$Q_{раб}$ LoRa} & \textbf{$Q_{раб}$ УзКГ} & \textbf{$\Delta Q_{раб}$} & "
+            r"\textbf{$Q_{общ}$ LoRa} & \textbf{$Q_{общ}$ УзКГ} & \textbf{$\Delta Q_{общ}$} & "
+            r"\textbf{$\Delta P$ LoRa} & \textbf{$\Delta P$ УзКГ} & \textbf{$\Delta\Delta P$} \\"
+        )
+        latex_lines.append(r"\hline")
+        for row in daily_diff:
+            latex_lines.append(
+                f"{_tex_escape(str(row.get('date','')))} & {fmt(row.get('sensor_q'))} & "
+                f"{fmt(row.get('customer_q'))} & {fmt(row.get('delta_q'), 3)} & "
+                f"{fmt(row.get('sensor_q_total'))} & {fmt(row.get('customer_q_total'))} & "
+                f"{fmt(row.get('delta_q_total'), 3)} & "
+                f"{fmt(row.get('sensor_dp'))} & {fmt(row.get('customer_dp'))} & "
+                f"{fmt(row.get('delta_dp'), 3)} \\\\"
+            )
+            latex_lines.append(r"\hline")
+        latex_lines.append(r"\end{tabularx}}")
+        latex_lines.append("")
+        latex_lines.append(
+            r"{\footnotesize\itshape Колонки: $Q_{раб}$ --- рабочий дебит (без простоев), "
+            r"$Q_{общ}$ --- общий дебит за сутки; LoRa --- наши датчики, УзКГ --- сводки "
+            r"заказчика; $\Delta$ --- разница (LoRa $-$ УзКГ); $\Delta P$ --- перепад давления. "
+            r"Значения по дням за период сопоставления.}"
+        )
+        latex_lines.append("")
+
+    # ── Анализ согласия (отклонение, тренды, смещение/разброс, задержка) ──
+    analysis = snap.get("analysis") or {}
+    a_rows = [analysis.get(k) for k in ("q_working", "q_total", "dp")]
+    a_rows = [a for a in a_rows if a and not a.get("insufficient")]
+    if a_rows:
+        def _fa(v, d=0):
+            try:
+                return f"{float(v):.{d}f}"
+            except (TypeError, ValueError):
+                return "—"
+        latex_lines.append(r"\vspace{0.3em}")
+        latex_lines.append(r"{\footnotesize \textbf{Анализ согласия LoRa / УзКорГаз.}\par")
+        for a in a_rows:
+            latex_lines.append(r"\smallskip $\bullet$~" + _tex_escape(str(a.get("verdict") or "")) + r"\par")
+        latex_lines.append("}")
+        latex_lines.append(r"\vspace{0.15em}")
+        latex_lines.append(r"{\scriptsize")
+        latex_lines.append(r"\begin{tabularx}{\textwidth}{|X|R{2.2cm}|R{2.4cm}|R{1.8cm}|R{2cm}|R{1.8cm}|}")
+        latex_lines.append(r"\hline")
+        latex_lines.append(r"\textbf{Показатель} & \textbf{Смещение,\%} & \textbf{Разброс MAPE,\%} & \textbf{Форма $r$} & \textbf{Тренд} & \textbf{Задержка,дн} \\")
+        latex_lines.append(r"\hline")
+        for a in a_rows:
+            tm = "---" if a.get("trend_match") is None else ("совпад." if a.get("trend_match") else "расход.")
+            rr = "—" if a.get("pearson_r") is None else _fa(a.get("pearson_r"), 2)
+            latex_lines.append(
+                f"{_tex_escape(str(a.get('label')))} & {_fa(a.get('bias_pct'))} & {_fa(a.get('mape'))} & "
+                f"{rr} & {tm} & {a.get('best_lag_days') or 0} \\\\"
+            )
+            latex_lines.append(r"\hline")
+        latex_lines.append(r"\end{tabularx}}")
+        latex_lines.append("")
+
+    # ── Сравнение характера динамики по ТРЁМ показателям (Q раб / Q общ / ΔP) ──
+    tc_list = snap.get("trend_characters") or (
+        [snap["trend_character"]] if snap.get("trend_character") else [])
+    tc_show = [t for t in tc_list if t and (t.get("sensor_seq") or t.get("verdict"))] \
+        if _scc_on("trend_character") else []
+    if tc_show:
+        def _ot(t):
+            if t.get("overall_match") is None:
+                return "—"
+            if t.get("overall_match"):
+                return f"совпадает (оба --- {_tex_escape(str(t.get('overall_sensor') or ''))})"
+            return (f"расходится (LoRa --- {_tex_escape(str(t.get('overall_sensor') or ''))}, "
+                    f"УзКГ --- {_tex_escape(str(t.get('overall_customer') or ''))})")
+
+        def _shape(t):
+            sc = t.get("shape_corr")
+            lag = t.get("best_lag") or 0
+            return "—" if sc is None else (f"r={sc:.2f}" + (f" (лаг ~{abs(lag)} дн)" if lag else ""))
+
+        def _day(t):
+            agr, agr_lag = t.get("agreement_pct"), t.get("agreement_lag_pct")
+            if agr is None:
+                return "—"
+            return f"{agr:.0f}\\%" + (f" (с лагом {agr_lag:.0f}\\%)"
+                                      if (agr_lag is not None and agr_lag != agr) else "")
+        latex_lines.append(r"\vspace{0.3em}")
+        latex_lines.append(r"{\footnotesize \textbf{Сравнение характера динамики (LoRa vs УзКорГаз).}\par")
+        latex_lines.append(r"\smallskip")
+        latex_lines.append(r"{\scriptsize")
+        latex_lines.append(r"\begin{tabularx}{\textwidth}{|l|X|X|X|c|c|}")
+        latex_lines.append(r"\hline")
+        latex_lines.append(r"\textbf{Показатель} & \textbf{LoRa: фазы} & \textbf{УзКГ: фазы} & "
+                           r"\textbf{Общий тренд} & \textbf{Форма} & \textbf{Посут.} \\")
+        latex_lines.append(r"\hline")
+        for t in tc_show:
+            latex_lines.append("%s & %s & %s & %s & %s & %s \\\\" % (
+                _tex_escape(str(t.get("label") or "—")),
+                _tex_escape(str(t.get("sensor_seq") or "—")),
+                _tex_escape(str(t.get("customer_seq") or "—")),
+                _ot(t), _shape(t), _day(t)))
+            latex_lines.append(r"\hline")
+        latex_lines.append(r"\end{tabularx}}")
+        for t in tc_show:
+            if t.get("verdict"):
+                latex_lines.append(r"\smallskip $\bullet$~" + _tex_escape(str(t["verdict"])) + r"\par")
+        latex_lines.append(r"{\scriptsize\itshape Оценка по устойчивым мерам --- общий тренд "
+                           r"и форма с учётом задержки; посуточное совпадение справочно "
+                           r"(чувствительно к суточной дискретности сводок заказчика).\par}}")
         latex_lines.append("")
 
     # Заключение
@@ -4668,6 +5176,254 @@ def _format_sensor_customer_comparison(
         "settings": settings,
         "has_data": bool(daily_diff),
         "latex_content": latex_content,
+    }
+
+
+def _format_pressure_spectrum(b: dict) -> dict:
+    """Форматирует блок kind='pressure_spectrum' для LaTeX (§3.4 / §4).
+
+    Заголовок и Plotly-гистограммы (ps-{id}-chart-ptube / -chart-dp) добавляет
+    шаблон. Здесь — таблица метрик стабильности (P_уст и ΔP на всю ширину) +
+    краткое описание метода. PARITY: синхронно с _buildPressureSpectrumHtml.
+    """
+    from backend.services.daily_report_service import _tex_escape
+
+    snap = b.get("data_snapshot") or {}
+    block_id = b.get("block_id") or 0
+    period = snap.get("period") or {}
+    sigs = snap.get("signals") or {}
+    pm = (sigs.get("p_tube") or {}).get("metrics") or {}
+    dm = (sigs.get("dp") or {}).get("metrics") or {}
+    p_class = (sigs.get("p_tube") or {}).get("stability_class") or "—"
+    d_class = (sigs.get("dp") or {}).get("stability_class") or "—"
+
+    CLASS_RU = {"stable": "стабильно", "moderate": "умеренно", "unstable": "нестабильно",
+                "degenerate": "вырождено", "no_data": "нет данных"}
+    NORM_RU = {"normal": "нормальное", "near_normal": "близко к норм.",
+               "non_normal": "не нормальное"}
+
+    def f(m, key, d=2):
+        v = m.get(key)
+        try:
+            return f"{float(v):.{d}f}"
+        except (TypeError, ValueError):
+            return "—"
+
+    lines: list[str] = []
+    lines.append(
+        r"{\footnotesize \textbf{Период:} %s~--~%s.\quad \textbf{Бины:} P %s / $\Delta P$ %s кгс/см$^2$.}"
+        % (_tex_escape(str(period.get("from") or "—")), _tex_escape(str(period.get("to") or "—")),
+           f(snap, "bin_width_pressure"), f(snap, "bin_width_dp"))
+    )
+    if snap.get("block_status") and snap.get("block_status") != "ok":
+        lines.append(r"\par {\footnotesize\itshape Статус данных: %s.}" % _tex_escape(str(snap["block_status"])))
+    lines.append("")
+
+    # Таблица метрик стабильности (на всю ширину). Пустая строка перед таблицей
+    # ОБЯЗАТЕЛЬНА (паттерн «Адаптации»): без разрыва абзаца tabularx встаёт в один
+    # абзац с подписью и «прижимается» (не на всю ширину).
+    lines.append(r"{\scriptsize \textbf{Табл.} Метрики распределения и стабильности.}")
+    lines.append(r"\vspace{0.15em}")
+    lines.append("")
+    lines.append(r"{\footnotesize")
+    lines.append(r"\begin{tabularx}{\textwidth}{|X|R{3cm}|R{3cm}|}")
+    lines.append(r"\hline")
+    lines.append(r"\textbf{Метрика} & \textbf{P устьевое} & \textbf{$\Delta P$} \\")
+    lines.append(r"\hline")
+    rows = [
+        ("Медиана, кгс/см$^2$", "median", 2),
+        ("IQR (P25--P75)", "iqr", 3),
+        ("nIQR = IQR/медиана", "niqr", 3),
+        (r"$\sigma$ (std)", "std", 3),
+        ("CV, \\%", "cv_median", 1),
+        ("Размах P10--P90", "w90", 3),
+        ("Асимметрия", "skewness", 2),
+        ("Эксцесс", "kurtosis", 2),
+    ]
+    for label, key, d in rows:
+        lines.append(f"{label} & {f(pm, key, d)} & {f(dm, key, d)} \\\\")
+        lines.append(r"\hline")
+    lines.append(
+        f"Распределение & {_tex_escape(NORM_RU.get(pm.get('normality'), '—'))} & "
+        f"{_tex_escape(NORM_RU.get(dm.get('normality'), '—'))} \\\\"
+    )
+    lines.append(r"\hline")
+    # Цветовой акцент вердикта (как в HTML): стабильно--зелёный, умеренно--оранж., нестабильно--красный.
+    _CLASS_COLOR = {"stable": "tileGreen", "moderate": "tileOrange", "unstable": "verdictRed"}
+
+    def _stab(cls):
+        txt = _tex_escape(CLASS_RU.get(cls, cls))
+        col = _CLASS_COLOR.get(cls)
+        return f"\\textcolor{{{col}}}{{\\textbf{{{txt}}}}}" if col else f"\\textbf{{{txt}}}"
+
+    lines.append(
+        f"\\textbf{{Стабильность}} & {_stab(p_class)} & {_stab(d_class)} \\\\"
+    )
+    lines.append(r"\hline")
+    lines.append(r"\end{tabularx}}")
+    lines.append("")
+
+    # Авто-описание полученных данных (по P_уст и ΔP)
+    desc_pt = (sigs.get("p_tube") or {}).get("description")
+    desc_dp = (sigs.get("dp") or {}).get("description")
+    if desc_pt or desc_dp:
+        lines.append(r"\vspace{0.2em}")
+        lines.append(r"{\footnotesize \textbf{Описание данных:}\par")
+        if desc_pt:
+            lines.append(r"\smallskip $\bullet$~" + _tex_escape(str(desc_pt)) + r"\par")
+        if desc_dp:
+            lines.append(r"\smallskip $\bullet$~" + _tex_escape(str(desc_dp)) + r"\par")
+        lines.append("}")
+        lines.append("")
+
+    # ── Сравнение спектров (наложение) — отображаем встроенный snap.comparison ──
+    # PARITY: вердикт вычислен в JS (buildPressureSpectrumComparison) при
+    # сохранении блока; здесь только рендер. Графики-наложения — в Plotly-скриншоте.
+    cmp = snap.get("comparison") or {}
+    cmp_items = cmp.get("items") or []
+    if cmp_items:
+        def fc(v, d=2):
+            try:
+                return f"{float(v):.{d}f}"
+            except (TypeError, ValueError):
+                return "—"
+        lines.append(r"\vspace{0.3em}")
+        lines.append(r"{\footnotesize \textbf{Сравнение спектров (наложение).}\par")
+        for it in cmp_items:
+            lines.append(
+                r"\smallskip \textit{Относительно <<%s>>:}\par"
+                % _tex_escape(str(it.get("label") or ""))
+            )
+            lines.append(r"\vspace{0.1em}")
+            lines.append(r"{\scriptsize")
+            lines.append(r"\begin{tabularx}{\textwidth}{|X|>{\centering\arraybackslash}X|>{\centering\arraybackslash}X|>{\centering\arraybackslash}X|}")
+            lines.append(r"\hline")
+            lines.append(
+                r"\textbf{Сигнал} & \textbf{Медиана (оп.$\to$тек.)} & "
+                r"\textbf{nIQR (оп.$\to$тек.)} & \textbf{Стабильность} \\"
+            )
+            lines.append(r"\hline")
+            for s in it.get("signals") or []:
+                oc = CLASS_RU.get(s.get("ov_class"), s.get("ov_class") or "—")
+                bc = CLASS_RU.get(s.get("base_class"), s.get("base_class") or "—")
+                lines.append(
+                    "%s & %s $\\to$ %s & %s $\\to$ %s & %s $\\to$ %s \\\\" % (
+                        _tex_escape(str(s.get("label") or "")),
+                        fc(s.get("ov_median")), fc(s.get("base_median")),
+                        fc(s.get("ov_niqr"), 3), fc(s.get("base_niqr"), 3),
+                        _tex_escape(str(oc)), _tex_escape(str(bc)),
+                    )
+                )
+                lines.append(r"\hline")
+            lines.append(r"\end{tabularx}}")
+            for s in it.get("signals") or []:
+                v = s.get("verdict")
+                if v:
+                    lines.append(r"\smallskip $\bullet$~" + _tex_escape(str(v)) + r"\par")
+        lines.append("}")
+        lines.append("")
+
+    # Описание метода
+    lines.append(r"\vspace{0.2em}")
+    lines.append(
+        r"{\footnotesize\itshape Спектр распределения давления характеризует стабильность "
+        r"работы скважины: узкий острый пик гистограммы --- устойчивый режим, растянутое "
+        r"плоское распределение --- нестабильный. Цвет графика отражает оценку (зелёный --- "
+        r"стабильно, оранжевый --- умеренно, красный --- нестабильно). Отслеживаемые "
+        r"параметры: ширина спектра (nIQR --- межквартильный размах, делённый на медиану; "
+        r"чем шире, тем хуже; выбросы и высокий CV дополнительно ухудшают оценку); "
+        r"нормальность формы (для скважины <<близко к нормальному>> --- норма, не "
+        r"штрафуется); медиана (для $\Delta P$ чем больше по модулю, тем выше дебит; "
+        r"сдвиг медианы между этапами --- изменение режима). Медиана показана пунктиром.}"
+    )
+
+    return {
+        "block_id": block_id,
+        "kind": "pressure_spectrum",
+        "title": _tex_escape(str(b.get("title") or snap.get("label") or "Спектр распределения давления")),
+        "latex_content": "\n".join(lines),
+        # Признак «уже отформатирован» для _maybe_format_adapt_block в роутере —
+        # иначе блок переформатируется _format_adaptation_block (не знает этот kind)
+        # и latex_content (таблица/описание/сравнение) теряется, остаются только графики.
+        "has_data": True,
+    }
+
+
+def _format_param_correlation(b: dict) -> dict:
+    """Форматирует блок kind='param_correlation' для LaTeX (§3.4 / §4).
+
+    Заголовок и Plotly-график (pc-{id}-chart) добавляет шаблон. Здесь —
+    параметры регрессии + описание метода. PARITY с _buildParamCorrelationHtml.
+    """
+    from backend.services.daily_report_service import _tex_escape
+
+    snap = b.get("data_snapshot") or {}
+    block_id = b.get("block_id") or 0
+    period = snap.get("period") or {}
+    xs = snap.get("x") or {}
+    ys = snap.get("y") or {}
+    r = snap.get("regression") or {}
+
+    def f(v, d=3):
+        try:
+            return f"{float(v):.{d}f}"
+        except (TypeError, ValueError):
+            return "—"
+
+    r2 = r.get("r2")
+    strength = "—"
+    try:
+        r2f = float(r2)
+        strength = "сильная" if r2f >= 0.7 else ("умеренная" if r2f >= 0.4 else "слабая")
+    except (TypeError, ValueError):
+        pass
+    try:
+        slope = float(r.get("slope"))
+        trend = "прямая" if slope > 0 else ("обратная" if slope < 0 else "нет")
+    except (TypeError, ValueError):
+        trend = "—"
+
+    lines: list[str] = []
+    lines.append(
+        r"{\footnotesize \textbf{Период:} %s~--~%s.\quad \textbf{Зависимость:} %s $\to$ %s. \textbf{Точек:} %s.}"
+        % (_tex_escape(str(period.get("from") or "—")), _tex_escape(str(period.get("to") or "—")),
+           _tex_escape(str(xs.get("label") or "X")), _tex_escape(str(ys.get("label") or "Y")),
+           snap.get("n_points") or 0)
+    )
+    if snap.get("block_status") and snap.get("block_status") != "ok":
+        lines.append(r"\par {\footnotesize\itshape Статус данных: %s.}" % _tex_escape(str(snap["block_status"])))
+    lines.append("")
+    lines.append(r"{\scriptsize \textbf{Табл.} Параметры линейной регрессии.}")
+    lines.append(r"\vspace{0.15em}")
+    lines.append(r"{\footnotesize")
+    lines.append(r"\begin{tabularx}{\textwidth}{|X|R{4cm}|}")
+    lines.append(r"\hline")
+    lines.append(f"Наклон (slope) & {f(r.get('slope'), 4)} \\\\")
+    lines.append(r"\hline")
+    lines.append(f"Свободный член (intercept) & {f(r.get('intercept'), 3)} \\\\")
+    lines.append(r"\hline")
+    lines.append(f"\\textbf{{$R^2$ (сила связи)}} & \\textbf{{{f(r2, 3)} --- {_tex_escape(strength)}}} \\\\")
+    lines.append(r"\hline")
+    lines.append(f"Характер зависимости & {_tex_escape(trend)} \\\\")
+    lines.append(r"\hline")
+    lines.append(r"\end{tabularx}}")
+    lines.append("")
+    lines.append(
+        r"{\footnotesize\itshape Каждая точка --- минутный замер (%s по горизонтали, %s по вертикали). "
+        r"Линия --- регрессия (МНК): наклон показывает, насколько Y растёт с ростом X, $R^2$ --- тесноту "
+        r"связи. Для $\Delta P\to Q$ положительный наклон подтверждает: больше перепад --- выше дебит. "
+        r"Сдвиг линии между этапами вверх/круче --- улучшение режима.}"
+        % (_tex_escape(str(xs.get("label") or "X")), _tex_escape(str(ys.get("label") or "Y")))
+    )
+
+    return {
+        "block_id": block_id,
+        "kind": "param_correlation",
+        "title": _tex_escape(str(b.get("title") or snap.get("label") or "Зависимость параметров")),
+        "latex_content": "\n".join(lines),
+        # См. комментарий в _format_pressure_spectrum: без has_data роутер
+        # переформатирует блок и теряет latex_content.
+        "has_data": True,
     }
 
 
@@ -4752,6 +5508,362 @@ def _format_baseline_tile(
             log.exception("baseline tile charts failed for well %s", well_id)
 
     return tile
+
+
+# Дефолтный текст блока «Рекомендации (ТПАВ)» для анализа нестабильности.
+# ЗЕРКАЛО: backend/static/js/chapter_render.js (STABILITY_RECOMMENDATION_DEFAULT) и
+# backend/templates/customer_daily.html (префилл textarea). Менять — во всех трёх.
+STABILITY_RECOMMENDATION_DEFAULT = (
+    "По результатам оценки критериев нестабильности скважина рекомендуется к постановке "
+    "на наблюдение для сбора фактических данных о режимах работы.\n\n"
+    "Для этого необходимо:\n"
+    "1. Установить систему мониторинга SMOD с фиксацией устьевых параметров — давления "
+    "на устье (трубного) и давления в линии за штуцером (линейного).\n"
+    "2. Выполнить детальный анализ и сопоставление полученных данных: оценить ключевые "
+    "параметры дебита с учётом фактического рабочего времени скважины.\n"
+    "3. На основании сопоставления фактических данных принять окончательное решение о "
+    "целесообразности проведения работ по адаптации технологии применения ТПАВ для "
+    "данной скважины."
+)
+
+
+def _format_stability_block(b: dict) -> dict:
+    """Готовит блок kind='stability_rose' под LaTeX. Графики — через Plotly
+    (plotly_png_service снимает диви prev-{id}-strose / -strosebar), matplotlib
+    НЕ используется. Снимок: см. stability_rose_service.compute_stability_rose.
+    """
+    from backend.services.daily_report_service import _tex_escape
+    snap = b.get("data_snapshot") or {}
+    p = b.get("params") or {}
+    block_id = b.get("block_id") or "x"
+
+    AX = ("trend", "rough", "cyc", "dp", "uplift", "freq", "purge")
+    labels = snap.get("labels") or {}
+    petals = snap.get("petals") or {}
+    weights = snap.get("weights") or {}
+    contrib = snap.get("contributions") or {}
+
+    metric_rows = []
+    for k in AX:
+        v = petals.get(k)
+        zone = ("нет данных" if v is None
+                else "спокоен" if v < 33 else "внимание" if v < 66 else "тревога")
+        metric_rows.append({
+            "label":      _tex_escape(str(labels.get(k, k))),
+            "value_fmt":  "—" if v is None else f"{float(v):.0f}",
+            "weight_fmt": f"{float(weights.get(k) or 0.0):.2f}",
+            "actual_fmt": f"{float(contrib.get(k) or 0.0):.1f}",
+            "zone":       _tex_escape(zone),
+        })
+
+    _parts_in = dict(b.get("parts") or p.get("parts") or {})
+    _DEF = ("method", "prefix_note", "rose_chart", "contributions_chart", "metrics_table",
+            "descriptions", "description", "recommendation", "suffix_note")
+    parts = {k: (bool(_parts_in.get(k)) if k in _parts_in else True) for k in _DEF}
+    _pre = str(p.get("prefix_note") or b.get("prefix_note") or "").strip()
+    _suf = str(p.get("suffix_note") or b.get("suffix_note") or "").strip()
+
+    # Рекомендации (ТПАВ): редактируемый текст (params.recommendation), при пустом —
+    # дефолт. Только для режима нестабильности (кандидат), не для оценки ПАВ.
+    # Parity с chapter_render.js (recHtml в ветке stability_rose).
+    _rec_raw = str(p.get("recommendation") or "").strip() or STABILITY_RECOMMENDATION_DEFAULT
+    if snap.get("analysis_mode") == "effectiveness":
+        recommendation_tex = ""
+    else:
+        recommendation_tex = r"\par ".join(
+            r" \\ ".join(_tex_escape(ln) for ln in para.split("\n") if ln.strip())
+            for para in _rec_raw.split("\n\n") if para.strip()
+        )
+
+    level = snap.get("level") or "stable"
+    level_label = {"candidate": "КАНДИДАТ на проверку",
+                   "watch": "Наблюдать", "stable": "Стабильный режим"}.get(level, level)
+    w = snap.get("windows") or {}
+
+    # Пер-параметрные пояснения (parity с HTML descrHtml в chapter_render.js).
+    descr = snap.get("descriptions") or {}
+    descr_rows = [
+        {"label": _tex_escape(str(labels.get(k, k))), "text": _tex_escape(str(descr.get(k) or ""))}
+        for k in AX if descr.get(k)
+    ]
+
+    # Переходной/вводный блок «Назначение и метод» (parity с methodHtml в HTML).
+    _src_lbl = "LoRa (минутные)" if snap.get("source") == "lora" else "УзКорГаз (суточные)"
+    _wt = int(w.get("trend_days") or 30)
+    _wd = int(w.get("downtime_days") or 90)
+    method_note_tex = (
+        r"\textbf{Назначение и метод.} Для анализа стабильности работы скважины и оценки "
+        r"кандидата на проведение работ по оптимизации с применением \textbf{ТПАВ} "
+        r"проводился анализ данных \textbf{" + _tex_escape(_src_lbl) + r"} по суточным "
+        r"дебитам на дату \textbf{" + _tex_escape(str(snap.get("anchor") or "—")) + r"}. "
+        r"Метод основан на выявлении признаков нестабильной работы скважины (накопление и "
+        r"периодический вынос жидкости) по фиксированным окнам наблюдения: динамика дебита "
+        r"и давлений --- \textbf{" + str(_wt) + r"}~сут, простои и продувки --- \textbf{"
+        + str(_wd) + r"}~сут, отклик дебита после остановки --- вся доступная история. "
+        r"Окна фиксированы намеренно --- чтобы результат был воспроизводим и сравним между "
+        r"скважинами и датами. По каждому из 7 параметров рассчитывается отклонение от "
+        r"стабильного режима (0 --- спокоен, 100 --- максимум нестабильности); их "
+        r"взвешенная сумма даёт индекс нестабильности \textbf{I} (0--100), а \textbf{L*} "
+        r"--- число суток устойчивой работы к указанной дате. Чем больше красных лепестков "
+        r"наружу --- тем выше вероятность, что скважина является кандидатом на обводнение "
+        r"и обработку ТПАВ."
+    )
+
+    return {
+        "block_id":        b.get("block_id"),
+        "title":           _tex_escape(str(b.get("title") or "")),
+        "comment":         _tex_escape(str(b.get("comment") or "")),
+        "well_number":     _tex_escape(str(snap.get("well_number") or "")),
+        "anchor":          _tex_escape(str(snap.get("anchor") or "")),
+        "source_label":    _tex_escape("LoRa (минутные)" if snap.get("source") == "lora"
+                                       else "УзКорГаз (суточные)"),
+        "index_I_fmt":     f"{float(snap.get('index_I') or 0.0):.1f}",
+        "L_star":          int(snap.get("L_star") or 0),
+        "level_label":     _tex_escape(str(level_label)),
+        "choke_mm_fmt":    (f"{float(snap.get('choke_mm')):.1f}"
+                            if snap.get("choke_mm") is not None else "—"),
+        "win_trend":       int(w.get("trend_days") or 30),
+        "win_downtime":    int(w.get("downtime_days") or 90),
+        "verdict":         _tex_escape(str(snap.get("verdict") or "")),
+        "metric_rows":     metric_rows,
+        "plotly_rose_id":  f"prev-{block_id}-strose",
+        "plotly_bar_id":   f"prev-{block_id}-strosebar",
+        "has_data":        bool(snap.get("ok")),
+        "parts":           parts,
+        "method_note_tex": method_note_tex,
+        "descr_rows":      descr_rows,
+        "recommendation_tex": recommendation_tex,
+        "prefix_note_tex": _tex_escape(_pre) if _pre else "",
+        "suffix_note_tex": _tex_escape(_suf) if _suf else "",
+    }
+
+
+def _format_works_block(b: dict) -> dict:
+    """Форматирует блок kind='works_analysis' для LaTeX (глава «Стабильность в период работ»).
+
+    Зеркалит HTML-ветку `if (b.kind === 'works_analysis')` в chapter_render.js (строки 4860-5103).
+    Графиков нет — только таблицы и текст из data_snapshot.
+
+    Структура снимка: params{work_type,work_from,work_to,...}, windows{before,during,after},
+    metrics_by_window, delta_after_vs_before, flags, confidence, dp_external_factor,
+    descriptions (заморожены), percentile_ranks, comparison_periods{week_ref,month_ref},
+    score_after, score_during, verdict_after, verdict_during, weight_profile, excluded_metrics.
+    """
+    from backend.services.daily_report_service import _tex_escape
+
+    snap = b.get("data_snapshot") or {}
+    p    = b.get("params") or {}
+
+    _WT_LABELS = {
+        "tpav": "ТПАВ", "grp": "ГРП", "choke": "смена штуцера",
+        "cleaning": "чистка", "custom": "произвольные",
+    }
+    work_type = p.get("work_type") or (snap.get("params") or {}).get("work_type") or ""
+    work_type_label = _WT_LABELS.get(work_type, work_type or "—")
+
+    wins     = snap.get("windows") or {}
+    mets     = snap.get("metrics_by_window") or {}
+    delta    = snap.get("delta_after_vs_before") or {}
+    flags    = snap.get("flags") or {}
+    conf     = snap.get("confidence") or {}
+    dpext    = snap.get("dp_external_factor") or {}
+    descr    = snap.get("descriptions") or {}
+    comp_per = snap.get("comparison_periods") or {}
+    pct_rnk  = snap.get("percentile_ranks") or {}
+    excl     = snap.get("excluded_metrics") or []
+
+    def _fmtv(v, dec=2):
+        if v is None:
+            return "—"
+        try:
+            return f"{float(v):.{dec}f}"
+        except (TypeError, ValueError):
+            return "—"
+
+    # Шапки окон (период + n_work/n_actual + confidence note)
+    def _win_info(w):
+        wd = wins.get(w) or {}
+        m  = mets.get(w) or {}
+        c  = conf.get(w)
+        conf_note = (
+            "ориент. (мало данных)" if c == "insufficient"
+            else ("нет данных" if c == "no_data" else "")
+        )
+        n_work   = m.get("n_work")
+        n_actual = m.get("n_actual")
+        n_label  = (f"{n_work}/{n_actual} р./к.~дн." if (n_work is not None and n_actual is not None) else "")
+        return {
+            "from":      _tex_escape(str(wd.get("from") or "—")),
+            "to":        _tex_escape(str(wd.get("to")   or "—")),
+            "n_label":   _tex_escape(n_label),
+            "conf_note": _tex_escape(conf_note),
+        }
+
+    window_info = {
+        "before": _win_info("before"),
+        "during": _win_info("during"),
+        "after":  _win_info("after"),
+    }
+
+    # Строки таблицы метрик (порядок = HTML)
+    # is_pos: True = ↑ хорошо (Q, ΔP); False = ↓ хорошо (вбросы, простои, продувки)
+    METRIC_DEFS = [
+        ("q_median",          "Дебит Q, тыс.м³/сут",      2, True),
+        ("dp_median",         "ΔP, кгс/см²",              2, True),
+        ("inj_freq",          "Частота вбросов, шт/сут",  3, False),
+        ("downtime_fraction", "Простои, доля",             3, False),
+        ("purge_count",       "Продувки, кол-во",          0, False),
+    ]
+    if flags.get("purge_split_available"):
+        METRIC_DEFS.extend([
+            ("purge_total_min",    "Время продувки, мин",         0, None),
+            ("purge_self_min",     "в т.ч. сама продувка, мин",   0, None),
+            ("purge_recovery_min", "в т.ч. набор давления, мин",  0, None),
+        ])
+
+    metric_rows = []
+    for key, label, dec, is_pos in METRIC_DEFS:
+        vB = (mets.get("before") or {}).get(key)
+        vD = (mets.get("during") or {}).get(key)
+        vA = (mets.get("after")  or {}).get(key)
+        dv = delta.get(key) if is_pos is not None else None
+
+        if dv is None:
+            delta_str  = "—"
+            delta_good = None
+        else:
+            try:
+                dv_f = float(dv)
+            except (TypeError, ValueError):
+                dv_f = None
+            if dv_f is None:
+                delta_str  = "—"
+                delta_good = None
+            else:
+                if abs(dv_f) < 1e-10:
+                    # Нулевая дельта — нейтральный (серый), как в HTML
+                    delta_str  = f"{dv_f:.{dec}f}"
+                    delta_good = None
+                else:
+                    sign       = "+" if dv_f > 0 else ""
+                    delta_str  = f"{sign}{dv_f:.{dec}f}"
+                    delta_good = (dv_f > 0) == is_pos  # True=зелёный, False=красный
+
+        metric_rows.append({
+            "label":       _tex_escape(label),
+            "before_fmt":  _fmtv(vB, dec),
+            "during_fmt":  _fmtv(vD, dec),
+            "after_fmt":   _fmtv(vA, dec),
+            "delta_fmt":   _tex_escape(delta_str),
+            "delta_good":  delta_good,
+        })
+
+    # Балл и цвет (пороги = HTML)
+    score_after = snap.get("score_after")
+    if score_after is None:
+        score_color = "neutral"
+    elif score_after >= 70:
+        score_color = "good"
+    elif score_after >= 55:
+        score_color = "ok"
+    elif score_after >= 45:
+        score_color = "neutral"
+    elif score_after >= 30:
+        score_color = "warn"
+    else:
+        score_color = "bad"
+
+    # Внешний фактор ΔP
+    ext_frac = dpext.get("external_fraction")
+    try:
+        ext_pct_fmt = str(int(float(ext_frac) * 100)) if ext_frac is not None else "—"
+    except (TypeError, ValueError):
+        ext_pct_fmt = "—"
+
+    # Исключённые метрики — через запятую, _tex_escaped
+    excl_tex = _tex_escape(", ".join(str(e) for e in excl)) if excl else ""
+
+    # Описания из снимка (заморожены, не переписывать)
+    _DESCR_LABELS = {
+        "q_median": "Дебит Q",
+        "dp_median": "ΔP",
+        "downtime": "Простои",
+        "inj_freq": "Вбросы",
+    }
+    descr_rows = [
+        {
+            "label": _tex_escape(_DESCR_LABELS.get(k, k)),
+            "text":  _tex_escape(str(v)),
+        }
+        for k, v in descr.items() if v
+    ]
+
+    # Перцентильные ранги
+    pct_avail = snap.get("percentile_rank_available")
+    pct_q  = pct_rnk.get("q_median_after")
+    pct_dp = pct_rnk.get("dp_median_after")
+    n_q    = pct_rnk.get("n_q_windows")
+    n_dp   = pct_rnk.get("n_dp_windows")
+
+    # Справочный контекст (week_ref/month_ref)
+    comparison_rows = []
+    for ref_key, ref_label in [("week_ref", "Неделя до"), ("month_ref", "Месяц до")]:
+        ref = comp_per.get(ref_key)
+        if ref:
+            m = ref.get("metrics") or {}
+            comparison_rows.append({
+                "label":        _tex_escape(ref_label),
+                "period_dates": _tex_escape(
+                    f"{ref.get('from', '—')} --- {ref.get('to', '—')}"
+                ),
+                "q_fmt":        _fmtv(m.get("q_median"), 2),
+                "dp_fmt":       _fmtv(m.get("dp_median"), 2),
+                "downtime_fmt": _fmtv(m.get("downtime_fraction"), 3),
+                "purge_fmt":    _fmtv(m.get("purge_count"), 0),
+            })
+
+    weight_profile = snap.get("weight_profile") or p.get("weight_profile") or "—"
+    work_from = p.get("work_from") or (snap.get("params") or {}).get("work_from") or "—"
+    work_to   = p.get("work_to")   or (snap.get("params") or {}).get("work_to")   or "—"
+
+    return {
+        "block_id":            b.get("block_id"),
+        "title":               _tex_escape(str(b.get("title") or "")),
+        "comment":             _tex_escape(str(b.get("comment") or "")),
+        # Шапка
+        "work_type_label":     _tex_escape(work_type_label),
+        "work_from":           _tex_escape(str(work_from)),
+        "work_to":             _tex_escape(str(work_to)),
+        "choke_mm_fmt":        (f"{float(snap.get('choke_mm')):.1f}"
+                                if snap.get("choke_mm") is not None else "—"),
+        "weight_profile":      _tex_escape(str(weight_profile)),
+        # Таблица окон
+        "windows":             window_info,
+        "metric_rows":         metric_rows,
+        # Балл и вердикт
+        "score_after_fmt":     _fmtv(score_after, 1) if score_after is not None else "—",
+        "score_color":         score_color,
+        "score_reliable":      snap.get("score_after_reliable", True),
+        "verdict_after":       _tex_escape(str(snap.get("verdict_after") or "—")),
+        "score_during_fmt":    _fmtv(snap.get("score_during"), 1) if snap.get("score_during") is not None else "—",
+        "score_during_reliable": snap.get("score_during_reliable", True),
+        "verdict_during":      _tex_escape(str(snap.get("verdict_during") or "—")),
+        # Флаги
+        "flag_dp_external":    bool(flags.get("dp_decline_external")),
+        "ext_pct_fmt":         ext_pct_fmt,
+        "flag_choke_changed":  bool(flags.get("choke_changed_during")),
+        "excl_tex":            excl_tex,
+        # Описания (только из снимка)
+        "descr_rows":          descr_rows,
+        # Перцентили
+        "pct_avail":           pct_avail,
+        "pct_q_fmt":           _fmtv(pct_q, 0) if pct_q is not None else "—",
+        "pct_dp_fmt":          _fmtv(pct_dp, 0) if pct_dp is not None else "—",
+        "n_q_windows":         int(n_q) if n_q is not None else "—",
+        "n_dp_windows":        int(n_dp) if n_dp is not None else "—",
+        # Справочный контекст
+        "comparison_rows":     comparison_rows,
+    }
 
 
 def _format_rose_block(
@@ -5068,7 +6180,7 @@ def _format_segment_block(
             "p_flowline_fmt": _fmt_num(s.get("mean_p_flowline"), 1),
             "p_wellhead_fmt": _fmt_num(s.get("mean_p_wellhead"), 1),
             "dp_fmt":        _fmt_num(s.get("mean_dp"), 2),
-            "type_tex":      _tex_escape(str(s.get("type") or "—")),
+            "type_tex":      _tex_escape(_translate_segment_type(str(s.get("type") or "—"))),
         })
 
     # ── Богатое «Описание сегментов» (HTML §6.4 эквивалент) ────
@@ -5096,6 +6208,10 @@ def _format_segment_block(
         snap.get("cp_descriptions") or [],
     )
     cp_bullets = _build_cp_bullets(
+        snap.get("cp_marks") or [],
+        snap.get("segments_extended") or [],
+    )
+    cp_rows = _build_cp_rows(
         snap.get("cp_marks") or [],
         snap.get("segments_extended") or [],
     )
@@ -5152,6 +6268,7 @@ def _format_segment_block(
         # Если пуст — fallback на cp_bullets из cp_marks (legacy snapshot).
         "cp_descriptions_lines": cp_descriptions_lines,
         "cp_bullets":     cp_bullets,
+        "cp_rows":        cp_rows,
         "dual_summary_tex": dual_summary_tex,
         "parts":          parts,
         "has_data":       bool(
@@ -5175,7 +6292,7 @@ def _build_factual_segment_notes(segments_extended: list) -> list[dict]:
     out = []
     for i, s in enumerate(segments_extended):
         lines: list[str] = []
-        seg_type = s.get("type") or "—"
+        seg_type = _translate_segment_type(str(s.get("type") or "—"))
         q_tot = s.get("mean_q")
         q_work = s.get("mean_q_working")
         mean_dp = s.get("mean_dp")
@@ -5240,7 +6357,7 @@ def _build_rich_segment_describes(segments_extended: list) -> list[dict]:
     for i, s in enumerate(segments_extended):
         prev = segments_extended[i - 1] if i > 0 else None
         num = str(s.get("num", ""))
-        seg_type = str(s.get("type") or "—")
+        seg_type = _translate_segment_type(str(s.get("type") or "—"))
         # Шапка сегмента (как в HTML: «Сегмент N · DD.MM.YYYY–DD.MM.YYYY · X дн · тип: ...»)
         header_plain = (
             f"Сегмент {num} · "
@@ -5413,6 +6530,49 @@ def _build_cp_bullets(cp_marks: list, segments_extended: list) -> list[str]:
     return out
 
 
+def _build_cp_rows(cp_marks: list, segments_extended: list) -> list[dict]:
+    """Структурные строки точек перелома для ТАБЛИЦЫ (PDF + HTML-парность).
+
+    Тип впадина/вершина определяется по знаку тренда ДО и ПОСЛЕ перелома:
+    рост→спад = вершина (пик), спад→рост = впадина; монотонно = рост/спад.
+    Стрелки — math-символы LaTeX (рендерятся в любом шрифте).
+    """
+    from backend.services.daily_report_service import _tex_escape
+    seg_by_start = {s.get("start_idx"): s for s in segments_extended}
+    src_map = {
+        "confirmed": "подтв. обоими", "only_total": "только Q общ",
+        "only_working": "только Q раб",
+    }
+    rows: list[dict] = []
+    prev_q = None
+    for cp in cp_marks:
+        seg = seg_by_start.get(cp.get("idx"))
+        q_pct = seg.get("change_pct") if seg else None
+        dp_pct = seg.get("change_dp_pct") if seg else None
+        cur = q_pct
+        if prev_q is not None and cur is not None and prev_q > 0 and cur < 0:
+            arrow, typ = r"$\wedge$", "вершина"
+        elif prev_q is not None and cur is not None and prev_q < 0 and cur > 0:
+            arrow, typ = r"$\vee$", "впадина"
+        elif cur is None:
+            arrow, typ = "---", "—"
+        elif cur >= 0:
+            arrow, typ = r"$\nearrow$", "рост"
+        else:
+            arrow, typ = r"$\searrow$", "спад"
+        rows.append({
+            "date": _tex_escape(cp.get("date") or ""),
+            "tag": _tex_escape(cp.get("tag") or ""),
+            "q": _tex_escape(f"{_fmt_signed(q_pct, 0)}%") if q_pct is not None else "---",
+            "dp": _tex_escape(f"{_fmt_signed(dp_pct, 0)}%") if dp_pct is not None else "---",
+            "arrow": arrow, "type": typ,
+            "source": _tex_escape(src_map.get(cp.get("source") or "only_total", "")),
+        })
+        if cur is not None:
+            prev_q = cur
+    return rows
+
+
 def _format_observation_block(b: dict, *, render_charts: bool = True) -> dict:
     """Готовит блок kind='observation_analysis' под LaTeX.
 
@@ -5566,54 +6726,353 @@ def _format_observation_block(b: dict, *, render_charts: bool = True) -> dict:
     }
 
 
+_SEG_TYPE_LABELS = {
+    "stable": "Стабильный", "rising": "Рост", "falling": "Падение",
+    "volatile": "Волатильный", "unknown": "Неопределён",
+    "initial": "Начальный", "decline": "Снижение", "rise": "Рост",
+    "sharp_decline": "Резкое снижение", "sharp_rise": "Резкий рост",
+}
+
+# Направление тренда → LaTeX-стрелка (math-mode, не зависит от шрифта).
+# Зеркало dirLabel() в chapter_render.js (↑/↓/→).
+_DIR_TEX = {"rising": r"$\uparrow$", "falling": r"$\downarrow$", "stable": r"$\rightarrow$"}
+
+
+def _format_observation_rfc_block(b: dict, *, render_charts: bool = True) -> dict:
+    """Готовит RFC-блоки наблюдения (observation_baseline/period/segment) под LaTeX §3.4.
+
+    Зеркало chapter_render.js::_buildObservationBlockHtml — те же таблицы и строки,
+    что в HTML (инвариант PARITY). Графики: Plotly-PNG (id prev-{id}-obs-metrics/
+    -obs-ts/-obs-cmp/-obs-seg, снимаются роутером тем же renderChapter) с
+    matplotlib-фолбэком (observation_chart_renderer) при сбое headless-браузера.
+    """
+    from backend.services.daily_report_service import _tex_escape, TEMP_DIR, _ensure_dirs
+    import json as _json
+
+    raw_snap = b.get("data_snapshot")
+    if isinstance(raw_snap, str):
+        try:
+            snap = _json.loads(raw_snap)
+        except Exception:
+            snap = {}
+    else:
+        snap = raw_snap or {}
+    raw_p = b.get("params")
+    if isinstance(raw_p, str):
+        try:
+            p = _json.loads(raw_p)
+        except Exception:
+            p = {}
+    else:
+        p = raw_p or {}
+
+    parts = p.get("parts") or {}
+
+    def part_on(key: str) -> bool:
+        return parts.get(key, True)
+
+    kind = b.get("kind") or ""
+    block_id = b.get("block_id") or b.get("id") or "x"
+    m = snap.get("metrics") or {}
+    period = snap.get("period") or {}
+
+    def _mv(metric: str, stat: str):
+        return (m.get(metric) or {}).get(stat)
+
+    def _dir(metric: str) -> str:
+        return _DIR_TEX.get((m.get(metric) or {}).get("direction"), "")
+
+    out: dict = {
+        "block_id": block_id,
+        "kind": kind,
+        "title": _tex_escape(str(b.get("title") or "")),
+        "date_from": _tex_escape(str(period.get("from") or snap.get("date_from") or "—")),
+        "date_to": _tex_escape(str(period.get("to") or snap.get("date_to") or "—")),
+        "days": period.get("days") or snap.get("days") or 0,
+        "parts": parts,
+        "block_status": snap.get("block_status") or "ok",
+    }
+
+    # Вступительный / заключительный текст оператора
+    out["prefix_note"] = _tex_escape(str(p.get("prefix_note") or "").strip()) if part_on("prefix_note") else ""
+    out["suffix_note"] = _tex_escape(str(p.get("suffix_note") or "").strip()) if part_on("suffix_note") else ""
+    desc_raw = str(snap.get("description") or b.get("comment") or "").strip()
+    out["description_paragraphs"] = (
+        [_tex_escape(ln) for ln in desc_raw.split("\n") if ln.strip()]
+        if part_on("description") else []
+    )
+
+    # ── Качество данных ──
+    q = snap.get("quality") or {}
+    qm = q.get("metrics") or {}
+    out["show_quality"] = bool(part_on("quality") and qm)
+    out["coverage_pct_fmt"] = _fmt_num(qm.get("coverage_pct"), 1)
+    out["gap_count"] = qm.get("gap_count") or 0
+    out["days_with_data"] = qm.get("days_with_data") or 0
+
+    # ── Флаги ──
+    flags = snap.get("flags") or {}
+    out["flags_list"] = (
+        [_tex_escape(str(k)) for k, v in flags.items() if v] if part_on("flags") else []
+    )
+
+    # ── baseline: расширенная таблица метрик (Q/ΔP/Pуст/Pшлейф + простой) ──
+    out["show_metrics_baseline"] = bool(kind == "observation_baseline" and part_on("metrics_table"))
+    if out["show_metrics_baseline"]:
+        out["b_q"] = {k: _fmt_num(_mv("q", k), 2) for k in ("mean", "median", "min", "max")}
+        out["b_q_dir"] = _dir("q")
+        out["b_dp"] = {k: _fmt_num(_mv("dp", k), 2) for k in ("mean", "median", "min", "max")}
+        out["b_dp_dir"] = _dir("dp")
+        out["b_ptube"] = {k: _fmt_num(_mv("p_tube", k), 2) for k in ("mean", "median", "min", "max")}
+        out["b_ptube_dir"] = _dir("p_tube")
+        out["b_pline"] = {k: _fmt_num(_mv("p_line", k), 2) for k in ("mean", "median", "min", "max")}
+        out["b_pline_dir"] = _dir("p_line")
+        dt = m.get("downtime") or {}
+        out["has_downtime"] = dt.get("total_hours") is not None
+        out["downtime_hours_fmt"] = _fmt_num(dt.get("total_hours"), 1)
+        out["downtime_pct_fmt"] = _fmt_num(dt.get("downtime_pct_of_period"), 1)
+
+    # ── period: таблица метрик (среднее/медиана) ──
+    out["show_metrics_period"] = bool(kind == "observation_period" and part_on("metrics_table"))
+    if out["show_metrics_period"]:
+        out["p_q_mean_fmt"] = _fmt_num(_mv("q", "mean"), 2)
+        out["p_q_med_fmt"] = _fmt_num(_mv("q", "median"), 2)
+        out["p_ptube_med_fmt"] = _fmt_num(_mv("p_tube", "median"), 2)
+        out["p_pline_med_fmt"] = _fmt_num(_mv("p_line", "median"), 2)
+        out["p_dp_mean_fmt"] = _fmt_num(_mv("dp", "mean"), 2)
+        out["p_dp_med_fmt"] = _fmt_num(_mv("dp", "median"), 2)
+        dt = m.get("downtime") or {}
+        out["p_downtime_hours_fmt"] = _fmt_num(dt.get("total_hours"), 1)
+        out["p_downtime_pct_fmt"] = _fmt_num(dt.get("downtime_pct_of_period"), 1)
+
+    # ── period: сравнение с baseline (B1) ──
+    comparisons = snap.get("comparisons") or {}
+    cmp_b1 = comparisons.get("with_b1") or {}
+    # Ключи дельт snapshot: p_tube_mean / p_line_mean / dp_mean / q_mean (каждый {abs, pct}).
+    _CMP_KEYS = [
+        ("p_tube_mean", r"$P_\text{уст}$"), ("p_line_mean", r"$P_\text{лин}$"),
+        ("dp_mean", r"$\Delta P$"), ("q_mean", "$Q$"),
+    ]
+    out["cmp_b1_rows"] = []
+    if part_on("comparison_with_b1") and cmp_b1.get("status") == "ok":
+        deltas = cmp_b1.get("deltas") or {}
+        for k, label in _CMP_KEYS:
+            dv = deltas.get(k)
+            if not dv:
+                continue
+            pct = dv.get("pct")
+            arrow = _DIR_TEX["rising"] if (pct or 0) > 0 else (_DIR_TEX["falling"] if (pct or 0) < 0 else _DIR_TEX["stable"])
+            out["cmp_b1_rows"].append({
+                "label": label,
+                "abs_fmt": _fmt_num(dv.get("abs"), 2),
+                "pct_fmt": _fmt_num(pct, 1),
+                "arrow": arrow,
+            })
+    # ── period: сравнение с заказчиком ──
+    cmp_cust = comparisons.get("with_customer") or {}
+    out["show_cmp_customer"] = bool(
+        part_on("comparison_with_customer")
+        and cmp_cust and (cmp_cust.get("q_delta_pct") is not None or cmp_cust.get("dp_delta_pct") is not None)
+    )
+    out["cmp_cust_q_fmt"] = _fmt_num(cmp_cust.get("q_delta_pct"), 1)
+    out["cmp_cust_dp_fmt"] = _fmt_num(cmp_cust.get("dp_delta_pct"), 1)
+
+    # ── Диагностика (общая для period/segment) — коды verdict → читаемый текст ──
+    # Шумовые вердикты (match/no_significant_change/stable/insufficient_data) скрываем,
+    # показываем только содержательные расхождения/улучшения.
+    _VERDICT_RU = {
+        "diverge": "расхождение", "improvement": "улучшение",
+        "partial_match": "частичное совпадение",
+    }
+    _DIAG_TGT_RU = {
+        "q_mean": "дебит Q", "q": "дебит Q", "p_tube_mean": "P устье", "p_tube": "P устье",
+        "p_line_mean": "P шлейф", "p_line": "P шлейф", "dp_mean": "перепад",
+        "dp": "перепад", "shutdown_pct": "простой", "cv_p_tube": "стабильность P",
+    }
+    _DIAG_CTX_RU = {"vs_b1": "относительно B1", "vs_customer": "относительно заказчика"}
+    diag = snap.get("diagnostics") or []
+    diag_lines = []
+    if part_on("diagnostics"):
+        for d in diag:
+            ru = _VERDICT_RU.get(d.get("verdict"))
+            if not ru:
+                continue
+            tgt = _DIAG_TGT_RU.get(d.get("target"), str(d.get("target") or ""))
+            ctx = _DIAG_CTX_RU.get(d.get("context"), "")
+            mag = d.get("magnitude")
+            mag_s = f" ({mag:+.1f}%)" if isinstance(mag, (int, float)) else ""
+            diag_lines.append(_tex_escape(f"{tgt} {ctx}: {ru}{mag_s}".strip()))
+    out["diagnostics"] = diag_lines
+
+    # ── segment: таблица сегментов ──
+    segments = snap.get("segments") or []
+    out["segments_rows"] = []
+    if kind == "observation_segment" and part_on("segments_table"):
+        for i, s in enumerate(segments):
+            out["segments_rows"].append({
+                "num": s.get("num") or (i + 1),
+                "start": _tex_escape(str(s.get("start_date") or "—")),
+                "end": _tex_escape(str(s.get("end_date") or "—")),
+                "q_fmt": _fmt_num(s.get("mean_q"), 2),
+                "dp_fmt": _fmt_num(s.get("mean_dp"), 2),
+                "dir": _DIR_TEX.get(s.get("direction"), "—"),
+            })
+    # ── segment: точки перелома ──
+    changepoints = snap.get("changepoints") or []
+    out["changepoints"] = []
+    if kind == "observation_segment" and part_on("changepoints"):
+        for cp in changepoints:
+            mag = cp.get("magnitude_pct")
+            mag_fmt = (f"{mag:+.1f}\\%" if isinstance(mag, (int, float)) else "—")
+            out["changepoints"].append({
+                "date": _tex_escape(str(cp.get("date") or "—")),
+                "mag": mag_fmt,
+            })
+
+    # ── Графики: matplotlib-фолбэк (Plotly-PNG приоритетнее, ключи в шаблоне) ──
+    out["chart_metrics"] = out["chart_ts"] = out["chart_cmp"] = out["chart_seg"] = None
+    if render_charts:
+        try:
+            from backend.services import observation_chart_renderer as _ocr
+            _ensure_dirs()
+            base = (TEMP_DIR / f"obs_rfc_{block_id}").resolve()
+            if kind == "observation_baseline" and part_on("chart_metrics"):
+                pth = f"{base}_metrics.png"
+                _ocr.render_baseline_chart(snap, pth)
+                out["chart_metrics"] = pth
+            elif kind == "observation_period":
+                if part_on("chart_timeseries"):
+                    pth = f"{base}_ts.png"
+                    _ocr.render_period_timeseries_chart(snap, pth)
+                    out["chart_ts"] = pth
+                # chart_compare_b1 НЕ рендерим: snapshot хранит только дельты
+                # {abs, pct} без абсолютных baseline/current → HTML-график тоже
+                # не строится (deltas[k].baseline_value=null). Паритет: сравнение
+                # с B1 показывается ТАБЛИЦЕЙ (cmp_b1_rows) в HTML и PDF.
+            elif kind == "observation_segment" and part_on("chart_segments"):
+                pth = f"{base}_seg.png"
+                _ocr.render_segment_chart(snap, pth)
+                out["chart_seg"] = pth
+        except Exception:
+            log.exception("observation rfc block matplotlib fallback failed for block %s", block_id)
+
+    return out
+
+
 def _format_segment_analysis_for_observation(b: dict, *, render_charts: bool = True) -> dict:
     """Готовит блок kind='segment_analysis' под LaTeX для §3.4.
 
-    Использует render_segment_analysis() из observation_chapter_renderer,
-    который генерирует и HTML, и LaTeX. Возвращаем LaTeX для вставки в шаблон.
+    Заголовок и график (Plotly `segprev-{id}-qchart` / matplotlib-фолбэк) рисует
+    шаблон §3.4 — здесь только текстовая часть: период + широкая таблица сегментов
+    (tabularx на всю ширину) + описания всех сегментов + сводка. Паритет с HTML
+    (chapter_render.js): те же колонки и тот же текст descriptions из snapshot.
     """
     from backend.services.daily_report_service import _tex_escape, TEMP_DIR, _ensure_dirs
-    from backend.services.observation_chapter_renderer import (
-        render_segment_analysis, RenderContext,
-    )
 
     snap = b.get("data_snapshot") or {}
-    p = b.get("params") or {}
     block_id = b.get("block_id") or 0
+    title = str(b.get("title") or "")
 
-    # Директория для PNG графиков
-    _ensure_dirs()
-    output_dir = str(TEMP_DIR)
+    segs = snap.get("segments_extended") or snap.get("segments") or []
+    period = snap.get("period") or {}
+    pf = str(period.get("from") or snap.get("date_from") or "?")
+    pt = str(period.get("to") or snap.get("date_to") or "?")
+    interp = snap.get("interpretation") or {}
+    descriptions = interp.get("descriptions") or []
+    summary = str(interp.get("summary") or "")
 
-    # Контекст для рендера
-    ctx = RenderContext(
-        output_dir=output_dir,
-        block_id=block_id,
-        title=str(b.get("title") or ""),
-        block_status="ok",
-        skip_figures=not render_charts,
-        parts=p.get("parts") or {},
-        prefix_note=p.get("prefix_note") or "",
-        suffix_note=p.get("suffix_note") or "",
-        comment=str(b.get("comment") or ""),
+    def _f(v, d=2):
+        try:
+            return f"{float(v):.{d}f}"
+        except (TypeError, ValueError):
+            return "—"
+
+    def _sg(v, d=3):
+        try:
+            return f"{float(v):+.{d}f}"
+        except (TypeError, ValueError):
+            return "—"
+
+    # matplotlib-график как фолбэк (если Plotly-снимок не получился)
+    seg_chart_path = None
+    if render_charts:
+        try:
+            from backend.services.observation_chart_renderer import render_segment_analysis_chart
+            _ensure_dirs()
+            abs_path = str((TEMP_DIR / f"seg_obs_{block_id}.png").resolve())
+            render_segment_analysis_chart(snap, abs_path)
+            seg_chart_path = abs_path
+        except Exception:
+            log.exception("segment_analysis matplotlib chart failed for block %s", block_id)
+
+    lines: list[str] = []
+    lines.append(
+        r"{\footnotesize \textit{Период: %s~--~%s, сегментов: %d.}}"
+        % (_tex_escape(pf), _tex_escape(pt), len(segs))
     )
+    lines.append("")
 
-    # Рендер через observation_chapter_renderer
-    try:
-        result = render_segment_analysis(snap, ctx)
-        latex_content = result.latex
-        chart_paths = [fig.absolute_path for fig in result.figures]
-    except Exception:
-        log.exception("segment_analysis render failed for block %s", block_id)
-        latex_content = f"\\textit{{Ошибка рендера блока {block_id}}}"
-        chart_paths = []
+    # Широкая таблица сегментов (на всю ширину страницы)
+    if segs:
+        lines.append(r"{\scriptsize \textbf{Табл.~3.4.}\ Сегменты режима.}")
+        lines.append(r"\vspace{0.15em}")
+        lines.append("")
+        lines.append(r"{\scriptsize")
+        lines.append(r"\begin{tabularx}{\textwidth}{|c|*{9}{>{\RaggedRight\arraybackslash}X|}}")
+        lines.append(r"\hline")
+        lines.append(
+            r"\textbf{\#} & \textbf{Тип} & \textbf{Период} & \textbf{$Q$ ср} & "
+            r"\textbf{Тренд} & \textbf{$\Delta$\%} & \textbf{Раб\%} & "
+            r"\textbf{$P_у$} & \textbf{$P_{шл}$} & \textbf{$\Delta P$} \\"
+        )
+        lines.append(r"\hline")
+        for s in segs:
+            num = s.get("num", "?")
+            label = _SEG_TYPE_LABELS.get(
+                s.get("type") or s.get("segment_type") or "unknown",
+                s.get("type") or "",
+            )
+            per = "%s--%s" % (
+                _tex_escape(str(s.get("start") or s.get("start_date") or "?")),
+                _tex_escape(str(s.get("end") or s.get("end_date") or "?")),
+            )
+            slope = s.get("slope_total")
+            if slope is None:
+                slope = s.get("slope")
+            lines.append(
+                f"{num} & {_tex_escape(label)} & {per} & "
+                f"{_f(s.get('mean_q') if s.get('mean_q') is not None else s.get('mean_value'))} & "
+                f"{_sg(slope)} & {_f(s.get('change_pct'), 0)} & {_f(s.get('working_pct'), 0)} & "
+                f"{_f(s.get('mean_p_wellhead'))} & {_f(s.get('mean_p_flowline'))} & "
+                f"{_f(s.get('mean_dp'))} \\\\"
+            )
+            lines.append(r"\hline")
+        lines.append(r"\end{tabularx}}")
+        lines.append("")
+
+    # Описание сегментов (тот же текст, что в HTML — interpretation.descriptions)
+    if descriptions:
+        lines.append(r"\vspace{0.3em}")
+        lines.append(r"{\footnotesize \textbf{Описание сегментов (%d):}\par" % len(descriptions))
+        for d in descriptions:
+            lines.append(r"\smallskip " + _tex_escape(str(d)) + r"\par")
+        lines.append("}")
+        lines.append("")
+
+    # Сводка
+    if summary:
+        lines.append(r"\vspace{0.2em}")
+        lines.append(r"{\footnotesize " + _tex_escape(summary) + "}")
+
+    latex_content = "\n".join(lines)
 
     return {
         "block_id": block_id,
-        "title": _tex_escape(str(b.get("title") or "")),
+        "title": _tex_escape(title),
         "kind": "segment_analysis",
+        "seg_chart_path": seg_chart_path,
         "latex_content": latex_content,
-        "_chart_paths": chart_paths,  # для cleanup после генерации PDF
+        "_chart_paths": [seg_chart_path] if seg_chart_path else [],
     }
 
 
@@ -5662,6 +7121,160 @@ def _format_segment_comparison_for_observation(b: dict, *, render_charts: bool =
         "latex_content": latex_content,
         "_chart_paths": chart_paths,
     }
+
+
+# Пороги вердикта эффективности по приросту суточной добычи ΔQ = Q(R★) − Q(B2),
+# тыс.м³/сут. ОБЯЗАНЫ совпадать с порогами в chapter_render.js (инвариант PARITY).
+EFF_DQ_GOOD = 3.0   # ≥ — технологический эффект значительный, продолжить работы
+EFF_DQ_MIN = 1.0    # ≥ — эффект есть, но экономически нецелесообразно; |·|< — незначимый
+
+
+_PCMP_ROWS = [
+    ("Дебит Q (медиана), тыс.м³/сут", "q_median", 2),
+    ("Дебит Q (среднее), тыс.м³/сут", "q_avg", 2),
+    ("Перепад ΔP (медиана), кгс/см²", "dp_median", 2),
+    ("P трубное (медиана), кгс/см²", "p_tube_median", 2),
+    ("P линейное (медиана), кгс/см²", "p_line_median", 2),
+    ("КИВ (рабочее время), %", "utilization_pct", 1),
+    ("Простой, ч", "downtime_hours", 1),
+]
+_PCMP_LOWER_BETTER = {"dp_median", "downtime_hours"}
+
+
+def _format_period_comparison(b: dict) -> dict:
+    """Форматирование блока period_comparison под LaTeX (PARITY с
+    chapter_render.js::_buildPeriodComparisonHtml).
+
+    snapshot: { current:{label,metrics,series}, targets:[{label,metrics,series}] }.
+    Графики prcmp-{block_id}-q/-dp снимаются plotly_png_service (как в HTML).
+    """
+    from backend.services.daily_report_service import _tex_escape
+    snap = b.get("data_snapshot") or {}
+    p = b.get("params") or {}
+    cur = snap.get("current") or {}
+    targets = snap.get("targets") or []
+    cm = cur.get("metrics") or {}
+    parts = p.get("parts") or {}
+    on = lambda k: parts.get(k) is not False  # noqa: E731
+
+    def _dcell(curv, val, d, lower):
+        try:
+            curv = float(curv); val = float(val)
+        except (TypeError, ValueError):
+            return {"text": "---", "color": "gray"}
+        if curv == 0:
+            return {"text": "---", "color": "gray"}
+        diff = val - curv
+        pct = diff / abs(curv) * 100.0
+        better = (diff < 0) if lower else (diff > 0)
+        color = "gray" if abs(pct) < 5 else ("green!55!black" if better else "red!70!black")
+        s = "+" if diff >= 0 else ""
+        return {"text": rf"{s}{diff:.{d}f} ({s}{pct:.1f}\%)", "color": color}
+
+    cmp_rows = []
+    for lbl, key, d in _PCMP_ROWS:
+        curv = cm.get(key)
+        cells = []
+        for t in targets:
+            val = (t.get("metrics") or {}).get(key)
+            cells.append({"val_fmt": _fmt_num(val, d),
+                          "delta": _dcell(curv, val, d, key in _PCMP_LOWER_BETTER)})
+        cmp_rows.append({"label": _tex_escape(lbl), "cur_fmt": _fmt_num(curv, d), "cells": cells})
+
+    def _sgn(v, d=2):
+        if v is None:
+            return "—"
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            return "—"
+        return ("+" if v >= 0 else "") + f"{v:.{d}f}"
+
+    text_lines = []
+    for t in targets:
+        tm = t.get("metrics") or {}
+        ps = []
+        if cm.get("q_median") is not None and tm.get("q_median") is not None:
+            dd = cm["q_median"] - tm["q_median"]
+            pct = f" ({_sgn(dd / abs(tm['q_median']) * 100, 1)}%)" if tm.get("q_median") else ""
+            ps.append(f"дебит Q {_fmt_num(tm['q_median'], 2)} → {_fmt_num(cm['q_median'], 2)} ({_sgn(dd)} тыс.м³/сут{pct})")
+        if cm.get("dp_median") is not None and tm.get("dp_median") is not None:
+            ps.append(f"перепад ΔP {_fmt_num(tm['dp_median'], 2)} → {_fmt_num(cm['dp_median'], 2)} ({_sgn(cm['dp_median'] - tm['dp_median'])} кгс/см²)")
+        if cm.get("utilization_pct") is not None and tm.get("utilization_pct") is not None:
+            ps.append(f"КИВ {_fmt_num(tm['utilization_pct'], 1)}% → {_fmt_num(cm['utilization_pct'], 1)}% ({_sgn(cm['utilization_pct'] - tm['utilization_pct'], 1)} п.п.)")
+        if ps:
+            text_lines.append(_tex_escape(f"Относительно «{t.get('label', '')}»: {'; '.join(ps)}."))
+
+    return {
+        "block_id": b.get("block_id"),
+        "kind": "period_comparison",
+        "title": _tex_escape(str(b.get("title") or "")),
+        "comment": _tex_escape(str(b.get("comment") or "")),
+        "date_from": _tex_escape(str(p.get("date_from") or "—")),
+        "date_to": _tex_escape(str(p.get("date_to") or "—")),
+        "cmp_current_label": _tex_escape(str(cur.get("label") or "Текущий период")),
+        "cmp_current_sub": _tex_escape(str(cur.get("sublabel") or "")),
+        "cmp_targets": [
+            {"label": _tex_escape(str(t.get("label") or "")),
+             "sublabel": _tex_escape(str(t.get("sublabel") or ""))}
+            for t in targets
+        ],
+        "cmp_rows": cmp_rows,
+        "text_lines": text_lines,
+        "show_summary_table": on("summary_table"),
+        "show_overlay_charts": on("overlay_charts"),
+        "show_description": on("description"),
+        "has_data": bool(targets and cur),
+    }
+
+
+def _format_period_block(b: dict, *, render_charts: bool = True, db=None, chart_dir=None) -> dict:
+    """Форматирование блока главы «Отчёт за период» (chapter='period').
+
+    Зеркало adaptation_blocks_fmt: period_full_analysis формируется как
+    adaptation_period_analysis (тот же снапшот { adaptation, observation, optimal,
+    comparison, b1 }), period_comparison — как adaptation_comparison. Общие блоки
+    (segment_analysis/segment_comparison/sensor_customer_comparison/
+    pressure_spectrum/param_correlation) — теми же форматтерами, что в адаптации.
+
+    base['kind'] сохраняет ИСХОДНЫЙ period-вид — для .tex-диспетчера и парности с
+    chapter_render.js (HTML диспетчеризует по period_full_analysis).
+    """
+    kind = b.get("kind")
+    if kind == "segment_analysis":
+        return _format_segment_block(b, render_charts=render_charts, chart_dir=chart_dir)
+    if kind == "segment_comparison":
+        return _format_segment_comparison_for_observation(b, render_charts=render_charts)
+    if kind == "sensor_customer_comparison":
+        return _format_sensor_customer_comparison(b, render_charts=render_charts, chart_dir=chart_dir)
+    if kind == "pressure_spectrum":
+        return _format_pressure_spectrum(b)
+    if kind == "param_correlation":
+        return _format_param_correlation(b)
+    if kind == "period_comparison":
+        return _format_period_comparison(b)
+    if kind == "adaptation_effectiveness":
+        # «Оценка эффективности» периода — тот же форматтер/рендер/.tex, что в Адаптации.
+        return _format_adaptation_block(b, render_charts=render_charts, db=db)
+    # period_full_analysis → формат как adaptation_period_analysis, kind сохраняем
+    _b = dict(b)
+    _b["kind"] = "adaptation_period_analysis"
+    fmt = _format_adaptation_block(_b, render_charts=render_charts, db=db)
+    fmt["kind"] = kind  # вернуть исходный period-вид для .tex
+    return fmt
+
+
+def _format_period_block_with_meta(pb: dict, *, render_charts: bool = True, db=None, chart_dir=None) -> dict:
+    """_format_period_block + проброс period_report_id/block_id на верхний уровень.
+
+    Нужно для общего отчёта (Step 7): _finalize группирует period-блоки по
+    period_report_id и собирает несколько периодов в один документ.
+    """
+    fmt = _format_period_block(pb, render_charts=render_charts, db=db, chart_dir=chart_dir)
+    fmt["period_report_id"] = (pb.get("params") or {}).get("period_report_id")
+    if not fmt.get("block_id"):
+        fmt["block_id"] = pb.get("block_id")
+    return fmt
 
 
 def _format_adaptation_block(b: dict, *, render_charts: bool = True, db=None) -> dict:
@@ -5752,21 +7365,383 @@ def _format_adaptation_block(b: dict, *, render_charts: bool = True, db=None) ->
         })
         return base
 
-    if kind == "reagent_irv_summary":
-        scores = snap.get("scores") or {}
-        rows = []
-        if isinstance(scores, dict):
-            for name, sc in scores.items():
-                rows.append({
-                    "name":     _tex_escape(str(name)),
-                    "score_fmt": _fmt_num(sc, 1),
-                })
+    if kind == "adaptation_effectiveness":
+        # ═══ Блок «Оценка эффективности» — зеркало _buildAdaptationEffectivenessHtml ═══
+        opt = snap.get("optimal") or {}
+        obs = snap.get("observation") or {}
+        b1 = snap.get("b1") or {}
+        ad = snap.get("adaptation") or {}
+        recommend = (p.get("recommendation") or "").strip()
+        # Настройки «что включать» (params.parts) — PARITY с _buildAdaptationEffectivenessHtml.
+        eff_parts = p.get("parts") or {}
+        eff_on = lambda k: eff_parts.get(k) is not False  # noqa: E731
+
+        def _f(v, d=2):
+            return _fmt_num(v, d)
+
+        def _sgn(v, d=2):
+            if v is None or (isinstance(v, float) and v != v):
+                return "—"
+            return ("+" if v >= 0 else "") + f"{v:.{d}f}"
+
+        oq = opt.get("flow_median"); bq = obs.get("flow_median")
+        odp = opt.get("dp_median");  bdp = obs.get("dp_median")
+        ou = opt.get("utilization_pct"); bu = obs.get("utilization_pct")
+        b1q = b1.get("flow_median") or b1.get("q_total_median")
+        b1dp = b1.get("dp_median")
+
+        # ─── Дельты относительно наблюдения (B2) ───
+        lines_b2 = []
+        dq = None
+        if oq is not None and bq is not None:
+            dq = oq - bq
+            pct = f" ({_sgn(dq / bq * 100, 1)}%)" if bq else ""
+            lines_b2.append(_tex_escape(f"Дебит Q: {_f(bq)} → {_f(oq)} — {_sgn(dq)} тыс.м³/сут{pct}."))
+        if odp is not None and bdp is not None:
+            lines_b2.append(_tex_escape(f"Перепад ΔP: {_f(bdp)} → {_f(odp)} — {_sgn(odp - bdp)} кгс/см²."))
+        if ou is not None and bu is not None:
+            lines_b2.append(_tex_escape(f"Рабочее время (КИВ): {_f(bu, 1)}% → {_f(ou, 1)}% — {_sgn(ou - bu, 1)} п.п."))
+
+        # ─── Дельты относительно заказчика (B1) ───
+        lines_b1 = []
+        if oq is not None and b1q is not None:
+            pct = f" ({_sgn((oq - b1q) / b1q * 100, 1)}%)" if b1q else ""
+            lines_b1.append(_tex_escape(f"Дебит Q: {_f(b1q)} → {_f(oq)} — {_sgn(oq - b1q)} тыс.м³/сут{pct}."))
+        if odp is not None and b1dp is not None:
+            lines_b1.append(_tex_escape(f"Перепад ΔP: {_f(b1dp)} → {_f(odp)} — {_sgn(odp - b1dp)} кгс/см²."))
+
+        # ─── Вердикт: ФАКТ (R vs B2) + накопленная добыча + ПОТЕНЦИАЛ (R★) ───
+        # R — фактический режим адаптации (с переходными процессами, скважина выходит
+        # на режим), R★ — потенциал (оптимистический сценарий). Оба относительно B2.
+        rq = ad.get("flow_avg") if ad.get("flow_avg") is not None else ad.get("flow_median")
+        bq_avg = obs.get("flow_avg") if obs.get("flow_avg") is not None else bq
+        ad_days = ad.get("duration_days") or 0
+        ad_cum = ad.get("flow_cumulative")
+        verdict_parts = []  # [{"lead","body"}] — структурированное заключение (абзацы)
+        # 1. Фактический результат: всего газа за период + рост среднесуточного дебита + доп. добыча
+        if rq is not None and bq_avg is not None:
+            dqf = rq - bq_avg
+            pctf = (dqf / bq_avg * 100) if bq_avg else None
+            body = ""
+            if ad_cum is not None and ad_days:
+                body += f"За {ad_days} сут адаптации скважина дала ≈ {_f(ad_cum, 1)} тыс.м³ газа (накопленная добыча этапа). "
+            body += (f"Среднесуточный дебит вырос с {_f(bq_avg)} тыс.м³/сут (наблюдение, B2) до "
+                     f"{_f(rq)} тыс.м³/сут (адаптация, R) — увеличение {_sgn(dqf)} тыс.м³/сут"
+                     + (f" ({_sgn(pctf, 1)}%)" if pctf is not None else "") + ".")
+            if ad_days:
+                extra = dqf * ad_days
+                body += f" Относительно режима наблюдения за этот период дополнительно получено ≈ {_f(extra, 1)} тыс.м³."
+            verdict_parts.append({"lead": "Фактический результат", "body": body})
+        # 2. Переходные режимы — почему средний R занижен
+        verdict_parts.append({"lead": "Переходные режимы", "body": (
+            "Период адаптации включает вывод скважины на установившийся режим, поэтому часть "
+            "периода занимают переходные процессы — средний дебит R занижает достигнутый "
+            "рабочий уровень.")})
+        # 3. Оптимальное окно R★ — реально достигнутый максимум В ХОДЕ работ (не сценарий)
+        if dq is not None:
+            pct_o = (dq / bq * 100) if bq else None
+            verdict_parts.append({"lead": "Оптимальное окно", "body": (
+                "R★ — окно наилучшей фактической работы скважины в ходе адаптации (реально "
+                "достигнутый максимум, не прогноз). В этом окне среднесуточный дебит составил "
+                f"{_f(oq)} тыс.м³/сут — на {_sgn(dq)} тыс.м³/сут"
+                + (f" ({_sgn(pct_o, 1)}%)" if pct_o is not None else "")
+                + " выше наблюдения; это показывает устойчиво достижимый уровень режима"
+                + (". Технологический эффект значительный — рекомендуется продолжить работы."
+                   if dq >= EFF_DQ_GOOD else "."))})
+        verdict = " ".join(p["body"] for p in verdict_parts)  # fallback-строка
+
+        # ── Применяем настройки «что включать» (parity с HTML) ──
+        show_b2 = eff_on("series_b2")
+        show_b1 = eff_on("series_b1")
+        show_r = eff_on("series_r")
+        if not show_b2:
+            lines_b2 = []
+        if not show_b1:
+            lines_b1 = []
+        if not eff_on("verdict"):
+            verdict = ""
+        if not eff_on("recommendation"):
+            recommend = ""
+
+        # ── Сводная таблица (столбцы по периодам, фильтр теми же series-тогглами) ──
+        b1q_t = b1.get("flow_median") if b1.get("flow_median") is not None else b1.get("q_total_median")
+        b1down_t = (b1.get("shutdown_min_total") / 60) if b1.get("shutdown_min_total") is not None else b1.get("downtime_hours")
+        eff_cols = [c for c in (
+            (show_b1, "УзКорГаз (сводки)", b1q_t, b1.get("dp_median"), b1down_t, b1.get("utilization_pct"), b1.get("score")),
+            (show_b2, "B2 (Наблюдение)", obs.get("flow_median"), obs.get("dp_median"), obs.get("downtime_hours"), obs.get("utilization_pct"), obs.get("score")),
+            (show_r, "R (Адаптация)", ad.get("flow_median"), ad.get("dp_median"), ad.get("downtime_hours"), ad.get("utilization_pct"), ad.get("score")),
+            (True, "R$^\\star$ (Оптимум)", opt.get("flow_median"), opt.get("dp_median"), opt.get("downtime_hours"), opt.get("utilization_pct"), opt.get("score")),
+        ) if c[0]]
+        eff_show_table = eff_on("summary_table") and bool(eff_cols)
+        eff_table_latex = ""
+        if eff_show_table:
+            tl = [r"{\footnotesize"]
+            tl.append(r"\begin{tabularx}{\textwidth}{|X|" + "|".join(["c"] * len(eff_cols)) + "|}")
+            tl.append(r"\hline")
+            tl.append(r"\textbf{Показатель} & " + " & ".join(r"\textbf{%s}" % c[1] for c in eff_cols) + r" \\")
+            tl.append(r"\hline")
+            metric_rows = [
+                ("Дебит Q (рабочий), тыс.м$^3$/сут", 2, 2),
+                ("Перепад $\\Delta P$, кгс/см$^2$", 3, 2),
+                ("Нерабочее время, ч", 4, 1),
+                ("КИВ (рабочее время), \\%", 5, 1),
+            ]
+            for mlabel, idx, dec in metric_rows:
+                tl.append(mlabel + " & " + " & ".join(_fmt_num(c[idx], dec) for c in eff_cols) + r" \\")
+                tl.append(r"\hline")
+            if any(c[6] is not None for c in eff_cols):
+                tl.append("Score (0--100) & " + " & ".join(
+                    (_fmt_num(c[6], 0) if c[6] is not None else "—") for c in eff_cols) + r" \\")
+                tl.append(r"\hline")
+            tl.append(r"\end{tabularx}}")
+            eff_table_latex = "\n".join(tl)
+
+        has_eff = bool(oq is not None or opt.get("score") is not None)
         base.update({
-            "injections_total": snap.get("injections_total") or 0,
-            "irv_count":        snap.get("irv_count") or 0,
-            "best_reagent":     _tex_escape(str(snap.get("best_reagent") or "—")),
-            "scores":           rows,
-            "has_data":         bool(rows or snap.get("injections_total")),
+            "eff_lines_b2":                  lines_b2,
+            "eff_lines_b1":                  lines_b1,
+            "eff_show_b2":                   show_b2,
+            "eff_show_b1":                   show_b1,
+            "eff_intro":                     eff_on("intro"),
+            "eff_captions":                  eff_on("captions"),
+            "eff_show_table":                eff_show_table,
+            "eff_table_latex":               eff_table_latex,
+            "effectiveness_verdict":         _tex_escape(verdict) if verdict else "",
+            "effectiveness_verdict_parts":   [{"lead": _tex_escape(vp["lead"]), "body": _tex_escape(vp["body"])} for vp in verdict_parts],
+            "effectiveness_recommendations": _tex_escape(recommend) if recommend else "",
+            "has_effectiveness":             has_eff,
+            # has_data — признак «уже отформатирован» для _maybe_format_adapt_block
+            # в роутере (иначе блок переформатируется без data_snapshot → пусто).
+            "has_data":                      has_eff,
+        })
+        return base
+
+    if kind == "reagent_irv_summary":
+        # ═══ ПОЛНЫЙ рендер reagent_irv_summary (парность с HTML) ═══
+        scores_raw = snap.get("scores") or []
+        irv_results = snap.get("irv_results") or []
+        br = snap.get("best_reagent") or {}
+        period = snap.get("period") or {}
+        choke_mm = snap.get("choke_mm")
+        total_inj = snap.get("injections_total") or len(irv_results)
+        merged_inj = snap.get("merged_injections") or len(irv_results)
+
+        # ─── Таблица scores (11 колонок) ───
+        scores_rows = []
+        qty_by_reagent = {}  # суммарный расход по реагентам
+        cnt_by_reagent = {}  # счётчик ИРВ
+        total_qty = 0.0
+        for it in irv_results:
+            name = it.get("reagent") or ""
+            if name:
+                cnt_by_reagent[name] = cnt_by_reagent.get(name, 0) + 1
+                q = it.get("qty")
+                if q is not None:
+                    qty_by_reagent[name] = qty_by_reagent.get(name, 0) + float(q)
+                    total_qty += float(q)
+        some_qty = total_qty > 0
+
+        if isinstance(scores_raw, list):
+            for s in sorted(scores_raw, key=lambda x: -(x.get("score") or 0)):
+                name = s.get("reagent") or s.get("name") or "—"
+                qty = qty_by_reagent.get(name)
+                deg = s.get("degradation_slope")
+                deg_fmt = (
+                    f"{'+' if deg >= 0 else ''}{deg:.3f}/ИРВ"
+                    if deg is not None else "—"
+                )
+                flags = s.get("flags") or []
+                scores_rows.append({
+                    "name":            _tex_escape(str(name)),
+                    "irv_count":       cnt_by_reagent.get(name) or s.get("irv_count") or 0,
+                    "valid_irv_count": s.get("valid_irv_count") or "—",
+                    "qty_fmt":         _fmt_num(qty, 1) if qty else "—",
+                    "q_per_unit_fmt":  _fmt_num(s.get("median_q_per_unit"), 3),
+                    "dp_gain_fmt":     _fmt_num(s.get("median_dp_gain"), 2),
+                    "effect_h_fmt":    _fmt_num(s.get("median_effect_hours"), 1),
+                    "score_fmt":       _fmt_num(s.get("score"), 2),
+                    "level_name":      _tex_escape(str(s.get("level_name") or "—")),
+                    "degradation_fmt": _tex_escape(deg_fmt),
+                    "flags":           ", ".join(_tex_escape(str(f)) for f in flags) if flags else "",
+                })
+
+        # ─── Детальная таблица ИРВ (11 колонок × N строк) ───
+        irv_detail_rows = []
+        for it in irv_results:
+            m = it.get("metrics") or {}
+            ext = it.get("extended") or {}
+            t = (it.get("event_time") or "")[:16].replace("T", " ")
+            inv = m.get("invalid_reason")
+            irv_score = ext.get("score")
+            irv_score_fmt = str(round(irv_score)) if irv_score is not None else "—"
+            mc = it.get("merged_count") or 1
+            qty_val = it.get("qty")
+            qty_str = str(qty_val) if qty_val is not None else "—"
+            if mc > 1:
+                qty_str += f" ({mc})"
+            irv_detail_rows.append({
+                "event_time":   _tex_escape(t),
+                "reagent":      _tex_escape(str(it.get("reagent") or "—")),
+                "qty":          _tex_escape(qty_str),
+                "duration_h":   _fmt_num(it.get("duration_hours"), 1),
+                "q_per_unit":   _fmt_num(m.get("q_per_unit"), 2),
+                "dp_gain":      _fmt_num(m.get("dp_gain"), 2),
+                "effect_h":     _fmt_num(m.get("effect_duration_hours"), 1),
+                "kiv_pct":      _fmt_num(m.get("utilisation_pct"), 1),
+                "q_cumulative": _fmt_num(m.get("q_cumulative"), 2),
+                "score":        irv_score_fmt,
+                "status":       _tex_escape(inv) if inv else r"\textcolor{green!55!black}{$\checkmark$}",
+            })
+
+        # ─── Период и темп ───
+        pf = period.get("from") or p.get("date_from") or ""
+        pt = period.get("to") or p.get("date_to") or ""
+        period_days = 0
+        if pf and pt:
+            try:
+                from datetime import datetime as _dt
+                d1 = _dt.fromisoformat(str(pf)[:19].replace("Z", ""))
+                d2 = _dt.fromisoformat(str(pt)[:19].replace("Z", ""))
+                period_days = max(1, (d2 - d1).days)
+            except:
+                period_days = 10  # fallback
+        rate_per_day = total_inj / period_days if period_days > 0 else 0
+
+        # ─── Нарратив «Описание словами» (7 пунктов) ───
+        narrative = []
+        # 1) Вбросов за период
+        txt = f"За период ({period_days} сут.) сделано {total_inj}"
+        if merged_inj != total_inj:
+            txt += f" (после группировки близких — {merged_inj})"
+        txt += "."
+        narrative.append(_tex_escape(txt))
+        # 2) Типов реагентов
+        if scores_rows:
+            narrative.append(_tex_escape(f"Применялось {len(scores_rows)} типа реагента."))
+        # 3-4) Топ-2 по частоте
+        by_cnt = sorted(scores_rows, key=lambda x: -x["irv_count"]) if scores_rows else []
+        sum_cnt = sum(r["irv_count"] for r in by_cnt) or 1
+        if by_cnt:
+            top1 = by_cnt[0]
+            pct1 = int(top1["irv_count"] / sum_cnt * 100)
+            narrative.append(_tex_escape(f"Чаще всего применялся {top1['name']} — {top1['irv_count']} ИРВ ({pct1}%)."))
+            if len(by_cnt) > 1 and by_cnt[1]["irv_count"] > 0:
+                top2 = by_cnt[1]
+                pct2 = int(top2["irv_count"] / sum_cnt * 100)
+                narrative.append(_tex_escape(f"На втором месте — {top2['name']} ({top2['irv_count']} ИРВ, {pct2}%)."))
+        # 5) Суммарный расход
+        if some_qty and br:
+            br_name = br.get("reagent") or ""
+            br_qty = qty_by_reagent.get(br_name, 0)
+            narrative.append(_tex_escape(f"Суммарный расход: {total_qty:.1f} (в т.ч. {br_name} — {br_qty:.1f})."))
+        # 6) Темп
+        if rate_per_day > 0:
+            narrative.append(_tex_escape(f"Темп: {rate_per_day:.2f} вбр./сут (≈ {rate_per_day*7:.1f} вбр./нед)."))
+        # 7) Лидер по Score
+        if isinstance(br, dict) and br.get("reagent"):
+            sc = br.get("score")
+            sc_str = f"{sc*100:.0f}" if sc is not None else "—"
+            lvl = br.get("level_name") or ""
+            narrative.append(_tex_escape(f"По эффективности (Score) лидирует {br.get('reagent')} ({sc_str} из 100), уровень «{lvl}»."))
+
+        # ─── Плитки (полные) ───
+        if isinstance(br, dict):
+            best_name = _tex_escape(str(br.get("reagent") or "—"))
+            best_score = br.get("score")
+            best_score_fmt = f"{best_score * 100:.0f}" if best_score is not None else "—"
+            best_level = _tex_escape(str(br.get("level_name") or "—"))
+            best_q_per_unit = _fmt_num(br.get("median_q_per_unit"), 2)
+            best_effect_h = _fmt_num(br.get("median_effect_hours"), 1)
+        else:
+            best_name = _tex_escape(str(br or "—"))
+            best_score_fmt = "—"
+            best_level = "—"
+            best_q_per_unit = "—"
+            best_effect_h = "—"
+
+        # ─── Анализ периодичности вбросов (2.7) — зеркало chapter_render.js ───
+        from datetime import datetime as _dt_p
+
+        def _parse_evt(s):
+            try:
+                return _dt_p.fromisoformat(str(s)[:19].replace("Z", ""))
+            except Exception:
+                return None
+
+        def _fmt_h(h):
+            return f"{h / 24:.2f} сут" if h >= 24 else f"{h:.1f} ч"
+
+        parsed = []
+        for it in irv_results:
+            t = _parse_evt(it.get("event_time"))
+            if t is not None and it.get("event_time"):
+                parsed.append((t, it))
+        parsed.sort(key=lambda x: x[0])
+        ptimes = [pt for pt, _ in parsed]
+        pitems = [it for _, it in parsed]
+
+        periodicity = None
+        if len(ptimes) >= 2:
+            iv = [(ptimes[i] - ptimes[i - 1]).total_seconds() / 3600.0
+                  for i in range(1, len(ptimes))]
+            n_iv = len(iv)
+            mean = sum(iv) / n_iv
+            srt = sorted(iv)
+            median = srt[(n_iv - 1) // 2] if n_iv % 2 else (srt[n_iv // 2 - 1] + srt[n_iv // 2]) / 2
+            sd = (sum((x - mean) ** 2 for x in iv) / n_iv) ** 0.5
+            cv = sd / mean if mean > 0 else 0.0
+            regime = ("регулярный" if cv < 0.3
+                      else "умеренно нерегулярный" if cv < 0.6
+                      else "нерегулярный")
+            prows = []
+            for i in range(len(pitems) - 1):
+                t0 = (pitems[i].get("event_time") or "")[:16].replace("T", " ")
+                t1 = (pitems[i + 1].get("event_time") or "")[:16].replace("T", " ")
+                h = (ptimes[i + 1] - ptimes[i]).total_seconds() / 3600.0
+                prows.append({
+                    "n":            i + 1,
+                    "t0":           _tex_escape(t0),
+                    "t1":           _tex_escape(t1),
+                    "reagent_pair": _tex_escape(
+                        f"{pitems[i].get('reagent') or '—'} → {pitems[i + 1].get('reagent') or '—'}"),
+                    "h_fmt":        _tex_escape(_fmt_h(h)),
+                })
+            periodicity = {
+                "n":          n_iv,
+                "n_inj":      len(ptimes),
+                "mean_fmt":   _tex_escape(_fmt_h(mean)),
+                "median_fmt": _tex_escape(_fmt_h(median)),
+                "min_fmt":    _tex_escape(_fmt_h(srt[0])),
+                "max_fmt":    _tex_escape(_fmt_h(srt[-1])),
+                "sd_fmt":     _tex_escape(_fmt_h(sd)),
+                "cv_fmt":     f"{cv:.2f}",
+                "regime":     _tex_escape(regime),
+                "rows":       prows,
+            }
+
+        base.update({
+            # Плитки
+            "injections_total":  total_inj,
+            "merged_injections": merged_inj,
+            "irv_count":         snap.get("irv_count") or len(irv_results),
+            "best_reagent":      best_name,
+            "best_score_fmt":    best_score_fmt,
+            "best_level":        best_level,
+            "best_q_per_unit":   best_q_per_unit,
+            "best_effect_h":     best_effect_h,
+            "choke_mm":          _fmt_num(choke_mm, 1) if choke_mm else "—",
+            "total_qty":         _fmt_num(total_qty, 1) if some_qty else "—",
+            "rate_per_day":      _fmt_num(rate_per_day, 2) if rate_per_day > 0 else "—",
+            "reagent_types":     len(scores_rows),
+            # Нарратив
+            "narrative":         narrative,
+            # Таблица scores (11 колонок)
+            "scores":            scores_rows,
+            # Детальная таблица ИРВ
+            "irv_details":       irv_detail_rows,
+            # Анализ периодичности вбросов (2.7)
+            "periodicity":       periodicity,
+            "has_data":          bool(scores_rows or irv_results or total_inj),
         })
         return base
 
@@ -5856,11 +7831,17 @@ def _format_adaptation_block(b: dict, *, render_charts: bool = True, db=None) ->
         except Exception:
             log.exception("adaptation block intro generation failed for block %s", b.get("block_id"))
 
+    # Флаги новых секций (parts) — PARITY с chapter_render.js.
+    # setup_description / sensor_table — по умолчанию ВКЛ; flow_methodology — ВЫКЛ.
+    _pp = p.get("parts") or {}
     base.update({
         "intro_text":       _tex_escape(str(intro_text)[:2000]),
         "has_intro":        bool(intro_text),
         # sensors — список словарей, уже экранированы в _format_stage_for_latex
         "sensors":          intro.get("sensors") or [],
+        "show_setup_description": _pp.get("setup_description") is not False,
+        "show_sensor_table":      _pp.get("sensor_table") is not False,
+        "show_flow_methodology":  _pp.get("flow_methodology") is not False,
     })
 
     # ─── Adaptation (R) метрики ───
@@ -5875,6 +7856,120 @@ def _format_adaptation_block(b: dict, *, render_charts: bool = True, db=None) ->
         "adapt_duration_days":     adapt.get("duration_days") or 0,
         "adapt_purge_count":       adapt.get("purge_count") or 0,
         "adapt_reagent_count":     adapt.get("reagent_count") or 0,
+    })
+
+    # ─── Богатая таблица сравнения B1·B2·R·R★ + дельты (3.2) ───
+    # Парность с chapter_render.js / wz5RenderCompare — единая логика.
+    _b1_qmed = b1.get("q_total_median") or b1.get("q_working_median") or b1.get("flow_median")
+    _b1_qavg = b1.get("q_total_avg") or b1.get("q_working_avg") or b1.get("flow_avg")
+    _b1_shut = (b1.get("shutdown_min_total") / 60.0) if b1.get("shutdown_min_total") is not None else b1.get("downtime_hours")
+    _cmp_defs = [
+        ("section", "Дебит"),
+        ("Q медиана", "тыс.м³/сут", _b1_qmed, obs.get("flow_median"), adapt.get("flow_median"), opt.get("flow_median")),
+        ("Q среднее", "тыс.м³/сут", _b1_qavg, obs.get("flow_avg"), adapt.get("flow_avg"), opt.get("flow_avg")),
+        ("Q максимум", "тыс.м³/сут", None, obs.get("q_max"), adapt.get("q_max"), opt.get("q_max")),
+        ("Q накопл.", "тыс.м³", None, obs.get("flow_cumulative"), adapt.get("flow_cumulative"), opt.get("flow_cumulative")),
+        ("section", "Давления и ΔP"),
+        ("ΔP медиана", "кгс/см²", b1.get("dp_median"), obs.get("dp_median"), adapt.get("dp_median"), opt.get("dp_median")),
+        ("ΔP среднее", "кгс/см²", b1.get("dp_avg"), obs.get("dp_avg"), adapt.get("dp_avg"), opt.get("dp_avg")),
+        ("P трубное мед.", "кгс/см²", b1.get("p_wellhead_median") or b1.get("p_tube_median"), obs.get("p_tube_median"), adapt.get("p_tube_median"), opt.get("p_tube_median")),
+        ("P линейное мед.", "кгс/см²", b1.get("p_flowline_median") or b1.get("p_line_median"), obs.get("p_line_median"), adapt.get("p_line_median"), opt.get("p_line_median")),
+        ("section", "Режим работы"),
+        ("КИВ", "%", None, obs.get("utilization_pct"), adapt.get("utilization_pct"), opt.get("utilization_pct")),
+        ("Простой", "ч", _b1_shut, obs.get("downtime_hours"), adapt.get("downtime_hours"), opt.get("downtime_hours")),
+        ("Вбросов реагента", "шт", None, obs.get("reagent_count"), adapt.get("reagent_count"), opt.get("reagent_count")),
+        ("Продувок", "шт", None, obs.get("purge_count"), adapt.get("purge_count"), opt.get("purge_count")),
+        ("Длительность", "сут", b1.get("days_count"), obs.get("duration_days"), adapt.get("duration_days"), opt.get("duration_days")),
+    ]
+    _lower_better = {"ΔP медиана", "ΔP среднее", "Простой", "Продувок"}
+    def _cnum(v):
+        try:
+            return float(v) if v is not None else None
+        except (TypeError, ValueError):
+            return None
+    _cls_color = {"flat": "gray", "pos": "green!55!black", "neg": "red!70!black"}
+    def _dcell(cur, base, label):
+        cur, base = _cnum(cur), _cnum(base)
+        if cur is None or base is None or base == 0:
+            return {"text": "---", "cls": "flat", "color": "gray"}
+        diff = cur - base
+        pct = diff / abs(base) * 100.0
+        better = (diff < 0) if label in _lower_better else (diff > 0)
+        cls = "flat" if abs(pct) < 5 else ("pos" if better else "neg")
+        s = "+" if diff >= 0 else ""
+        return {"text": rf"{s}{diff:.2f} ({s}{pct:.1f}\%)", "cls": cls, "color": _cls_color[cls]}
+    _cmp_rich = []
+    for d in _cmp_defs:
+        if d[0] == "section":
+            _cmp_rich.append({"section": _tex_escape(d[1])})
+            continue
+        _lbl, _unit, _b1v, _b2v, _rv, _rsv = d
+        _cmp_rich.append({
+            "label": _tex_escape(_lbl), "unit": _tex_escape(_unit),
+            "b1": _fmt_num(_b1v, 2), "b2": _fmt_num(_b2v, 2),
+            "r": _fmt_num(_rv, 2), "rs": _fmt_num(_rsv, 2),
+            "d_r_b2": _dcell(_rv, _b2v, _lbl),
+            "d_r_b1": _dcell(_rv, _b1v, _lbl),
+            "d_rs_b2": _dcell(_rsv, _b2v, _lbl),
+        })
+    base.update({"cmp_rich": _cmp_rich, "has_cmp_rich": True})
+
+    # ─── Стат-таблица (1.4): из chart_data, ПАРНОСТЬ с chapter_render.js ───
+    # Активные точки: q>0 (отсев простоя/ложных нулей — инвариант проекта).
+    _active_pts = []
+    for p in (adapt.get("chart_data") or []):
+        q = p.get("q")
+        try:
+            if q is not None and float(q) > 0:
+                _active_pts.append(p)
+        except (TypeError, ValueError):
+            continue
+    def _stat_row(label, key):
+        xs = []
+        for p in _active_pts:
+            v = p.get(key)
+            if v is None or isinstance(v, bool):
+                continue
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                continue
+            if fv == fv:  # not NaN
+                xs.append(fv)
+        if not xs:
+            return None
+        n = len(xs)
+        mean = sum(xs) / n
+        srt = sorted(xs)
+        median = srt[n // 2] if n % 2 else (srt[n // 2 - 1] + srt[n // 2]) / 2.0
+        sd = (sum((x - mean) ** 2 for x in xs) / n) ** 0.5
+        return {
+            "label": _tex_escape(label),
+            "mean": _fmt_num(mean, 2), "median": _fmt_num(median, 2),
+            "min": _fmt_num(srt[0], 2), "max": _fmt_num(srt[-1], 2),
+            "sd": _fmt_num(sd, 2),
+        }
+    _stat_rows = [r for r in [
+        _stat_row("Дебит Q, тыс.м³/сут", "q"),
+        _stat_row("P трубное, кгс/см²", "p_tube"),
+        _stat_row("P линейное, кгс/см²", "p_line"),
+        _stat_row("Перепад ΔP, кгс/см²", "dp"),
+    ] if r]
+    # Нарратив этапа адаптации (продолжался N сут / давления / тренды / анализ
+    # трендов) — ПАРНОСТЬ с HTML (chapter_render.js: adapt.narrative). Раньше в
+    # PDF не выводился. Рисуется сразу после таблицы статпоказателей.
+    _period_narr = str(adapt.get("narrative") or "")
+    base.update({
+        "period_narrative":        _narrative_to_latex(_period_narr) if _period_narr else "",
+    })
+    base.update({
+        "stat_rows":               _stat_rows,
+        "has_stat_table":          bool(_stat_rows),
+        "stat_purge_count":        adapt.get("purge_count") if adapt.get("purge_count") is not None else None,
+        "stat_working_hours_fmt":  _fmt_num(adapt.get("working_hours"), 1),
+        "stat_utilization_fmt":    _fmt_num(adapt.get("utilization_pct"), 1),
+        "stat_downtime_hours_fmt": _fmt_num(adapt.get("downtime_hours"), 1),
+        "stat_downtime_periods":   len(adapt.get("downtime_periods_list") or []),
     })
 
     # ─── Observation (B2) метрики ───
@@ -5912,10 +8007,13 @@ def _format_adaptation_block(b: dict, *, render_charts: bool = True, db=None) ->
         "delta_flow_median_fmt":   _fmt_signed(cmp_.get("delta_flow_median"),   2),
         "delta_flow_median_pct":   _fmt_signed(cmp_.get("delta_flow_median_pct"), 1, suffix=r"\%"),
         "delta_flow_avg_fmt":      _fmt_signed(cmp_.get("delta_flow_avg"),      2),
+        "delta_flow_avg_pct":      _fmt_signed(cmp_.get("delta_flow_avg_pct"),  1, suffix=r"\%"),
         "delta_dp_fmt":            _fmt_signed(cmp_.get("delta_dp"),            2),
         "delta_dp_pct":            _fmt_signed(cmp_.get("delta_dp_pct"),        1, suffix=r"\%"),
         "delta_p_tube_fmt":        _fmt_signed(cmp_.get("delta_p_tube"),        2),
+        "delta_p_tube_pct":        _fmt_signed(cmp_.get("delta_p_tube_pct"),    1, suffix=r"\%"),
         "delta_p_line_fmt":        _fmt_signed(cmp_.get("delta_p_line"),        2),
+        "delta_p_line_pct":        _fmt_signed(cmp_.get("delta_p_line_pct"),    1, suffix=r"\%"),
         "delta_utilization_fmt":   _fmt_signed(cmp_.get("delta_utilization_pct"), 1, suffix=r"\%"),
         "delta_purge_count":       cmp_.get("delta_purge_count") or 0,
         "delta_reagent_count":     cmp_.get("delta_reagent_count") or 0,
@@ -5955,6 +8053,49 @@ def _format_adaptation_block(b: dict, *, render_charts: bool = True, db=None) ->
         "has_optimal":         bool(opt.get("flow_median") or opt.get("score")),
     })
 
+    # ─── Выводы: оценка эффективности (R★ vs B2 / B1) ───
+    def _effectiveness():
+        oq = opt.get("flow_median"); bq = obs.get("flow_median")
+        odp = opt.get("dp_median");  bdp = obs.get("dp_median")
+        ou = opt.get("utilization_pct"); bu = obs.get("utilization_pct")
+        _PCT = r"\%"
+        lines = []
+        dq = None
+        if oq is not None and bq is not None:
+            dq = oq - bq
+            dqp = (dq / bq * 100.0) if bq else None
+            _dqp_fmt = _fmt_signed(dqp, 1, suffix=_PCT) if dqp is not None else ""
+            pct = (rf" ({_dqp_fmt})") if dqp is not None else ""
+            lines.append(rf"Дебит $Q$ (медиана): наблюдение (B2) {_fmt_num(bq,2)} $\rightarrow$ оптимум (R$^\star$) {_fmt_num(oq,2)} — отклонение {_fmt_signed(dq,2)}~тыс.м$^3$/сут{pct}.")
+        if odp is not None and bdp is not None:
+            lines.append(rf"Перепад $\Delta$P: B2 {_fmt_num(bdp,2)} $\rightarrow$ R$^\star$ {_fmt_num(odp,2)} — отклонение {_fmt_signed(odp-bdp,2)}~кгс/см$^2$.")
+        if ou is not None and bu is not None:
+            lines.append(rf"Рабочее время (КИВ): B2 {_fmt_num(bu,1)}\% $\rightarrow$ R$^\star$ {_fmt_num(ou,1)}\% — отклонение {_fmt_signed(ou-bu,1)}~п.п.")
+        if oq is not None and b1_flow is not None:
+            lines.append(rf"Сравнение с базой заказчика (B1): $Q$ {_fmt_num(b1_flow,2)} $\rightarrow$ {_fmt_num(oq,2)} — отклонение {_fmt_signed(oq-b1_flow,2)}~тыс.м$^3$/сут.")
+        verdict = ""
+        if dq is not None:
+            if dq >= EFF_DQ_GOOD:
+                verdict = rf"При оптимальном режиме увеличение суточной добычи составит {_fmt_num(dq,2)}~тыс.м$^3$/сут — технологический эффект значительный, рекомендуется продолжить работы."
+            elif dq >= EFF_DQ_MIN:
+                verdict = rf"При оптимальном режиме увеличение суточной добычи составит {_fmt_num(dq,2)}~тыс.м$^3$/сут — технологический эффект есть, однако экономически нецелесообразно."
+            elif dq > -EFF_DQ_MIN:
+                verdict = rf"Технологический эффект незначительный: изменение суточной добычи {_fmt_signed(dq,2)}~тыс.м$^3$/сут."
+            else:
+                verdict = rf"Снижение показателей: суточная добыча изменилась на {_fmt_signed(dq,2)}~тыс.м$^3$/сут."
+        return lines, verdict
+
+    _eff_lines, _eff_verdict = _effectiveness()
+    # Ручные «Рекомендации» — свободный текст пользователя из params.recommendation
+    # (редактируется на странице Шага 5, persist через PUT /blocks/{id}).
+    _eff_recommend = str(p.get("recommendation") or "").strip()
+    base.update({
+        "effectiveness_lines":           _eff_lines,
+        "effectiveness_verdict":         _eff_verdict,
+        "effectiveness_recommendations": _tex_escape(_eff_recommend) if _eff_recommend else "",
+        "has_effectiveness":             bool(_eff_lines),
+    })
+
     # ─── Narrative ───
     narr = str(adapt.get("narrative") or "")
     base.update({
@@ -5985,8 +8126,8 @@ def _format_adaptation_block(b: dict, *, render_charts: bool = True, db=None) ->
             descr = ev.get("label") or "—"
         events_fmt.append({
             "ts":          _tex_escape(str(ev.get("t") or ev.get("ts") or "—")[:16]),
-            "type":        _tex_escape(str(type_label)[:50]),
-            "label":       _tex_escape(str(descr)[:80]),  # увеличен лимит для description
+            "type":        _tex_escape(str(type_label)),
+            "label":       _tex_escape(str(descr)),  # без обрезки — парность с HTML
             "qty":         _fmt_num(ev.get("qty") or ev.get("amount"), 1) if ev.get("qty") or ev.get("amount") else "—",
             "p_tube":      _fmt_num(ev.get("p_tube"), 1) if ev.get("p_tube") is not None else "—",
             "p_line":      _fmt_num(ev.get("p_line"), 1) if ev.get("p_line") is not None else "—",
@@ -5999,6 +8140,7 @@ def _format_adaptation_block(b: dict, *, render_charts: bool = True, db=None) ->
         "reagent_count_ev": len(reagent_events),
         "reagent_qty_sum":  _fmt_num(adapt.get("reagent_qty"), 1) if adapt.get("reagent_qty") else "—",
         "purge_count_ev":   len(purge_events),
+        "other_count_ev":   len(events_raw) - len(reagent_events) - len(purge_events),
         "has_events":       bool(events_raw),
     })
 
@@ -6221,6 +8363,10 @@ def generate_adaptation_report_pdf(doc, db: Session) -> str:
         "warnings": warnings_list,
         "include_sections": include_sections,
         "observation_chapter_latex": observation_chapter_latex,
+        # Новые главы — не заполняем здесь (legacy path); template гейтит по наличию.
+        "works_blocks": [],
+        "periods_list": [],
+        "is_full_report": False,
     }
 
     env = _get_latex_env()

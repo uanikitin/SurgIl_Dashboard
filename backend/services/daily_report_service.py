@@ -131,7 +131,7 @@ def _ensure_dirs():
 
 def _get_latex_env() -> Environment:
     """Jinja2 environment with LaTeX-compatible delimiters."""
-    return Environment(
+    env = Environment(
         loader=FileSystemLoader(str(LATEX_TEMPLATES_DIR)),
         block_start_string="\\BLOCK{",
         block_end_string="}",
@@ -144,6 +144,10 @@ def _get_latex_env() -> Environment:
         trim_blocks=True,
         autoescape=False,
     )
+    # Фильтр |tex — экранирование сырого текста (имена реагентов, описания событий)
+    # для безопасной вставки в шаблон через \VAR{ value|tex }.
+    env.filters["tex"] = lambda s: _tex_escape("" if s is None else str(s))
+    return env
 
 
 def _find_xelatex() -> str:
@@ -271,6 +275,8 @@ def _tex_escape(s: str) -> str:
     s = s.replace("³", "$^3$")
     s = s.replace("²", "$^2$")
     s = s.replace("¹", "$^1$")
+    # ★ — нет глифа в основном шрифте → math-звезда (R★ и т.п. рендерятся корректно)
+    s = s.replace("★", r"$\star$")
     return s
 
 

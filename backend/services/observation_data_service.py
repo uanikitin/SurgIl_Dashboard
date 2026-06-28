@@ -696,9 +696,9 @@ def align_our_and_customer(
     # Нормализация нашего df: индекс → колонка date
     our = our_daily_df.copy()
     if "date" not in our.columns:
+        # Именуем индекс перед reset чтобы гарантировать имя колонки
+        our.index.name = "date"
         our = our.reset_index()
-        if "index" in our.columns:
-            our = our.rename(columns={"index": "date"})
     our["date"] = pd.to_datetime(our["date"]).dt.normalize()
 
     # Нормализация customer df

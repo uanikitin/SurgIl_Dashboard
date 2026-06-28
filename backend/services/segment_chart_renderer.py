@@ -246,13 +246,14 @@ def render_segment_q_chart(
     )
 
     # Слой 2: Q рабочий — реальные точки + линия (если есть данные)
+    # Цвет #22c55e — как в HTML Plotly версии
     if any(not np.isnan(v) for v in q_working) and not all(
         abs(a - b) < 1e-9 or np.isnan(a) or np.isnan(b)
         for a, b in zip(q_total, q_working)
     ):
         ax_top.plot(
             dates, q_working,
-            color="#2ca02c", linewidth=1.0,
+            color="#22c55e", linewidth=1.0,
             marker="s", markersize=3.5, alpha=0.85,
             label="Q рабочий, факт",
             zorder=3,
@@ -260,14 +261,17 @@ def render_segment_q_chart(
 
     # Слои 3 и 3а: РЕАЛЬНЫЕ тренды per-segment.
     # Запрет горизонтальных средних — формула slope × x_rel + intercept.
-    for s in segs:
+    # SEG_COLORS — палитра как в HTML Plotly (chapter_render.js)
+    SEG_COLORS = ['#6366f1', '#22c55e', '#f59e0b', '#ec4899', '#14b8a6', '#8b5cf6', '#ef4444', '#06b6d4']
+    for seg_idx, s in enumerate(segs):
         start_idx = s.get("start_idx")
         end_idx = s.get("end_idx")
         if start_idx is None or end_idx is None:
             continue
         if start_idx >= len(dates) or end_idx > len(dates) or end_idx <= start_idx:
             continue
-        color = s.get("color") or "#666666"
+        # Используем палитру SEG_COLORS как в HTML
+        color = SEG_COLORS[seg_idx % len(SEG_COLORS)]
         span = max(1, end_idx - start_idx - 1)
 
         # Точки границ сегмента по оси X
@@ -308,25 +312,16 @@ def render_segment_q_chart(
                 zorder=4,
             )
 
-    # Слой 4: вертикали переломов (3 стиля по cp.source)
-    # Дублируем на обоих axes — paper-coords matplotlib не поддерживает
-    # для line shapes, поэтому axvline на каждом subplot отдельно с
-    # одинаковыми параметрами.
+    # Слой 4: вертикали переломов — единый стиль как в HTML Plotly
+    # Красный пунктир #ef4444 для всех changepoints (совпадает с chapter_render.js)
     from datetime import datetime as _dt
     for cp in cps:
         try:
             cp_date = _dt.fromisoformat(str(cp.get("date"))[:10])
         except Exception:
             continue
-        source = cp.get("source") or "only_total"
-        if source == "confirmed":
-            col, lw, ls = "#b91c1c", 2.0, "-"
-        elif source == "only_working":
-            col, lw, ls = "#16a34a", 1.5, "--"
-        else:  # only_total
-            col, lw, ls = "#b91c1c", 1.0, "--"
-        ax_top.axvline(cp_date, color=col, linewidth=lw, linestyle=ls, zorder=5)
-        ax_bot.axvline(cp_date, color=col, linewidth=lw, linestyle=ls, zorder=5)
+        ax_top.axvline(cp_date, color="#ef4444", linewidth=1.0, linestyle="--", zorder=5)
+        ax_bot.axvline(cp_date, color="#ef4444", linewidth=1.0, linestyle="--", zorder=5)
 
     # Слой 6: теги причин — компактный PDF-режим.
     # ВАЖНО (PDF layout fix): раньше annotation размещались НАД axes

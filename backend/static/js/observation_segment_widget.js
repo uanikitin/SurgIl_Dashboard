@@ -69,6 +69,8 @@
     this.getWellNumber = config.getWellNumber || (() => this.wellNumber);
     this.getPeriodFrom = config.getPeriodFrom || (() => null);
     this.getPeriodTo = config.getPeriodTo || (() => null);
+    // Изоляция отчётов (глава «Отчёт за период»): id текущего отчёта в params блока.
+    this.getPeriodReportId = config.getPeriodReportId || (() => null);
     this.getSensitivity = config.getSensitivity || (() => 5);
     this.onBlockSaved = config.onBlockSaved || function() {};
     this.onCalculated = config.onCalculated || function() {};
@@ -621,6 +623,7 @@
             },
             source: this.chapter,
             chapter: this.chapter,
+            period_report_id: this.getPeriodReportId(),
           },
           data_snapshot: snapshot,
           comment: comment || null,

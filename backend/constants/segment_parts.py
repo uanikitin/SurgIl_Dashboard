@@ -25,6 +25,7 @@ SEGMENT_ANALYSIS_RENDER_PARTS: tuple[str, ...] = (
     "q_segment_chart",
     "segments_table",
     "descriptions",
+    "detailed",
     "cp_descriptions",
     "description",
     "suffix_note",

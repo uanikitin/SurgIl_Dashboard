@@ -381,6 +381,16 @@ class CustomDatesRequest(BaseModel):
     # одного блока с этим customer_report_block.id. Используется вместе с
     # only_chapter="observation"/"adaptation" для превью одной плитки.
     only_block_id: int | None = None
+    # Номер раздела «Отчёт за период» в PDF (заголовок «N. Отчёт за период»,
+    # подразделы «N.1…», рисунки «N.x»). Дефолт '3' (в .tex). Настраивается из UI.
+    period_section_no: str | None = None
+    # Изоляция отчётов: PDF главы «Отчёт за период» собирает блоки ТОЛЬКО этого
+    # сохранённого отчёта (params.period_report_id). None → все period-блоки.
+    period_report_id: int | None = None
+    # Общий отчёт (Step 7): список сохранённых отчётов за период для сборки в один
+    # документ (раздел «Отчёты за периоды», подразделы по каждому, хронологически).
+    # Пусто/None → period-раздел не выводится. Имеет приоритет над period_report_id.
+    period_report_ids: list[int] | None = None
 
     @field_validator("obs_from", "obs_to", "adapt_from", "adapt_to", mode="before")
     @classmethod
@@ -456,6 +466,42 @@ def compute_with_custom_dates(
 
 def _is_admin(request: Request) -> bool:
     return bool(request.session.get("is_admin", False))
+
+
+@router.get("/observation-intro")
+def api_observation_intro(
+    well_id: int = Query(...),
+    obs_from: str | None = Query(None),
+    obs_to: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Данные §3.1 (период/описание) и §3.2 (список датчиков) для HTML-превью главы
+    «Наблюдение». Источник тот же, что у PDF (_build_observation_intro) → паритет.
+    Даты не заданы → авто-детект этапа наблюдения (validate_stages)."""
+    from datetime import datetime as _dt
+    from backend.services.adaptation_report_service import _build_observation_intro
+
+    def _parse(s):
+        if not s:
+            return None
+        try:
+            return _dt.fromisoformat(str(s).replace("Z", "").split("+")[0])
+        except Exception:
+            return None
+
+    of, ot = _parse(obs_from), _parse(obs_to)
+    if of is None or ot is None:
+        v = validate_stages(db, well_id)
+        if getattr(v, "ok", False):
+            of = of or v.obs_from
+            ot = ot or v.obs_to
+    if of is None or ot is None:
+        return {"ok": False, "error": "no_dates"}
+    try:
+        return {"ok": True, "intro": _build_observation_intro(db, well_id, of, ot)}
+    except Exception:
+        log.exception("observation-intro failed for well %s", well_id)
+        return {"ok": False, "error": "build_failed"}
 
 
 @router.get("/baselines")
@@ -933,6 +979,13 @@ def api_timeline(
 _SECTION_KEYS = (
     "well_info", "customer_data", "observation",
     "adaptation", "charts_compare", "comparison",
+    # Глава «Отчёт за период» (chapter='period') — самостоятельный раздел,
+    # гейт include_sections.period в .tex. Панель «Периоды» (Шаг 8) шлёт
+    # only_chapter='period' → рендерится только эта секция.
+    "period",
+    # Глава «Стабильность в период работ» (chapter='works') — самостоятельный
+    # раздел. Гейт в .tex — наличие works_blocks (аналог period).
+    "works",
 )
 
 
@@ -984,6 +1037,9 @@ def _build_pdf_response(
     with_reagent: bool = True,
     only_chapter: str | None = None,
     only_block_id: int | None = None,
+    period_section_no: str | None = None,
+    period_report_id: int | None = None,
+    period_report_ids: list[int] | None = None,
 ):
     """Общая реализация генерации preview-PDF.
 
@@ -1003,6 +1059,14 @@ def _build_pdf_response(
     from backend.services.adaptation_report_service import KUNGRAD_OFFSET
 
     _ensure_dirs()
+
+    # Список сохранённых отчётов за период для общего документа. Приоритет —
+    # period_report_ids (Step 7); иначе единичный period_report_id (Step 8).
+    resolved_period_ids = (
+        [pid for pid in period_report_ids if pid is not None]
+        if period_report_ids
+        else ([period_report_id] if period_report_id else [])
+    )
 
     # Эфемерный каталог для PNG главы 2 (плитки заказчика, сравнения,
     # розы). Автоматически удаляется на выходе из with — PNG живут только
@@ -1032,15 +1096,77 @@ def _build_pdf_response(
             fast_chapter_only=only_chapter,
             fast_block_only=(only_block_id is not None),
             chart_dir=chapter2_dir,
+            # Все period-блоки (всех отчётов); фильтр/группировка по
+            # resolved_period_ids выполняется в _finalize_pdf_response.
+            period_report_id=None,
         )
         if not data.get("ok"):
             raise HTTPException(status_code=400, detail=data.get("error"))
+
+        # ─── Plotly → PNG: те же графики, что в HTML ───────────────────
+        # Рендерим Plotly-графики через headless-браузер (plotly_png_service).
+        # Фолбэк на matplotlib если упало — сборка не должна падать.
+        if with_charts:
+            try:
+                from backend.services import plotly_png_service as _pps
+                from backend.routers.customer_daily import _list_blocks_payload
+                payload = _list_blocks_payload(db, well_id)
+                # Синтетический блок B2 (§3.3): рисуем его графики Plotly в формате
+                # observation_analysis (id prev-b2{id}-obs-*), как в §3.4, вместо
+                # matplotlib. Добавляем только в payload рендера, не в observation_blocks.
+                _b2 = data.get("b2_tile")
+                if _b2 and _b2.get("id"):
+                    try:
+                        from backend.services.block_chart_renderer import build_observation_chart_payload
+                        _cp = build_observation_chart_payload(
+                            well_id, _b2.get("period_from"), _b2.get("period_to"),
+                        )
+                        if _cp and _cp.get("dates"):
+                            payload.setdefault("blocks", []).append({
+                                "id": f"b2{_b2['id']}",
+                                "kind": "observation_analysis",
+                                "title": "B2",
+                                "in_report": True,
+                                "params": {"chapter": "observation", "parts": {}},
+                                "data_snapshot": {"chart": _cp},
+                            })
+                    except Exception:
+                        log.exception("b2 plotly block build failed")
+                # Снимаем графики обеих глав (Адаптация + Наблюдение).
+                # При полной сборке only_chapter=None → фильтр по главе отключён,
+                # снимаются все блоки нужных видов (block_id уникальны, коллизий нет).
+                # При изоляции главы only_chapter ограничивает выборку.
+                # ВАЖНО: блоки главы «Заказчик» хранят params.chapter='customer',
+                # а section-key only_chapter='customer_data'. Фильтр захвата в
+                # plotly_png_service сравнивает строки строго (ch===CH), поэтому
+                # без нормализации роза нестабильности (stability_rose, chapter=
+                # 'customer') отсекается и её Plotly-график не попадает в PDF
+                # (в HTML он есть — нарушение parity). Приводим к namespace блоков.
+                _chart_chapter = "customer" if only_chapter == "customer_data" else only_chapter
+                _kinds = list(dict.fromkeys(
+                    _pps.ADAPTATION_KINDS + _pps.OBSERVATION_KINDS + _pps.PERIOD_KINDS
+                ))
+                plotly_charts = _pps.render_chart_pngs(
+                    payload, str(chapter2_dir),
+                    chapter=_chart_chapter,
+                    kinds=_kinds,
+                    scale=3,
+                )
+                data["plotly_charts"] = plotly_charts
+            except Exception:
+                log.exception("plotly charts render failed; matplotlib fallback")
+                data["plotly_charts"] = {}
+        else:
+            data["plotly_charts"] = {}
+
         return _finalize_pdf_response(
             db, data, well_id,
             with_charts=with_charts,
             only_chapter=only_chapter,
             only_block_id=only_block_id,
             sections=sections,
+            period_section_no=period_section_no,
+            resolved_period_ids=resolved_period_ids,
         )
     finally:
         # TemporaryDirectory.cleanup() удаляет все PNG главы 2 разом —
@@ -1055,6 +1181,8 @@ def _finalize_pdf_response(
     db, data, well_id: int, *,
     with_charts: bool, only_chapter: str | None,
     only_block_id: int | None, sections: dict | None,
+    period_section_no: str | None = None,
+    resolved_period_ids: list[int] | None = None,
 ):
     """Финализация PDF после collect_report_data (вынесено из _build_pdf_response
     чтобы избежать вложенного finally с raise HTTPException).
@@ -1136,13 +1264,16 @@ def _finalize_pdf_response(
 
     # Прикреплённые блоки для §3 (наблюдение) и §4 (адаптация)
     from backend.services.adaptation_report_service import (
-        _format_observation_block, _format_adaptation_block,
+        _format_observation_block, _format_adaptation_block, _format_period_block,
         _format_segment_analysis_for_observation,
         _format_segment_comparison_for_observation,
+        _format_works_block,
     )
 
     obs_blocks_raw = data.get("observation_blocks") or []
     adapt_blocks_raw = data.get("adaptation_blocks") or []
+    period_blocks_raw = data.get("period_blocks") or []
+    works_blocks_raw = data.get("works_blocks") or []
 
     # Превью одного блока: фильтруем до ровно одного по customer_report_block.id.
     # only_block_id может ссылаться как на observation_, так и на adaptation_-блок.
@@ -1152,6 +1283,12 @@ def _finalize_pdf_response(
         ]
         adapt_blocks_raw = [
             b for b in adapt_blocks_raw if b.get("block_id") == only_block_id
+        ]
+        period_blocks_raw = [
+            b for b in period_blocks_raw if b.get("block_id") == only_block_id
+        ]
+        works_blocks_raw = [
+            b for b in works_blocks_raw if b.get("block_id") == only_block_id
         ]
 
     # B2-блоки (is_b2=true) исключаем из §3.4 — они уже показаны в §3.3 (b2_tile).
@@ -1166,12 +1303,12 @@ def _finalize_pdf_response(
         snap = b.get("data_snapshot") or {}
         return snap.get("is_b2", False)
 
+    # §3.3 B2 ОТКЛЮЧЕНА (в .tex `\BLOCK{ if false }`, как в HTML — отдельной §3.3 нет).
+    # Поэтому B2-блоки НЕЛЬЗЯ исключать из §3.4: иначе блок (особенно если он
+    # единственный observation_analysis, как у скв.108 #754) выпадает совсем —
+    # ни §3.3, ни §3.4. Показываем ВСЕ блоки, включая B2 (B2 = обычный блок §3.4).
     obs_blocks_for_pdf = obs_blocks_raw
-    has_b2_tile = data.get("b2_tile") is not None
-    if only_block_id is None and has_b2_tile:
-        # Полный отчёт + есть b2_tile: исключаем B2-блоки (они в §3.3)
-        obs_blocks_for_pdf = [b for b in obs_blocks_raw if not _is_b2_block(b)]
-    # Иначе: показываем все блоки включая B2 (fallback если b2_tile не создан)
+    _ = _is_b2_block  # фильтр B2 отключён вместе с §3.3 (оставлен для совместимости)
 
     # Выбор форматтера по kind блока
     # ВАЖНО: блоки уже отформатированы в collect_report_data (observation_blocks_fmt),
@@ -1182,6 +1319,10 @@ def _finalize_pdf_response(
         if "q_total_avg_fmt" in b or "latex_content" in b:
             return b
         kind = b.get("kind")
+        # RFC-блоки наблюдения уже отформатированы _format_observation_rfc_block
+        # в collect_report_data (свой набор полей, без q_total_avg_fmt/latex_content).
+        if kind in ("observation_baseline", "observation_period", "observation_segment"):
+            return b
         if kind == "segment_analysis":
             return _format_segment_analysis_for_observation(b, render_charts=with_charts)
         if kind == "segment_comparison":
@@ -1200,6 +1341,78 @@ def _finalize_pdf_response(
         return _format_adaptation_block(b, render_charts=with_charts, db=db)
 
     adaptation_blocks_fmt = [_maybe_format_adapt_block(b) for b in adapt_blocks_raw]
+
+    # Блоки главы «Отчёт за период» — уже отформатированы в collect_report_data
+    # (period_blocks_fmt). Тот же признак форматированности (intro_text/has_data),
+    # что и для адаптации — НЕ переформатируем, иначе сотрётся data_snapshot.
+    def _maybe_format_period_block(b: dict) -> dict:
+        if "intro_text" in b or "has_data" in b:
+            return b
+        return _format_period_block(b, render_charts=with_charts, db=db)
+
+    period_blocks_fmt = [_maybe_format_period_block(b) for b in period_blocks_raw]
+
+    # Блоки главы «Стабильность в период работ» — уже отформатированы в collect_report_data.
+    # Признак форматированности: наличие "metric_rows" (уникальное поле _format_works_block).
+    def _maybe_format_works_block(b: dict) -> dict:
+        if "metric_rows" in b:
+            return b
+        return _format_works_block(b)
+
+    works_blocks_fmt = [_maybe_format_works_block(b) for b in works_blocks_raw]
+
+    # ─── Общий отчёт: группировка period-блоков по сохранённым отчётам ───
+    # periods_list — несколько отчётов за период подряд (хронологически по
+    # period_start). Каждый период рендерится тем же partial, что §4.7.
+    _resolved_pids = resolved_period_ids or []
+    periods_list: list[dict] = []
+    if _resolved_pids:
+        from backend.models.period_report import PeriodReport
+        _pr_rows = {
+            pr.id: pr
+            for pr in db.query(PeriodReport)
+            .filter(PeriodReport.id.in_(_resolved_pids))
+            .all()
+        }
+        _by_pid: dict = {}
+        for _b in period_blocks_fmt:
+            _by_pid.setdefault(_b.get("period_report_id"), []).append(_b)
+        _ordered = sorted(
+            [pid for pid in _resolved_pids if pid in _pr_rows],
+            key=lambda i: _pr_rows[i].period_start,
+        )
+        for _pid in _ordered:
+            _pr = _pr_rows[_pid]
+            # Поблочные галочки: блок исключается явной False в sections
+            # (ключ period_block_{block_id}); по умолчанию включён.
+            _blocks = [
+                bl for bl in _by_pid.get(_pid, [])
+                if (sections or {}).get(f"period_block_{bl.get('block_id')}", True) is not False
+            ]
+            periods_list.append({
+                "id": _pid,
+                "title": _tex_escape(_pr.title or f"Период {_pid}"),
+                "period_start": _pr.period_start.strftime("%d.%m.%Y"),
+                "period_end": _pr.period_end.strftime("%d.%m.%Y"),
+                "blocks": _blocks,
+            })
+
+    # is_full_report — общий документ (only_chapter=None); иначе превью одной главы.
+    is_full_report = only_chapter is None
+
+    _inc = _normalize_sections(
+        {**(sections or {}),
+         **({"only_attached_blocks": True} if only_block_id is not None else {})},
+        only_chapter=only_chapter,
+    )
+    # Сквозная нумерация: при наличии периодов раздел «Отчёты за периоды» = §5,
+    # графики сравнения сдвигаются на §6, сводное сравнение — на §7.
+    _periods_active = bool(periods_list) and _inc.get("period", True)
+    sec = {
+        "periods": "5",
+        "charts_compare": "6" if _periods_active else "5",
+        "comparison": "7" if _periods_active else "6",
+    }
 
     now_kungrad = _dt.utcnow() + KUNGRAD_OFFSET
     context = {
@@ -1220,18 +1433,22 @@ def _finalize_pdf_response(
         "customer_chapter": customer_chapter,
         "observation_blocks": observation_blocks_fmt,
         "adaptation_blocks": adaptation_blocks_fmt,
+        "period_blocks": period_blocks_fmt,
+        "works_blocks": works_blocks_fmt,
+        # Общий отчёт: список отчётов за период (раздел «Отчёты за периоды»).
+        "periods_list": periods_list,
+        "is_full_report": is_full_report,
+        "sec": sec,
+        # Номер раздела «Отчёт за период» (UI Шаг 8); None → .tex дефолт '3'.
+        "period_section_no": period_section_no,
         "reagent_effectiveness": data.get("reagent_effectiveness"),
         # Плитки утверждённых baseline (для §2 / §3 по ТЗ)
         "b2_tile": data.get("b2_tile"),
         "b1_tile": data.get("b1_tile"),
         # observation_chapter_latex убран — observation-блоки рендерятся через observation_blocks в §3.4
-        "include_sections": _normalize_sections(
-            {**(sections or {}),
-             # ATOM-флаг для шаблона: при превью одного блока скрыть все
-             # подразделы главы кроме §3.4 / §4.7+ (Прикреплённые блоки).
-             **({"only_attached_blocks": True} if only_block_id is not None else {})},
-            only_chapter=only_chapter,
-        ),
+        # Plotly → PNG маппинг {chart_id: abs_png_path}
+        "plotly_charts": data.get("plotly_charts") or {},
+        "include_sections": _inc,
     }
 
     env = _get_latex_env()
@@ -1284,6 +1501,16 @@ def _finalize_pdf_response(
         for _cp in (_ob.get("_chart_paths") or []):
             if _cp:
                 Path(_cp).unlink(missing_ok=True)
+    # PNG главы «Отчёт за период»: period_full_analysis (3 PNG давления/ΔP/Q),
+    # period_comparison/segment (chart_path), segment_analysis (_chart_paths).
+    for _pb in period_blocks_fmt:
+        for _key in ("chart_pressures", "chart_dp", "chart_flow", "chart_path"):
+            _p = _pb.get(_key)
+            if _p:
+                Path(_p).unlink(missing_ok=True)
+        for _cp in (_pb.get("_chart_paths") or []):
+            if _cp:
+                Path(_cp).unlink(missing_ok=True)
 
     response = FileResponse(
         path=str(pdf_path),
@@ -1322,12 +1549,49 @@ def preview_pdf_get(
     )
 
 
+def _chapter_html_pdf_response(db: Session, well_id: int, chapter: str):
+    """A1: PDF главы = печать того же HTML (renderChapter из снапшота).
+
+    Единый источник: PDF ≡ HTML по построению (headless Chromium → page.pdf()).
+    Минует LaTeX. Графики — тот же Plotly, что в HTML.
+    """
+    from backend.services import plotly_png_service as _pps
+    from backend.routers.customer_daily import _list_blocks_payload
+    from backend.models import Well
+
+    payload = _list_blocks_payload(db, well_id)
+    well = db.get(Well, well_id)
+    num = getattr(well, "number", None) or well_id
+    titles = {"adaptation": f"Отчёт об адаптации — скв. №{num}"}
+    tmp = tempfile.mkdtemp(prefix="chapter_pdf_")
+    pdf_path = Path(tmp) / f"{chapter}_well_{well_id}.pdf"
+    _pps.render_chapter_pdf(
+        payload, str(pdf_path), chapter=chapter,
+        kinds=_pps.ADAPTATION_KINDS,
+        title=titles.get(chapter, "Глава"),
+    )
+    resp = FileResponse(
+        path=str(pdf_path), media_type="application/pdf",
+        filename=f"{chapter}_well_{well_id}.pdf",
+    )
+    resp.headers["Content-Disposition"] = (
+        f'inline; filename="{chapter}_well_{well_id}.pdf"'
+    )
+    return resp
+
+
 @router.post("/preview-pdf")
 def preview_pdf_post(
     req: CustomDatesRequest,
     db: Session = Depends(get_db),
 ):
-    """POST-вариант preview-PDF (с поддержкой главы «Анализ исходных данных»)."""
+    """POST-вариант preview-PDF (с поддержкой главы «Анализ исходных данных»).
+
+    Deliverable = редактируемый .tex + PDF (LaTeX-генератор из снапшота).
+    HTML→PDF (_chapter_html_pdf_response) доступен как быстрый парность-preview,
+    но НЕ деливерабл (не даёт editable .tex). По требованию пользователя (A)
+    кнопка использует LaTeX-путь.
+    """
     return _build_pdf_response(
         db, req.well_id,
         obs_from=req.obs_from, obs_to=req.obs_to,
@@ -1345,6 +1609,9 @@ def preview_pdf_post(
         with_reagent=req.with_reagent,
         only_chapter=req.only_chapter,
         only_block_id=req.only_block_id,
+        period_section_no=req.period_section_no,
+        period_report_id=req.period_report_id,
+        period_report_ids=req.period_report_ids,
     )
 
 

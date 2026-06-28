@@ -45,3 +45,4 @@ data/
 Telegram Events.session.sql
 Без названия.json
 venv/
+.claude/.hook-state/

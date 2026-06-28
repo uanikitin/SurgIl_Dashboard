@@ -347,6 +347,147 @@ def api_rose_preview(
 
 
 # ═══════════════════════════════════════════════════════════════════════
+#  API: роза НЕСТАБИЛЬНОСТИ (новая — кандидаты на обводнение)
+#  Период = якорная дата + скользящие окна назад. Источник:
+#  backend/services/stability_rose_service.py
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class StabilityRoseRequest(_RoseBM):
+    well: str
+    anchor: date | None = None        # момент оценки; None → последняя дата
+    source: str = "well_daily"        # well_daily | lora (этап 2)
+    window_days: int | None = None           # ручное окно динамики; None → авто (30)
+    downtime_window_days: int | None = None  # ручное окно простоев; None → авто (90)
+
+
+@router.post("/stability-rose/preview")
+def api_stability_rose_preview(
+    req: StabilityRoseRequest,
+    db: Session = Depends(get_db_with_table),
+):
+    """Рассчитать розу нестабильности для (скважина, якорная дата, источник).
+
+    Возвращает snapshot (petals/raw/contributions/L_star/index_I/descriptions).
+    При невозможности расчёта — {ok: False, error: "..."} (НЕ 500).
+    """
+    from backend.services import stability_rose_service as srs
+    try:
+        if not str(req.well).strip():
+            return {"ok": False, "error": "Не выбрана скважина"}
+        return srs.compute_stability_rose(
+            db, well_number=str(req.well).strip(),
+            anchor=req.anchor, source=req.source, window_days=req.window_days,
+            downtime_window_days=req.downtime_window_days,
+        )
+    except Exception as e:
+        log.exception("stability-rose/preview failed for well=%s", req.well)
+        return {"ok": False, "error": f"Внутренняя ошибка: {e}"}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  API: анализ стабильности в период работ (before/during/after)
+#  Источник: backend/services/works_stability_service.py
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class WorksAnalysisRequest(_RoseBM):
+    well: str
+    work_from: date
+    work_to: date
+    baseline_days: int = 14
+    work_type: str = "tpav"
+    weight_profile: str = "tpav"
+    custom_weights: dict | None = None
+    ref_from: date | None = None
+    ref_to: date | None = None
+    source: str = "well_daily"
+
+
+@router.post("/works-analysis/preview")
+def api_works_analysis_preview(
+    req: WorksAnalysisRequest,
+    db: Session = Depends(get_db_with_table),
+):
+    """Рассчитать анализ стабильности в период работ (before/during/after).
+
+    Возвращает snapshot с метриками трёх окон, интерпретацией и scores.
+    При невозможности расчёта — {ok: False, error: "..."} (НЕ 500).
+    """
+    from backend.services.works_stability_service import compute_works_analysis
+    try:
+        if not str(req.well).strip():
+            return {"ok": False, "error": "Не выбрана скважина"}
+        if req.work_from > req.work_to:
+            return {"ok": False, "error": "work_from > work_to"}
+        return compute_works_analysis(
+            db,
+            well_number=str(req.well).strip(),
+            work_from=req.work_from,
+            work_to=req.work_to,
+            baseline_days=req.baseline_days,
+            work_type=req.work_type,
+            weight_profile=req.weight_profile,
+            custom_weights=req.custom_weights,
+            ref_from=req.ref_from,
+            ref_to=req.ref_to,
+            source=req.source,
+        )
+    except Exception as e:
+        log.exception("works-analysis/preview failed for well=%s", req.well)
+        return {"ok": False, "error": f"Внутренняя ошибка: {e}"}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  API: анализ эффективности работ v2 (роза за период + опц. сравнение)
+#  Источник: backend/services/works_effectiveness_service.py
+#  Поминутный пайплайн давления (compute_full_flow), НЕ well_daily.
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class WorksEffectivenessRequest(_RoseBM):
+    well: str
+    period_from: date | None = None   # None → первый вброс
+    period_to: date | None = None     # None → сейчас
+    ref_from: date | None = None      # None → авто «до работ»
+    ref_to: date | None = None
+    compare: bool | None = None       # False=single; None/True=compare
+    work_type: str = "tpav"
+
+
+@router.post("/works-effectiveness/preview")
+def api_works_effectiveness_preview(
+    req: WorksEffectivenessRequest,
+    db: Session = Depends(get_db_with_table),
+):
+    """Анализ эффективности работ за период (роза + описание; опц. сравнение).
+
+    mode='single' → роза+описание за период (без Δ/Балла).
+    mode='compare' → overlay-роза + Δ-таблица + Балл БЭР (ref по умолчанию = до работ).
+    При невозможности — {ok: False, error: "..."} (НЕ 500).
+    """
+    from backend.services.works_effectiveness_service import compute_works_effectiveness
+    try:
+        if not str(req.well).strip():
+            return {"ok": False, "error": "Не выбрана скважина"}
+        if req.period_from and req.period_to and req.period_from > req.period_to:
+            return {"ok": False, "error": "period_from > period_to"}
+        return compute_works_effectiveness(
+            db,
+            well_number=str(req.well).strip(),
+            period_from=req.period_from,
+            period_to=req.period_to,
+            ref_from=req.ref_from,
+            ref_to=req.ref_to,
+            compare=req.compare,
+            work_type=req.work_type,
+        )
+    except Exception as e:
+        log.exception("works-effectiveness/preview failed for well=%s", req.well)
+        return {"ok": False, "error": f"Внутренняя ошибка: {e}"}
+
+
+# ═══════════════════════════════════════════════════════════════════════
 #  API: сегментный анализ + ПАВ-балл
 #  ──────────────────────────────────
 #  /segment-analysis/preview        — рассчитать без сохранения
@@ -536,7 +677,7 @@ class BlockUpdate(_BM):
 
 # Единственные ключи params, разрешённые к изменению через PUT (whitelist).
 # Зеркало backend/routers/observation.py::_ALLOWED_PARAM_KEYS.
-_ALLOWED_PARAM_KEYS = frozenset({"parts", "prefix_note", "suffix_note"})
+_ALLOWED_PARAM_KEYS = frozenset({"parts", "prefix_note", "suffix_note", "recommendation"})
 
 
 def _merge_block_params(existing: dict | None, incoming: dict) -> dict:
@@ -544,7 +685,7 @@ def _merge_block_params(existing: dict | None, incoming: dict) -> dict:
     (per-key), prefix/suffix — заменяются. Прочие ключи incoming игнорируются
     (защита kind/source/chapter/date_*). data_snapshot не входит в params."""
     merged = dict(existing) if isinstance(existing, dict) else {}
-    for key in ("prefix_note", "suffix_note"):
+    for key in ("prefix_note", "suffix_note", "recommendation"):
         if key in incoming:
             val = incoming[key]
             if val is not None and not isinstance(val, str):
@@ -560,6 +701,19 @@ def _merge_block_params(existing: dict | None, incoming: dict) -> dict:
         cur_parts = merged.get("parts") if isinstance(merged.get("parts"), dict) else {}
         merged["parts"] = {**cur_parts, **parts_in}
     return merged
+
+
+def _list_blocks_payload(db: Session, well_id: int, chapter: str | None = None,
+                         kinds: list[str] | None = None) -> dict:
+    """Возвращает payload блоков БЕЗ HTTP-вызова (для plotly_png_service).
+
+    То же, что api_list_blocks, но напрямую через сервис.
+    """
+    from backend.services.segment_descriptions import enrich_block_descriptions
+    blocks = svc.list_blocks(db, well_id, chapter=chapter, kinds=kinds)
+    for _b in blocks:
+        enrich_block_descriptions(_b, db=db)
+    return {"blocks": blocks}
 
 
 @router.get("/blocks")

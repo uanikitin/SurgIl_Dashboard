@@ -273,6 +273,67 @@ def render_baseline_tile_charts(
     return out
 
 
+def build_observation_chart_payload(
+    well_id: int,
+    period_from,  # date | datetime | iso str
+    period_to,
+    *, max_points: int = 4000,
+) -> dict | None:
+    """Строит chart-payload (dates / p_wellhead / p_flowline / dp / q_gas_total)
+    за период через тот же `compute_full_flow`, что и matplotlib-плитка B2.
+
+    Нужен, чтобы график B2 в §3.3 рисовался Plotly (renderChapter, формат
+    observation_analysis) — паритет с §3.4. Прорежает ряд до `max_points`,
+    NaN → None. Возвращает None, если данных нет.
+    """
+    from datetime import datetime, date, time, timedelta
+
+    def _iso(v, is_end=False):
+        if isinstance(v, datetime):
+            return v.isoformat()
+        if isinstance(v, date):
+            t = time(23, 59, 59) if is_end else time(0, 0, 0)
+            return datetime.combine(v, t).isoformat()
+        return str(v)
+
+    try:
+        from backend.services.flow_rate.full_pipeline import compute_full_flow
+        off = timedelta(hours=5)  # Кунград → UTC, как в render_baseline_tile_charts
+        ds = (datetime.fromisoformat(_iso(period_from)) - off).isoformat()
+        de = (datetime.fromisoformat(_iso(period_to, True)) - off).isoformat()
+        result = compute_full_flow(well_id, ds, de, smooth=True)
+        df = result["df"]
+    except Exception as exc:
+        log.warning("observation chart payload: compute_full_flow failed: %s", exc)
+        return None
+
+    if df is None or df.empty:
+        return None
+
+    step = max(1, len(df) // max_points)
+    d = df.iloc[::step]
+
+    def _arr(series):
+        out_list = []
+        for v in series:
+            fv = float(v)
+            out_list.append(None if fv != fv else round(fv, 3))  # NaN → None
+        return out_list
+
+    p_tube = d["p_tube"].astype(float)
+    p_line = d["p_line"].astype(float)
+    dp = (p_tube - p_line).clip(lower=0.0)
+    flow = d["flow_rate"].astype(float) if "flow_rate" in d.columns else None
+
+    return {
+        "dates": [t.isoformat() for t in d.index],
+        "p_wellhead": _arr(p_tube),
+        "p_flowline": _arr(p_line),
+        "dp": _arr(dp),
+        "q_gas_total": _arr(flow) if flow is not None else [],
+    }
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  Рендер графиков из данных снапшота (не из БД!)
 # ─────────────────────────────────────────────────────────────────────────────

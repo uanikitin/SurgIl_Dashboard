@@ -147,6 +147,10 @@ VALID_BLOCK_KINDS = {
     "adaptation_period_analysis",
     "optimal_window",
     "reagent_irv_summary",
+    # Оценка эффективности (3.3): отдельный блок с диаграммами B1/B2/R/R★
+    # (Q, ΔP, нерабочее время), дельтами и вердиктом. snapshot:
+    # { adaptation, optimal, observation, b1 }.
+    "adaptation_effectiveness",
     # Сравнение участков из шага 5 (тот же инструмент cmp, но контекст
     # «Адаптация»; попадает в главу адаптации в PDF). Шаг 3 пишет в 'comparison'.
     "adaptation_comparison",
@@ -160,6 +164,12 @@ VALID_BLOCK_KINDS = {
     # истории скважины на текущем штуцере. Попадает в главу «Анализ исходных
     # данных» (заказчик). См. customer_rose_service.
     "criteria_rose",
+    # Роза НЕСТАБИЛЬНОСТИ — новая методика поиска кандидатов на обводнение.
+    # 7 безразмерных осей (расстояние от идеала «стабильно»), якорная дата +
+    # окна назад, L* (длина стабильного периода), индекс I. Отдельно от
+    # criteria_rose (старую не трогаем). См. stability_rose_service.
+    # snapshot формата _v=1 (compute_stability_rose).
+    "stability_rose",
     # Общий текст-вступление главы 2 (раздел 1 главы).
     # Автосоздаётся при первом заходе на скважину с дефолтным текстом
     # «Анализ исходных работ скважины №N на основании данных УзКорГаз».
@@ -180,6 +190,24 @@ VALID_BLOCK_KINDS = {
     # Сопоставление данных мониторинга LoRa и суточных сводок УзКорГаз.
     # Графики Q и ΔP, посуточная таблица расхождений, заключение.
     "sensor_customer_comparison",
+    # Спектр распределения давления (стабильность скважины): гистограммы P_уст
+    # и ΔP, метрики разброса/стабильности, опц. наложение сохранённых спектров
+    # для сравнения этапов. Переиспользуемый блок (params.chapter). snapshot
+    # формата pressure_spectrum_v1 (см. pressure_spectrum_service).
+    "pressure_spectrum",
+    # Зависимость двух параметров: scatter + линия регрессии (МНК) + R².
+    # Переиспользуемый блок (params.chapter). snapshot param_correlation_v1.
+    "param_correlation",
+    # Глава «Отчёт за период» (Шаг 8 wizard'а, chapter='period'): самостоятельный
+    # раздел за произвольный период, зеркало «Адаптации». period_full_analysis —
+    # полный анализ периода (снапшот { adaptation, observation, optimal,
+    # comparison, irv, b1 }, как adaptation_period_analysis); period_comparison —
+    # сравнение участков (уточняется владельцем). См. _format_period_block.
+    "period_full_analysis",
+    "period_comparison",
+    # Анализ стабильности в период работ (before/during/after).
+    # snapshot формата works_analysis_v1 (см. works_stability_service).
+    "works_analysis",
 }
 
 
@@ -526,6 +554,15 @@ def list_blocks(
         block = _enrich_adaptation_segment_analysis(db, block)
         # Обогащаем события данными из таблицы events (p_tube, p_line, reagent, qty, description)
         block = _enrich_events_from_db(db, block)
+        # sensor_customer_comparison: дополняем снапшот производными полями анализа
+        # (analysis/trend_character/methodology/deviation_summary/conclusion), если
+        # их нет — старые блоки тоже показывают весь анализ в отчёте (HTML и PDF).
+        if block.get("kind") == "sensor_customer_comparison" and block.get("data_snapshot"):
+            try:
+                from backend.services.comparison_service import enrich_scc_snapshot
+                enrich_scc_snapshot(block["data_snapshot"])
+            except Exception:
+                pass
         result.append(block)
     return result
 
@@ -548,6 +585,8 @@ def create_block(
     if kind == "observation_analysis":
         params["source"] = "observation"
         params["chapter"] = "observation"
+    elif kind == "works_analysis":
+        params["chapter"] = "works"
     if sort_order is None:
         row = db.execute(text("""
             SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order

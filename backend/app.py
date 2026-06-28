@@ -161,6 +161,10 @@ app.include_router(chapter_demo_router)
 from backend.routers.observation import router as observation_router
 app.include_router(observation_router)
 
+# Отчёты за произвольный период
+from backend.routers.period_report import router as period_report_router
+app.include_router(period_report_router)
+
 # Widget API (SwiftBar, etc.)
 from backend.routers.widget_api import router as widget_api_router
 app.include_router(widget_api_router)
@@ -189,6 +193,12 @@ app.include_router(customer_daily_pages_router)
 # Конструктор сравнения (наборы кривых для отчёта адаптации)
 from backend.routers.comparison import router as comparison_router
 app.include_router(comparison_router)
+
+from backend.routers.pressure_spectrum import router as pressure_spectrum_router
+app.include_router(pressure_spectrum_router)
+
+from backend.routers.param_correlation import router as param_correlation_router
+app.include_router(param_correlation_router)
 
 # Аннотации на графиках
 from backend.routers.chart_annotations import router as chart_annotations_router

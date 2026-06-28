@@ -42,3 +42,4 @@ from .customer_baseline import CustomerBaseline
 from .customer_report_block import CustomerReportBlock
 from .comparison_set import ComparisonSet
 from .comparison_curve import ComparisonCurve
+from .period_report import PeriodReport

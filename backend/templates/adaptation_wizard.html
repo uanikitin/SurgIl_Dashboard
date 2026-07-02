@@ -799,6 +799,115 @@
   .wz7-avail-ok { color:#059669; }
   .wz7-avail-no { color:#dc2626; }
 
+  /* ─── Шаг 7: НОВЫЙ редизайн — 4 главных блока ─── */
+  .wz7-main-chapters {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .wz7-chapter-card {
+    border: 2px solid #e5e7eb;
+    border-radius: 10px;
+    background: #fff;
+    overflow: hidden;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .wz7-chapter-card.active {
+    border-color: #10b981;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+  }
+  .wz7-chapter-card.disabled {
+    opacity: 0.5;
+    background: #f9fafb;
+  }
+  .wz7-card-main {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .wz7-card-main:hover {
+    background: #f8fafc;
+  }
+  .wz7-card-checkbox {
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    cursor: pointer;
+    accent-color: #10b981;
+  }
+  .wz7-card-icon {
+    font-size: 1.5rem;
+    flex-shrink: 0;
+  }
+  .wz7-card-title {
+    flex: 1;
+    font-weight: 600;
+    font-size: 1.05rem;
+    color: #1f2937;
+  }
+  .wz7-card-count {
+    font-size: 0.85rem;
+    color: #6b7280;
+    padding: 3px 10px;
+    background: #f3f4f6;
+    border-radius: 12px;
+  }
+  .wz7-card-toggle {
+    padding: 4px 10px;
+    font-size: 0.78rem;
+    background: #fff;
+    border: 1px solid #d1d5db;
+    border-radius: 5px;
+    cursor: pointer;
+    color: #374151;
+  }
+  .wz7-card-toggle:hover {
+    background: #f3f4f6;
+  }
+  .wz7-card-details {
+    display: none;
+    padding: 0 16px 14px;
+    border-top: 1px solid #e5e7eb;
+    background: #fafbfc;
+  }
+  .wz7-card-details.open {
+    display: block;
+  }
+  .wz7-card-details-inner {
+    padding-top: 10px;
+  }
+  /* Период-контейнер */
+  .wz7-period-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    margin-bottom: 6px;
+    background: #fff;
+  }
+  .wz7-period-item:hover {
+    background: #f8fafc;
+  }
+  .wz7-period-item.active {
+    border-color: #10b981;
+    background: #ecfdf5;
+  }
+  .wz7-period-title {
+    flex: 1;
+    font-weight: 500;
+    font-size: 0.92rem;
+  }
+  .wz7-period-dates {
+    font-size: 0.8rem;
+    color: #6b7280;
+  }
+
   /* ─── Конструктор блоков наблюдения (wz3obs-) ─── */
   .wz3obs-constructor {
     border:1px solid #e2e8f0; border-radius:8px; padding:16px 18px;
@@ -11089,125 +11198,118 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
   }
 
   // ═══ STEP 7: Сборка ═══
+  // Конфигурация 4 главных разделов (упрощённый UI)
+  const WZ7_CHAPTERS = [
+    { id: 'customer',    icon: '📋', title: 'Заказчик',    sources: [2], color: '#fef3c7' },
+    { id: 'observation', icon: '👁',  title: 'Наблюдение', sources: [3], color: '#dbeafe' },
+    { id: 'adaptation',  icon: '⚙️', title: 'Адаптация',   sources: [5, 6], color: '#dcfce7' },
+  ];
+
   function renderStep7(main) {
     const s7 = state.steps[7].data;
     if (!s7.sections) s7.sections = {};
-    // Дефолт: все системные блоки включены, если ключа ещё нет.
+    if (!s7.chapters) s7.chapters = { customer: true, observation: true, adaptation: true };
+
+    // Дефолт: все системные блоки включены
     for (const blk of WZ7_BLOCK_CATALOG) {
       if (!(blk.key in s7.sections)) s7.sections[blk.key] = true;
     }
 
-    // Вычисляем доступность блоков на основе данных в шагах
     const avail = wz7ComputeBlockAvailability();
 
-    // Группируем каталог по главам в порядке появления.
-    const groups = [];
-    const groupMap = {};
-    for (const blk of WZ7_BLOCK_CATALOG) {
-      if (!(blk.chapter in groupMap)) {
-        groupMap[blk.chapter] = { chapter: blk.chapter, items: [] };
-        groups.push(groupMap[blk.chapter]);
-      }
-      groupMap[blk.chapter].items.push(blk);
-    }
-
-    // Счётчики: доступных, включённых
-    let totalAvail = 0, totalOn = 0;
-    for (const blk of WZ7_BLOCK_CATALOG) {
-      if (avail[blk.key]) {
-        totalAvail++;
-        if (s7.sections[blk.key]) totalOn++;
-      }
-    }
-    const totalAll = WZ7_BLOCK_CATALOG.length;
-
-    // Сводка доступности по источникам
-    const srcStatus = {
-      0: { label: 'Скважина', ok: !!state.well },
-      2: { label: 'Заказчик', ok: state.steps[2].include && ((state.steps[2].data.periods || []).length > 0 || state.steps[2].data.from) },
-      3: { label: 'Наблюдение', ok: state.steps[3].include && !!state.steps[3].data.from && !!state.steps[3].data.to },
-      5: { label: 'Адаптация', ok: state.steps[5].include && !!state.steps[5].data.from && !!state.steps[5].data.to },
-      6: { label: 'Сравнение', ok: state.steps[6].include && srcStatus?.[3]?.ok && srcStatus?.[5]?.ok },
+    // Проверяем доступность каждой главы
+    const chapterAvail = {
+      customer: state.steps[2].include && ((state.steps[2].data.periods || []).length > 0 || state.steps[2].data.from),
+      observation: state.steps[3].include && !!state.steps[3].data.from && !!state.steps[3].data.to,
+      adaptation: state.steps[5].include && !!state.steps[5].data.from && !!state.steps[5].data.to,
     };
-    // Пересчитаем §6 (зависит от §3 и §5)
-    srcStatus[6].ok = state.steps[6].include && srcStatus[3].ok && srcStatus[5].ok;
 
-    let summaryHtml = '<div class="wz7-avail-summary">';
-    for (const [src, info] of Object.entries(srcStatus)) {
-      const icon = info.ok ? '✓' : '✗';
-      const cls = info.ok ? 'wz7-avail-ok' : 'wz7-avail-no';
-      summaryHtml += `<span class="wz7-avail-item ${cls}">${icon} ${info.label}</span>`;
+    // Подсчёт блоков по главам
+    function countBlocks(sources) {
+      const items = WZ7_BLOCK_CATALOG.filter(b => sources.includes(b.source));
+      const availItems = items.filter(b => avail[b.key]);
+      const onItems = availItems.filter(b => s7.sections[b.key]);
+      return { total: items.length, avail: availItems.length, on: onItems.length };
     }
-    summaryHtml += '</div>';
 
-    let groupsHtml = '';
-    for (const g of groups) {
-      const onCount = g.items.filter(it => avail[it.key] && s7.sections[it.key]).length;
-      const availCount = g.items.filter(it => avail[it.key]).length;
-      groupsHtml += `
-        <div class="wz7-chapter">
-          <div class="wz7-chapter-head">
-            <span>${g.chapter}</span>
-            <span class="wz7-chapter-count">${onCount}/${availCount}</span>
-            <button type="button" class="wz7-chapter-toggle" data-chapter="${g.chapter}">все ✓/✗</button>
+    // Системные блоки (source 0) — отдельная секция
+    const sysBlocks = WZ7_BLOCK_CATALOG.filter(b => b.source === 0);
+    const sysAvail = sysBlocks.filter(b => avail[b.key]);
+    const sysOn = sysAvail.filter(b => s7.sections[b.key]);
+
+    let chaptersHtml = '<div class="wz7-main-chapters">';
+
+    for (const ch of WZ7_CHAPTERS) {
+      const isAvail = chapterAvail[ch.id];
+      const counts = countBlocks(ch.sources);
+      const isOn = s7.chapters[ch.id] && isAvail;
+      const cardClass = isAvail ? (isOn ? 'active' : '') : 'disabled';
+
+      chaptersHtml += `
+        <div class="wz7-chapter-card ${cardClass}" data-chapter="${ch.id}">
+          <div class="wz7-card-main" onclick="_wz7ToggleChapter('${ch.id}')">
+            <input type="checkbox" class="wz7-card-checkbox" data-chapter="${ch.id}"
+                   ${isOn ? 'checked' : ''} ${isAvail ? '' : 'disabled'}
+                   onclick="event.stopPropagation(); _wz7ToggleChapter('${ch.id}')">
+            <span class="wz7-card-icon">${ch.icon}</span>
+            <span class="wz7-card-title">${ch.title}</span>
+            <span class="wz7-card-count">${counts.on}/${counts.avail}</span>
+            <button type="button" class="wz7-card-toggle" onclick="event.stopPropagation(); _wz7ToggleDetails('${ch.id}')">
+              Детали ▾
+            </button>
           </div>
-          <div class="wz7-chapter-items">
+          <div class="wz7-card-details" id="wz7-details-${ch.id}">
+            <div class="wz7-card-details-inner">
+              ${_wz7RenderBlockList(ch.sources, avail, s7)}
+            </div>
+          </div>
+        </div>
       `;
-      for (const it of g.items) {
-        const on = s7.sections[it.key];
-        const isAvail = avail[it.key];
-        const srcLabel = WZ7_SOURCE_LABELS[it.source] || '';
-        const disabledAttr = isAvail ? '' : 'disabled';
-        const tooltip = isAvail ? '' : `title="Нет данных — заполните ${srcLabel}"`;
-        groupsHtml += `
-          <label class="wz7-block-row" data-avail="${isAvail}" ${tooltip}>
-            <input type="checkbox" class="wz7-block-cb" data-key="${it.key}" ${on && isAvail ? 'checked' : ''} ${disabledAttr}>
-            <span class="wz7-block-label">${it.label}</span>
-            <span class="wz7-block-source" data-src="${it.source}">${srcLabel}</span>
-            <span class="wz7-block-key">${it.key}</span>
-          </label>
-        `;
-      }
-      groupsHtml += `</div></div>`;
     }
+
+    // Периоды — особая карточка с вложенным списком
+    chaptersHtml += `
+      <div class="wz7-chapter-card" data-chapter="periods">
+        <div class="wz7-card-main">
+          <span class="wz7-card-icon">📅</span>
+          <span class="wz7-card-title">Периоды</span>
+          <span class="wz7-card-count" id="wz7-periods-count">…</span>
+          <button type="button" class="wz7-card-toggle" onclick="_wz7ToggleDetails('periods')">
+            Развернуть ▾
+          </button>
+        </div>
+        <div class="wz7-card-details" id="wz7-details-periods">
+          <div class="wz7-card-details-inner" id="wz7-periods-list">
+            Загрузка периодов…
+          </div>
+        </div>
+      </div>
+    `;
+
+    chaptersHtml += '</div>';
 
     main.innerHTML = `
       <h2 class="wz-step-title"><span class="step-num">7</span>Сборка отчёта</h2>
       <div class="wz-step-hint">
-        Атомарная сборка PDF. Каждая строка — отдельный блок отчёта.
-        Снимите галочку чтобы исключить блок из PDF. Серые блоки недоступны — заполните соответствующий шаг.
+        Выберите разделы для включения в итоговый документ.
+        Нажмите «Детали» для тонкой настройки блоков внутри раздела.
       </div>
 
-      ${summaryHtml}
+      ${chaptersHtml}
 
-      <div class="wz-section">
-        <h3 style="display:flex; align-items:center; justify-content:space-between;">
-          <span>Системные блоки <span style="font-weight:400; color:#6b7280; font-size:0.82rem;">· ${totalOn} из ${totalAvail} включены (всего ${totalAll})</span></span>
-          <span style="font-size:0.78rem; display:flex; gap:6px;">
-            <button type="button" id="wz7-all-on"  class="wz-btn" style="padding:3px 8px; font-size:0.78rem;">все ✓</button>
-            <button type="button" id="wz7-all-off" class="wz-btn" style="padding:3px 8px; font-size:0.78rem;">все ✗</button>
-            <button type="button" id="wz7-reset"   class="wz-btn" style="padding:3px 8px; font-size:0.78rem;">сброс</button>
-          </span>
-        </h3>
-        <div id="wz7-groups">${groupsHtml}</div>
-      </div>
-
-      <div class="wz-section">
-        <h3 style="margin-top:0;">Отчёты за период</h3>
-        <div class="wz-step-hint" style="margin-bottom:8px;">
-          Каждый выбранный отчёт за период войдёт в общий документ отдельным разделом
-          (по порядку дат). Снимите галочку отчёта, чтобы исключить его; раскройте отчёт,
-          чтобы включить/выключить отдельные блоки.
+      <div class="wz-section" style="border:1px solid #e5e7eb; border-radius:8px; padding:12px;">
+        <div style="display:flex; align-items:center; gap:10px; cursor:pointer;" onclick="_wz7ToggleSystem()">
+          <span style="font-size:1.2rem;">🔧</span>
+          <span style="font-weight:600; flex:1;">Системные блоки</span>
+          <span class="wz7-card-count">${sysOn.length}/${sysAvail.length}</span>
+          <span style="font-size:0.8rem; color:#6b7280;">▾</span>
         </div>
-        <div id="wz7-periods" class="wz-step-hint">Загрузка…</div>
+        <div id="wz7-system-blocks" style="display:none; margin-top:10px; padding-top:10px; border-top:1px solid #e5e7eb;">
+          ${_wz7RenderBlockList([0], avail, s7)}
+        </div>
       </div>
 
-      <div class="wz-section">
-        <h3 style="margin-top:0;">Прикреплённые пользовательские блоки</h3>
-        <div id="wz7-user-blocks" class="wz-step-hint">Загрузка…</div>
-      </div>
-
-      <div class="wz-section" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+      <div class="wz-section" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:16px;">
         <button id="wz-generate" class="wz-btn wz-btn-success">📄 Сформировать PDF</button>
         <button id="wz-generate-html" class="wz-btn wz-btn-primary">🌐 Предпросмотр HTML</button>
         <span id="wz-generate-info" style="font-size:0.82rem; color:#6b7280;"></span>
@@ -11223,41 +11325,12 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       ${navButtons(7)}
     `;
 
-    // Биндинг чекбоксов (только для доступных)
+    // Биндинг чекбоксов блоков
     document.querySelectorAll('.wz7-block-cb:not([disabled])').forEach(cb => {
       cb.addEventListener('change', () => {
         s7.sections[cb.dataset.key] = cb.checked;
-        _wz7UpdateCounts();
+        _wz7UpdateCardCounts();
       });
-    });
-    // Per-chapter toggle — только доступные блоки
-    document.querySelectorAll('.wz7-chapter-toggle').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const chap = btn.dataset.chapter;
-        const items = WZ7_BLOCK_CATALOG.filter(b => b.chapter === chap && avail[b.key]);
-        if (!items.length) return;  // нет доступных блоков в главе
-        const allOn = items.every(it => s7.sections[it.key]);
-        const newVal = !allOn;
-        for (const it of items) s7.sections[it.key] = newVal;
-        renderStep7(main);  // перерисовать чекбоксы
-      });
-    });
-    $('wz7-all-on')?.addEventListener('click', () => {
-      for (const b of WZ7_BLOCK_CATALOG) {
-        if (avail[b.key]) s7.sections[b.key] = true;
-      }
-      renderStep7(main);
-    });
-    $('wz7-all-off')?.addEventListener('click', () => {
-      for (const b of WZ7_BLOCK_CATALOG) {
-        if (avail[b.key]) s7.sections[b.key] = false;
-      }
-      renderStep7(main);
-    });
-    $('wz7-reset')?.addEventListener('click', () => {
-      s7.sections = {};
-      for (const b of WZ7_BLOCK_CATALOG) s7.sections[b.key] = avail[b.key];  // доступные = вкл
-      renderStep7(main);
     });
 
     const btn = $('wz-generate');
@@ -11266,39 +11339,176 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
     const btnHtml = $('wz-generate-html');
     if (btnHtml) btnHtml.addEventListener('click', generateHtml);
 
-    // Загрузка прикреплённых юзер-блоков
-    wz7LoadUserBlocks().catch(e => console.warn('wz7LoadUserBlocks', e));
-    // Загрузка отчётов за период (для общего документа)
-    wz7LoadPeriods().catch(e => console.warn('wz7LoadPeriods', e));
+    // Загрузка периодов
+    wz7LoadPeriodsSimple().catch(e => console.warn('wz7LoadPeriodsSimple', e));
+  }
+
+  // Рендер списка блоков для детальной настройки
+  function _wz7RenderBlockList(sources, avail, s7) {
+    const items = WZ7_BLOCK_CATALOG.filter(b => sources.includes(b.source));
+    if (!items.length) return '<div style="color:#6b7280; font-size:0.85rem;">Нет блоков</div>';
+
+    let html = '';
+    for (const it of items) {
+      const isAvail = avail[it.key];
+      const on = s7.sections[it.key] && isAvail;
+      html += `
+        <label class="wz7-block-row" data-avail="${isAvail}" ${isAvail ? '' : 'title="Нет данных"'}>
+          <input type="checkbox" class="wz7-block-cb" data-key="${it.key}"
+                 ${on ? 'checked' : ''} ${isAvail ? '' : 'disabled'}>
+          <span class="wz7-block-label">${it.label}</span>
+        </label>
+      `;
+    }
+    return html;
+  }
+
+  // Toggle главы (включить/выключить все блоки главы)
+  function _wz7ToggleChapter(chapterId) {
+    const s7 = state.steps[7].data;
+    const ch = WZ7_CHAPTERS.find(c => c.id === chapterId);
+    if (!ch) return;
+
+    const avail = wz7ComputeBlockAvailability();
+    const items = WZ7_BLOCK_CATALOG.filter(b => ch.sources.includes(b.source) && avail[b.key]);
+    if (!items.length) return;
+
+    // Toggle состояние главы
+    s7.chapters[chapterId] = !s7.chapters[chapterId];
+    const newVal = s7.chapters[chapterId];
+
+    // Установить все блоки главы
+    for (const it of items) {
+      s7.sections[it.key] = newVal;
+    }
+
+    // Обновить UI
+    const card = document.querySelector(`.wz7-chapter-card[data-chapter="${chapterId}"]`);
+    const cb = card?.querySelector('.wz7-card-checkbox');
+    if (card) {
+      card.classList.toggle('active', newVal);
+      if (cb) cb.checked = newVal;
+    }
+
+    // Обновить чекбоксы в деталях
+    const details = document.getElementById('wz7-details-' + chapterId);
+    if (details) {
+      details.querySelectorAll('.wz7-block-cb:not([disabled])').forEach(input => {
+        input.checked = newVal;
+      });
+    }
+
+    _wz7UpdateCardCounts();
+  }
+
+  // Toggle детали главы (аккордеон)
+  function _wz7ToggleDetails(chapterId) {
+    const details = document.getElementById('wz7-details-' + chapterId);
+    if (details) {
+      details.classList.toggle('open');
+    }
+  }
+
+  // Toggle системных блоков
+  function _wz7ToggleSystem() {
+    const box = document.getElementById('wz7-system-blocks');
+    if (box) {
+      box.style.display = box.style.display === 'none' ? 'block' : 'none';
+    }
+  }
+
+  // Обновить счётчики на карточках
+  function _wz7UpdateCardCounts() {
+    const s7 = state.steps[7].data;
+    const avail = wz7ComputeBlockAvailability();
+
+    for (const ch of WZ7_CHAPTERS) {
+      const items = WZ7_BLOCK_CATALOG.filter(b => ch.sources.includes(b.source));
+      const availItems = items.filter(b => avail[b.key]);
+      const onItems = availItems.filter(b => s7.sections[b.key]);
+
+      const card = document.querySelector(`.wz7-chapter-card[data-chapter="${ch.id}"]`);
+      const countEl = card?.querySelector('.wz7-card-count');
+      if (countEl) {
+        countEl.textContent = `${onItems.length}/${availItems.length}`;
+      }
+    }
+
+    // Системные блоки
+    const sysBlocks = WZ7_BLOCK_CATALOG.filter(b => b.source === 0);
+    const sysAvail = sysBlocks.filter(b => avail[b.key]);
+    const sysOn = sysAvail.filter(b => s7.sections[b.key]);
+    const sysCountEl = document.querySelector('#wz7-system-blocks')?.previousElementSibling?.querySelector('.wz7-card-count');
+    if (sysCountEl) {
+      sysCountEl.textContent = `${sysOn.length}/${sysAvail.length}`;
+    }
+  }
+
+  // Упрощённая загрузка периодов для новой карточки
+  async function wz7LoadPeriodsSimple() {
+    const listBox = document.getElementById('wz7-periods-list');
+    const countEl = document.getElementById('wz7-periods-count');
+    if (!listBox || !state.well?.id) {
+      if (listBox) listBox.textContent = 'Скважина не выбрана.';
+      if (countEl) countEl.textContent = '0';
+      return;
+    }
+
+    const s7 = state.steps[7].data;
+    try {
+      const reports = await fetch('/api/period-report/' + state.well.id + '/list').then(r => r.json());
+      const list = Array.isArray(reports) ? reports : [];
+
+      if (!list.length) {
+        listBox.innerHTML = '<div style="color:#6b7280; font-size:0.85rem;">Нет сохранённых периодов.</div>';
+        if (countEl) countEl.textContent = '0';
+        return;
+      }
+
+      // Подсчёт включённых периодов
+      let onCount = 0;
+      let html = '';
+      for (const rep of list) {
+        const key = 'period_report_' + rep.id;
+        if (!(key in s7.sections)) s7.sections[key] = true;
+        const isOn = s7.sections[key];
+        if (isOn) onCount++;
+
+        const dates = (rep.period_start || '').slice(0, 10) + ' — ' + (rep.period_end || '').slice(0, 10);
+        html += `
+          <div class="wz7-period-item ${isOn ? 'active' : ''}">
+            <input type="checkbox" class="wz7-period-cb" data-key="${key}" ${isOn ? 'checked' : ''}>
+            <span class="wz7-period-title">${escapeHtmlW7(rep.title || 'Период ' + rep.id)}</span>
+            <span class="wz7-period-dates">${dates}</span>
+          </div>
+        `;
+      }
+
+      listBox.innerHTML = html;
+      if (countEl) countEl.textContent = `${onCount}/${list.length}`;
+
+      // Биндинг чекбоксов периодов
+      listBox.querySelectorAll('.wz7-period-cb').forEach(cb => {
+        cb.addEventListener('change', () => {
+          const key = cb.dataset.key;
+          s7.sections[key] = cb.checked;
+          cb.closest('.wz7-period-item')?.classList.toggle('active', cb.checked);
+
+          // Пересчитать счётчик
+          const total = listBox.querySelectorAll('.wz7-period-cb').length;
+          const on = listBox.querySelectorAll('.wz7-period-cb:checked').length;
+          if (countEl) countEl.textContent = `${on}/${total}`;
+        });
+      });
+
+    } catch (e) {
+      listBox.textContent = 'Ошибка загрузки: ' + e.message;
+      if (countEl) countEl.textContent = '!';
+    }
   }
 
   function _wz7UpdateCounts() {
-    const s7 = state.steps[7].data;
-    const avail = wz7ComputeBlockAvailability();
-    let totalAvail = 0, on = 0;
-    // Обновляем счётчики глав (только доступные)
-    const groups = {};
-    for (const b of WZ7_BLOCK_CATALOG) {
-      if (!avail[b.key]) continue;  // пропускаем недоступные
-      totalAvail++;
-      if (s7.sections[b.key]) on++;
-      if (!groups[b.chapter]) groups[b.chapter] = { avail: 0, on: 0 };
-      groups[b.chapter].avail++;
-      if (s7.sections[b.key]) groups[b.chapter].on++;
-    }
-    document.querySelectorAll('.wz7-chapter').forEach(div => {
-      const head = div.querySelector('.wz7-chapter-head');
-      if (!head) return;
-      const chap = head.querySelector('span:first-child')?.textContent;
-      if (!chap || !groups[chap]) return;
-      const cnt = head.querySelector('.wz7-chapter-count');
-      if (cnt) cnt.textContent = `${groups[chap].on}/${groups[chap].avail}`;
-    });
-    // Главный счётчик в заголовке секции
-    const headerSpan = document.querySelector('#wz7-groups')?.previousElementSibling?.querySelector('span > span');
-    if (headerSpan) {
-      headerSpan.textContent = `· ${on} из ${totalAvail} включены (всего ${WZ7_BLOCK_CATALOG.length})`;
-    }
+    _wz7UpdateCardCounts();
   }
 
   // Подгружает прикреплённые пользовательские блоки скважины и рендерит
@@ -11807,8 +12017,9 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
     }
   }
 
-  $('wz-well-select').addEventListener('change', async (e) => {
-    const id = parseInt(e.target.value);
+  // Обработчик выбора скважины (вынесен для возможности программного вызова)
+  async function onWellSelected(wellId) {
+    const id = parseInt(wellId);
     if (!id) {
       state.well = null;
       state.metadata = null;
@@ -11824,13 +12035,25 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
     state.steps[2].data = { periods: [] };
     state.steps[5].data = { window_days: 10, optimal_window_days: 3 };
 
-    await loadWellMetadata(id);
-    await wz3LoadExistingBaseline();  // подтягиваем утверждённый B2 если есть
-    await wz4LoadExistingB1();        // подтягиваем утверждённый B1 (заказчика) если есть
-    renderOverview();
-    renderTiles();
-    renderStepper();
-    renderStep(state.currentStep);
+    try {
+      await loadWellMetadata(id);
+      await wz3LoadExistingBaseline();  // подтягиваем утверждённый B2 если есть
+      await wz4LoadExistingB1();        // подтягиваем утверждённый B1 (заказчика) если есть
+      renderOverview();
+      renderTiles();
+      renderStepper();
+      renderStep(state.currentStep);
+    } catch (err) {
+      console.error('Ошибка загрузки данных скважины:', err);
+      $('wz-main').innerHTML = '<div class="wz-placeholder" style="color:#dc2626;">Ошибка загрузки: ' + err.message + '</div>';
+    }
+  }
+
+  // Экспорт для программного вызова (тесты, Playwright)
+  window.onWellSelected = onWellSelected;
+
+  $('wz-well-select').addEventListener('change', (e) => {
+    onWellSelected(e.target.value);
   });
 
   async function loadWellMetadata(wellId) {

@@ -11242,6 +11242,12 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
     for (const ch of WZ7_CHAPTERS) {
       const isAvail = chapterAvail[ch.id];
       const counts = countBlocks(ch.sources);
+      // ═══ FIX: disabled карточки (нет блоков) → s7.chapters[ch.id] = false ═══
+      // Иначе глава попадает в PDF даже когда карточка визуально disabled.
+      // isOn = true ТОЛЬКО если: 1) есть блоки И 2) пользователь не снял галочку.
+      if (!isAvail && s7.chapters[ch.id]) {
+        s7.chapters[ch.id] = false;  // принудительно выключаем
+      }
       const isOn = s7.chapters[ch.id] && isAvail;
       const cardClass = isAvail ? (isOn ? 'active' : '') : 'disabled';
 
@@ -11458,6 +11464,10 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
     try {
       const reports = await fetch('/api/period-report/' + state.well.id + '/list').then(r => r.json());
       const list = Array.isArray(reports) ? reports : [];
+
+      // ═══ FIX: сохраняем список периодов в state для _wzBuildPdfBody ═══
+      // Иначе period_report_ids всегда пустой и отчёты за периоды не попадают в PDF.
+      s7.availablePeriods = list;
 
       if (!list.length) {
         listBox.innerHTML = '<div style="color:#6b7280; font-size:0.85rem;">Нет сохранённых периодов.</div>';
@@ -11942,6 +11952,13 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       alert(built.error);
       return;
     }
+    // ═══ PERFORMANCE FIX: HTML preview НЕ использует серверные PNG-графики ═══
+    // Шаблон adaptation_report_preview.html показывает <img src="chart_path">,
+    // но для быстрого preview это не нужно — графики можно рендерить через JS
+    // на фронте (Plotly/Chart.js) или просто пропустить. Отключаем render_charts
+    // чтобы сократить время генерации с 5+ минут до секунд.
+    // PDF остаётся с with_charts: true (ему нужны PNG для LaTeX).
+    built.body.with_charts = false;
 
     const modal  = document.getElementById('wz-html-preview-modal');
     const iframe = document.getElementById('wz-html-preview-iframe');

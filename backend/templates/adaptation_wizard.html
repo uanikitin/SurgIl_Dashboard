@@ -11717,6 +11717,25 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
     // Гейт раздела «Отчёты за периоды» — только если выбран хотя бы один период.
     sectionsAtomic['period'] = _selPeriodIds.length > 0;
 
+    // ═══ Section-level гейты: карточки глав → включение/выключение главы в PDF ═══
+    // Маппинг WZ7_CHAPTERS → _SECTION_KEYS backend'а.
+    // Если карточка главы отключена (s7.chapters.* = false), то вся глава
+    // не рендерится в PDF (include_sections.* = false в LaTeX-гейте).
+    // ДЕФОЛТ: все главы включены (true), если пользователь ещё не заходил на Step 7.
+    const s7 = state.steps[7].data;
+    const chapters = s7.chapters || { customer: true, observation: true, adaptation: true };
+    sectionsAtomic['customer_data'] = !!chapters.customer;
+    sectionsAtomic['observation'] = !!chapters.observation;
+    sectionsAtomic['adaptation'] = !!chapters.adaptation;
+    // charts_compare и comparison — подразделы главы Адаптация (§5, §6)
+    sectionsAtomic['charts_compare'] = !!chapters.adaptation;
+    sectionsAtomic['comparison'] = !!chapters.adaptation;
+    // well_info (§1 Техданные) — всегда включена
+    sectionsAtomic['well_info'] = true;
+    // works (Стабильность в период работ) — включена по умолчанию
+    // (рендерится если есть соотв. блоки в БД)
+    if (sectionsAtomic['works'] === undefined) sectionsAtomic['works'] = true;
+
     const body = {
       well_id: state.well.id,
       obs_from: obsFrom, obs_to: obsTo,
@@ -11725,7 +11744,10 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
       adapt_description: state.steps[5].data.description || null,
       with_charts: true, with_reagent: !!state.steps[5].include,
       optimal_mode: 'auto', optimal_window_days: optD,
-      include_customer_chapter: state.steps[2].include && customerPeriods.length > 0,
+      // Глава «Заказчик» включается если: карточка в Step 7 активна ИЛИ
+      // есть периоды из формы Step 2. Backend дополнительно проверит наличие
+      // блоков в БД (_has_customer_blocks) и соберёт главу если они есть.
+      include_customer_chapter: !!chapters.customer || (state.steps[2].include && customerPeriods.length > 0),
       customer_periods: customerPeriods,
       sections: sectionsAtomic,
       period_report_ids: _selPeriodIds,

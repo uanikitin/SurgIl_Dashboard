@@ -11347,6 +11347,11 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
 
     // Загрузка периодов
     wz7LoadPeriodsSimple().catch(e => console.warn('wz7LoadPeriodsSimple', e));
+
+    // ═══ FIX: загружаем реальные блоки из БД и обновляем счётчики глав ═══
+    // Без этого карточки показывают 0/0, если шаг не был «настроен» в мастере,
+    // хотя блоки уже есть в базе (созданы ранее или на других вкладках).
+    wz7LoadChapterBlockCounts().catch(e => console.warn('wz7LoadChapterBlockCounts', e));
   }
 
   // Рендер списка блоков для детальной настройки
@@ -11519,6 +11524,80 @@ P тр мед=${fmt(s.p_tube_median)} · P лин мед=${fmt(s.p_line_median)}
 
   function _wz7UpdateCounts() {
     _wz7UpdateCardCounts();
+  }
+
+  // ═══ Загрузить реальные блоки из БД и обновить счётчики глав ═══
+  // Решает проблему: карточки показывают 0/0, хотя блоки есть в базе.
+  // Маппинг kind → chapter: используем params.chapter или определяем по kind.
+  async function wz7LoadChapterBlockCounts() {
+    if (!state.well?.id) return;
+
+    try {
+      const r = await fetch('/api/customer-daily/blocks?well_id=' + state.well.id);
+      const j = await r.json();
+      const blocks = j.blocks || [];
+
+      // Группируем блоки по главам (params.chapter или inference из kind)
+      const chapterCounts = { customer: 0, observation: 0, adaptation: 0 };
+
+      for (const b of blocks) {
+        // Приоритет: params.chapter, иначе — определяем по kind
+        let ch = b.params?.chapter || null;
+        if (!ch) {
+          const kind = b.kind || '';
+          if (kind.startsWith('adaptation_') || kind === 'optimal_window' || kind === 'reagent_irv_summary') {
+            ch = 'adaptation';
+          } else if (kind.startsWith('observation_') || kind === 'observation_analysis' || kind === 'segment_analysis' || kind === 'segment_comparison') {
+            ch = 'observation';
+          } else if (kind === 'baseline' || kind === 'chapter_intro' || kind === 'period_analysis' || kind === 'comparison' || kind === 'criteria_rose') {
+            ch = 'customer';
+          }
+        }
+
+        if (ch === 'customer') chapterCounts.customer++;
+        else if (ch === 'observation') chapterCounts.observation++;
+        else if (ch === 'adaptation') chapterCounts.adaptation++;
+        // period и другие — не считаем в эти 3 главы
+      }
+
+      // Обновляем UI: если есть блоки — карточка доступна
+      const s7 = state.steps[7].data;
+
+      for (const ch of WZ7_CHAPTERS) {
+        const count = chapterCounts[ch.id] || 0;
+        const card = document.querySelector(`.wz7-chapter-card[data-chapter="${ch.id}"]`);
+        const countEl = card?.querySelector('.wz7-card-count');
+        const checkbox = card?.querySelector('.wz7-card-checkbox');
+
+        if (count > 0) {
+          // Карточка становится доступной
+          card?.classList.remove('disabled');
+          if (checkbox) checkbox.disabled = false;
+
+          // Если глава была выключена из-за отсутствия блоков, включаем обратно
+          if (!s7.chapters[ch.id]) {
+            s7.chapters[ch.id] = true;
+            card?.classList.add('active');
+            if (checkbox) checkbox.checked = true;
+          }
+
+          if (countEl) countEl.textContent = `${count}/${count}`;
+        } else {
+          // Нет блоков — карточка disabled
+          card?.classList.add('disabled');
+          card?.classList.remove('active');
+          if (checkbox) {
+            checkbox.disabled = true;
+            checkbox.checked = false;
+          }
+          s7.chapters[ch.id] = false;
+          if (countEl) countEl.textContent = '0/0';
+        }
+      }
+
+    } catch (e) {
+      console.warn('wz7LoadChapterBlockCounts error:', e);
+    }
   }
 
   // Подгружает прикреплённые пользовательские блоки скважины и рендерит

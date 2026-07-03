@@ -15,6 +15,13 @@
     <a href="/visual" class="back-btn">←</a>
     <h1>Акты и документы</h1>
   </div>
+  {% if is_admin %}
+  <div class="header-right">
+    <a href="/documents/financial-acts"
+       style="padding:8px 16px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">
+       💰 Финансовые акты</a>
+  </div>
+  {% endif %}
 </header>
 
 {# ============================================================

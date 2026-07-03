@@ -1,6 +1,6 @@
 # backend/models/reagent_catalog.py
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, Float
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, Float, Numeric
 from backend.db import Base
 
 
@@ -21,6 +21,10 @@ class ReagentCatalog(Base):
 
     # Категория для группировки
     category = Column(String(100), nullable=True)
+
+    # Финансовый акт: группа ('inhibitor' | 'foam') + фактическая стоимость
+    act_group = Column(String(20), nullable=True)
+    unit_cost = Column(Numeric(18, 2), nullable=True)
 
     # Минимальный и максимальный остаток для уведомлений
     min_stock = Column(Float, nullable=True)

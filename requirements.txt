@@ -32,3 +32,6 @@ pytest==9.0.3
 anthropic>=0.40
 opencv-python-headless>=4.9
 pytesseract>=0.3.10
+# Финансовые акты: .docx-генерация + сумма прописью
+python-docx>=1.1
+num2words>=0.5.13

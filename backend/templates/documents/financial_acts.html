@@ -1,0 +1,304 @@
+{% extends "base.html" %}
+{% block title %}Финансовые акты · СУРГИЛ{% endblock %}
+{% block content %}
+<div class="page-dashboard" style="max-width:1700px;margin:0 auto;">
+  <header class="dashboard-header" style="display:flex;align-items:center;gap:12px;">
+    <a href="/documents" class="back-btn">←</a>
+    <h1>Финансовые акты</h1>
+  </header>
+
+  {% if msg %}
+  <div style="margin:12px 0;padding:10px 14px;border-radius:8px;
+       background:{{ '#fee2e2' if msg_type=='error' else '#dcfce7' }};
+       color:{{ '#991b1b' if msg_type=='error' else '#166534' }};">{{ msg }}</div>
+  {% endif %}
+
+  <style>
+    .fa-grid{display:flex;gap:20px;align-items:flex-start;}
+    .fa-left{flex:1 1 55%;min-width:0;}
+    .fa-right{flex:1 1 45%;position:sticky;top:12px;}
+    .fa-right iframe{width:100%;height:calc(100vh - 90px);border:1px solid #e5e7eb;border-radius:10px;background:#fff;}
+    .fa-actrow{cursor:pointer;}
+    .fa-actrow.active{background:#eff6ff;}
+  </style>
+
+  <div class="fa-grid">
+  <div class="fa-left">
+
+  {# ── Создание акта ── #}
+  <section style="margin:16px 0;padding:16px;border:1px solid #e5e7eb;border-radius:10px;">
+    <h3 style="margin:0 0 10px;">Сформировать акт за месяц</h3>
+    <style>
+      .fa-step{border:1px solid #e5e7eb;border-radius:10px;padding:12px 14px;margin:0 0 14px;}
+      .fa-step > legend{font-weight:600;color:#111827;padding:0 6px;}
+      .fa-2col{display:flex;gap:16px;flex-wrap:wrap;}
+      .fa-side{flex:1 1 320px;min-width:300px;}
+      .fa-side h4{margin:0 0 6px;font-size:14px;color:#374151;}
+      .fa-row{display:flex;gap:6px;margin-bottom:6px;align-items:center;}
+      .fa-row input{padding:6px;flex:1;min-width:0;}
+      .fa-row .fa-del{border:none;background:#fee2e2;color:#b91c1c;border-radius:6px;cursor:pointer;padding:4px 8px;}
+      .fa-add{border:1px dashed #9ca3af;background:#fff;color:#374151;border-radius:6px;cursor:pointer;padding:4px 10px;font-size:13px;}
+      .fa-dual{display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
+      .fa-dual select{min-width:200px;padding:4px;}
+      .fa-dual .fa-mv{display:flex;flex-direction:column;gap:6px;}
+      .fa-dual .fa-mv button{padding:4px 10px;cursor:pointer;}
+    </style>
+
+    <form id="fa-form" method="post" action="/documents/financial-acts/create">
+      {# 1. Период #}
+      <fieldset class="fa-step"><legend>1. Период</legend>
+        <label>Месяц
+          <select name="month" style="padding:6px;">
+            {% for m in range(1,13) %}<option value="{{ m }}" {{ 'selected' if m==cur_month else '' }}>{{ '%02d'|format(m) }}</option>{% endfor %}
+          </select></label>
+        &nbsp;<label>Год <input type="number" name="year" value="{{ cur_year }}" style="padding:6px;width:100px;"></label>
+      </fieldset>
+
+      {# 2. Преамбула #}
+      <fieldset class="fa-step"><legend>2. Преамбула (кто указан в шапке)</legend>
+        <div class="fa-2col">
+          <div class="fa-side" data-prefix="hc"><h4>Заказчик</h4><div class="fa-rows"></div>
+            <button type="button" class="fa-add">+ добавить</button></div>
+          <div class="fa-side" data-prefix="hi"><h4>Исполнитель</h4><div class="fa-rows"></div>
+            <button type="button" class="fa-add">+ добавить</button></div>
+        </div>
+      </fieldset>
+
+      {# 3. Подписанты #}
+      <fieldset class="fa-step"><legend>3. Подписанты (блок подписей внизу)</legend>
+        <div class="fa-2col">
+          <div class="fa-side" data-prefix="sc"><h4>Заказчик</h4><div class="fa-rows"></div>
+            <button type="button" class="fa-add">+ добавить</button></div>
+          <div class="fa-side" data-prefix="si"><h4>Исполнитель</h4><div class="fa-rows"></div>
+            <button type="button" class="fa-add">+ добавить</button></div>
+        </div>
+      </fieldset>
+
+      {# 4. Выводы #}
+      <fieldset class="fa-step"><legend>4. Выводы</legend>
+        <div class="fa-dual">
+          <div><div><b>Продолжить работы</b> · пункт <input name="continue_clause" value="3.9" style="width:60px;padding:4px;"></div>
+            <select id="fa-continue" multiple size="7"></select></div>
+          <div class="fa-mv"><button type="button" id="to-stop">→</button><button type="button" id="to-continue">←</button></div>
+          <div><div><b>Прекратить работы</b> · пункт <input name="stop_clause" value="3.17" style="width:60px;padding:4px;"></div>
+            <select id="fa-stop" name="stop_wells" multiple size="7"></select></div>
+        </div>
+        <p style="color:#6b7280;font-size:12px;margin:6px 0 0;">Скважины оптимизации. По умолчанию все «продолжить»; перенесите нужные в «прекратить».</p>
+      </fieldset>
+
+      <button type="submit" style="padding:10px 20px;background:#2563eb;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:15px;">
+        Сформировать акт</button>
+    </form>
+
+    {# datalist использованных значений #}
+    <datalist id="dl-pos-customer">{% for p in pos_customer %}<option value="{{ p }}">{% endfor %}</datalist>
+    <datalist id="dl-name-customer">{% for n in name_customer %}<option value="{{ n }}">{% endfor %}</datalist>
+    <datalist id="dl-pos-contractor">{% for p in pos_contractor %}<option value="{{ p }}">{% endfor %}</datalist>
+    <datalist id="dl-name-contractor">{% for n in name_contractor %}<option value="{{ n }}">{% endfor %}</datalist>
+
+    <script>
+    (function(){
+      var SIDE = {hc:'customer', hi:'contractor', sc:'customer', si:'contractor'};
+      var DEF = {
+        hc: {{ def_h_customer|tojson }}, hi: {{ def_h_contractor|tojson }},
+        sc: {{ def_s_customer|tojson }}, si: {{ def_s_contractor|tojson }}
+      };
+      function mkRow(prefix, pos, name){
+        var side = SIDE[prefix];
+        var r = document.createElement('div'); r.className='fa-row';
+        r.innerHTML =
+          '<input name="'+prefix+'_pos" list="dl-pos-'+side+'" placeholder="должность" value="'+(pos||'').replace(/"/g,'&quot;')+'">'+
+          '<input name="'+prefix+'_name" list="dl-name-'+side+'" placeholder="ФИО" value="'+(name||'').replace(/"/g,'&quot;')+'">'+
+          '<button type="button" class="fa-del">✕</button>';
+        r.querySelector('.fa-del').onclick=function(){ r.remove(); };
+        return r;
+      }
+      document.querySelectorAll('.fa-side').forEach(function(side){
+        var prefix = side.dataset.prefix, box = side.querySelector('.fa-rows');
+        (DEF[prefix]||[]).forEach(function(s){ box.appendChild(mkRow(prefix, s.position_ru, s.name_ru)); });
+        if(!(DEF[prefix]||[]).length) box.appendChild(mkRow(prefix,'',''));
+        side.querySelector('.fa-add').onclick=function(){ box.appendChild(mkRow(prefix,'','')); };
+      });
+      // dual-list скважин
+      var cont=document.getElementById('fa-continue'), stop=document.getElementById('fa-stop');
+      {{ opt_wells|tojson }}.forEach(function(w){ var o=document.createElement('option'); o.value=w; o.textContent='скв '+w; cont.appendChild(o); });
+      function move(from,to){ Array.from(from.selectedOptions).forEach(function(o){ to.appendChild(o); o.selected=false; }); }
+      document.getElementById('to-stop').onclick=function(){ move(cont,stop); };
+      document.getElementById('to-continue').onclick=function(){ move(stop,cont); };
+      // при submit — выделить все опции «прекратить», чтобы отправились
+      document.getElementById('fa-form').addEventListener('submit',function(){
+        Array.from(stop.options).forEach(function(o){ o.selected=true; });
+      });
+    })();
+    </script>
+  </section>
+
+  {# ── Библиотека подписантов ── #}
+  <section style="margin:16px 0;padding:16px;border:1px solid #e5e7eb;border-radius:10px;">
+    <h3 style="margin:0 0 10px;">Подписанты (библиотека)</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:10px;">
+      <thead><tr style="background:#f3f4f6;text-align:left;">
+        <th style="padding:6px;">Сторона</th><th>Должность (RU / EN)</th><th>ФИО (RU / EN)</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for s in sig_library %}
+        <tr style="border-top:1px solid #e5e7eb;">
+          <td style="padding:6px;">{{ 'Исполнитель' if s.side=='contractor' else 'Заказчик' }}</td>
+          <td>{{ s.position_ru }} / {{ s.position_en }}</td>
+          <td>{{ s.name_ru }} / {{ s.name_en }}</td>
+          <td><form method="post" action="/documents/financial-acts/signatory/{{ s.id }}/delete" style="margin:0;">
+            <button style="border:none;background:none;color:#dc2626;cursor:pointer;">✕</button></form></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <form method="post" action="/documents/financial-acts/signatory/add" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+      <label>Сторона
+        <select name="side" style="display:block;padding:6px;">
+          <option value="contractor">Исполнитель</option>
+          <option value="customer">Заказчик</option>
+        </select></label>
+      <label>Должность RU<input name="position_ru" required style="display:block;padding:6px;width:200px;"></label>
+      <label>Должность EN<input name="position_en" style="display:block;padding:6px;width:200px;"></label>
+      <label>ФИО RU<input name="name_ru" required style="display:block;padding:6px;width:160px;"></label>
+      <label>ФИО EN<input name="name_en" style="display:block;padding:6px;width:160px;"></label>
+      <button style="padding:8px 14px;background:#2563eb;color:#fff;border:none;border-radius:8px;cursor:pointer;">Добавить</button>
+    </form>
+  </section>
+
+  {# ── Список актов ── #}
+  <section style="margin:16px 0;">
+    <h3 style="margin:0 0 10px;">Созданные акты</h3>
+    {% if docs %}
+    <table style="width:100%;border-collapse:collapse;font-size:14px;">
+      <thead><tr style="background:#f3f4f6;text-align:left;">
+        <th style="padding:8px;">Номер</th><th>Период</th><th>Статус</th><th>Сумма с НДС</th><th>Действия</th>
+      </tr></thead>
+      <tbody>
+      {% for d in docs %}
+        <tr class="fa-actrow" data-id="{{ d.id }}" data-num="{{ d.doc_number }}"
+            onclick="faPreview({{ d.id }}, '{{ d.doc_number }}')"
+            style="border-top:1px solid #e5e7eb;">
+          <td style="padding:8px;">{{ d.doc_number }}</td>
+          <td>{{ '%02d'|format(d.period_month) }}.{{ d.period_year }}</td>
+          <td>{{ d.status }}</td>
+          <td>{{ d.meta.get('total_with_vat','') if d.meta else '' }}</td>
+          <td style="display:flex;gap:6px;" onclick="event.stopPropagation();">
+            <a href="/documents/financial-acts/{{ d.id }}/download.docx"
+               style="padding:4px 10px;background:#059669;color:#fff;border-radius:6px;text-decoration:none;">.docx</a>
+            <a href="/documents/financial-acts/{{ d.id }}/download.pdf" target="_blank"
+               style="padding:4px 10px;background:#dc2626;color:#fff;border-radius:6px;text-decoration:none;">PDF</a>
+            <form method="post" action="/documents/financial-acts/{{ d.id }}/delete"
+                  onsubmit="return confirm('Удалить акт {{ d.doc_number }}?');" style="margin:0;">
+              <button style="padding:4px 10px;background:#6b7280;color:#fff;border:none;border-radius:6px;cursor:pointer;">✕</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color:#6b7280;">Актов пока нет.</p>
+    {% endif %}
+  </section>
+
+  {# ── Прайс ── #}
+  <section style="margin:16px 0;padding:16px;border:1px solid #e5e7eb;border-radius:10px;">
+    <h3 style="margin:0 0 10px;">Прайс контракта</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:10px;">
+      <thead><tr style="background:#f3f4f6;text-align:left;">
+        <th style="padding:6px;">Вид работ</th><th>Скважина</th><th>Цена за ед.</th>
+        <th>Действует с</th><th>Контракт</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for p in prices %}
+        <tr style="border-top:1px solid #e5e7eb;">
+          <td style="padding:6px;">{{ p.work_type }}</td>
+          <td>{{ p.well_number if p.well_number else 'все (общая)' }}</td>
+          <td>{{ '{:,.2f}'.format(p.price_per_unit).replace(',',' ') }}</td>
+          <td>{{ p.effective_from }}</td>
+          <td>{{ p.contract_ref or '' }}</td>
+          <td><form method="post" action="/documents/financial-acts/prices/{{ p.id }}/delete" style="margin:0;">
+            <button style="border:none;background:none;color:#dc2626;cursor:pointer;">✕</button></form></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <form method="post" action="/documents/financial-acts/prices/add" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+      <label>Вид работ
+        <select name="work_type" style="display:block;padding:6px;">
+          <option value="adaptation">adaptation (адаптация)</option>
+          <option value="optimization">optimization (за месяц)</option>
+          <option value="foam_dosing">foam_dosing (дозирование)</option>
+        </select></label>
+      <label>Скважина (пусто=общая)<input name="well_number" style="display:block;padding:6px;width:90px;"></label>
+      <label>Цена<input name="price_per_unit" type="number" step="0.01" required style="display:block;padding:6px;width:130px;"></label>
+      <label>Действует с<input name="effective_from" type="date" required style="display:block;padding:6px;"></label>
+      <label>Контракт<input name="contract_ref" style="display:block;padding:6px;width:140px;"></label>
+      <button style="padding:8px 14px;background:#2563eb;color:#fff;border:none;border-radius:8px;cursor:pointer;">Добавить</button>
+    </form>
+    <p style="color:#6b7280;font-size:12px;margin:8px 0 0;">
+      Оптимизация: цена за <b>месяц</b> (делится на дни месяца × отработанные сутки). Адаптация: фикс. за скважино-операцию.</p>
+  </section>
+
+  {# ── Группы реагентов ── #}
+  <section style="margin:16px 0;padding:16px;border:1px solid #e5e7eb;border-radius:10px;">
+    <h3 style="margin:0 0 10px;">Реагенты: группа и стоимость</h3>
+    <p style="color:#6b7280;font-size:12px;margin:0 0 10px;">
+      «Пенные» учитываются в дозировании. По умолчанию Super Foam → ингибитор, остальное → пенные.</p>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="background:#f3f4f6;text-align:left;">
+        <th style="padding:6px;">Реагент</th><th>Группа</th><th>Факт. стоимость</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for r in reagents %}
+        <tr style="border-top:1px solid #e5e7eb;">
+          <form method="post" action="/documents/financial-acts/reagents/{{ r.id }}/update" style="display:contents;">
+          <td style="padding:6px;">{{ r.name }}</td>
+          <td><select name="act_group" style="padding:5px;">
+            <option value="foam" {{ 'selected' if r.act_group=='foam' else '' }}>пенные</option>
+            <option value="inhibitor" {{ 'selected' if r.act_group=='inhibitor' else '' }}>ингибитор</option>
+          </select></td>
+          <td><input name="unit_cost" value="{{ r.unit_cost or '' }}" style="padding:5px;width:120px;"></td>
+          <td><button style="padding:4px 10px;background:#059669;color:#fff;border:none;border-radius:6px;cursor:pointer;">✓</button></td>
+          </form>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  </div>{# /fa-left #}
+
+  {# ── Правая панель: предпросмотр PDF выбранного акта ── #}
+  <div class="fa-right">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+      <strong>Предпросмотр</strong>
+      <span id="fa-prev-label" style="color:#6b7280;font-size:13px;"></span>
+    </div>
+    <iframe id="fa-preview" title="Предпросмотр акта"></iframe>
+    <div id="fa-prev-empty" style="color:#6b7280;font-size:13px;padding:10px;">
+      Выберите акт слева, чтобы увидеть предпросмотр.</div>
+  </div>
+  </div>{# /fa-grid #}
+
+  <script>
+  (function(){
+    var frame = document.getElementById('fa-preview');
+    var empty = document.getElementById('fa-prev-empty');
+    var label = document.getElementById('fa-prev-label');
+    window.faPreview = function(id, num){
+      document.querySelectorAll('.fa-actrow').forEach(function(r){ r.classList.remove('active'); });
+      var row = document.querySelector('.fa-actrow[data-id="'+id+'"]');
+      if(row) row.classList.add('active');
+      empty.style.display = 'none';
+      label.textContent = num || '';
+      frame.src = '/documents/financial-acts/'+id+'/download.pdf';
+    };
+    // авто-предпросмотр первого (свежего) акта
+    var first = document.querySelector('.fa-actrow');
+    if(first){ faPreview(first.dataset.id, first.dataset.num); }
+    else { empty.style.display='block'; }
+  })();
+  </script>
+</div>
+{% endblock %}

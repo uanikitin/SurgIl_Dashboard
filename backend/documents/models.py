@@ -6,7 +6,7 @@
 from sqlalchemy import (
     Column, Integer, String, Text, Boolean,
     DateTime, Date, ForeignKey, CheckConstraint,
-    UniqueConstraint, Index
+    UniqueConstraint, Index, Numeric
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
@@ -30,6 +30,7 @@ class DocumentType(Base):
     # Шаблоны
     latex_template_name = Column(String(100))
     excel_template_name = Column(String(100))
+    docx_template_name = Column(String(100))
 
     # Настройки периодичности
     is_periodic = Column(Boolean, default=False)
@@ -184,6 +185,16 @@ class DocumentItem(Base):
     quantity = Column(Integer, default=1)
     reagent_name = Column(String(200))
     stage = Column(String(100))  # 'Оптимизация Optimization'
+
+    # Финансовый акт: денежные и идентификационные поля по строке
+    well_number = Column(String(50))
+    work_group = Column(String(50))  # 'adaptation' | 'optimization' | 'foam_dosing'
+    unit = Column(String(50))
+    price_per_unit = Column(Numeric(18, 2))
+    amount = Column(Numeric(18, 2))
+    vat_amount = Column(Numeric(18, 2))
+    amount_with_vat = Column(Numeric(18, 2))
+    period_label = Column(String(100))
 
     # Связь с событием
     event_id = Column(Integer, index=True)  # bigint в БД

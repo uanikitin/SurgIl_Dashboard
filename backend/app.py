@@ -102,6 +102,11 @@ app.add_middleware(
 from backend.routers.documents_pages import router as documents_pages_router
 from backend.routers.pressure import router as pressure_router
 
+# ВАЖНО: financial_acts регистрируем ДО documents_pages, иначе /documents/{doc_id}
+# (path-param) перехватывает /documents/financial-acts и падает на int-парсинге.
+from backend.routers import financial_acts as financial_acts_module
+app.include_router(financial_acts_module.router)
+
 app.include_router(documents_pages_router)
 app.include_router(pressure_router)
 
@@ -918,21 +923,9 @@ def visual_page(
     - внизу: карта со всеми скважинами
     """
 
-    # 0) Синхронизация: создаём скважины из events, которых нет в wells
-    # Это гарантирует что новые скважины из Telegram-бота появятся в списке
-    try:
-        new_wells = sync_wells_from_events(db)
-        if new_wells:
-            print(f"[visual_page] Созданы новые скважины из events: {[w.name for w in new_wells]}")
-
-        # Исправляем скважины без имён или координат
-        fixed = fix_wells_missing_data(db)
-        if fixed:
-            print(f"[visual_page] Исправлено {fixed} скважин")
-    except Exception as e:
-        print(f"[visual_page] Ошибка синхронизации скважин: {e}")
-        import traceback
-        traceback.print_exc()
+    # 0) Синхронизация скважин ОТКЛЮЧЕНА для ускорения страницы (~2 сек экономии).
+    #    Синхронизация теперь выполняется через /api/admin/sync-wells или scheduled job.
+    #    См. HANDOFF_visual_optimization_2026-07-03.md
 
     # 1) Все скважины для списка слева
     all_wells = (
@@ -944,12 +937,7 @@ def visual_page(
     print(f"[visual_page] Загружено {len(all_wells)} скважин из wells")
     print(f"[visual_page] Скважины: {[(w.id, w.number, w.name) for w in all_wells]}")
 
-    # 2) Какие скважины показывать как плитки
-    if selected:
-        selected_set = set(selected)
-        tiles = [w for w in all_wells if w.id in selected_set]
-    else:
-        tiles = all_wells
+    # 2) Какие скважины показывать как плитки — определяется ПОСЛЕ загрузки статусов (см. ниже)
 
     now = datetime.now()
     now_naive = _to_naive(now)
@@ -1014,6 +1002,26 @@ def visual_page(
             w.current_substatus = "В работе"
             w.current_substatus_color = "#10b981"
             w.current_substatus_start = None
+
+    # ----- A2.5) ОПРЕДЕЛЯЕМ TILES С УЧЁТОМ СТАТУСОВ -----
+    # Приоритетные статусы: Наблюдение, Оптимизация, Адаптация (~9 скважин вместо 37)
+    # Это ускоряет загрузку страницы в ~4 раза
+    PRIORITY_STATUSES = {"Наблюдение", "Оптимизация", "Адаптация"}
+    if selected:
+        # Пользователь явно выбрал скважины — показываем только их
+        selected_set = set(selected)
+        tiles = [w for w in all_wells if w.id in selected_set]
+    elif tl_statuses:
+        # Пользователь выбрал конкретные статусы в фильтре — применяем их
+        tiles = [w for w in all_wells if w.current_status in tl_statuses]
+    else:
+        # По умолчанию показываем только приоритетные статусы
+        tiles = [w for w in all_wells if w.current_status in PRIORITY_STATUSES]
+        # Если приоритетных нет — показываем все (fallback для пустой базы)
+        if not tiles:
+            tiles = all_wells
+
+    print(f"[visual_page] Tiles: {len(tiles)} скважин (приоритетные статусы: {PRIORITY_STATUSES})")
 
     # ----- A3) ПОСЛЕДНИЕ СОБЫТИЯ ДЛЯ КАЖДОЙ СКВАЖИНЫ (2 шт) -----
     if tiles:
@@ -4330,6 +4338,26 @@ def debug_well_equipment(
         "equipment_by_location": [
             dict(row._mapping) for row in equipment_with_location
         ]
+    }
+
+
+@app.post("/api/admin/sync-wells")
+def admin_sync_wells(
+        db: Session = Depends(get_db),
+        current_user: str = Depends(get_current_admin)
+):
+    """Ручная синхронизация скважин из events в wells.
+
+    Эта синхронизация была удалена из /visual для ускорения страницы (~2 сек экономии).
+    Вызывайте этот endpoint вручную или через scheduled job.
+    """
+    new_wells = sync_wells_from_events(db)
+    fixed = fix_wells_missing_data(db)
+    return {
+        "ok": True,
+        "new_wells": len(new_wells),
+        "fixed_wells": fixed,
+        "new_well_names": [w.name for w in new_wells] if new_wells else [],
     }
 
 

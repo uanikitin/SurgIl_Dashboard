@@ -1,0 +1,2406 @@
+<title>Пенные реагенты — Инструкция оператора</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+:root {
+  --steel: #1C2B3A;
+  --steel-mid: #3A4D5E;
+  --steel-light: #6B8294;
+  --petrol: #2B6E94;
+  --petrol-light: #D5E8F2;
+  --amber: #C77B0A;
+  --amber-light: #FBF0DB;
+  --teal: #2B8C7E;
+  --teal-light: #D8F0EC;
+  --alert: #B83A30;
+  --alert-light: #FCEAE8;
+  --ground: #F2EFEA;
+  --card: #FFFFFF;
+  --border: #D8D3CB;
+  --text: #1C2B3A;
+  --text-secondary: #5A6872;
+  --radius: 6px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  background: var(--ground);
+  color: var(--text);
+  line-height: 1.55;
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.page-header {
+  background: var(--steel);
+  color: #fff;
+  padding: 28px 24px 24px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.page-header h1 {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  margin-bottom: 4px;
+}
+.page-header .subtitle {
+  font-size: 13px;
+  color: #9AAFBF;
+  font-weight: 400;
+}
+
+nav.jump {
+  background: var(--steel);
+  padding: 0 24px 14px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  position: sticky;
+  top: 106px;
+  z-index: 99;
+}
+nav.jump a {
+  font-size: 12px;
+  color: #9AAFBF;
+  text-decoration: none;
+  padding: 4px 10px;
+  border: 1px solid #3A4D5E;
+  border-radius: 3px;
+  transition: all .15s;
+  white-space: nowrap;
+}
+nav.jump a:hover, nav.jump a:focus {
+  background: rgba(255,255,255,.08);
+  color: #fff;
+  outline: none;
+}
+
+main { max-width: 860px; margin: 0 auto; padding: 24px 20px 60px; }
+
+section { margin-bottom: 32px; }
+section > h2 {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--steel);
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--border);
+  letter-spacing: -0.2px;
+}
+
+/* ---------- DECISION FLOW ---------- */
+.flow {
+  display: grid;
+  gap: 12px;
+}
+.flow-step {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+.flow-num {
+  width: 32px; height: 32px;
+  background: var(--petrol);
+  color: #fff;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 700;
+  flex-shrink: 0;
+}
+.flow-step h3 {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: var(--steel);
+}
+.flow-step p {
+  font-size: 13.5px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* ---------- MATRIX TABLE ---------- */
+.matrix-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+table.matrix {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+table.matrix th {
+  background: var(--steel);
+  color: #fff;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 10px 12px;
+  text-align: left;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+}
+table.matrix td {
+  padding: 9px 12px;
+  border-bottom: 1px solid #E8E4DE;
+  vertical-align: top;
+}
+table.matrix tr:last-child td { border-bottom: none; }
+table.matrix tr:hover td { background: #F8F6F3; }
+
+.cat-row td {
+  background: var(--petrol-light) !important;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--petrol);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--petrol) !important;
+}
+.cat-row.amber td { background: var(--amber-light) !important; color: #8B5A00; border-bottom-color: var(--amber) !important; }
+.cat-row.alert td { background: var(--alert-light) !important; color: var(--alert); border-bottom-color: var(--alert) !important; }
+.cat-row.teal td { background: var(--teal-light) !important; color: #1A6B5F; border-bottom-color: var(--teal) !important; }
+
+.color-dot {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  border: 1px solid rgba(0,0,0,.15);
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+.dose-tag {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.dose-std { background: var(--petrol-light); color: var(--petrol); }
+.dose-conc { background: var(--amber-light); color: #8B5A00; }
+
+/* ---------- PRODUCT CARDS ---------- */
+.cards { display: grid; gap: 12px; }
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  border-left: 4px solid var(--petrol);
+}
+.card.amber { border-left-color: var(--amber); }
+.card.alert { border-left-color: var(--alert); }
+.card.teal { border-left-color: var(--teal); }
+
+.card h3 {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.card .specs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 4px 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.card .specs dt {
+  font-weight: 600;
+  color: var(--steel-mid);
+  display: inline;
+}
+.card .specs dt::after { content: ": "; }
+.card .specs dd { display: inline; margin: 0; }
+.card .specs .spec-line { display: block; }
+.card .note {
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  padding: 6px 10px;
+  background: #F8F6F2;
+  border-radius: 4px;
+}
+
+/* ---------- DOSAGE SECTION ---------- */
+.dose-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+.dose-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+}
+.dose-card h3 {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.dose-card .big-num {
+  font-size: 28px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -1px;
+  line-height: 1.1;
+}
+.dose-card .big-num .unit {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 0;
+}
+.dose-card .detail {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+}
+
+/* ---------- TIPS ---------- */
+.tips { display: grid; gap: 10px; }
+.tip {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  font-size: 13.5px;
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: 10px;
+}
+.tip-icon {
+  font-size: 16px;
+  line-height: 1.4;
+}
+.tip strong {
+  color: var(--steel);
+}
+
+.warn-box {
+  background: var(--alert-light);
+  border: 1px solid #E2ADA8;
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  margin-bottom: 16px;
+}
+.warn-box h3 {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--alert);
+  margin-bottom: 6px;
+}
+.warn-box ul {
+  font-size: 13.5px;
+  padding-left: 18px;
+  color: #5C2320;
+}
+.warn-box li { margin-bottom: 3px; }
+
+/* ---------- TUBING TABLE ---------- */
+.tube-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+  font-size: 13.5px;
+}
+.tube-table th {
+  background: var(--steel);
+  color: #fff;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  text-align: left;
+}
+.tube-table td {
+  padding: 7px 12px;
+  border-bottom: 1px solid #E8E4DE;
+}
+.tube-table tr:hover td { background: #F8F6F3; }
+
+/* ---------- SCENARIO ---------- */
+.scenario {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.scenario-header {
+  background: var(--steel);
+  color: #fff;
+  padding: 12px 18px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.scenario-body { padding: 16px 18px; }
+.scenario-params {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 6px 16px;
+  font-size: 13px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.scenario-params .param-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-secondary);
+}
+.scenario-params .param-val {
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.scenario ol {
+  padding-left: 20px;
+  font-size: 13.5px;
+}
+.scenario ol li { margin-bottom: 8px; line-height: 1.5; }
+.scenario ol li strong { color: var(--steel); }
+.scenario .result-box {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--teal-light);
+  border-radius: 4px;
+  font-size: 13px;
+  color: #1A6B5F;
+}
+.scenario .result-box.amber-result {
+  background: var(--amber-light);
+  color: #8B5A00;
+}
+
+/* ---------- CONDENSATE HIGHLIGHT ---------- */
+.hc-why {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.hc-why-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+.hc-why-card h4 {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--amber);
+  margin-bottom: 6px;
+}
+.hc-why-card p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* ---------- CALCULATOR ---------- */
+.calc {
+  background: var(--card);
+  border: 2px solid var(--petrol);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.calc-header {
+  background: var(--petrol);
+  color: #fff;
+  padding: 12px 18px;
+  font-size: 15px;
+  font-weight: 700;
+}
+.calc-body {
+  padding: 18px;
+}
+.calc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+}
+.calc-field label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-secondary);
+  margin-bottom: 5px;
+}
+.calc-field select,
+.calc-field input {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--text);
+  font-family: inherit;
+  transition: border-color .15s;
+}
+.calc-field select:focus,
+.calc-field input:focus {
+  outline: none;
+  border-color: var(--petrol);
+  box-shadow: 0 0 0 2px rgba(43,110,148,.15);
+}
+.calc-field input[type=number] { -moz-appearance: textfield; }
+.calc-field input::-webkit-outer-spin-button,
+.calc-field input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+.calc-toggle {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.calc-toggle button {
+  flex: 1;
+  padding: 7px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  font-weight: 600;
+  border: none;
+  background: #fff;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all .15s;
+}
+.calc-toggle button.active {
+  background: var(--petrol);
+  color: #fff;
+}
+.calc-toggle button:not(.active):hover {
+  background: var(--petrol-light);
+}
+
+.calc-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 16px 0;
+}
+
+.calc-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+.calc-result {
+  text-align: center;
+  padding: 12px 8px;
+  background: #F8F6F2;
+  border-radius: var(--radius);
+}
+.calc-result .r-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.calc-result .r-value {
+  font-size: 26px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.5px;
+  color: var(--steel);
+  line-height: 1.1;
+}
+.calc-result .r-value .r-unit {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.calc-result.highlight {
+  background: var(--petrol-light);
+}
+.calc-result.highlight .r-value { color: var(--petrol); }
+.calc-result.amber-hl {
+  background: var(--amber-light);
+}
+.calc-result.amber-hl .r-value { color: #8B5A00; }
+
+.calc-rec {
+  margin-top: 14px;
+  padding: 10px 14px;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.calc-rec.ok { background: var(--teal-light); color: #1A6B5F; }
+.calc-rec.warn { background: var(--amber-light); color: #8B5A00; }
+.calc-rec.danger { background: var(--alert-light); color: var(--alert); }
+
+.pressure-row { display: none; }
+.pressure-row.visible { display: contents; }
+.height-row { display: contents; }
+.height-row.hidden { display: none; }
+
+/* ---------- DOSE TABLE ---------- */
+.dose-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  margin-bottom: 12px;
+}
+table.dose-tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+  font-size: 13.5px;
+}
+table.dose-tbl th {
+  background: var(--steel);
+  color: #fff;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  text-align: center;
+}
+table.dose-tbl th:first-child { text-align: left; }
+table.dose-tbl td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #E8E4DE;
+  text-align: center;
+}
+table.dose-tbl td:first-child { text-align: left; font-weight: 600; }
+table.dose-tbl tr:hover td { background: #F8F6F3; }
+table.dose-tbl .sub-header td {
+  background: #F4F2ED;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* ---------- WIZARD ---------- */
+.wizard {
+  background: var(--card);
+  border: 2px solid var(--teal);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.wizard-header {
+  background: var(--teal);
+  color: #fff;
+  padding: 12px 18px;
+  font-size: 15px;
+  font-weight: 700;
+}
+.wizard-body { padding: 18px; }
+.wiz-step { display: none; }
+.wiz-step.active { display: block; }
+.wiz-q {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--steel);
+  margin-bottom: 12px;
+}
+.wiz-step-num {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.wiz-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.wiz-opt {
+  background: #F8F6F2;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  cursor: pointer;
+  font-size: 13.5px;
+  font-family: inherit;
+  text-align: left;
+  transition: all .15s;
+  color: var(--text);
+}
+.wiz-opt:hover { border-color: var(--teal); background: var(--teal-light); }
+.wiz-opt.selected { border-color: var(--teal); background: var(--teal-light); font-weight: 600; }
+.wiz-opt .opt-sub { font-size: 11px; color: var(--text-secondary); margin-top: 3px; }
+.wiz-input-row {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.wiz-input-row .calc-field { flex: 1; min-width: 140px; }
+.wiz-nav {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+.wiz-btn {
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all .15s;
+}
+.wiz-btn-back { background: #E8E4DE; color: var(--steel); }
+.wiz-btn-back:hover { background: #D8D3CB; }
+.wiz-btn-next { background: var(--teal); color: #fff; }
+.wiz-btn-next:hover { background: #237A6D; }
+.wiz-btn-reset { background: var(--steel-light); color: #fff; }
+.wiz-result {
+  padding: 16px;
+  border-radius: var(--radius);
+  margin-top: 12px;
+}
+
+/* ---------- UNIT TOGGLE ---------- */
+.unit-select {
+  display: inline-block;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* ---------- PRODUCT CATALOG ---------- */
+.catalog-select-wrap {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.catalog-select {
+  flex: 1;
+  min-width: 240px;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--text);
+}
+.prod-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--petrol);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin-bottom: 12px;
+}
+.prod-card h3 { font-size:17px; font-weight:700; color:var(--steel); margin-bottom:2px; }
+.prod-card h4 { font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:0.3px; color:var(--petrol); margin-bottom:6px; }
+.prod-card .specs { margin-bottom:0; }
+.compat-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:8px; }
+.prod-detail {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.prod-detail-header {
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.prod-detail-header h3 {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--steel);
+  margin-bottom: 4px;
+}
+.prod-detail-header .prod-mfr {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.prod-detail-body { padding: 16px 18px; }
+.prod-specs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px 16px;
+  margin-bottom: 14px;
+}
+.prod-spec {
+  font-size: 13px;
+  padding: 6px 0;
+  border-bottom: 1px solid #F0EDE8;
+}
+.prod-spec .spec-key {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.prod-spec .spec-val {
+  font-weight: 600;
+  color: var(--steel);
+}
+.prod-section {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.prod-section h4 {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--petrol);
+  margin-bottom: 8px;
+}
+.prod-compat {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+.compat-item {
+  background: #F8F6F2;
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.compat-item strong { color: var(--steel); }
+.compat-good { border-left: 3px solid var(--teal); }
+.compat-warn { border-left: 3px solid var(--amber); }
+
+/* ---------- COLLAPSIBLE SCENARIO ---------- */
+details.scenario-wrap {
+  margin-bottom: 12px;
+}
+details.scenario-wrap summary {
+  background: var(--steel-light);
+  color: #fff;
+  padding: 12px 18px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  border-radius: var(--radius);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+details.scenario-wrap summary::-webkit-details-marker { display: none; }
+details.scenario-wrap summary::before {
+  content: "▸";
+  font-size: 12px;
+  transition: transform .15s;
+}
+details.scenario-wrap[open] summary::before { transform: rotate(90deg); }
+details.scenario-wrap[open] summary {
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+details.scenario-wrap .scenario-body {
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+  padding: 16px 18px;
+  background: var(--card);
+}
+
+/* ---------- STRATIFICATION DIAGRAM ---------- */
+.strat-row {
+  display: flex;
+  gap: 20px;
+  align-items: stretch;
+  margin: 16px 0;
+}
+.wellbore-col {
+  width: 90px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border: 2px solid var(--steel);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+.wb-zone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  text-align: center;
+  padding: 6px 4px;
+}
+.wb-gas  { background: #E8F5E9; color: #2E7D32; flex: 2; }
+.wb-cond { background: #FFF3E0; color: #BF5800; flex: 3; }
+.wb-water{ background: #E3F2FD; color: #1565C0; flex: 2; }
+.wb-perf {
+  position: absolute;
+  right: -22px;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--alert);
+  white-space: nowrap;
+}
+.strat-text-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.strat-point {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.strat-point strong { color: var(--steel); }
+.strat-point.fix { border-left: 3px solid var(--teal); }
+.strat-point.problem { border-left: 3px solid var(--alert); }
+
+@media (max-width: 500px) {
+  .strat-row { flex-direction: column; }
+  .wellbore-col { width: 100%; min-height: 120px; flex-direction: row; }
+  .wb-zone { padding: 10px 4px; }
+}
+
+/* ---------- PRINT ---------- */
+@media print {
+  .page-header, nav.jump { position: static; }
+  nav.jump { display: none; }
+  body { font-size: 12px; background: #fff; }
+  main { max-width: none; padding: 0; }
+  .card, .flow-step, .dose-card, .tip, .matrix-wrap, .warn-box { break-inside: avoid; }
+  table.matrix th { position: static; }
+}
+
+@media (max-width: 600px) {
+  .page-header { padding: 20px 16px 18px; }
+  .page-header h1 { font-size: 18px; }
+  nav.jump { padding: 0 16px 10px; }
+  main { padding: 16px 14px 40px; }
+  .dose-grid { grid-template-columns: 1fr; }
+}
+
+/* Anti-copy */
+body.locked {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+/* Consent overlay */
+#consent-overlay {
+  position: fixed; inset: 0; z-index: 10000;
+  background: #1C2B3A;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+#consent-overlay.hidden { display: none; }
+.consent-box {
+  background: #fff; border-radius: 8px; padding: 32px 28px;
+  max-width: 520px; width: 100%; text-align: center;
+  box-shadow: 0 8px 32px rgba(0,0,0,.3);
+}
+.consent-box h2 { font-size: 18px; color: #B83A30; margin-bottom: 12px; }
+.consent-box p { font-size: 14px; color: #3A4D5E; line-height: 1.6; margin-bottom: 16px; text-align: left; }
+.consent-box ul { font-size: 13px; color: #3A4D5E; text-align: left; margin: 0 0 20px 20px; line-height: 1.7; }
+.consent-btn {
+  background: #2B6E94; color: #fff; border: none; border-radius: 4px;
+  padding: 12px 32px; font-size: 15px; font-weight: 600; cursor: pointer;
+  transition: background .15s;
+}
+.consent-btn:hover { background: #1C5A7A; }
+.consent-decline { background: none; border: none; color: #6B8294; font-size: 13px; cursor: pointer; margin-top: 10px; display: block; margin-left: auto; margin-right: auto; }
+/* Confidentiality banner */
+.conf-banner {
+  background: #B83A30; color: #fff;
+  padding: 8px 20px; font-size: 12px; font-weight: 600;
+  text-align: center; letter-spacing: 0.3px;
+  position: sticky; top: 0; z-index: 101;
+}
+</style>
+
+<div id="consent-overlay">
+  <div class="consent-box">
+    <h2>🔒 ПРЕДУПРЕЖДЕНИЕ</h2>
+    <p>Данный документ содержит сведения, составляющие <strong>интеллектуальную собственность и коммерческую тайну</strong> компании <strong>UNITOOL</strong>, защищённые Законом Республики Узбекистан <strong>«О коммерческой тайне»</strong> (№ ЗРУ-374 от 11.09.2014) и международными соглашениями.</p>
+    <ul>
+      <li><strong>Строго запрещено</strong> копирование, фотографирование, пересылка и любое распространение</li>
+      <li><strong>Строго запрещено</strong> передавать содержимое третьим лицам, включая сотрудников других организаций</li>
+      <li>Доступ предоставляется <strong>исключительно</strong> авторизованным сотрудникам UNITOOL</li>
+      <li>Все факты доступа <strong>фиксируются и протоколируются</strong></li>
+    </ul>
+    <p style="font-size:13.5px; color:#B83A30; text-align:left; font-weight:600; line-height:1.6;">⚖️ Содержимое данного документа представляет результат многолетних разработок и наработок компании. Утечка данных сведений способна причинить <strong>многомиллионный ущерб</strong>.</p>
+    <p style="font-size:13.5px; color:#B83A30; text-align:left; font-weight:600; line-height:1.6; margin-top:8px;">Незаконное разглашение коммерческой тайны преследуется по <strong>ст. 191 Уголовного кодекса РУз</strong> (штраф до 200 БРВ, исправительные работы до 3 лет, арест до 6 месяцев) и <strong>ст. 19 Закона «О коммерческой тайне»</strong>. Компания <strong>UNITOOL</strong> оставляет за собой право на <strong>немедленное увольнение</strong> виновного лица и подачу <strong>гражданского иска о возмещении полного ущерба</strong>, включая упущенную выгоду.</p>
+    <p style="font-size:13px; color:#6B8294; text-align:center; margin-top:16px;">Нажимая «Принимаю», вы подтверждаете, что являетесь сотрудником UNITOOL, осознаёте юридическую ответственность и обязуетесь соблюдать условия конфиденциальности.</p>
+    <button class="consent-btn" id="consent-accept">Принимаю условия</button>
+    <button class="consent-decline" id="consent-decline">Отказать</button>
+  </div>
+</div>
+
+<div class="conf-banner">⚠️ КОНФИДЕНЦИАЛЬНО — Только для сотрудников UNITOOL. Копирование и распространение запрещено.</div>
+
+<header class="page-header" style="top:28px;">
+  <h1>Пенные реагенты (Foam Sticks)</h1>
+  <div class="subtitle">Краткая инструкция оператора &middot; Выбор, дозировка, ограничения</div>
+</header>
+
+<nav class="jump">
+  <a href="#decision">Выбор стика</a>
+  <a href="#wizard">Помощник</a>
+  <a href="#matrix">Сводная таблица</a>
+  <a href="#hc">Высокий конденсат</a>
+  <a href="#stratification">Стратификация</a>
+  <a href="#dosage">Дозировка (шт)</a>
+  <a href="#catalog">Каталог</a>
+  <a href="#tubing">Объём НКТ</a>
+  <a href="#limits">Ограничения</a>
+  <a href="#examples">Примеры</a>
+  <a href="#tips">Советы</a>
+  <a href="#deadwell">Мёртвая скважина</a>
+</nav>
+
+<main>
+
+<!-- ============ DECISION FLOW ============ -->
+<section id="decision">
+  <h2>Как выбрать стик</h2>
+  <div class="flow">
+    <div class="flow-step">
+      <div class="flow-num">1</div>
+      <div>
+        <h3>Определите % конденсата в продукции</h3>
+        <p>Замерьте соотношение воды и конденсата (углеводородов) в добываемой жидкости. Это главный фактор выбора.</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">2</div>
+      <div>
+        <h3>Определите забойную температуру (BHT)</h3>
+        <p>Стандартные стики плавятся при ~50°C. Если BHT выше — нужны термостойкие составы (Super Foam, Laredo).</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">3</div>
+      <div>
+        <h3>Оцените состояние скважины</h3>
+        <p>Скважина работает, но со снижением? → стандартная обработка. Скважина «мёртвая» / заглушена водой? → нужны газогенерирующие стики.</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num">4</div>
+      <div>
+        <h3>Выберите продукт по таблице ниже</h3>
+        <p>Начните с минимальной дозы. Увеличивайте при недостаточном эффекте. Не превышайте максимум — избыток ПАВ подавляет пену.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ WIZARD ============ -->
+<section id="wizard">
+  <h2>Подбор стика — пошаговый помощник</h2>
+  <div class="wizard">
+    <div class="wizard-header">Ответьте на вопросы → получите рекомендацию</div>
+    <div class="wizard-body" id="wiz-body">
+
+      <div class="wiz-step active" id="wiz-s1">
+        <div class="wiz-step-num">Шаг 1 из 5</div>
+        <div class="wiz-q">Состояние скважины?</div>
+        <div class="wiz-options" id="wiz-status">
+          <button class="wiz-opt" data-val="working">Работает<div class="opt-sub">дебит есть, но снижается</div></button>
+          <button class="wiz-opt" data-val="unstable">Нестабильная<div class="opt-sub">периодические остановки</div></button>
+          <button class="wiz-opt" data-val="dead">Мёртвая<div class="opt-sub">не работает, залита водой</div></button>
+        </div>
+        <div class="wiz-nav"><button class="wiz-btn wiz-btn-next" id="wiz-n1">Далее →</button></div>
+      </div>
+
+      <div class="wiz-step" id="wiz-s2">
+        <div class="wiz-step-num">Шаг 2 из 5</div>
+        <div class="wiz-q">Содержание конденсата в продукции?</div>
+        <div class="wiz-options" id="wiz-cond">
+          <button class="wiz-opt" data-val="low">До 25%<div class="opt-sub">водная фаза преобладает</div></button>
+          <button class="wiz-opt" data-val="medium">25–50%<div class="opt-sub">смешанная жидкость</div></button>
+          <button class="wiz-opt" data-val="high">50–75%<div class="opt-sub">конденсат доминирует</div></button>
+          <button class="wiz-opt" data-val="vhigh">&gt; 75%<div class="opt-sub">углеводородная фаза</div></button>
+        </div>
+        <div class="wiz-nav">
+          <button class="wiz-btn wiz-btn-back" id="wiz-b2">← Назад</button>
+          <button class="wiz-btn wiz-btn-next" id="wiz-n2">Далее →</button>
+        </div>
+      </div>
+
+      <div class="wiz-step" id="wiz-s3">
+        <div class="wiz-step-num">Шаг 3 из 5</div>
+        <div class="wiz-q">Забойная температура (BHT)?</div>
+        <div class="wiz-options" id="wiz-temp">
+          <button class="wiz-opt" data-val="cold">&lt; 50°C<div class="opt-sub">стандартные стики подходят</div></button>
+          <button class="wiz-opt" data-val="warm">50–54°C<div class="opt-sub">пограничная зона</div></button>
+          <button class="wiz-opt" data-val="hot">54–63°C<div class="opt-sub">нужны термостойкие</div></button>
+          <button class="wiz-opt" data-val="vhot">&gt; 63°C<div class="opt-sub">экстремальная температура</div></button>
+        </div>
+        <div class="wiz-nav">
+          <button class="wiz-btn wiz-btn-back" id="wiz-b3">← Назад</button>
+          <button class="wiz-btn wiz-btn-next" id="wiz-n3">Далее →</button>
+        </div>
+      </div>
+
+      <div class="wiz-step" id="wiz-s4">
+        <div class="wiz-step-num">Шаг 4 из 5</div>
+        <div class="wiz-q">Дополнительные условия?</div>
+        <div class="wiz-options" id="wiz-extra" style="grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));">
+          <button class="wiz-opt" data-val="none">Нет особых условий</button>
+          <button class="wiz-opt" data-val="salt">Высокая минерализация<div class="opt-sub">&gt; 100 000 PPM хлоридов</div></button>
+          <button class="wiz-opt" data-val="clay">Глинистый коллектор<div class="opt-sub">нужен неионогенный ПАВ</div></button>
+          <button class="wiz-opt" data-val="strat">Подозрение на стратификацию<div class="opt-sub">стики не работают, высокий конденсат</div></button>
+        </div>
+        <div class="wiz-nav">
+          <button class="wiz-btn wiz-btn-back" id="wiz-b4">← Назад</button>
+          <button class="wiz-btn wiz-btn-next" id="wiz-n4">Далее →</button>
+        </div>
+      </div>
+
+      <div class="wiz-step" id="wiz-s5">
+        <div class="wiz-step-num">Шаг 5 из 5</div>
+        <div class="wiz-q">Объём воды (для расчёта дозировки)</div>
+        <div class="wiz-input-row">
+          <div class="calc-field">
+            <label>Размер НКТ</label>
+            <select id="wiz-tubing">
+              <option value="0.00069">1.660"</option>
+              <option value="0.00097">1.900"</option>
+              <option value="0.00202">2-3/8"</option>
+              <option value="0.00302" selected>2-7/8"</option>
+              <option value="0.00477">3-1/2"</option>
+              <option value="0.00794">4-1/2"</option>
+            </select>
+          </div>
+          <div class="calc-field">
+            <label>Высота водяного столба, м</label>
+            <input type="number" id="wiz-height" placeholder="м" value="200" min="0" step="1">
+          </div>
+        </div>
+        <div class="wiz-nav">
+          <button class="wiz-btn wiz-btn-back" id="wiz-b5">← Назад</button>
+          <button class="wiz-btn wiz-btn-next" id="wiz-n5" style="background:var(--petrol);">Показать результат</button>
+        </div>
+      </div>
+
+      <div class="wiz-step" id="wiz-result">
+        <div class="wiz-step-num">Результат</div>
+        <div id="wiz-result-content"></div>
+        <div class="wiz-nav" style="margin-top:16px;">
+          <button class="wiz-btn wiz-btn-reset" id="wiz-reset">Начать заново</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ MASTER MATRIX ============ -->
+<section id="matrix">
+  <h2>Сводная таблица выбора</h2>
+  <div class="matrix-wrap">
+    <table class="matrix">
+      <thead>
+        <tr>
+          <th>Продукт</th>
+          <th>Конденсат</th>
+          <th>T плавл.</th>
+          <th>Доза, кг/м³</th>
+          <th>~шт/м³</th>
+          <th>Примечание</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- LOW CONDENSATE -->
+        <tr class="cat-row"><td colspan="6">Конденсат до 35% — водная фаза преобладает</td></tr>
+        <tr>
+          <td><span class="color-dot" style="background:#D32F2F"></span><strong>Blowout Stick</strong><br><span style="font-size:11px;color:var(--text-secondary)">Select Ind.</span></td>
+          <td>&lt; 25%</td>
+          <td>50°C</td>
+          <td><span class="dose-tag dose-std">0.8–1.6</span></td>
+          <td><strong>2–4</strong></td>
+          <td>Базовый, проверен на тысячах скважин</td>
+        </tr>
+        <tr>
+          <td><span class="color-dot" style="background:#E91E90"></span><strong>FS-1257</strong><br><span style="font-size:11px;color:var(--text-secondary)">Select Ind. · розовый</span></td>
+          <td>&lt; 60%</td>
+          <td>50°C</td>
+          <td><span class="dose-tag dose-std">0.8–1.6</span></td>
+          <td><strong>2–4</strong></td>
+          <td>До 200 000 PPM хлоридов</td>
+        </tr>
+        <tr>
+          <td><span class="color-dot" style="background:#7B1FA2"></span><strong>FS-1251 / SC-21</strong><br><span style="font-size:11px;color:var(--text-secondary)">Select Ind. · фиолетовый</span></td>
+          <td>&lt; 25%</td>
+          <td>49°C</td>
+          <td><span class="dose-tag dose-std">0.8–1.6</span></td>
+          <td><strong>2–4</strong></td>
+          <td>Быстрорастворимый, мелкие скв. &lt; 1500 м</td>
+        </tr>
+        <tr>
+          <td><span class="color-dot" style="background:#1976D2"></span><strong>FS-1233</strong><br><span style="font-size:11px;color:var(--text-secondary)">Select Ind. · голубой · неионогенный</span></td>
+          <td>&lt; 35%</td>
+          <td>52°C</td>
+          <td><span class="dose-tag dose-std">0.8–1.6</span></td>
+          <td><strong>2–4</strong></td>
+          <td>Безопасен для глин, снижение трения</td>
+        </tr>
+        <tr>
+          <td><span class="color-dot" style="background:#D32F2F"></span><strong>Texas Star Stick</strong><br><span style="font-size:11px;color:var(--text-secondary)">Select Ind. · красный</span></td>
+          <td>&lt; 50%</td>
+          <td>50°C</td>
+          <td><span class="dose-tag dose-std">0.8–1.6</span></td>
+          <td><strong>2–4</strong></td>
+          <td>Плотная долгоживущая пена</td>
+        </tr>
+        <tr>
+          <td><strong>Slick Sticks</strong><br><span style="font-size:11px;color:var(--text-secondary)">Select Ind. · Senior / Junior / Thrifty / Midget</span></td>
+          <td>&lt; 25%</td>
+          <td>50°C</td>
+          <td><span class="dose-tag dose-std">0.8–1.6</span></td>
+          <td><strong>2–4</strong></td>
+          <td>5 размеров: 16–41 мм &empty;</td>
+        </tr>
+        <tr>
+          <td><strong>AltaChem Standard</strong><br><span style="font-size:11px;color:var(--text-secondary)">FisherKing · Northern Star</span></td>
+          <td>&le; 65%</td>
+          <td>—</td>
+          <td><span class="dose-tag dose-std">0.8–1.6</span></td>
+          <td><strong>2–4</strong></td>
+          <td>Non-TDG (не опасный груз)</td>
+        </tr>
+
+        <!-- MEDIUM CONDENSATE -->
+        <tr class="cat-row amber"><td colspan="6">Конденсат 35–75% — смешанная жидкость</td></tr>
+        <tr>
+          <td><span class="color-dot" style="background:#388E3C"></span><strong>FS-1259</strong><br><span style="font-size:11px;color:var(--text-secondary)">Select Ind. · зелёный</span></td>
+          <td>&le; 75%</td>
+          <td>50°C</td>
+          <td><span class="dose-tag dose-std">0.8–1.6</span></td>
+          <td><strong>2–4</strong></td>
+          <td>До 200 000 PPM хлоридов</td>
+        </tr>
+        <tr>
+          <td><span class="color-dot" style="background:#E65100"></span><strong>FS-1253C</strong><br><span style="font-size:11px;color:var(--text-secondary)">Select Ind. · оранжевый · конденсато-дисперг.</span></td>
+          <td>&gt; 60%</td>
+          <td>54°C</td>
+          <td><span class="dose-tag dose-std">0.8–1.6</span></td>
+          <td><strong>2–4</strong></td>
+          <td><strong>НЕ при воде &gt; 40%</strong></td>
+        </tr>
+        <tr>
+          <td><span class="color-dot" style="background:#F5F5F5"></span><strong>Fluro-Stick</strong><br><span style="font-size:11px;color:var(--text-secondary)">Select Ind. · белый · фтор-ПАВ</span></td>
+          <td>&gt; 75%</td>
+          <td>54°C</td>
+          <td><span class="dose-tag dose-std">0.8–1.6</span></td>
+          <td><strong>2–4</strong></td>
+          <td>Фтор-ПАВ. BHT &lt; 54°C. Нужна вода.</td>
+        </tr>
+        <tr>
+          <td><strong>AltaChem High Cond.</strong><br><span style="font-size:11px;color:var(--text-secondary)">Condi Stick</span></td>
+          <td>&gt; 65%</td>
+          <td>—</td>
+          <td><span class="dose-tag dose-std">0.8–1.6</span></td>
+          <td><strong>2–4</strong></td>
+          <td>Non-TDG</td>
+        </tr>
+
+        <!-- HIGH CONDENSATE -->
+        <tr class="cat-row alert"><td colspan="6">Конденсат &gt; 75% — углеводородная фаза преобладает</td></tr>
+        <tr>
+          <td><span class="color-dot" style="background:#42A5F5"></span><strong>Oil Foam Stick</strong><br><span style="font-size:11px;color:var(--text-secondary)">Select Ind. · голубой</span></td>
+          <td>&gt; 60%</td>
+          <td>54°C</td>
+          <td><span class="dose-tag dose-std">0.8–1.6</span></td>
+          <td><strong>2–4</strong></td>
+          <td>Пенит и конденсат, и воду</td>
+        </tr>
+        <tr>
+          <td><strong>Slick Willie – OF</strong><br><span style="font-size:11px;color:var(--text-secondary)">Select Ind. · SF-100 / SF-50 / SF-25</span></td>
+          <td>&gt; 75%</td>
+          <td>60°C</td>
+          <td><span class="dose-tag dose-conc">0.2–0.4</span></td>
+          <td><strong>1</strong></td>
+          <td>100% активный, пена при 100°C+</td>
+        </tr>
+
+        <!-- HIGH TEMPERATURE -->
+        <tr class="cat-row teal"><td colspan="6">Высокотемпературные скважины — BHT &gt; 50°C</td></tr>
+        <tr>
+          <td><strong>Super Foam Sticks</strong><br><span style="font-size:11px;color:var(--text-secondary)">Select Ind. · SF-100 / SF-50 / SF-25</span></td>
+          <td>&lt; 65%</td>
+          <td>52°C</td>
+          <td><span class="dose-tag dose-conc">0.2–0.4</span></td>
+          <td><strong>1</strong></td>
+          <td>Пена стабильна при 100°C+. 3 размера</td>
+        </tr>
+        <tr>
+          <td><strong>Super Foam Gel</strong><br><span style="font-size:11px;color:var(--text-secondary)">Select Ind. · SF-100 / SF-50 / SF-25</span></td>
+          <td>&lt; 65%</td>
+          <td>52°C</td>
+          <td><span class="dose-tag dose-conc">0.2–0.4</span></td>
+          <td><strong>1</strong></td>
+          <td>4× объём пены vs стандарт</td>
+        </tr>
+        <tr>
+          <td><strong>Laredo Foam Sticks</strong><br><span style="font-size:11px;color:var(--text-secondary)">Select Ind. · 32×381 мм</span></td>
+          <td>&lt; 65%</td>
+          <td><strong>63°C</strong></td>
+          <td>3–6 шт/м³</td>
+          <td><strong>3–6</strong></td>
+          <td>Максимальная термостойкость</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============ HIGH CONDENSATE FOCUS ============ -->
+<section id="hc">
+  <h2>Скважины с высоким содержанием углеводородов</h2>
+
+  <div class="hc-why">
+    <div class="hc-why-card">
+      <h4>Почему стандартные стики не работают</h4>
+      <p>Обычные ПАВ растворяются в воде и создают пену водного столба. Углеводороды (конденсат, нефть) — это антипенообразователи: они разрушают пену изнутри. Чем выше доля конденсата, тем быстрее пена коллапсирует.</p>
+    </div>
+    <div class="hc-why-card">
+      <h4>Что меняется в подходе</h4>
+      <p>Нужны конденсато-диспергируемые ПАВ, которые создают пену <em>и в водной, и в углеводородной фазе</em>. При конденсате &gt; 65% стандартные стики бесполезны — переходите на специальные.</p>
+    </div>
+    <div class="hc-why-card">
+      <h4>Критическое ограничение</h4>
+      <p>Oil Foam и Condi стики работают только при BHT &lt; 54°C (130°F). Для горячих высококонденсатных скважин единственный вариант — <strong>SlickWillie-OF</strong> (стабильная пена при 100°C+).</p>
+    </div>
+  </div>
+
+  <div class="card amber" style="margin-bottom:12px;">
+    <h3>Пошаговый выбор по содержанию конденсата</h3>
+    <div style="font-size:13.5px; line-height:1.7;">
+      <strong>До 45%</strong> — попробуйте сначала Texas Star или FS-1257 (толерантны до 50–60%). Если пена нестабильна — переходите к FS-1259 (до 75%).<br>
+      <strong>45–65%</strong> — FS-1259, SuperFoam, Slick Foam или Laredo. SuperFoam предпочтительнее: 100% активный, в 3–4 раза больше пены. AltaChem Standard также работает до 65%.<br>
+      <strong>65–75%</strong> — переходите на Oil Foam Stick или FS-1253C. Важно: FS-1253C нельзя при воде &gt; 40%. Oil Foam пенит обе фазы.<br>
+      <strong>&gt; 75%</strong> — только Condi Stick, Fluro-Stick или SlickWillie-OF. Fluro-Stick (фтор-ПАВ) — самый эффективный, но требует хотя бы немного воды и BHT &lt; 54°C.<br>
+      <strong>&gt; 75% + BHT &gt; 54°C</strong> — единственный вариант: <strong>SlickWillie-OF</strong>. Плавление 60°C, пена стабильна при 100°C+. Доза в 3–4 раза меньше стандарта (0.2–0.4 кг/м³).
+    </div>
+  </div>
+
+  <div class="warn-box">
+    <h3>Когда конденсат нарастает со временем</h3>
+    <ul>
+      <li>Если стандартные стики «перестали работать» — первым делом перепроверьте % конденсата. Часто причина — не износ продукта, а рост доли углеводородов.</li>
+      <li>Не увеличивайте дозу стандартных стиков — это не поможет. Нужно <strong>сменить тип</strong> продукта.</li>
+      <li>При нефти &gt; 10–15% в мёртвых скважинах — увеличивайте количество Gas Sticks (нефть гасит пену, нужно больше энергии агитации).</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============ STRATIFICATION ============ -->
+<section id="stratification">
+  <h2>Стратификация жидкости — почему стики не работают</h2>
+
+  <div class="card alert" style="margin-bottom:14px;">
+    <h3>Полевое наблюдение</h3>
+    <div style="font-size:13.5px; color:var(--text-secondary); line-height:1.6;">
+      На нескольких скважинах с высоким конденсатом пенные стики не давали эффекта. После вброса всего <strong>1–2 газогенерирующих стиков (Gas Sticks / Self-Agitating Sticks)</strong> режим скважины полностью менялся. Ниже — объяснение этого механизма.
+    </div>
+  </div>
+
+  <div class="strat-row">
+    <div class="wellbore-col">
+      <div class="wb-zone wb-gas">ГАЗ</div>
+      <div class="wb-zone wb-cond" style="position:relative;">КОНД.
+        <span class="wb-perf">◂ перф.</span>
+      </div>
+      <div class="wb-zone wb-water">ВОДА</div>
+    </div>
+    <div class="strat-text-col">
+      <div class="strat-point problem">
+        <strong>Проблема: жидкость стратифицирована по плотности.</strong><br>
+        Газ — сверху. Конденсат (плотность 0.72–0.82 г/см³) — посередине. Вода (1.0+ г/см³) — внизу. Если интервал перфорации расположен в зоне конденсата, газ из пласта барботирует только через конденсат.
+      </div>
+      <div class="strat-point problem">
+        <strong>Пенные стики бесполезны в этой ситуации.</strong><br>
+        ПАВ растворяется в воде и создаёт пену только при барботаже газа через воду. Если в зоне перфорации нет воды — пена не образуется. Стандартные стики (Blowout, FS-1257 и др.) нерастворимы в конденсате. Даже конденсато-толерантные стики (Oil Foam Stick, FS-1253C) не создадут пену без воды в зоне газового потока.
+      </div>
+      <div class="strat-point problem">
+        <strong>Продувка и свабирование — не решение.</strong><br>
+        Продувка выносит конденсат из НКТ, но не поднимает воду в зону перфорации. После закрытия скважина вернётся к прежней стратификации. Свабирование снижает уровень жидкости, но не перемешивает столб.
+      </div>
+      <div class="strat-point fix">
+        <strong>Решение: Gas Sticks перемешивают столб жидкости.</strong><br>
+        Газогенерирующие стики (<strong>Gas Sticks</strong>, Select Ind. / <strong>Self-Agitating Sticks</strong>, AltaChem) при растворении выделяют CO₂ с бурной реакцией. Это создаёт турбулентное перемешивание, поднимающее воду из нижней зоны в интервал перфорации. Растворённый ПАВ от пенных стиков + вода + барботаж газа = пена → вынос жидкости.
+      </div>
+    </div>
+  </div>
+
+  <div class="card teal" style="margin-bottom:14px;">
+    <h3>Протокол: обработка стратифицированной скважины</h3>
+    <div style="font-size:13.5px; line-height:1.7;">
+      <strong>Шаг 1.</strong> Опустите пенные стики — выбор по температуре и конденсату (см. сводную таблицу). Для горячих высококонденсатных скважин: <strong>Slick Willie – OF</strong> (Junior SF-100 / SF-50). Для умеренных: <strong>Super Foam</strong> или <strong>Oil Foam Stick</strong>.<br>
+      <strong>Шаг 2.</strong> Подождите 1.5–2 часа — ПАВ должен раствориться и распределиться по столбу жидкости.<br>
+      <strong>Шаг 3.</strong> Опустите <strong>1–2 Gas Sticks</strong> (Junior 32×381 мм или 32×457 мм, плотность 1.35 г/см³, скорость падения ~37 м/мин). Gas Stick тяжелее конденсата и воды — пройдёт весь столб до забоя.<br>
+      <strong>Шаг 4.</strong> Подождите <strong>5–15 минут</strong>. CO₂ перемешает столб, вода поднимется в зону перфорации.<br>
+      <strong>Шаг 5.</strong> Откройте скважину. Штуцер полностью. Не ждите дольше 30 минут — давление CO₂ рассеивается.
+    </div>
+  </div>
+
+  <div class="warn-box" style="border-color:var(--amber); background:var(--amber-light);">
+    <h3 style="color:#8B5A00;">Признаки стратификации</h3>
+    <ul style="color:#5C3300;">
+      <li><strong>Пенные стики не дают эффекта</strong>, хотя скважина должна на них реагировать (достаточно газа, не мёртвая).</li>
+      <li><strong>Продувка выносит конденсат</strong>, но дебит быстро возвращается к прежнему.</li>
+      <li><strong>Высокий % конденсата</strong> в продукции (&gt; 50%).</li>
+      <li><strong>При замере давления</strong> — снижение относительно нормы, но скважина «не задыхается» водой (вода ниже перфорации).</li>
+      <li>После вброса даже <strong>1–2 Gas Sticks</strong> — резкое изменение режима (подтверждение гипотезы).</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============ DOSAGE ============ -->
+<section id="dosage">
+  <h2>Дозировка в штуках</h2>
+  <div class="card" style="margin-bottom:14px;">
+    <h3>Масса одного стика (размер Junior 1-1/4" × 15")</h3>
+    <div class="specs">
+      <div class="spec-line"><dt>Стандартный Junior</dt><dd><strong>~0.45 кг</strong> (Blowout, FS-серия, Oil Foam, Texas Star и др.)</dd></div>
+      <div class="spec-line"><dt>SuperFoam / Gel Junior</dt><dd><strong>~0.35 кг</strong> (100% активный, плотность 1.16 г/см³)</dd></div>
+      <div class="spec-line"><dt>SlickWillie-OF Junior</dt><dd><strong>~0.35 кг</strong> (100% активный)</dd></div>
+    </div>
+    <div class="note">Все расчёты ниже — для стандартного размера Junior 32 × 381 мм. Для других размеров см. таблицу размеров.</div>
+  </div>
+
+  <div class="dose-table-wrap">
+    <table class="dose-tbl">
+      <thead>
+        <tr>
+          <th style="text-align:left">Объём воды в НКТ</th>
+          <th>Стандартный<br><span style="font-weight:400;text-transform:none;font-size:11px">Junior, шт</span></th>
+          <th>SuperFoam<br><span style="font-weight:400;text-transform:none;font-size:11px">Junior, шт</span></th>
+          <th>Laredo<br><span style="font-weight:400;text-transform:none;font-size:11px">Junior, шт</span></th>
+          <th>кг всего<br><span style="font-weight:400;text-transform:none;font-size:11px">(стандарт)</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="sub-header"><td colspan="6">Начальная обработка (первичная разгрузка скважины)</td></tr>
+        <tr>
+          <td>&lt; 0.2 м³</td>
+          <td><strong>1–2</strong></td>
+          <td><strong>1</strong></td>
+          <td><strong>1–2</strong></td>
+          <td>0.5–0.9</td>
+        </tr>
+        <tr>
+          <td>0.2–0.5 м³</td>
+          <td><strong>2–3</strong></td>
+          <td><strong>1</strong></td>
+          <td><strong>2–3</strong></td>
+          <td>0.9–1.4</td>
+        </tr>
+        <tr>
+          <td>0.5–1.0 м³</td>
+          <td><strong>3–5</strong></td>
+          <td><strong>1–2</strong></td>
+          <td><strong>3–6</strong></td>
+          <td>1.4–2.3</td>
+        </tr>
+        <tr>
+          <td>&gt; 1.0 м³</td>
+          <td><strong>5–8</strong></td>
+          <td><strong>2–3</strong></td>
+          <td><strong>6–10</strong></td>
+          <td>2.3–3.6</td>
+        </tr>
+        <tr class="sub-header"><td colspan="6">Поддерживающая обработка (ежедневная / по циклу)</td></tr>
+        <tr>
+          <td>До 0.5 м³/сут</td>
+          <td><strong>1</strong></td>
+          <td><strong>1</strong></td>
+          <td><strong>1</strong></td>
+          <td>0.35–0.45</td>
+        </tr>
+        <tr>
+          <td>0.5–1.5 м³/сут</td>
+          <td><strong>1–2</strong></td>
+          <td><strong>1</strong></td>
+          <td><strong>1–2</strong></td>
+          <td>0.45–0.9</td>
+        </tr>
+        <tr>
+          <td>&gt; 1.5 м³/сут</td>
+          <td><strong>2–3</strong></td>
+          <td><strong>1–2</strong></td>
+          <td><strong>2–3</strong></td>
+          <td>0.9–1.4</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="dose-grid">
+    <div class="dose-card">
+      <h3>Норма стандартных стиков</h3>
+      <div class="big-num" style="color:var(--petrol)">2–4 <span class="unit">шт / м³ воды</span></div>
+      <div class="detail">
+        ≈ 0.8–1.6 кг/м³. Blowout, FS-серия, Oil Foam, Texas Star.
+      </div>
+    </div>
+    <div class="dose-card">
+      <h3>Норма SuperFoam / Gel</h3>
+      <div class="big-num" style="color:var(--amber)">1 <span class="unit">шт / м³ воды</span></div>
+      <div class="detail">
+        ≈ 0.2–0.4 кг/м³. В 3–4× эффективнее стандарта. SuperFoam, Gel, SlickWillie-OF.
+      </div>
+    </div>
+    <div class="dose-card">
+      <h3>Правило начала</h3>
+      <div class="big-num" style="color:var(--teal)">min <span class="unit">→ вверх</span></div>
+      <div class="detail">
+        Начните с минимальной дозы. Увеличивайте по 1 стику. Передозировка гасит пену.
+      </div>
+    </div>
+  </div>
+
+  <div id="calculator" style="margin-top:16px">
+    <div class="calc">
+      <div class="calc-header">Калькулятор: объём воды → дозировка</div>
+      <div class="calc-body">
+        <div class="calc-grid">
+          <div class="calc-field">
+            <label>Размер НКТ</label>
+            <select id="c-tubing">
+              <option value="0.00069">1.660" — ∅29.7 мм</option>
+              <option value="0.00097">1.900" — ∅35.1 мм</option>
+              <option value="0.00202">2-3/8" — ∅50.7 мм</option>
+              <option value="0.00302" selected>2-7/8" — ∅62.0 мм</option>
+              <option value="0.00477">3-1/2" — ∅77.9 мм</option>
+              <option value="0.00794">4-1/2" — ∅100.5 мм</option>
+            </select>
+          </div>
+          <div class="calc-field">
+            <label>Определить H воды по</label>
+            <div class="calc-toggle" id="c-mode-toggle">
+              <button class="active" data-mode="height">Высота, м</button>
+              <button data-mode="pressure">Давление</button>
+            </div>
+          </div>
+          <div class="calc-field pressure-row" id="c-unit-row" style="min-width:100px;flex:0 0 auto;">
+            <label>Единицы</label>
+            <select id="c-punit" class="unit-select" style="width:100%;padding:8px 10px;font-size:15px;">
+              <option value="bar">бар</option>
+              <option value="mpa">МПа</option>
+              <option value="kgf">кгс/см²</option>
+            </select>
+          </div>
+          <div class="calc-field height-row" id="c-height-row">
+            <label>Высота водяного столба</label>
+            <input type="number" id="c-height" placeholder="м" min="0" max="9999" step="1" value="200">
+          </div>
+          <div class="calc-field pressure-row" id="c-pnorm-row">
+            <label>P<sub>норм</sub> (рабочее)</label>
+            <input type="number" id="c-pnorm" placeholder="бар" min="0" step="0.1">
+          </div>
+          <div class="calc-field pressure-row" id="c-pcur-row">
+            <label>P<sub>текущ</sub></label>
+            <input type="number" id="c-pcur" placeholder="бар" min="0" step="0.1">
+          </div>
+        </div>
+
+        <hr class="calc-divider">
+
+        <div class="calc-grid" style="margin-bottom:14px">
+          <div class="calc-field">
+            <label>Конденсат, %</label>
+            <input type="number" id="c-cond" placeholder="%" min="0" max="100" step="1" value="15">
+          </div>
+          <div class="calc-field">
+            <label>BHT (забойная), °C</label>
+            <input type="number" id="c-bht" placeholder="°C" min="0" max="300" step="1" value="45">
+          </div>
+        </div>
+
+        <hr class="calc-divider">
+
+        <div class="calc-results" id="c-results">
+          <div class="calc-result">
+            <div class="r-label">H воды</div>
+            <div class="r-value" id="r-height">200 <span class="r-unit">м</span></div>
+          </div>
+          <div class="calc-result">
+            <div class="r-label">Объём воды</div>
+            <div class="r-value" id="r-volume">0.60 <span class="r-unit">м³</span></div>
+          </div>
+          <div class="calc-result highlight">
+            <div class="r-label">Стандартный</div>
+            <div class="r-value" id="r-std">3–5 <span class="r-unit">шт</span></div>
+          </div>
+          <div class="calc-result amber-hl">
+            <div class="r-label">SuperFoam</div>
+            <div class="r-value" id="r-sf">1–2 <span class="r-unit">шт</span></div>
+          </div>
+          <div class="calc-result">
+            <div class="r-label">Масса (стд)</div>
+            <div class="r-value" id="r-kg">1.4 <span class="r-unit">кг</span></div>
+          </div>
+        </div>
+
+        <div class="calc-rec ok" id="c-rec">
+          Конденсат 15%, BHT 45°C — подходят стандартные стики (Blowout, FS-1257). Начните с минимальной дозы.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TUBING VOLUME ============ -->
+<section id="tubing">
+  <h2>Объём НКТ (EUE) — справочник</h2>
+  <div class="matrix-wrap">
+    <table class="tube-table">
+      <thead>
+        <tr>
+          <th>Размер НКТ</th>
+          <th>Наружн. &empty;, мм</th>
+          <th>Внутр. &empty;, мм</th>
+          <th>Объём, м³/м</th>
+          <th>Объём, л/100 м</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>1.660"</td><td>42.2</td><td>29.7</td><td>0.00069</td><td>69</td></tr>
+        <tr><td>1.900"</td><td>48.3</td><td>35.1</td><td>0.00097</td><td>97</td></tr>
+        <tr><td>2-3/8"</td><td>60.3</td><td>50.7</td><td>0.00202</td><td>202</td></tr>
+        <tr><td><strong>2-7/8"</strong></td><td>73.0</td><td>62.0</td><td><strong>0.00302</strong></td><td><strong>302</strong></td></tr>
+        <tr><td>3-1/2"</td><td>88.9</td><td>77.9</td><td>0.00477</td><td>477</td></tr>
+        <tr><td>4-1/2"</td><td>114.3</td><td>100.5</td><td>0.00794</td><td>794</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============ LIMITS ============ -->
+<section id="limits">
+  <h2>Ограничения и предупреждения</h2>
+
+  <div class="warn-box">
+    <h3>Температурные пределы</h3>
+    <ul>
+      <li><strong>Стандартные стики</strong> (Blowout, FS-серия, Slick) — точка плавления <strong>49–52°C</strong>. При BHT выше стик начнёт растворяться, не достигнув забоя.</li>
+      <li><strong>FS-1253C, Oil Foam, Fluro-Stick</strong> — плавление <strong>54°C</strong>. Fluro-Stick не использовать при BHT &gt; 54°C (130°F).</li>
+      <li><strong>Slick Willie-OF</strong> — плавление <strong>60°C</strong>, пена стабильна при 100°C+.</li>
+      <li><strong>Laredo Foam</strong> — плавление <strong>63°C</strong>, максимальная термостойкость среди стиков.</li>
+      <li><strong>Super Foam / Gel</strong> — плавление <strong>52°C</strong>, но пена работает при <strong>100°C+</strong>. Стик растворится быстро, но пена сохраняет стабильность.</li>
+    </ul>
+  </div>
+
+  <div class="warn-box">
+    <h3>Важные ограничения по применению</h3>
+    <ul>
+      <li><strong>FS-1253C</strong> — НЕ применять, если доля воды превышает 40%. Предназначен для конденсато-доминантных скважин.</li>
+      <li><strong>Fluro-Stick</strong> — требует присутствия хотя бы небольшого количества воды для работы.</li>
+      <li><strong>Fizz Stick</strong> — эффективен только при BHT ниже 32°C. Для холодных мелких скважин.</li>
+      <li><strong>Gas Sticks</strong> — срок хранения <strong>2–3 месяца</strong>. Классифицированы как опасный груз (TDG).</li>
+      <li><strong>Передозировка</strong> — избыток ПАВ подавляет пенообразование. Начинайте с минимальной дозы.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============ EXAMPLES ============ -->
+<section id="examples">
+  <h2>Примеры комбинированного применения</h2>
+
+  <div class="scenario">
+    <div class="scenario-header">Пример 1 — Газоконденсатная скважина, конденсат нарастает</div>
+    <div class="scenario-body">
+      <div class="scenario-params">
+        <div><div class="param-label">Глубина</div><div class="param-val">2800 м</div></div>
+        <div><div class="param-label">НКТ</div><div class="param-val">2-7/8" EUE</div></div>
+        <div><div class="param-label">BHT</div><div class="param-val">47°C</div></div>
+        <div><div class="param-label">Конденсат</div><div class="param-val">55% (рост с 30%)</div></div>
+        <div><div class="param-label">Вода</div><div class="param-val">0.8 м³/сут</div></div>
+        <div><div class="param-label">Статус</div><div class="param-val">Работает, дебит падает</div></div>
+      </div>
+      <p style="font-size:13.5px; color:var(--text-secondary); margin-bottom:10px;">
+        <strong>Проблема:</strong> Раньше использовали Blowout Stick по 1 шт/сут — дебит был стабильный. За последние 2 месяца дебит снизился на 30%, хотя дозу увеличили до 3 шт/сут. Причина — доля конденсата выросла с 30% до 55%, и стандартные ПАВ перестали держать пену.
+      </p>
+      <ol>
+        <li><strong>Сменить продукт</strong> на FS-1259 (до 75% конденсата) или SuperFoam (100% активный, толерантен до 65%). Прекратить Blowout — при 55% конденсата он неэффективен.</li>
+        <li><strong>Начальная разгрузка:</strong> 2 стика SuperFoam Junior + 1 стик стандартный FS-1259. Комбинация SuperFoam (создаёт мощную пену) + FS-1259 (устойчив к конденсату) даёт лучший результат, чем любой из них в одиночку.</li>
+        <li><strong>Подождать</strong> 60–90 мин (BHT 47°C — растворение SuperFoam ~70 мин). Открыть скважину.</li>
+        <li><strong>Поддерживающая:</strong> 1 SuperFoam + 1 FS-1259 ежедневно. Если конденсат продолжит расти выше 65% — перейти на Oil Foam Stick.</li>
+      </ol>
+      <div class="result-box">
+        <strong>Рекомендация:</strong> При росте конденсата не увеличивайте дозу старого продукта — меняйте тип. Комбинация SuperFoam + конденсато-толерантный стик — оптимальная стратегия для переходного диапазона 45–65%.
+      </div>
+    </div>
+  </div>
+
+  <div class="scenario">
+    <div class="scenario-header">Пример 2 — Горячая скважина + высокий конденсат + стратификация</div>
+    <div class="scenario-body">
+      <div class="scenario-params">
+        <div><div class="param-label">Глубина</div><div class="param-val">3500 м</div></div>
+        <div><div class="param-label">НКТ</div><div class="param-val">2-7/8" EUE</div></div>
+        <div><div class="param-label">BHT</div><div class="param-val">72°C</div></div>
+        <div><div class="param-label">Конденсат</div><div class="param-val">80%</div></div>
+        <div><div class="param-label">Вода</div><div class="param-val">0.3 м³/сут</div></div>
+        <div><div class="param-label">Статус</div><div class="param-val">Нестабильная, пенные стики не работают</div></div>
+      </div>
+      <p style="font-size:13.5px; color:var(--text-secondary); margin-bottom:10px;">
+        <strong>Проблема:</strong> Самый сложный случай — высокий конденсат + высокая температура + подозрение на стратификацию. Oil Foam Stick и Condi Stick не подходят (BHT 72°C &gt; предел 54°C). Стандартные плавятся задолго до забоя. Пробовали Slick Willie – OF (SF-100 Junior) — стик дошёл, но эффекта нет. Возможная причина: вода ниже зоны перфорации, в зоне барботажа — только конденсат, пена не образуется.
+      </p>
+      <ol>
+        <li><strong>Slick Willie – OF</strong> (Junior SF-100, 32×457 мм): единственный вариант при BHT &gt; 54°C + конденсат &gt; 75%. Плавление 60°C, 100% активный, пена стабильна при 100°C+. Опустить <strong>1 стик</strong> через лубрикатор. Доза: 0.2–0.4 кг/м³.</li>
+        <li><strong>Ожидание 1.5–2 часа.</strong> ПАВ из Slick Willie распределится по столбу. При 72°C растворение ~20 мин, но нужно время на диффузию в конденсатную/водную фазу.</li>
+        <li><strong>Gas Sticks — ключевой шаг.</strong> Опустить <strong>1–2 Gas Sticks</strong> (Junior 32×381 мм, плотность 1.35 г/см³). Gas Stick тяжелее конденсата (0.75) и воды (1.0) — пройдёт весь столб. CO₂ при растворении создаст турбулентность, перемешивающую стратифицированную жидкость. Вода поднимется в зону перфорации, где растворённый ПАВ + газовый поток = пена.</li>
+        <li><strong>Ожидание 5–15 минут.</strong> Gas Sticks реагируют за 5–15 мин. <strong>Не более 30 минут!</strong></li>
+        <li><strong>Открыть скважину.</strong> Штуцер полностью. Дать ~25% расхода. Очистить линии для минимального сопротивления.</li>
+        <li><strong>Поддерживающая:</strong> 1 Slick Willie – OF + 1 Gas Stick через 1–2 дня. Если один Gas Stick достаточен для изменения режима — повторять комбинацию по мере накопления.</li>
+      </ol>
+      <div class="result-box amber-result">
+        <strong>Анализ:</strong> Если 1–2 Gas Sticks резко меняют режим скважины — это подтверждение стратификации (см. раздел «Стратификация»). Если Slick Willie – OF один не работает, а с Gas Sticks — работает, причина не в продукте, а в расположении воды относительно перфорации. При полном отсутствии эффекта → жидкий пенообразователь SI-403 через дозировочный насос или механический вынос (плунжерный лифт).
+      </div>
+    </div>
+  </div>
+
+  <div class="scenario">
+    <div class="scenario-header">Пример 3 — Комбинированная обработка: пена + газогенерация для высококонденсатных скважин</div>
+    <div class="scenario-body">
+      <div class="scenario-params">
+        <div><div class="param-label">Глубина</div><div class="param-val">2600 м</div></div>
+        <div><div class="param-label">НКТ</div><div class="param-val">2-7/8" EUE</div></div>
+        <div><div class="param-label">BHT</div><div class="param-val">55°C</div></div>
+        <div><div class="param-label">Конденсат</div><div class="param-val">70%</div></div>
+        <div><div class="param-label">Вода</div><div class="param-val">0.5 м³/сут</div></div>
+        <div><div class="param-label">Статус</div><div class="param-val">Работает, дебит падает, пенные стики неэффективны</div></div>
+      </div>
+      <p style="font-size:13.5px; color:var(--text-secondary); margin-bottom:10px;">
+        <strong>Проблема:</strong> Скважина с умеренно высокой температурой (55°C) и высоким конденсатом (70%). Стандартные стики плавятся до забоя (T плавл. 50°C). Oil Foam Stick не подходит (BHT &gt; 54°C). Super Foam (SF-100/SF-50) пробовали — пена нестабильна из-за высокого конденсата (Super Foam рассчитан на &lt; 65%). Подозрение на стратификацию — вода ниже перфорации.
+      </p>
+      <p style="font-size:13.5px; color:var(--text-secondary); margin-bottom:10px;">
+        <strong>Стратегия:</strong> Комбинация двух продуктов + газогенерация для перемешивания.
+      </p>
+      <ol>
+        <li><strong>Шаг 1 — Slick Willie – OF</strong> (Junior SF-50): работает при конденсате &gt; 75% и BHT до 60°C (пена стабильна при 100°C+). Опустить 1 стик. Он растворится за ~25 мин при 55°C.</li>
+        <li><strong>Шаг 2 — Super Foam Gel</strong> (Junior SF-100): 100% активный, 4× объём пены. Опустить 1 стик через 5 мин после первого. Растворение при 55°C: ~40 мин. Super Foam создаст мощную пену в водной фазе, а Slick Willie — в конденсатной.</li>
+        <li><strong>Ожидание 1.5 часа.</strong> Оба ПАВ распределяются по столбу.</li>
+        <li><strong>Шаг 3 — Gas Sticks</strong> (1–2 шт, Junior 32×381 мм). Перемешивание столба. CO₂ поднимает воду в зону перфорации. Оба ПАВ начинают работать: Slick Willie пенит конденсатную фракцию, Super Foam — водную.</li>
+        <li><strong>Ожидание 10 мин. Открыть скважину.</strong></li>
+      </ol>
+      <div class="result-box">
+        <strong>Рекомендация:</strong> Комбинация Slick Willie – OF + Super Foam/Gel + Gas Sticks — оптимальная стратегия для скважин с <strong>конденсатом &gt; 60% и BHT &gt; 50°C</strong>. Slick Willie покрывает конденсатную фазу, Super Foam — водную, Gas Sticks обеспечивают перемешивание стратифицированного столба. Если один продукт не справляется — комбинируйте, не увеличивайте дозу.
+      </div>
+    </div>
+  </div>
+
+  <!-- ACID COMBO — secondary, collapsible -->
+  <details class="scenario-wrap">
+    <summary>Пример 4 — Пена + кислота (для скважин с отложениями)</summary>
+    <div class="scenario-body">
+      <div class="scenario-params">
+        <div><div class="param-label">Глубина</div><div class="param-val">2200 м</div></div>
+        <div><div class="param-label">НКТ</div><div class="param-val">2-7/8" EUE</div></div>
+        <div><div class="param-label">BHT</div><div class="param-val">44°C</div></div>
+        <div><div class="param-label">Конденсат</div><div class="param-val">15%</div></div>
+        <div><div class="param-label">Проблема</div><div class="param-val">Вода + отложения</div></div>
+        <div><div class="param-label">Давление нагн.</div><div class="param-val">Растёт</div></div>
+      </div>
+      <p style="font-size:13.5px; color:var(--text-secondary); margin-bottom:10px;">
+        <strong>Проблема:</strong> Скважина накапливает воду, давление нагнетания растёт — карбонатные отложения в НКТ.
+      </p>
+      <ol>
+        <li><strong>Acid Sticks</strong> (Select Ind., коричневые, pH 2–3, плотность 1.094): 2–3 стика. Подождать 2–3 часа для реакции.</li>
+        <li><strong>Blowout Stick</strong> (Select Ind., красный) или <strong>FS-1257</strong> (розовый): 2 стика. Пена вынесет продукты реакции и воду.</li>
+        <li><strong>Альтернатива:</strong> Acid Stick + Blowout одновременно. Acid тяжелее (1.094 vs 1.11) — разница минимальна, но кислотный осядет первым.</li>
+        <li><strong>Поддерживающая:</strong> 1 Blowout/сут + 1 Acid Stick / неделю. Для сильных отложений: Acid Cap Stick (100% кислота, pH 1.18, плотность 1.23).</li>
+      </ol>
+      <div class="result-box">
+        <strong>Рекомендация:</strong> Комбинация пена + кислота для двойной проблемы (вода + отложения). Также: S&B Pellet (кислотные пеллеты) для малого диаметра НКТ.
+      </div>
+    </div>
+  </details>
+</section>
+
+<!-- ============ TIPS ============ -->
+<section id="tips">
+  <h2>Практические советы</h2>
+  <div class="tips">
+    <div class="tip">
+      <div class="tip-icon">&#9679;</div>
+      <div><strong>Начинайте обработку рано.</strong> Не ждите полной остановки скважины. Стики наиболее эффективны, когда скважина ещё работает и есть поток для выноса пены.</div>
+    </div>
+    <div class="tip">
+      <div class="tip-icon">&#9679;</div>
+      <div><strong>Размер стика должен соответствовать НКТ.</strong> Стик 1-1/4" (32 мм) — для НКТ 2-3/8" и больше. Для НКТ 1.660" используйте Midget (16 мм). Стик не должен застревать.</div>
+    </div>
+    <div class="tip">
+      <div class="tip-icon">&#9679;</div>
+      <div><strong>Скорость падения стика</strong> — около 30 м/мин в воде (свободное падение ~900 м за 15 сек в газовой среде). Учитывайте время до забоя при планировании обработки.</div>
+    </div>
+    <div class="tip">
+      <div class="tip-icon">&#9679;</div>
+      <div><strong>Время растворения зависит от температуры.</strong> Стандартный стик: ~72 мин при 38°C, ~25 мин при 49°C, ~8 мин при 60°C. Super Foam: ~90 мин при 38°C, ~30 мин при 82°C.</div>
+    </div>
+    <div class="tip">
+      <div class="tip-icon">&#9679;</div>
+      <div><strong>При низкой добыче жидкости (&lt; 0.16 м³/сут)</strong> используйте стики меньшего размера (Midget) или быстрорастворимые (FS-1251). Меньше воды — меньше стика.</div>
+    </div>
+    <div class="tip">
+      <div class="tip-icon">&#9679;</div>
+      <div><strong>Для «мёртвых» скважин</strong> — начните с пенных стиков (дождитесь растворения), затем опустите газогенерирующие (Gas Sticks). Или используйте готовый Well Rescue Pack (13 пенных + 13 газовых).</div>
+    </div>
+    <div class="tip">
+      <div class="tip-icon">&#9679;</div>
+      <div><strong>Хранение.</strong> Хранить в сухом прохладном месте. Не допускать контакта с водой до применения. Gas Sticks — срок годности 2–3 месяца.</div>
+    </div>
+    <div class="tip">
+      <div class="tip-icon">&#9679;</div>
+      <div><strong>Минерализация.</strong> Большинство стиков работают при минерализации до 200 000 PPM хлоридов. Slick A — только до 20 000 PPM.</div>
+    </div>
+    <div class="tip">
+      <div class="tip-icon">&#9679;</div>
+      <div><strong>Смазка стика для горячих скважин (BHT &gt; 90°C / 200°F).</strong> AltaChem рекомендует: покрыть стик высокотемпературной смазкой (Литол, консистентная смазка) перед вбросом. Смазка создаёт барьер, замедляющий контакт с водой и растворение. <em>Практика:</em> эффект заметен при длинном водяном столбе (стик проходит через 300+ м горячей воды). При коротком столбе или газовой среде разница минимальна — стик плавится от температуры независимо от смазки. <strong>Когда применять:</strong> BHT &gt; 90°C и глубокий водяной столб. Не заменяет подбор термостойкого продукта.</div>
+    </div>
+    <div class="tip">
+      <div class="tip-icon">&#9679;</div>
+      <div><strong>Масло как антипенный агент.</strong> AltaChem предупреждает: при содержании нефти/масла &gt; 5% пена гасится. В таких скважинах используйте дополнительные Gas Sticks для компенсации.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SIZES ============ -->
+<section>
+  <h2>Стандартные размеры стиков</h2>
+  <div class="matrix-wrap">
+    <table class="tube-table">
+      <thead>
+        <tr>
+          <th>Название</th>
+          <th>Диаметр</th>
+          <th>Длина</th>
+          <th>Мин. НКТ</th>
+          <th>Масса ~</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Senior</td><td>41 мм (1-5/8")</td><td>457 мм (18")</td><td>3-1/2"</td><td>~450 г</td></tr>
+        <tr><td><strong>Junior (стандарт)</strong></td><td>32 мм (1-1/4")</td><td>381–457 мм (15–18")</td><td>2-3/8"</td><td>~200–250 г</td></tr>
+        <tr><td>Thrifty</td><td>25 мм (1")</td><td>381 мм (15")</td><td>1.900"</td><td>~120 г</td></tr>
+        <tr><td>Midget</td><td>16 мм (5/8")</td><td>381 мм (15")</td><td>1.660"</td><td>~50 г</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============ DEAD WELL PROCEDURE ============ -->
+<section id="deadwell">
+  <h2>Процедура оживления «мёртвой» скважины</h2>
+  <div class="card alert" style="margin-bottom:12px;">
+    <h3>Когда применять</h3>
+    <div style="font-size:13.5px; color:var(--text-secondary);">
+      Скважина не работает, забой залит водой, собственного газа недостаточно для выноса жидкости. Пенные стики одни не справятся — нужна газогенерация (CO₂). Также применяйте газогенерацию при подозрении на <strong>стратификацию</strong> — когда пенные стики не дают эффекта из-за расслоения жидкости (см. раздел «Стратификация»).
+    </div>
+  </div>
+  <div class="flow">
+    <div class="flow-step">
+      <div class="flow-num" style="background:var(--alert);">1</div>
+      <div>
+        <h3>Опустите пенные стики</h3>
+        <p>1–2 стика через лубрикатор. Выбор: <strong>Super Foam Sticks</strong> (SF-100/SF-50/SF-25, Select Ind.) или <strong>Max Foam</strong> (AltaChem) — для скважин с конденсатом &lt; 65%. Для скважин с конденсатом &gt; 30%: <strong>Slick Willie – OF</strong> (Select Ind.) или <strong>Oil Foam</strong> (AltaChem).</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num" style="background:var(--alert);">2</div>
+      <div>
+        <h3>Подождите 1.5–2 часа</h3>
+        <p>Пенные стики должны полностью раствориться. Допустимо ждать до 5–6 часов — это не повредит.</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num" style="background:var(--alert);">3</div>
+      <div>
+        <h3>Опустите Gas Sticks (CO₂)</h3>
+        <p>Газогенерирующие стики: <strong>Gas Sticks</strong> (Select Ind., Junior 32×381/457 мм, плотность 1.35 г/см³) или <strong>Self-Agitating Sticks</strong> (AltaChem). Столько же, сколько пенных (1–2 шт). Для глубоких или высококонденсатных скважин — увеличьте количество. CO₂ невоспламеняем. Gas Sticks также <strong>перемешивают стратифицированный столб</strong>, поднимая воду в зону перфорации.</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-num" style="background:var(--alert);">4</div>
+      <div>
+        <h3>Подождите 5–30 минут, затем откройте скважину</h3>
+        <p><strong>Не более 30 минут!</strong> Gas Sticks реагируют за 5–15 мин. Откройте штуцер полностью, дайте ~25% расхода, очистите линии для минимального сопротивления.</p>
+      </div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:12px;">
+    <h3>Ориентировочный расход</h3>
+    <div class="specs">
+      <div class="spec-line"><dt>Скважина до 1500 м</dt><dd>3–4 пенных + 3–4 Gas Sticks (Select) / Self-Agitating (AltaChem)</dd></div>
+      <div class="spec-line"><dt>Глубже / высокий конденсат</dt><dd>Увеличить долю газовых стиков (перемешивание + подъёмная сила)</dd></div>
+      <div class="spec-line"><dt>Готовый комплект</dt><dd>Well Rescue Pack (Select Ind.): 13 пенных + 13 газовых</dd></div>
+    </div>
+    <div class="note">Всегда пробуйте Gas Sticks перед дорогостоящим свабированием. Стики полностью растворяются и выносятся с пеной. Срок хранения Gas Sticks — <strong>2–3 месяца</strong> (TDG — опасный груз).</div>
+  </div>
+</section>
+
+<!-- ============ PRODUCT CATALOG ============ -->
+<section id="catalog">
+  <h2>Каталог продукции — подробные карточки</h2>
+  <p style="font-size:13.5px;color:var(--text-secondary);margin-bottom:14px;">Выберите продукт для просмотра полных характеристик, условий применения и рекомендаций по комбинированию.</p>
+  <div class="catalog-select-wrap">
+    <select id="cat-select" class="catalog-select">
+      <option value="">— Выберите продукт —</option>
+      <optgroup label="Стандартные (конденсат 0–35%)">
+        <option value="blowout">Blowout Stick (Select Ind.)</option>
+        <option value="fs1257">FS-1257 (Select Ind.)</option>
+        <option value="fs1251">FS-1251 / SC-21 (Select Ind.)</option>
+        <option value="fs1233">FS-1233 (Select Ind.)</option>
+        <option value="altaStd">AltaChem Standard (FisherKing / Northern Star)</option>
+        <option value="slickA">Slick A Stick (Select Ind.)</option>
+        <option value="texasStar">Texas Star (Select Ind.)</option>
+      </optgroup>
+      <optgroup label="Средний конденсат (35–65%)">
+        <option value="fs1259">FS-1259 (Select Ind.)</option>
+        <option value="fs1253c">FS-1253C (Select Ind.)</option>
+        <option value="altaHC">AltaChem High Cond (Condi Stick)</option>
+      </optgroup>
+      <optgroup label="Высокий конденсат (65–100%)">
+        <option value="oilfoam">Oil Foam Stick (Select Ind.)</option>
+        <option value="slickwillie">Slick Willie – OF (Select Ind.)</option>
+        <option value="fluro">Fluro-Stick (Select Ind.)</option>
+      </optgroup>
+      <optgroup label="Высокая температура">
+        <option value="superfoam">Super Foam Sticks (Select Ind.)</option>
+        <option value="superfoamgel">Super Foam Gel (Select Ind.)</option>
+        <option value="laredo">Laredo Foam (Select Ind.)</option>
+      </optgroup>
+      <optgroup label="Газогенерация / Низкое давление">
+        <option value="gasstick">Gas Sticks (Select Ind.) / Self-Agitating (AltaChem)</option>
+        <option value="fizzstick">Fizz Stick / Ultra Foam (AltaChem)</option>
+        <option value="wellrescue">Well Rescue Pack (Select Ind.)</option>
+      </optgroup>
+      <optgroup label="Жидкие пенообразователи">
+        <option value="si403">SI-403 Liquid Downhole Foamer</option>
+      </optgroup>
+    </select>
+  </div>
+  <div id="cat-detail" class="prod-detail" style="display:none;"></div>
+</section>
+
+<section>
+  <h2>Источники</h2>
+  <div class="card" style="border-left-color: var(--steel-light);">
+    <div class="specs">
+      <div class="spec-line"><dt>Select Industries</dt><dd>Каталог продукции (США)</dd></div>
+      <div class="spec-line"><dt>AltaChem Ltd</dt><dd>Soap Sticks Brochure 2024, Operator Reference Manual (Канада)</dd></div>
+      <div class="spec-line"><dt>Данные проекта</dt><dd>UzKorGaz — каталог продуктов (products.js)</dd></div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<script>
+(function() {
+
+/* ===== CALCULATOR ===== */
+var TUBING = document.getElementById('c-tubing');
+var HEIGHT = document.getElementById('c-height');
+var PNORM = document.getElementById('c-pnorm');
+var PCUR  = document.getElementById('c-pcur');
+var PUNIT = document.getElementById('c-punit');
+var COND  = document.getElementById('c-cond');
+var BHT   = document.getElementById('c-bht');
+var rH   = document.getElementById('r-height');
+var rV   = document.getElementById('r-volume');
+var rStd = document.getElementById('r-std');
+var rSf  = document.getElementById('r-sf');
+var rKg  = document.getElementById('r-kg');
+var rRec = document.getElementById('c-rec');
+var heightRow = document.getElementById('c-height-row');
+var pnormRow  = document.getElementById('c-pnorm-row');
+var pcurRow   = document.getElementById('c-pcur-row');
+var unitRow   = document.getElementById('c-unit-row');
+var mode = 'height';
+
+var UNIT_LABELS = {bar:'бар', mpa:'МПа', kgf:'кгс/см²'};
+var UNIT_FACTOR = {bar: 0.0981, mpa: 0.00981, kgf: 0.1};
+
+document.getElementById('c-mode-toggle').addEventListener('click', function(e) {
+  var btn = e.target.closest('button');
+  if (!btn) return;
+  mode = btn.dataset.mode;
+  this.querySelectorAll('button').forEach(function(b){ b.classList.remove('active'); });
+  btn.classList.add('active');
+  if (mode === 'height') {
+    heightRow.className = 'calc-field height-row';
+    pnormRow.className  = 'calc-field pressure-row';
+    pcurRow.className   = 'calc-field pressure-row';
+    unitRow.className   = 'calc-field pressure-row';
+  } else {
+    heightRow.className = 'calc-field height-row hidden';
+    pnormRow.className  = 'calc-field pressure-row visible';
+    pcurRow.className   = 'calc-field pressure-row visible';
+    unitRow.className   = 'calc-field pressure-row visible';
+  }
+  updatePlaceholders();
+  calc();
+});
+
+function updatePlaceholders() {
+  var u = PUNIT.value;
+  var lbl = UNIT_LABELS[u];
+  PNORM.placeholder = lbl;
+  PCUR.placeholder = lbl;
+}
+PUNIT.addEventListener('change', function(){ updatePlaceholders(); calc(); });
+updatePlaceholders();
+
+function calc() {
+  var vol_per_m = parseFloat(TUBING.value) || 0.00302;
+  var h, cond, bht;
+  if (mode === 'height') {
+    h = parseFloat(HEIGHT.value) || 0;
+  } else {
+    var pn = parseFloat(PNORM.value) || 0;
+    var pc = parseFloat(PCUR.value) || 0;
+    var factor = UNIT_FACTOR[PUNIT.value] || 0.0981;
+    h = pn > pc ? (pn - pc) / factor : 0;
+  }
+  cond = parseFloat(COND.value) || 0;
+  bht  = parseFloat(BHT.value) || 0;
+  var vol = h * vol_per_m;
+  var kgMin = vol * 0.8, kgMax = vol * 1.6;
+  var stdMin = Math.max(1, Math.ceil(kgMin / 0.45));
+  var stdMax = Math.max(stdMin, Math.ceil(kgMax / 0.45));
+  var sfKgMin = vol * 0.2, sfKgMax = vol * 0.4;
+  var sfMin = Math.max(1, Math.ceil(sfKgMin / 0.35));
+  var sfMax = Math.max(sfMin, Math.ceil(sfKgMax / 0.35));
+
+  rH.innerHTML = (h > 0 ? Math.round(h) : '—') + ' <span class="r-unit">м</span>';
+  rV.innerHTML = (vol > 0 ? vol.toFixed(2) : '—') + ' <span class="r-unit">м³</span>';
+  rKg.innerHTML = (kgMin > 0 ? kgMin.toFixed(1) + '–' + kgMax.toFixed(1) : '—') + ' <span class="r-unit">кг</span>';
+  if (vol > 0) {
+    rStd.innerHTML = stdMin + '–' + stdMax + ' <span class="r-unit">шт</span>';
+    rSf.innerHTML = (sfMin === sfMax ? sfMin : sfMin + '–' + sfMax) + ' <span class="r-unit">шт</span>';
+  } else {
+    rStd.innerHTML = '— <span class="r-unit">шт</span>';
+    rSf.innerHTML = '— <span class="r-unit">шт</span>';
+  }
+  var rec = '', cls = 'ok';
+  if (cond <= 35 && bht <= 50) {
+    rec = 'Конденсат ' + cond + '%, BHT ' + bht + '°C — подходят <strong>стандартные стики</strong> (Blowout, FS-1257, FS-1233). Начните с минимальной дозы.';
+  } else if (cond <= 35 && bht <= 63) {
+    rec = 'BHT ' + bht + '°C превышает точку плавления стандартных стиков (50°C). Используйте <strong>SuperFoam</strong> или <strong>Laredo</strong> (плавление 63°C).';
+    cls = 'warn';
+  } else if (cond <= 35 && bht > 63) {
+    rec = 'BHT ' + bht + '°C — очень горячая скважина. Только <strong>SuperFoam</strong> (пена стабильна при 100°C+) или <strong>Laredo</strong> (плавление 63°C).';
+    cls = 'warn';
+  } else if (cond <= 65 && bht <= 50) {
+    rec = 'Конденсат ' + cond + '% — средний уровень. Используйте <strong>FS-1259</strong> (до 75%) или <strong>SuperFoam</strong>.';
+    cls = 'warn';
+  } else if (cond <= 65 && bht > 50) {
+    rec = 'Конденсат ' + cond + '% + BHT ' + bht + '°C. Нужен <strong>SuperFoam</strong> — единственный продукт для среднего конденсата + высокой температуры.';
+    cls = 'warn';
+  } else if (cond <= 75 && bht <= 54) {
+    rec = 'Конденсат ' + cond + '% — высокий уровень. Используйте <strong>Oil Foam Stick</strong> или <strong>FS-1253C</strong> (если воды &lt; 40%).';
+    cls = 'warn';
+  } else if (cond <= 75 && bht > 54) {
+    rec = 'Конденсат ' + cond + '% + BHT ' + bht + '°C &gt; 54°C. Единственный вариант — <strong>SlickWillie-OF</strong> (плавление 60°C, пена при 100°C+).';
+    cls = 'danger';
+  } else if (cond > 75 && bht <= 54) {
+    rec = 'Конденсат ' + cond + '% — углеводородная фаза. Используйте <strong>Condi Stick</strong>, <strong>Fluro-Stick</strong> или <strong>SlickWillie-OF</strong>.';
+    cls = 'danger';
+  } else {
+    rec = 'Конденсат ' + cond + '% + BHT ' + bht + '°C — самый сложный случай. Единственный вариант: <strong>SlickWillie-OF</strong>. Если не помогает — SI-403 или механический вынос.';
+    cls = 'danger';
+  }
+  rRec.innerHTML = rec;
+  rRec.className = 'calc-rec ' + cls;
+}
+[TUBING, HEIGHT, PNORM, PCUR, COND, BHT, PUNIT].forEach(function(el) {
+  el.addEventListener('input', calc);
+  el.addEventListener('change', calc);
+});
+calc();
+
+/* ===== WIZARD ===== */
+var wizSteps = document.querySelectorAll('.wiz-step');
+var wizState = {status:'', cond:'', temp:'', extra:'', step:1};
+
+function wizShow(n) {
+  wizState.step = n;
+  wizSteps.forEach(function(s){ s.classList.remove('active'); });
+  var target = document.getElementById(n === 6 ? 'wiz-result' : 'wiz-s' + n);
+  if (target) target.classList.add('active');
+}
+
+function bindOpts(containerId, key) {
+  var el = document.getElementById(containerId);
+  if (!el) return;
+  el.addEventListener('click', function(e) {
+    var btn = e.target.closest('.wiz-opt');
+    if (!btn) return;
+    el.querySelectorAll('.wiz-opt').forEach(function(b){ b.classList.remove('selected'); });
+    btn.classList.add('selected');
+    wizState[key] = btn.dataset.val;
+  });
+}
+bindOpts('wiz-status','status');
+bindOpts('wiz-cond','cond');
+bindOpts('wiz-temp','temp');
+bindOpts('wiz-extra','extra');
+
+function wizNav(btnId, dir) {
+  var b = document.getElementById(btnId);
+  if (!b) return;
+  b.addEventListener('click', function() {
+    if (dir > 0 && wizState.step === 5) { wizResult(); wizShow(6); return; }
+    wizShow(wizState.step + dir);
+  });
+}
+wizNav('wiz-n1',1); wizNav('wiz-n2',1); wizNav('wiz-n3',1); wizNav('wiz-n4',1); wizNav('wiz-n5',1);
+wizNav('wiz-b2',-1); wizNav('wiz-b3',-1); wizNav('wiz-b4',-1); wizNav('wiz-b5',-1);
+
+var resetBtn = document.getElementById('wiz-reset');
+if (resetBtn) resetBtn.addEventListener('click', function() {
+  wizState = {status:'', cond:'', temp:'', extra:'', step:1};
+  document.querySelectorAll('.wiz-opt.selected').forEach(function(b){ b.classList.remove('selected'); });
+  wizShow(1);
+});
+
+function wizResult() {
+  var s = wizState;
+  var tubing = parseFloat(document.getElementById('wiz-tubing').value) || 0.00302;
+  var h = parseFloat(document.getElementById('wiz-height').value) || 200;
+  var vol = h * tubing;
+
+  var product = [], dose = '', combo = '', warn = '', cls = 'ok';
+
+  if (s.cond === 'low' || s.cond === '') {
+    if (s.temp === 'cold' || s.temp === '') {
+      product = ['Blowout Stick', 'FS-1257', 'FS-1233', 'AltaChem Standard (FisherKing)'];
+      dose = stdDose(vol);
+    } else if (s.temp === 'warm') {
+      product = ['SuperFoam (SF-100/SF-50)', 'AltaChem Max Foam'];
+      dose = sfDose(vol); cls = 'warn';
+    } else {
+      product = ['SuperFoam (SF-100)', 'Laredo Foam (плавл. 63°C)'];
+      dose = sfDose(vol); cls = 'warn';
+    }
+  } else if (s.cond === 'medium') {
+    if (s.temp === 'cold' || s.temp === 'warm') {
+      product = ['FS-1259 (до 75% конд.)', 'SuperFoam', 'AltaChem High Cond (Condi Stick)'];
+      dose = stdDose(vol); cls = 'warn';
+    } else {
+      product = ['SuperFoam (100% актив.)', 'Slick Willie – OF'];
+      dose = sfDose(vol); cls = 'warn';
+    }
+  } else if (s.cond === 'high') {
+    if (s.temp === 'cold') {
+      product = ['Oil Foam Stick', 'FS-1253C (если воды < 40%)', 'AltaChem High Cond (Condi Stick)'];
+      dose = stdDose(vol); cls = 'warn';
+    } else {
+      product = ['Slick Willie – OF (единственный вариант)'];
+      dose = sfDose(vol); cls = 'danger';
+    }
+  } else {
+    if (s.temp === 'cold') {
+      product = ['Condi Stick (AltaChem)', 'Fluro-Stick', 'Slick Willie – OF'];
+      dose = stdDose(vol); cls = 'danger';
+    } else {
+      product = ['Slick Willie – OF (единственный)'];
+      dose = sfDose(vol); cls = 'danger';
+    }
+  }
+
+  if (s.extra === 'strat') {
+    combo = '<strong>+ Gas Sticks</strong> (Select) / Self-Agitating (AltaChem) — для перемешивания стратифицированного столба. 1–2 шт после пенного стика.';
+    cls = 'danger';
+  } else if (s.extra === 'salt') {
+    warn = 'Высокая минерализация: избегайте Slick A (макс. 20 000 PPM). Остальные работают до 200 000 PPM.';
+  } else if (s.extra === 'clay') {
+    warn = 'Глинистый коллектор: выбирайте неионогенный ПАВ (FS-1233, Slick Sticks).';
+  }
+
+  if (s.status === 'dead') {
+    combo = '<strong>Мёртвая скважина:</strong> после пенных стиков (1.5–2 ч ожидания) → Gas Sticks (1–2 шт). Или Well Rescue Pack (13+13). См. раздел «Мёртвая скважина».';
+    cls = 'danger';
+  }
+
+  var html = '<div class="prod-card" style="border-left-color:var(--' + (cls === 'ok' ? 'teal' : cls === 'warn' ? 'amber' : 'alert') + ');">';
+  html += '<h3 style="margin-bottom:8px;">Рекомендуемые продукты</h3><ul>';
+  product.forEach(function(p){ html += '<li><strong>' + p + '</strong></li>'; });
+  html += '</ul>';
+  html += '<div style="margin-top:12px;"><strong>Дозировка:</strong> ' + dose + '</div>';
+  html += '<div style="margin-top:6px;font-size:13px;color:var(--text-secondary);">Объём воды: ' + vol.toFixed(2) + ' м³ (H=' + Math.round(h) + ' м)</div>';
+  if (combo) html += '<div style="margin-top:10px;padding:10px 12px;background:var(--alert-light);border-radius:4px;">' + combo + '</div>';
+  if (warn) html += '<div style="margin-top:10px;padding:10px 12px;background:var(--amber-light);border-radius:4px;">' + warn + '</div>';
+  html += '</div>';
+
+  document.getElementById('wiz-result-content').innerHTML = html;
+}
+
+function stdDose(vol) {
+  var min = Math.max(1, Math.ceil(vol * 0.8 / 0.45));
+  var max = Math.max(min, Math.ceil(vol * 1.6 / 0.45));
+  return min + '–' + max + ' стандартных стиков (0.8–1.6 кг/м³)';
+}
+function sfDose(vol) {
+  var min = Math.max(1, Math.ceil(vol * 0.2 / 0.35));
+  var max = Math.max(min, Math.ceil(vol * 0.4 / 0.35));
+  return min + '–' + max + ' SuperFoam/Gel стиков (0.2–0.4 кг/м³)';
+}
+
+/* ===== PRODUCT CATALOG ===== */
+var PRODUCTS = {
+  blowout: {
+    name: 'Blowout Stick', maker: 'Select Industries (USA)',
+    desc: 'Универсальный стандартный пенный стик. Самый распространённый продукт для обычных газовых скважин с низким содержанием конденсата.',
+    specs: {form:'Твёрдый стик (красный)', ph:'6.5–7.5', density:'1.11 г/см³', melt:'49°C (120°F)', condensate:'0–35%', chlorides:'до 200 000 PPM', dosage:'0.8–1.6 кг/м³ (2–4 Junior / м³)', dissolve:'~72 мин при 38°C, ~25 мин при 49°C', sizes:'Senior, Junior, Thrifty, Midget'},
+    conditions: 'BHT < 50°C, конденсат < 35%, любая минерализация.',
+    combos: ['SuperFoam — для усиления при переходе к среднему конденсату', 'Gas Sticks — при подозрении на стратификацию или для мёртвых скважин', 'Acid Sticks — при карбонатных отложениях']
+  },
+  fs1257: {
+    name: 'FS-1257', maker: 'Select Industries (USA)',
+    desc: 'Стик с розовой окраской. Альтернатива Blowout для стандартных условий.',
+    specs: {form:'Твёрдый стик (розовый)', ph:'6.5–7.5', density:'1.10 г/см³', melt:'50°C (122°F)', condensate:'0–35%', chlorides:'до 200 000 PPM', dosage:'0.8–1.6 кг/м³', sizes:'Junior, Thrifty, Midget'},
+    conditions: 'BHT < 50°C, конденсат < 35%.',
+    combos: ['Взаимозаменяем с Blowout']
+  },
+  fs1251: {
+    name: 'FS-1251 / SC-21', maker: 'Select Industries (USA)',
+    desc: 'Быстрорастворимый стик для скважин с малым дебитом жидкости. Растворяется быстрее стандартных.',
+    specs: {form:'Твёрдый стик', density:'1.11 г/см³', melt:'49°C', condensate:'0–25%', dosage:'0.8–1.6 кг/м³', dissolve:'Ускоренное', sizes:'Junior, Thrifty, Midget'},
+    conditions: 'BHT < 50°C, низкий дебит (< 0.16 м³/сут), мало конденсата.',
+    combos: ['Для малых объёмов — используйте Midget размер']
+  },
+  fs1233: {
+    name: 'FS-1233', maker: 'Select Industries (USA)',
+    desc: 'Неионогенный ПАВ-стик. Выбор для глинистых коллекторов, где анионные ПАВ могут вызвать набухание глин.',
+    specs: {form:'Твёрдый стик', density:'1.10 г/см³', melt:'50°C', condensate:'0–35%', chlorides:'до 200 000 PPM', dosage:'0.8–1.6 кг/м³', sizes:'Junior'},
+    conditions: 'BHT < 50°C, глинистый коллектор.',
+    combos: ['Единственный выбор при чувствительности к ПАВ']
+  },
+  altaStd: {
+    name: 'AltaChem Standard (FisherKing / Northern Star)', maker: 'AltaChem Ltd (Canada)',
+    desc: 'Стандартный стик AltaChem. Также известен как FisherKing и Northern Star. Аналог Blowout.',
+    specs: {form:'Твёрдый стик', density:'~1.10 г/см³', melt:'49–50°C', condensate:'0–35%', chlorides:'до 200 000 PPM', dosage:'0.8–1.6 кг/м³', sizes:'Senior, Junior, Thrifty, Midget'},
+    conditions: 'BHT < 50°C, конденсат < 35%.',
+    combos: ['Max Foam — для усиления', 'Gas Plus / Self-Agitating — для мёртвых скважин']
+  },
+  slickA: {
+    name: 'Slick A Stick', maker: 'Select Industries (USA)',
+    desc: 'Стик для скважин с низкой минерализацией. Ограничение: не более 20 000 PPM хлоридов.',
+    specs: {form:'Твёрдый стик', density:'1.10 г/см³', melt:'50°C', condensate:'0–25%', chlorides:'до 20 000 PPM', dosage:'0.8–1.6 кг/м³'},
+    conditions: 'Только для скважин с низкой минерализацией (< 20 000 PPM).',
+    combos: ['Не рекомендуется при высокой минерализации — заменить на Blowout или FS-1257']
+  },
+  texasStar: {
+    name: 'Texas Star', maker: 'Select Industries (USA)',
+    desc: 'Экономичный стандартный стик. Аналогичен Blowout.',
+    specs: {form:'Твёрдый стик', density:'1.10 г/см³', melt:'50°C', condensate:'0–35%', dosage:'0.8–1.6 кг/м³'},
+    conditions: 'BHT < 50°C, конденсат < 35%.',
+    combos: ['Взаимозаменяем с Blowout, FS-1257']
+  },
+  fs1259: {
+    name: 'FS-1259', maker: 'Select Industries (USA)',
+    desc: 'Стик для среднего и высокого конденсата (до 75%). Ключевой продукт для газоконденсатных скважин.',
+    specs: {form:'Твёрдый стик', density:'1.10 г/см³', melt:'50°C', condensate:'35–75%', chlorides:'до 200 000 PPM', dosage:'0.8–1.6 кг/м³', sizes:'Junior'},
+    conditions: 'BHT < 50°C, конденсат 35–75%.',
+    combos: ['SuperFoam — комбинация для переходного диапазона 45–65%', 'Gas Sticks — при подозрении на стратификацию']
+  },
+  fs1253c: {
+    name: 'FS-1253C', maker: 'Select Industries (USA)',
+    desc: 'Конденсато-специфический стик. НЕ применять если доля воды > 40%. Для скважин, где конденсат доминирует.',
+    specs: {form:'Твёрдый стик', density:'1.10 г/см³', melt:'54°C (130°F)', condensate:'60–100% (воды < 40%)', dosage:'0.8–1.6 кг/м³'},
+    conditions: 'BHT < 54°C, конденсат > 60%, воды менее 40%.',
+    combos: ['Не комбинировать с водными ПАВ — разные рабочие среды']
+  },
+  altaHC: {
+    name: 'AltaChem High Cond (Condi Stick)', maker: 'AltaChem Ltd (Canada)',
+    desc: 'Стик AltaChem для высокого конденсата. Аналог FS-1259/FS-1253C.',
+    specs: {form:'Твёрдый стик', density:'~1.10 г/см³', melt:'50–54°C', condensate:'35–75%', dosage:'0.8–1.6 кг/м³'},
+    conditions: 'BHT < 54°C, конденсат 35–75%.',
+    combos: ['Self-Agitating Sticks — при подозрении на стратификацию']
+  },
+  oilfoam: {
+    name: 'Oil Foam Stick', maker: 'Select Industries (USA)',
+    desc: 'Стик для высококонденсатных скважин. Работает в углеводородной среде.',
+    specs: {form:'Твёрдый стик', density:'1.10 г/см³', melt:'54°C (130°F)', condensate:'65–100%', dosage:'0.8–1.6 кг/м³', sizes:'Junior'},
+    conditions: 'BHT < 54°C, конденсат > 65%.',
+    combos: ['Gas Sticks — обязательно при стратификации', 'SuperFoam — для покрытия водной фазы при смешанной жидкости']
+  },
+  slickwillie: {
+    name: 'Slick Willie – OF', maker: 'Select Industries (USA)',
+    desc: 'ЕДИНСТВЕННЫЙ продукт для высокого конденсата (>65%) + высокой температуры (>54°C). 100% активный, плавление 60°C, пена стабильна при 100°C+. Размеры: SF-100 (Junior 32×457 мм), SF-50, SF-25.',
+    specs: {form:'Твёрдый стик (100% актив.)', density:'~1.05 г/см³', melt:'60°C (140°F)', condensate:'0–100%', dosage:'0.2–0.4 кг/м³ (~1 шт/м³)', sizes:'SF-100 (Junior), SF-50, SF-25'},
+    conditions: 'BHT 50–60°C + конденсат > 65%. Или BHT > 54°C при любом конденсате.',
+    combos: ['Gas Sticks — критически важно при стратификации', 'Super Foam Gel — Slick Willie для конденсата + SuperFoam для воды', 'Единственный вариант при BHT > 54°C + конденсат > 65%']
+  },
+  fluro: {
+    name: 'Fluro-Stick', maker: 'Select Industries (USA)',
+    desc: 'Самый эффективный стик для углеводородной фазы (конденсат > 75%). Требует хотя бы небольшого количества воды.',
+    specs: {form:'Твёрдый стик', density:'1.10 г/см³', melt:'54°C (130°F)', condensate:'75–100% (нужна вода)', dosage:'0.8–1.6 кг/м³'},
+    conditions: 'BHT < 54°C, конденсат > 75%, вода обязательна.',
+    combos: ['Gas Sticks — для подъёма воды в зону перфорации при стратификации']
+  },
+  superfoam: {
+    name: 'Super Foam Sticks', maker: 'Select Industries (USA)',
+    desc: 'Высокоактивный стик (100% ПАВ). В 3–4× эффективнее стандартных. Плавление 52°C, но пена стабильна при 100°C+. Размеры: SF-100, SF-50, SF-25.',
+    specs: {form:'Твёрдый стик (100% актив.)', density:'~1.05 г/см³', melt:'52°C (125°F)', condensate:'0–65%', dosage:'0.2–0.4 кг/м³ (~1 шт/м³)', dissolve:'~90 мин при 38°C, ~30 мин при 82°C', sizes:'SF-100, SF-50, SF-25'},
+    conditions: 'Любая температура (пена при 100°C+), конденсат < 65%.',
+    combos: ['FS-1259 — SuperFoam для пены + FS-1259 для конденсато-устойчивости', 'Gas Sticks — для мёртвых скважин и стратификации', 'Slick Willie – OF — SuperFoam для водной фазы + Slick Willie для конденсатной']
+  },
+  superfoamgel: {
+    name: 'Super Foam Gel', maker: 'Select Industries (USA)',
+    desc: 'Гелевая версия Super Foam. 100% активный, 4× объём пены. Тот же принцип, гелевая консистенция.',
+    specs: {form:'Гелевый стик (100% актив.)', density:'~1.05 г/см³', melt:'52°C', condensate:'0–65%', dosage:'0.2–0.4 кг/м³', sizes:'SF-100, SF-50, SF-25'},
+    conditions: 'Аналогично Super Foam Sticks.',
+    combos: ['Аналогично Super Foam Sticks — взаимозаменяемы']
+  },
+  laredo: {
+    name: 'Laredo Foam', maker: 'Select Industries (USA)',
+    desc: 'Максимальная термостойкость среди стиков: плавление 63°C (145°F). Для самых горячих скважин.',
+    specs: {form:'Твёрдый стик', density:'~1.10 г/см³', melt:'63°C (145°F)', condensate:'0–35%', dosage:'0.8–1.6 кг/м³'},
+    conditions: 'BHT 50–63°C, конденсат < 35%. Максимальная температура для твёрдого стика.',
+    combos: ['Единственный стик, который «долетит» до забоя при 60–63°C']
+  },
+  gasstick: {
+    name: 'Gas Sticks (Select) / Self-Agitating Sticks (AltaChem)', maker: 'Select Industries / AltaChem',
+    desc: 'Газогенерирующие стики (CO₂). Тяжелее воды (1.35 г/см³) — проходят весь столб. Создают турбулентность для перемешивания стратифицированной жидкости и дополнительную подъёмную силу.',
+    specs: {form:'Твёрдый стик', density:'1.35 г/см³', reaction:'5–15 мин', gas:'CO₂ (невоспламеняем)', shelf:'2–3 месяца', hazard:'TDG — опасный груз', sizes:'Junior 32×381/457 мм'},
+    conditions: 'Мёртвые скважины, стратификация, недостаточное давление для выноса.',
+    combos: ['ВСЕГДА после пенных стиков (ожидание 1.5–2 ч)', 'Пенный стик + Gas Stick = оживление мёртвой скважины', 'При стратификации: даже 1–2 шт могут радикально изменить режим']
+  },
+  fizzstick: {
+    name: 'Fizz Stick (Select) / Ultra Foam (AltaChem)', maker: 'Select Industries / AltaChem',
+    desc: 'Самоагитирующий пенный стик со встроенным газообразующим агентом. Комбинирует пену + CO₂ в одном стике. Только для холодных скважин (BHT < 32°C).',
+    specs: {form:'Твёрдый стик', density:'~1.15 г/см³', melt:'32°C (90°F)', condensate:'0–25%', dosage:'0.8–1.6 кг/м³'},
+    conditions: 'BHT < 32°C, мелкие скважины, низкое давление.',
+    combos: ['Заменяет связку «пенный стик + Gas Stick» для холодных скважин']
+  },
+  wellrescue: {
+    name: 'Well Rescue Pack', maker: 'Select Industries (USA)',
+    desc: 'Готовый комплект для оживления мёртвой скважины: 13 пенных стиков + 13 газогенерирующих (Gas Sticks).',
+    specs: {contents:'13 × пенных + 13 × Gas Sticks', target:'Скважины до 1500 м глубиной'},
+    conditions: 'Мёртвые скважины. Один комплект на обработку.',
+    combos: ['Полный комплект — не нужно подбирать соотношение']
+  },
+  si403: {
+    name: 'SI-403 Liquid Downhole Foamer', maker: 'Select Industries (USA)',
+    desc: 'Жидкий пенообразователь для непрерывного дозирования через химический насос. Когда стики не справляются.',
+    specs: {form:'Жидкость', dosage:'Через дозировочный насос', target:'Постоянная обработка'},
+    conditions: 'Когда стики неэффективны (очень высокий дебит, экстремальные условия). Переход на постоянное дозирование.',
+    combos: ['Альтернатива стикам при невозможности использования твёрдых форм', 'Рассмотреть при неэффективности Slick Willie – OF + Gas Sticks']
+  }
+};
+
+var catSelect = document.getElementById('cat-select');
+var catDetail = document.getElementById('cat-detail');
+if (catSelect) catSelect.addEventListener('change', function() {
+  var key = this.value;
+  if (!key || !PRODUCTS[key]) { catDetail.style.display = 'none'; return; }
+  var p = PRODUCTS[key];
+  var html = '<div class="prod-card">';
+  html += '<h3>' + p.name + '</h3>';
+  html += '<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">' + p.maker + '</div>';
+  html += '<p style="margin-bottom:12px;">' + p.desc + '</p>';
+  html += '<h4 style="font-size:14px;margin-bottom:6px;">Характеристики</h4>';
+  html += '<div class="specs">';
+  var specLabels = {form:'Форма', ph:'pH', density:'Плотность', melt:'Точка плавления', condensate:'Конденсат', chlorides:'Хлориды', dosage:'Дозировка', dissolve:'Растворение', sizes:'Размеры', reaction:'Реакция', gas:'Газ', shelf:'Срок хранения', hazard:'Опасность', contents:'Состав', target:'Применение'};
+  for (var sk in p.specs) {
+    html += '<div class="spec-line"><dt>' + (specLabels[sk]||sk) + '</dt><dd>' + p.specs[sk] + '</dd></div>';
+  }
+  html += '</div>';
+  html += '<h4 style="font-size:14px;margin:12px 0 6px;">Условия применения</h4>';
+  html += '<div style="padding:8px 12px;background:var(--teal-light);border-radius:4px;font-size:13.5px;">' + p.conditions + '</div>';
+  html += '<h4 style="font-size:14px;margin:12px 0 6px;">Рекомендации по комбинированию</h4>';
+  html += '<div class="compat-list">';
+  p.combos.forEach(function(c) {
+    html += '<div class="compat-item">' + c + '</div>';
+  });
+  html += '</div></div>';
+  catDetail.innerHTML = html;
+  catDetail.style.display = 'block';
+});
+
+})();
+</script>
+<script>
+(function() {
+  var overlay = document.getElementById('consent-overlay');
+  var accepted = sessionStorage.getItem('foam_consent');
+
+  if (accepted === '1') {
+    overlay.classList.add('hidden');
+    document.body.classList.add('locked');
+  }
+
+  document.getElementById('consent-accept').addEventListener('click', function() {
+    sessionStorage.setItem('foam_consent', '1');
+    overlay.classList.add('hidden');
+    document.body.classList.add('locked');
+  });
+
+  document.getElementById('consent-decline').addEventListener('click', function() {
+    document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#1C2B3A;color:#fff;font-family:sans-serif;font-size:16px;">Доступ отклонён.</div>';
+  });
+
+  // Anti-copy measures
+  document.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+  document.addEventListener('copy', function(e) { e.preventDefault(); });
+  document.addEventListener('cut', function(e) { e.preventDefault(); });
+  document.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C' || e.key === 'a' || e.key === 'A' || e.key === 'u' || e.key === 'U' || e.key === 's' || e.key === 'S' || e.key === 'p' || e.key === 'P')) {
+      e.preventDefault();
+    }
+    if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j'))) {
+      e.preventDefault();
+    }
+  });
+  document.addEventListener('dragstart', function(e) { e.preventDefault(); });
+})();
+</script>

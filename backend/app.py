@@ -491,6 +491,11 @@ async def root(current_user: str = Depends(get_current_user)):
     return RedirectResponse("/visual")
 
 
+@app.get("/foam-guide", response_class=HTMLResponse)
+async def foam_guide_page():
+    return (STATIC_DIR / "foam-guide.html").read_text(encoding="utf-8")
+
+
 @app.get("/login")
 def login_page(request: Request):
     return templates.TemplateResponse(

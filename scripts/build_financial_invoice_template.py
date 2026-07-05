@@ -31,11 +31,22 @@ def main():
     works_tbl = copy.deepcopy(act.tables[1]._tbl)  # готовая таблица работ
 
     d = Dx(SRC)
-    # номер/дата в шапке (p: «№ 6-c dated 26.06.2025»)
+    # заголовок + номер/дата
     for p in d.paragraphs:
-        if p.text.strip().startswith("№"):
+        t = p.text.strip()
+        if t.startswith("СЧЕТ-ФАКТУРА") or t.startswith("СЧЁТ-ФАКТУРА"):
+            set_para(p, "СЧЁТ-ФАКТУРА / INVOICE")
+        elif t.startswith("№"):
             set_para(p, "№ {{ invoice_no }} от {{ act_date }}")
-            break
+
+    # убрать ДУБЛИ описания услуги (в исходнике повторяется 4 раза) — оставить один раз
+    kept = 0
+    for p in list(d.paragraphs):
+        t = p.text.strip()
+        if t.startswith("на оказание услуг") or t.startswith("по оптимизации"):
+            kept += 1
+            if kept > 2:  # первые два абзаца (описание услуги) оставляем, остальные — дубли
+                p._p.getparent().remove(p._p)
 
     # заменить разбитую таблицу работ (T1 + T2) на одну готовую
     t1 = d.tables[1]._tbl

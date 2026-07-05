@@ -199,16 +199,26 @@ class DocumentGenerator:
         cont = m.get("continue_wells", m.get("wells", []))
         stop = m.get("stop_wells", [])
 
+        cc = m.get("continue_clause", "3.9")
+        sc = m.get("stop_clause", "3.17")
+
         def phrase(wells, verb, clause):
             if not wells:
                 return ""
             head = "На скважине №" if len(wells) == 1 else "На скважинах №№ "
             return f"{head}{', '.join(wells)} {verb} в соответствии с пунктом {clause} Договора."
 
+        def phrase_en(wells, verb, clause):
+            if not wells:
+                return ""
+            head = "At well #" if len(wells) == 1 else "At wells #"
+            return f"{head}{', '.join(wells)} {verb} in accordance with clause {clause} of the Contract."
+
         return {
-            "decision_continue": phrase(cont, "продолжить работы по оптимизации/обслуживанию",
-                                        m.get("continue_clause", "3.9")),
-            "decision_stop": phrase(stop, "прекратить работы", m.get("stop_clause", "3.17")),
+            "decision_continue": phrase(cont, "продолжить работы по оптимизации/обслуживанию", cc),
+            "decision_stop": phrase(stop, "прекратить работы", sc),
+            "decision_continue_en": phrase_en(cont, "continue optimization/maintenance work", cc),
+            "decision_stop_en": phrase_en(stop, "cease works", sc),
         }
 
     @staticmethod
@@ -235,9 +245,15 @@ class DocumentGenerator:
     def generate_docx(self, document: Document) -> str:
         """.docx финансового акта. Если есть docxtpl-шаблон (реальный файл клиента) —
         заполняем его; иначе строим программно (fallback)."""
-        tpl_name = (getattr(document.doc_type, "docx_template_name", None)
-                    or "financial_act_template.docx")
+        # шаблон по имени из типа; страховка — по коду (чтобы неверное имя в БД
+        # не роняло в программный fallback)
+        code = getattr(document.doc_type, "code", "")
+        default_tpl = ("financial_invoice_template.docx" if code == "financial_invoice"
+                       else "financial_act_template.docx")
+        tpl_name = getattr(document.doc_type, "docx_template_name", None) or default_tpl
         tpl_path = self.templates_dir / "docx" / tpl_name
+        if not tpl_path.exists():
+            tpl_path = self.templates_dir / "docx" / default_tpl
         if tpl_path.exists():
             from docxtpl import DocxTemplate
             ctx = self._prepare_financial_act_context(document)

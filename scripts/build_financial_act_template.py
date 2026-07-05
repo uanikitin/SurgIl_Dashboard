@@ -111,13 +111,27 @@ def main():
 
     # ── TABLE 2: решение + пропись ──
     t2 = d.tables[2]
-    dec_ru = find_para(t2.rows[0].cells[0], "скважинах")
-    if dec_ru:
-        # НЕ повторяем вводную «По результатам…» — она отдельным абзацем выше остаётся как есть.
-        set_para(dec_ru,
-            "{{ decision_continue }} {{ decision_stop }} "
-            "Выполненные объёмы работ полностью удовлетворяют условиям Контракта. "
-            "Стороны претензий и замечаний друг к другу не имеют.")
+
+    def rebuild_cell(cell, lines):
+        """Очистить ячейку и заполнить заново (убирает дубли-абзацы)."""
+        for par in list(cell.paragraphs):
+            par._p.getparent().remove(par._p)
+        for txt in lines:
+            cell.add_paragraph(txt)
+
+    # решение — обе ячейки (RU и EN) с нуля, чтобы не осталось статичных дублей
+    rebuild_cell(t2.rows[0].cells[0], [
+        "По результатам работ было принято следующее решение:",
+        "{{ decision_continue }} {{ decision_stop }}",
+        "Выполненные объёмы работ полностью удовлетворяют условиям Контракта. "
+        "Стороны претензий и замечаний друг к другу не имеют.",
+    ])
+    rebuild_cell(t2.rows[0].cells[1], [
+        "Based on the results of the work, the following decision was made:",
+        "{{ decision_continue_en }} {{ decision_stop_en }}",
+        "The scope of work performed fully satisfies the terms of the Contract. "
+        "The parties have no claims and comments to each other.",
+    ])
     sum_ru = find_para(t2.rows[1].cells[0], "Общая стоимость")
     if sum_ru:
         set_para(sum_ru,

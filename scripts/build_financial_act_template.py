@@ -146,6 +146,11 @@ def main():
     # ── TABLE 3: блок подписей → циклы по сторонам (несколько подписантов) ──
     t3 = d.tables[3]
 
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    Wsig = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
     def rebuild_sig_cell(cell, header, loop_var):
         for par in list(cell.paragraphs):           # очистить ячейку
             par._p.getparent().remove(par._p)
@@ -160,10 +165,26 @@ def main():
             "{%p endfor %}",
         ]
         for txt in lines:
-            cell.add_paragraph(txt)
+            p = cell.add_paragraph(txt)
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER   # подпись по центру
 
     rebuild_sig_cell(t3.rows[1].cells[0], "The Contractor (Исполнитель)", "sign_contractor")
     rebuild_sig_cell(t3.rows[1].cells[1], "The Customer (Заказчик)", "sign_customer")
+
+    # убрать ВСЕ границы таблицы подписей (вертикальные линии под таблицей работ)
+    tblPr3 = t3._tbl.tblPr
+    for old in tblPr3.findall(Wsig + "tblBorders"):
+        tblPr3.remove(old)
+    borders = OxmlElement("w:tblBorders")
+    for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        e = OxmlElement("w:" + edge); e.set(qn("w:val"), "nil"); borders.append(e)
+    tblPr3.append(borders)
+    for row in t3.rows:
+        for tc in row._tr.findall(Wsig + "tc"):
+            tcPr = tc.find(Wsig + "tcPr")
+            if tcPr is not None:
+                for tb in tcPr.findall(Wsig + "tcBorders"):
+                    tcPr.remove(tb)
 
     # ── Единый шрифт 10pt в таблице работ ──
     from docx.shared import Pt, Cm
@@ -217,12 +238,25 @@ def main():
         if len(tcs) >= 2:
             set_span(tcs[0], 2)  # № → колонки 0+1
             set_span(tcs[1], 1)  # Наименование → одинарная (колонка 2)
-        # повтор строк заголовка на каждой странице при разрыве таблицы
+    # повтор заголовка (названия + номера колонок) на каждой новой странице при разрыве
+    for ri in (0, 1):
         tr = t1.rows[ri]._tr
         trPr = tr.find(Wns + "trPr")
         if trPr is None:
             trPr = OxmlElement("w:trPr"); tr.insert(0, trPr)
+        for old in trPr.findall(Wns + "tblHeader"):
+            trPr.remove(old)
         trPr.append(OxmlElement("w:tblHeader"))
+
+    # запрет разрыва строк (чтобы merged-ячейки «Наименование» не «протекали»
+    # вертикальными линиями при разрыве таблицы между страницами)
+    for row in t1.rows:
+        tr = row._tr
+        trPr = tr.find(Wns + "trPr")
+        if trPr is None:
+            trPr = OxmlElement("w:trPr"); tr.insert(0, trPr)
+        if trPr.find(Wns + "cantSplit") is None:
+            trPr.append(OxmlElement("w:cantSplit"))
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     d.save(str(OUT))

@@ -151,10 +151,12 @@ def main():
             par._p.getparent().remove(par._p)
         lines = [
             header,
+            "", "",                                  # место под заголовком → черта ниже
             "{%p for s in " + loop_var + " %}",
             "________________________________",
             "{{ s.name_ru }} ({{ s.name_en }})",
             "{{ s.position_ru }} / {{ s.position_en }}",
+            "", "",                                  # интервал между подписантами
             "{%p endfor %}",
         ]
         for txt in lines:
@@ -215,6 +217,12 @@ def main():
         if len(tcs) >= 2:
             set_span(tcs[0], 2)  # № → колонки 0+1
             set_span(tcs[1], 1)  # Наименование → одинарная (колонка 2)
+        # повтор строк заголовка на каждой странице при разрыве таблицы
+        tr = t1.rows[ri]._tr
+        trPr = tr.find(Wns + "trPr")
+        if trPr is None:
+            trPr = OxmlElement("w:trPr"); tr.insert(0, trPr)
+        trPr.append(OxmlElement("w:tblHeader"))
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     d.save(str(OUT))

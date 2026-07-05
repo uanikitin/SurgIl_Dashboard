@@ -41,11 +41,14 @@ BANK_CUSTOMER = [
 ]
 
 
-def rebuild_cell(cell, lines):
+def rebuild_cell(cell, lines, center=False):
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
     for par in list(cell.paragraphs):
         par._p.getparent().remove(par._p)
     for txt in lines:
-        cell.add_paragraph(txt)
+        p = cell.add_paragraph(txt)
+        if center:
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
 
 def main():
@@ -53,7 +56,7 @@ def main():
     t0 = d.tables[0]  # шапка/преамбула акта → шапка СФ
 
     # r0: заголовок + номер + контракт + описание услуги (обе колонки)
-    rebuild_cell(t0.rows[0].cells[0], [
+    rebuild_cell(t0.rows[0].cells[0], center=True, lines=[
         "СЧЁТ-ФАКТУРА / INVOICE",
         "№ {{ invoice_no }} от {{ act_date }}",
         "согласно Контракту № {{ contract_ref }} / to Contract № {{ contract_ref }}",
@@ -65,7 +68,9 @@ def main():
     rebuild_cell(t0.rows[1].cells[1], BANK_CUSTOMER)
 
     # удалить таблицу решения (T2) — в счёте-фактуре её нет
+    from docx.oxml import OxmlElement
     t2 = d.tables[2]._tbl
+    t2.addprevious(OxmlElement("w:p"))   # абзац-разделитель (иначе границы таблицы работ протекают в подписи)
     t2.getparent().remove(t2)
 
     OUT.parent.mkdir(parents=True, exist_ok=True)

@@ -242,9 +242,95 @@ class DocumentGenerator:
             "sign_customer": [s for s in sign if s.get("side") == "customer"],
         }
 
+    # ==========================================
+    # ПЛАН РАБОТ (docx-шаблон + картинки печать/подпись)
+    # ==========================================
+
+    # Ассеты по умолчанию (можно переопределить путём в meta: seal_path / signature_path)
+    DEFAULT_SEAL_PATH = "backend/static/img/unitool_seal.png"
+    DEFAULT_SIGNATURE_PATH = "backend/static/img/verba_signature.png"
+
+    def _prepare_work_plan_context(self, document: Document) -> dict:
+        """Текстовый контекст «Плана работ»: Таблица 1.1 + подписанты.
+        Печать/подпись накладываются ЗА текст отдельно (`_overlay_seal_signature`)."""
+        from backend.services.work_plan_service import TABLE11_KEYS, DEFAULT_SIGS
+
+        m = document.meta or {}
+        t = {k: "" for k in TABLE11_KEYS}
+        t.update(m.get("table11", {}) or {})
+
+        ctx = {"t": t, "well_no": t.get("well_no", "")}
+        for k, default in DEFAULT_SIGS.items():
+            ctx[k] = m.get(k) or default
+        return ctx
+
+    @staticmethod
+    def _overlay_seal_signature(path: str, document: Document) -> None:
+        """Наложить печать (4 см) и подпись ЗА текст блока УТВЕРЖДАЮ (правая ячейка
+        шапки). Плавающие якоря behindDoc, привязка к абзацу «ФИО» — двигаются
+        вместе с блоком. Пропорции сохраняются."""
+        from docx import Document as Docx
+        from docx.oxml import parse_xml
+        from docx.oxml.ns import nsdecls
+        from PIL import Image as PILImage
+
+        m = document.meta or {}
+        EMU_MM = 36000  # 1 мм
+        seal_p = (m.get("seal_path") or DocumentGenerator.DEFAULT_SEAL_PATH)
+        sig_p = (m.get("signature_path") or DocumentGenerator.DEFAULT_SIGNATURE_PATH)
+
+        d = Docx(path)
+        # правая ячейка шапки (таблица 0, строка 0, ячейка 1) → абзац «ФИО»
+        cell = d.tables[0].rows[0].cells[1]
+        # абзац с «_____ {ФИО}» — предпоследний непустой (перед строкой даты)
+        name_par = None
+        for p in cell.paragraphs:
+            if "___" in p.text and "  " in p.text:
+                name_par = p
+        anchor_par = name_par or cell.paragraphs[-1]
+
+        def add(img_path, w_mm, h_mm, x_mm, y_mm, zid, name):
+            if not img_path or not os.path.exists(img_path):
+                return
+            rId, _ = d.part.get_or_add_image(img_path)
+            cx, cy = int(w_mm * EMU_MM), int(h_mm * EMU_MM)
+            x, y = int(x_mm * EMU_MM), int(y_mm * EMU_MM)
+            xml = (
+                f'<w:drawing {nsdecls("w", "wp", "a", "pic", "r")}>'
+                f'<wp:anchor behindDoc="1" distT="0" distB="0" distL="0" distR="0" '
+                f'simplePos="0" locked="0" layoutInCell="1" allowOverlap="1" relativeHeight="{zid}">'
+                f'<wp:simplePos x="0" y="0"/>'
+                f'<wp:positionH relativeFrom="column"><wp:posOffset>{x}</wp:posOffset></wp:positionH>'
+                f'<wp:positionV relativeFrom="paragraph"><wp:posOffset>{y}</wp:posOffset></wp:positionV>'
+                f'<wp:extent cx="{cx}" cy="{cy}"/>'
+                f'<wp:effectExtent l="0" t="0" r="0" b="0"/><wp:wrapNone/>'
+                f'<wp:docPr id="{zid}" name="{name}"/><wp:cNvGraphicFramePr/>'
+                f'<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+                f'<pic:pic><pic:nvPicPr><pic:cNvPr id="{zid}" name="{name}"/><pic:cNvPicPr/></pic:nvPicPr>'
+                f'<pic:blipFill><a:blip r:embed="{rId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+                f'<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>'
+                f'<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>'
+                f'</a:graphicData></a:graphic></wp:anchor></w:drawing>'
+            )
+            anchor_par.add_run()._r.append(parse_xml(xml))
+
+        # печать 40×40 мм; подпись — 28 мм по ширине, высота по пропорции
+        if m.get("include_signature", True):
+            try:
+                w, h = PILImage.open(sig_p).size
+            except Exception:
+                w, h = 244, 137
+            sig_w = 28.0
+            sig_h = sig_w * h / w
+            # подпись над печатью, ближе к строке ФИО
+            add(sig_p, sig_w, sig_h, x_mm=18, y_mm=-42, zid=101, name="signature")
+        if m.get("include_seal", True):
+            add(seal_p, 40.0, 40.0, x_mm=24, y_mm=-40, zid=100, name="seal")
+
+        d.save(path)
+
     def generate_docx(self, document: Document) -> str:
-        """.docx финансового акта. Если есть docxtpl-шаблон (реальный файл клиента) —
-        заполняем его; иначе строим программно (fallback)."""
+        """.docx по docxtpl-шаблону (реальный файл клиента). Иначе — программно (fallback)."""
         # шаблон по имени из типа; страховка — по коду (чтобы неверное имя в БД
         # не роняло в программный fallback)
         code = getattr(document.doc_type, "code", "")
@@ -256,14 +342,20 @@ class DocumentGenerator:
             tpl_path = self.templates_dir / "docx" / default_tpl
         if tpl_path.exists():
             from docxtpl import DocxTemplate
-            ctx = self._prepare_financial_act_context(document)
             tpl = DocxTemplate(str(tpl_path))
+            if code == "work_plan":
+                ctx = self._prepare_work_plan_context(document)
+            else:
+                ctx = self._prepare_financial_act_context(document)
             tpl.render(ctx)
             base_name = document.doc_number.replace("/", "-")
             (self.output_dir / "docx").mkdir(exist_ok=True)
             out = self.output_dir / "docx" / f"{base_name}.docx"
             tpl.save(str(out))
-            self._style_work_table(str(out))  # жирные разделители + merge названий групп
+            if code in ("financial_act", "financial_invoice"):
+                self._style_work_table(str(out))  # жирные разделители + merge названий групп
+            elif code == "work_plan":
+                self._overlay_seal_signature(str(out), document)  # печать+подпись ЗА текст
             return f"generated/docx/{out.name}"
         return self._generate_docx_programmatic(document)
 
@@ -325,9 +417,24 @@ class DocumentGenerator:
                             tcPr.remove(old)
                         va = OxmlElement("w:vAlign"); va.set(qn("w:val"), "center")
                         tcPr.append(va)
-        if n >= 2:  # жирная линия перед строкой «Всего/Total»
+        def close_bottom(tc):  # нижняя граница ячейки (закрывает таблицу, чтобы
+            tcPr = tc.find(W + "tcPr")   # merged-колонки не «протекали» линиями вниз
+            if tcPr is None:
+                tcPr = OxmlElement("w:tcPr"); tc.insert(0, tcPr)
+            borders = tcPr.find(W + "tcBorders")
+            if borders is None:
+                borders = OxmlElement("w:tcBorders"); tcPr.append(borders)
+            for old in borders.findall(W + "bottom"):
+                borders.remove(old)
+            b = OxmlElement("w:bottom")
+            b.set(qn("w:val"), "single"); b.set(qn("w:sz"), "6")
+            b.set(qn("w:space"), "0"); b.set(qn("w:color"), "000000")
+            borders.append(b)
+
+        if n >= 2:  # жирная линия перед «Всего» + закрыть низ таблицы явной границей
             for tc in rows[n - 1]._tr.findall(W + "tc"):
                 thick_top(tc)
+                close_bottom(tc)
         d.save(path)
 
     def _generate_docx_programmatic(self, document: Document) -> str:

@@ -69,8 +69,12 @@ def main():
 
     # удалить таблицу решения (T2) — в счёте-фактуре её нет
     from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
     t2 = d.tables[2]._tbl
-    t2.addprevious(OxmlElement("w:p"))   # абзац-разделитель (иначе границы таблицы работ протекают в подписи)
+    # разрыв страницы перед подписями (подписи на чистой странице, отдельно от таблицы)
+    pb = OxmlElement("w:p"); r = OxmlElement("w:r"); br = OxmlElement("w:br")
+    br.set(qn("w:type"), "page"); r.append(br); pb.append(r)
+    t2.addprevious(pb)
     t2.getparent().remove(t2)
 
     OUT.parent.mkdir(parents=True, exist_ok=True)

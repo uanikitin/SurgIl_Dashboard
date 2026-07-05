@@ -124,16 +124,17 @@ def _wells_by_status(db: Session, status_name: str, dt_from: datetime, dt_to: da
     )
 
 
-def _build_rows(db: Session, year: int, month: int) -> list[dict]:
-    p_start, p_end = _period(year, month)
-    dim = monthrange(year, month)[1]
-    dt_from = datetime.combine(p_start, time.min)
-    dt_to = datetime.combine(p_end, time.max)
-    rows: list[dict] = []
+ADAPT_MIN_DAYS = 1    # адаптация < 1 дня = ошибка (исключаем)
+ADAPT_WARN_DAYS = 5   # адаптация < 5 дней = предупреждение (ориентир ~10)
 
-    # 1) Адаптация — скважино-операция (непрерывный период). Привязка к акту ПО МЕСЯЦУ
-    #    ЗАВЕРШЕНИЯ (dt_end в этом месяце). Незавершённые (dt_end IS NULL) НЕ включаются.
-    #    Цена фиксирована за операцию; amount = цена × число завершённых операций.
+DOSING_CFG = [
+    ("foam", "foam_dosing", "Дозирование пенных реагентов / Foam reagent dosing"),
+    ("inhibitor", "inhibitor_dosing", "Дозирование ингибирующих реагентов / Inhibitor reagent dosing"),
+]
+
+
+def _adaptation_by_well(db: Session, dt_from, dt_to) -> dict:
+    """Завершённые в периоде адаптации по скважине + валидация длительности."""
     completed = (
         db.query(WellStatus, Well.number)
         .join(Well, Well.id == WellStatus.well_id)
@@ -143,94 +144,149 @@ def _build_rows(db: Session, year: int, month: int) -> list[dict]:
         .order_by(Well.number.asc(), WellStatus.dt_end.asc())
         .all()
     )
-    adapt: dict[str, dict] = {}
+    out: dict[str, dict] = {}
     for st, well_no in completed:
-        d = adapt.setdefault(str(well_no), {
+        d = out.setdefault(str(well_no), {
             "well_id": st.well_id, "count": 0,
             "start": st.dt_start.date(), "end": st.dt_end.date(),
         })
         d["count"] += 1
         d["start"] = min(d["start"], st.dt_start.date())
         d["end"] = max(d["end"], st.dt_end.date())
-    for well_no, d in adapt.items():
-        price = _price_for(db, "adaptation", d["well_id"], p_start) or Decimal("0")
-        rows.append(_row(
-            "adaptation", "Адаптация / Adaptation", well_no, _fmt_range(d["start"], d["end"]),
-            "скв операция", d["count"], price, amount=price * Decimal(d["count"]),
-        ))
+    for d in out.values():
+        d["days"] = (d["end"] - d["start"]).days
+        d["valid"] = d["days"] >= ADAPT_MIN_DAYS
+        d["warn_short"] = d["valid"] and d["days"] < ADAPT_WARN_DAYS
+    return out
 
-    # 2) Оптимизация — (месячная цена / дней в месяце) × сутки, с разбивкой по ценам
-    for st, well_no in _wells_by_status(db, "Оптимизация", dt_from, dt_to):
-        clip = _clip(st, p_start, p_end)
-        if not clip:
-            continue
-        s, e = clip
-        worked = (e - s).days
-        if worked <= 0:
-            continue
-        # Дневная цена = round(месячная / дней_в_месяце, 2), суммируем по дням
-        # (при смене цены в середине месяца каждый день берёт свою цену).
-        amount = Decimal("0")
-        for i in range(worked):
-            day = s + timedelta(days=i)
-            monthly = _opt_monthly_on(db, st.well_id, day) or Decimal("0")
-            amount += _money(monthly / Decimal(dim))
-        # цена за сутки для колонки «цена за ед» — на дату начала интервала
-        daily = (_opt_monthly_on(db, st.well_id, s) or Decimal("0")) / Decimal(dim)
-        label = _fmt_range(s, e)
-        rows.append(_row(
-            "optimization",
-            "Оптимизация (по формуле дни/дней в месяце × ежемесячный платёж) / Optimization",
-            str(well_no), label, "сут", worked, _money(daily), amount=amount,
-        ))
 
-    # 3) Возмещение реагентов — ТОЛЬКО за вбросы В ПЕРИОД ОПТИМИЗАЦИИ.
-    #    Две категории по группе реагента (пенные / ингибирующие), РАЗНЫЕ цены.
-    #    (Вбросы во время адаптации НЕ возмещаются — химия в цене операции.)
-    opt_intervals: dict[str, list] = {}
+def _opt_by_well(db: Session, p_start, p_end, dt_from, dt_to) -> dict:
+    """Интервалы оптимизации по скважине (клип по месяцу)."""
+    out: dict[str, dict] = {}
     for st, well_no in _wells_by_status(db, "Оптимизация", dt_from, dt_to):
         s = max(st.dt_start.date(), p_start)
         e = min(st.dt_end.date() if st.dt_end else p_end, p_end)
         if e >= s:
-            opt_intervals.setdefault(str(well_no), []).append((s, e))
+            o = out.setdefault(str(well_no), {"well_id": st.well_id, "intervals": []})
+            o["intervals"].append((s, e))
+    return out
 
-    def _in_opt(wkey: str, d: date) -> bool:
-        return any(s <= d <= e for s, e in opt_intervals.get(wkey, []))
 
+def _build_rows(db: Session, year: int, month: int, decisions: dict | None = None):
+    """Строит строки акта с учётом ПО-СКВАЖИННЫХ решений.
+
+    decisions: {well_number: {"mode": "adaptation"|"ineffective"|"exclude",
+                              "reagents": bool, "time": bool}}
+    Возвращает (rows, catalog, warnings). catalog — данные для панели «Скважины и этапы».
+    Без decisions вывод = поведению по умолчанию (адаптация оплачивается, реагенты — в оптимизации).
+    """
+    decisions = decisions or {}
+    p_start, p_end = _period(year, month)
+    dim = monthrange(year, month)[1]
+    dt_from = datetime.combine(p_start, time.min)
+    dt_to = datetime.combine(p_end, time.max)
+
+    adapt = _adaptation_by_well(db, dt_from, dt_to)
+    opt = _opt_by_well(db, p_start, p_end, dt_from, dt_to)
+
+    # реагентные события за месяц по скважине (для гейтинга по периодам)
     grp_of = dict(db.query(ReagentCatalog.name, ReagentCatalog.act_group)
                   .filter(ReagentCatalog.act_group.in_(["foam", "inhibitor"])).all())
-    if grp_of and opt_intervals:
-        events = (db.query(Event.well, Event.reagent, Event.event_time)
-                  .filter(Event.event_time >= dt_from, Event.event_time <= dt_to)
-                  .filter(Event.reagent.in_(list(grp_of.keys())))
-                  .filter(Event.qty.isnot(None), Event.qty > 0).all())
-        agg: dict[tuple, dict] = {}
-        for well, reagent, et in events:
+    events_by_well: dict[str, list] = {}
+    if grp_of:
+        for well, reagent, et in (db.query(Event.well, Event.reagent, Event.event_time)
+                .filter(Event.event_time >= dt_from, Event.event_time <= dt_to)
+                .filter(Event.reagent.in_(list(grp_of.keys())))
+                .filter(Event.qty.isnot(None), Event.qty > 0).all()):
             wkey = str(well).strip()
-            if not wkey or not _in_opt(wkey, et.date()):
-                continue
-            key = (wkey, grp_of.get(reagent))
-            a = agg.setdefault(key, {"count": 0, "min": et, "max": et})
-            a["count"] += 1
-            a["min"] = min(a["min"], et)
-            a["max"] = max(a["max"], et)
+            if wkey:
+                events_by_well.setdefault(wkey, []).append((et, grp_of.get(reagent)))
 
-        cfg = [
-            ("foam", "foam_dosing", "Дозирование пенных реагентов / Foam reagent dosing"),
-            ("inhibitor", "inhibitor_dosing", "Дозирование ингибирующих реагентов / Inhibitor reagent dosing"),
-        ]
-        for grp, work_group, title in cfg:
-            items = sorted(((k, a) for k, a in agg.items() if k[1] == grp),
-                           key=lambda kv: (len(kv[0][0]), kv[0][0]))
-            for (wkey, _), a in items:
-                w = db.query(Well).filter(sa.cast(Well.number, sa.String) == wkey).first()
-                price = _price_for(db, work_group, w.id if w else None, p_start) or Decimal("0")
-                rows.append(_row(
-                    work_group, title, wkey, _fmt_range(a["min"].date(), a["max"].date()),
-                    "операция", a["count"], price, amount=price * Decimal(a["count"]),
-                ))
+    def opt_row(well_id, wkey, s, e):
+        worked = (e - s).days
+        if worked <= 0:
+            return None
+        amount = Decimal("0")
+        for i in range(worked):
+            monthly = _opt_monthly_on(db, well_id, s + timedelta(days=i)) or Decimal("0")
+            amount += _money(monthly / Decimal(dim))
+        daily = (_opt_monthly_on(db, well_id, s) or Decimal("0")) / Decimal(dim)
+        return _row("optimization",
+                    "Оптимизация (по формуле дни/дней в месяце × ежемесячный платёж) / Optimization",
+                    wkey, _fmt_range(s, e), "сут", worked, _money(daily), amount=amount)
 
-    return rows
+    rows: list[dict] = []
+    warnings: list[str] = []
+    catalog: list[dict] = []
+    reagent_intervals: dict[str, list] = {}  # wkey -> интервалы для подсчёта реагентов
+
+    # ── Адаптация: решение по скважине ──
+    for wkey in sorted(adapt, key=lambda x: (len(x), x)):
+        d = adapt[wkey]
+        default_mode = "adaptation" if d["valid"] else "exclude"
+        dec = decisions.get(wkey, {})
+        mode = dec.get("mode", default_mode)
+        reimb_reagents = bool(dec.get("reagents", True))
+        reimb_time = bool(dec.get("time", True))
+        w_warn = []
+        if not d["valid"]:
+            w_warn.append(f"адаптация < {ADAPT_MIN_DAYS} дня ({d['days']} дн) — исключена")
+            mode = "exclude"
+        elif d["warn_short"]:
+            w_warn.append(f"адаптация {d['days']} дн (< ориентира {ADAPT_WARN_DAYS}) — проверить")
+
+        if mode == "adaptation":
+            price = _price_for(db, "adaptation", d["well_id"], p_start) or Decimal("0")
+            rows.append(_row("adaptation", "Адаптация / Adaptation", wkey,
+                             _fmt_range(d["start"], d["end"]), "скв операция",
+                             d["count"], price, amount=price * Decimal(d["count"])))
+        elif mode == "ineffective":
+            if reimb_time:
+                r = opt_row(d["well_id"], wkey, d["start"], d["end"])
+                if r:
+                    rows.append(r)
+            if reimb_reagents:
+                reagent_intervals.setdefault(wkey, []).append((d["start"], d["end"]))
+        # mode == "exclude" → ничего
+        warnings.extend(f"скв.{wkey}: {w}" for w in w_warn)
+        catalog.append({"well": wkey, "stage": "adaptation",
+                        "period": _fmt_range(d["start"], d["end"]), "days": d["days"],
+                        "valid": d["valid"], "mode": mode,
+                        "reagents": reimb_reagents, "time": reimb_time, "warnings": w_warn})
+
+    # ── Оптимизация (реальный статус): всегда billable, реагенты за период оптимизации ──
+    for wkey in sorted(opt, key=lambda x: (len(x), x)):
+        o = opt[wkey]
+        total = 0
+        for s, e in o["intervals"]:
+            r = opt_row(o["well_id"], wkey, s, e)
+            if r:
+                rows.append(r); total += (e - s).days
+        reagent_intervals.setdefault(wkey, []).extend(o["intervals"])
+        per = _fmt_range(o["intervals"][0][0], o["intervals"][-1][1]) if o["intervals"] else ""
+        catalog.append({"well": wkey, "stage": "optimization", "period": per,
+                        "days": total, "mode": "optimization", "warnings": []})
+
+    # ── Дозирование: подсчёт реагентов по собранным интервалам скважин ──
+    dosing = {"foam": [], "inhibitor": []}
+    for wkey, intervals in reagent_intervals.items():
+        foam, inhib = [], []
+        for et, g in events_by_well.get(wkey, []):
+            if any(s <= et.date() <= e for s, e in intervals):
+                (foam if g == "foam" else inhib).append(et)
+        if foam:
+            dosing["foam"].append((wkey, foam))
+        if inhib:
+            dosing["inhibitor"].append((wkey, inhib))
+    for grp, work_group, title in DOSING_CFG:
+        for wkey, ets in sorted(dosing[grp], key=lambda kv: (len(kv[0]), kv[0])):
+            w = db.query(Well).filter(sa.cast(Well.number, sa.String) == wkey).first()
+            price = _price_for(db, work_group, w.id if w else None, p_start) or Decimal("0")
+            rows.append(_row(work_group, title, wkey,
+                             _fmt_range(min(ets).date(), max(ets).date()), "операция",
+                             len(ets), price, amount=price * Decimal(len(ets))))
+
+    return rows, catalog, warnings
 
 
 def _row(work_group, work_type, well_number, period_label, unit, qty, price, amount):
@@ -248,6 +304,66 @@ def _row(work_group, work_type, well_number, period_label, unit, qty, price, amo
         "vat_amount": vat,
         "amount_with_vat": _money(amount + vat),
     }
+
+
+def create_invoice_from_act(db: Session, act_id: int,
+                            created_by_name: str | None = None) -> Document:
+    """Счёт-фактура ИЗ акта: копирует строки и итоги (сумма ГАРАНТИРОВАННО = акту),
+    свой номер (СФ), привязка parent_id=act. Одна СФ на акт (пересобирается)."""
+    act = db.query(Document).filter(Document.id == act_id).first()
+    if not act:
+        raise ValueError("Акт не найден")
+    dt = db.query(DocumentType).filter(DocumentType.code == "financial_invoice").first()
+    if not dt:
+        raise ValueError("DocumentType 'financial_invoice' не найден (нужен сидинг)")
+    year, month = int(act.period_year), int(act.period_month)
+
+    # rebuild: удалить прежние СФ за этот период (сохранив номер)
+    existing = (db.query(Document)
+                .filter(Document.doc_type_id == dt.id,
+                        Document.period_year == year, Document.period_month == month).all())
+    old_no = next((e.meta.get("invoice_seq") for e in existing if e.meta and e.meta.get("invoice_seq")), None)
+    if existing:
+        ids = [e.id for e in existing]
+        db.query(DocumentItem).filter(DocumentItem.document_id.in_(ids)).delete(synchronize_session=False)
+        db.query(Document).filter(Document.id.in_(ids)).delete(synchronize_session=False)
+        db.flush()
+    if old_no:
+        seq = int(old_no)
+    else:
+        maxno = db.query(
+            sa.func.max(sa.cast(Document.meta["invoice_seq"].astext, sa.Integer))
+        ).filter(Document.doc_type_id == dt.id).scalar() or 0
+        seq = int(maxno) + 1
+
+    meta = dict(act.meta or {})          # копия итогов/прописи из акта → сумма идентична
+    meta["invoice_seq"] = seq
+    meta["invoice_no"] = f"{seq}-c"
+    meta["act_ref"] = act.doc_number
+
+    inv = Document(
+        doc_type_id=dt.id, doc_number=f"СФ-{year}-{month:02d}", well_id=None,
+        period_start=act.period_start, period_end=act.period_end,
+        period_month=month, period_year=year, status="draft",
+        created_by_name=created_by_name, parent_id=act.id, meta=meta,
+    )
+    db.add(inv)
+    db.flush()
+    for it in act.items:
+        db.add(DocumentItem(
+            document_id=inv.id, line_number=it.line_number, work_type=it.work_type,
+            work_group=it.work_group, well_number=it.well_number, period_label=it.period_label,
+            unit=it.unit, quantity=it.quantity, price_per_unit=it.price_per_unit,
+            amount=it.amount, vat_amount=it.vat_amount, amount_with_vat=it.amount_with_vat,
+        ))
+    db.flush()
+    return inv
+
+
+def get_well_catalog(db: Session, year: int, month: int, decisions: dict | None = None):
+    """Каталог «Скважины и этапы» + предупреждения (на лету, для панели ревизии)."""
+    _, catalog, warnings = _build_rows(db, year, month, decisions)
+    return catalog, warnings
 
 
 # ─────────────────────────── публичное API ───────────────────────────
@@ -268,7 +384,8 @@ def build_financial_act(db: Session, year: int, month: int,
                         sign_sigs: list | None = None,
                         excluded_wells: list | None = None,
                         continue_clause: str = "3.9",
-                        stop_clause: str = "3.17") -> Document:
+                        stop_clause: str = "3.17",
+                        well_decisions: dict | None = None) -> Document:
     """Создаёт (или пересобирает) черновик финансового акта за месяц.
 
     header_sigs / sign_sigs: списки подписантов (dict) для ШАПКИ и ПОДПИСЕЙ — независимо.
@@ -302,7 +419,7 @@ def build_financial_act(db: Session, year: int, month: int,
         ).filter(Document.doc_type_id == dt.id).scalar() or 0
         seq = int(max_no) + 1
 
-    rows = _build_rows(db, year, month)
+    rows, well_catalog, warnings = _build_rows(db, year, month, well_decisions)
     total = sum((r["amount"] for r in rows), Decimal("0"))
     total_vat = sum((r["vat_amount"] for r in rows), Decimal("0"))
     total_with_vat = sum((r["amount_with_vat"] for r in rows), Decimal("0"))
@@ -336,6 +453,9 @@ def build_financial_act(db: Session, year: int, month: int,
             "stop_wells": stop_wells,
             "continue_clause": continue_clause,
             "stop_clause": stop_clause,
+            "well_catalog": well_catalog,     # для панели «Скважины и этапы»
+            "well_decisions": well_decisions or {},
+            "warnings": warnings,
             "header_sigs": header_sigs if header_sigs is not None else _DEFAULT_SIGS,
             "sign_sigs": sign_sigs if sign_sigs is not None else _DEFAULT_SIGS,
         },

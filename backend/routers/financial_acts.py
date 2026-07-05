@@ -19,7 +19,9 @@ from backend.db import get_db
 from backend.web.templates import templates, base_context
 from backend.documents.models import Document, DocumentItem, DocumentType
 from backend.documents.generator import DocumentGenerator
-from backend.documents.services.financial_act import build_financial_act, _DEFAULT_SIGS
+from backend.documents.services.financial_act import (
+    build_financial_act, get_well_catalog, create_invoice_from_act, _DEFAULT_SIGS,
+)
 from backend.models.reagent_catalog import ReagentCatalog
 from backend.models.wells import Well
 from backend.models.well_status import WellStatus
@@ -88,11 +90,15 @@ def financial_acts_page(request: Request, db: Session = Depends(get_db),
                         msg: str | None = None, msg_type: str | None = None):
     _require_admin(request)
     dt = db.query(DocumentType).filter(DocumentType.code == "financial_act").first()
+    types = (db.query(DocumentType)
+             .filter(DocumentType.code.in_(["financial_act", "financial_invoice"])).all())
+    type_ids = [t.id for t in types]
     docs = []
-    if dt:
+    if type_ids:
         docs = (db.query(Document)
-                .filter(Document.doc_type_id == dt.id, Document.deleted_at.is_(None))
-                .order_by(Document.period_year.desc(), Document.period_month.desc())
+                .filter(Document.doc_type_id.in_(type_ids), Document.deleted_at.is_(None))
+                .order_by(Document.period_year.desc(), Document.period_month.desc(),
+                          Document.doc_type_id.asc())
                 .all())
     prices = db.execute(sa.text("""
         SELECT cp.id, cp.work_type, cp.well_id, w.number AS well_number,
@@ -169,6 +175,109 @@ def financial_act_create(request: Request, year: int = Form(...), month: int = F
         traceback.print_exc()
         return _redirect(f"Ошибка создания акта: {type(e).__name__}: {e}", "error")
     return _redirect(f"Акт {doc.doc_number} создан ({n} строк)")
+
+
+@router.get("/documents/financial-acts/{doc_id}/catalog")
+def financial_act_catalog(doc_id: int, request: Request, db: Session = Depends(get_db)):
+    """Каталог «Скважины и этапы» акта (на лету) — для панели ревизии. Работает для
+    ЛЮБОГО акта, не зависит от того, что сохранено в meta."""
+    from fastapi.responses import JSONResponse
+    _require_admin(request)
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(404, "Акт не найден")
+    m = doc.meta or {}
+    decisions = m.get("well_decisions", {})
+    catalog, warnings = get_well_catalog(db, doc.period_year, doc.period_month, decisions)
+    return JSONResponse({
+        "catalog": catalog, "warnings": warnings, "decisions": decisions,
+        "stop_wells": m.get("stop_wells", []),
+        "continue_clause": m.get("continue_clause", "3.9"),
+        "stop_clause": m.get("stop_clause", "3.17"),
+    })
+
+
+@router.post("/documents/financial-acts/{act_id}/invoice")
+def financial_act_make_invoice(act_id: int, request: Request, db: Session = Depends(get_db)):
+    """Создать/пересобрать Счёт-фактуру из акта (сумма идентична акту)."""
+    _require_admin(request)
+    try:
+        inv = create_invoice_from_act(db, act_id, created_by_name=request.session.get("username"))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        import traceback
+        traceback.print_exc()
+        return _redirect(f"Ошибка создания СФ: {type(e).__name__}: {e}", "error")
+    return _redirect(f"Счёт-фактура {inv.doc_number} создана из акта")
+
+
+@router.post("/documents/financial-acts/{doc_id}/status")
+def financial_doc_status(doc_id: int, request: Request, action: str = Form(...),
+                         db: Session = Depends(get_db)):
+    """Отметить документ (акт или СФ): отправлен / принят заказчиком / сброс."""
+    _require_admin(request)
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(404, "Документ не найден")
+    from datetime import datetime
+    now = datetime.now().strftime("%d.%m.%Y %H:%M")
+    m = dict(doc.meta or {})
+    if action == "sent":
+        m["sent_at"] = now
+    elif action == "accepted":
+        m["accepted_at"] = now
+        m.setdefault("sent_at", now)
+    elif action == "reset":
+        m.pop("sent_at", None); m.pop("accepted_at", None)
+    doc.meta = m
+    db.commit()
+    return _redirect("Статус обновлён")
+
+
+@router.post("/documents/financial-acts/{doc_id}/rebuild")
+async def financial_act_rebuild(doc_id: int, request: Request, db: Session = Depends(get_db)):
+    """Пересборка акта с ручными решениями по скважинам («Скважины и этапы»).
+    Подписанты/пункты/исключения берутся из текущего акта — меняются только решения."""
+    _require_admin(request)
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(404, "Акт не найден")
+    meta = doc.meta or {}
+    form = await request.form()
+    # каталог на лету → знаем адаптационные и оптимизационные скважины (для любого акта)
+    catalog, _ = get_well_catalog(db, doc.period_year, doc.period_month, meta.get("well_decisions", {}))
+    adapt_wells = [c["well"] for c in catalog if c.get("stage") == "adaptation"]
+    opt_wells = [c["well"] for c in catalog if c.get("stage") == "optimization"]
+
+    # решения по адаптации (mode_<well>, reagents_<well>, time_<well>)
+    decisions = {}
+    for w in adapt_wells:
+        decisions[w] = {
+            "mode": form.get(f"mode_{w}", "adaptation"),
+            "reagents": form.get(f"reagents_{w}") is not None,
+            "time": form.get(f"time_{w}") is not None,
+        }
+    # оптимизация: продолжить (по умолч.) / прекратить (stop_<well> отмечен)
+    stop_opt = [w for w in opt_wells if form.get(f"stop_{w}") is not None]
+    cont_clause = (form.get("continue_clause") or "3.9").strip() or "3.9"
+    stop_clause = (form.get("stop_clause") or "3.17").strip() or "3.17"
+    try:
+        doc2 = build_financial_act(
+            db, doc.period_year, doc.period_month,
+            created_by_name=request.session.get("username"),
+            header_sigs=meta.get("header_sigs"), sign_sigs=meta.get("sign_sigs"),
+            excluded_wells=stop_opt,
+            continue_clause=cont_clause, stop_clause=stop_clause,
+            well_decisions=decisions,
+        )
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        import traceback
+        traceback.print_exc()
+        return _redirect(f"Ошибка пересборки: {type(e).__name__}: {e}", "error")
+    return _redirect(f"Акт {doc2.doc_number} пересобран по решениям")
 
 
 @router.post("/documents/financial-acts/signatory/add")

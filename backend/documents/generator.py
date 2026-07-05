@@ -114,8 +114,8 @@ class DocumentGenerator:
         if document.doc_type.code == 'reagent_expense':
             context.update(self._prepare_reagent_expense_context(document))
 
-        # Финансовый акт
-        if document.doc_type.code == 'financial_act':
+        # Финансовый акт и счёт-фактура (одинаковый контекст, разные шаблоны)
+        if document.doc_type.code in ('financial_act', 'financial_invoice'):
             context.update(self._prepare_financial_act_context(document))
 
         return context
@@ -175,6 +175,7 @@ class DocumentGenerator:
         return {
             "rows": flat,
             "act_no": m.get("act_no", 1),
+            "invoice_no": m.get("invoice_no", ""),
             "act_date": (document.period_end.strftime("%d.%m.%Y") if document.period_end else ""),
             "contract_ref": m.get("contract_ref", ""),
             "period_from": document.period_start.strftime("%d.%m.%Y") if document.period_start else "",
@@ -234,7 +235,9 @@ class DocumentGenerator:
     def generate_docx(self, document: Document) -> str:
         """.docx финансового акта. Если есть docxtpl-шаблон (реальный файл клиента) —
         заполняем его; иначе строим программно (fallback)."""
-        tpl_path = self.templates_dir / "docx" / "financial_act_template.docx"
+        tpl_name = (getattr(document.doc_type, "docx_template_name", None)
+                    or "financial_act_template.docx")
+        tpl_path = self.templates_dir / "docx" / tpl_name
         if tpl_path.exists():
             from docxtpl import DocxTemplate
             ctx = self._prepare_financial_act_context(document)

@@ -74,18 +74,8 @@
         </div>
       </fieldset>
 
-      {# 4. Выводы #}
-      <fieldset class="fa-step"><legend>4. Выводы</legend>
-        <div class="fa-dual">
-          <div><div><b>Продолжить работы</b> · пункт <input name="continue_clause" value="3.9" style="width:60px;padding:4px;"></div>
-            <select id="fa-continue" multiple size="7"></select></div>
-          <div class="fa-mv"><button type="button" id="to-stop">→</button><button type="button" id="to-continue">←</button></div>
-          <div><div><b>Прекратить работы</b> · пункт <input name="stop_clause" value="3.17" style="width:60px;padding:4px;"></div>
-            <select id="fa-stop" name="stop_wells" multiple size="7"></select></div>
-        </div>
-        <p style="color:#6b7280;font-size:12px;margin:6px 0 0;">Скважины оптимизации. По умолчанию все «продолжить»; перенесите нужные в «прекратить».</p>
-      </fieldset>
-
+      <p style="color:#6b7280;font-size:12px;margin:0 0 10px;">
+        После формирования справа появится ревизия: скважины оптимизации (продолжить/прекратить) и адаптации (эффективно/неэффективно).</p>
       <button type="submit" style="padding:10px 20px;background:#2563eb;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:15px;">
         Сформировать акт</button>
     </form>
@@ -118,16 +108,6 @@
         (DEF[prefix]||[]).forEach(function(s){ box.appendChild(mkRow(prefix, s.position_ru, s.name_ru)); });
         if(!(DEF[prefix]||[]).length) box.appendChild(mkRow(prefix,'',''));
         side.querySelector('.fa-add').onclick=function(){ box.appendChild(mkRow(prefix,'','')); };
-      });
-      // dual-list скважин
-      var cont=document.getElementById('fa-continue'), stop=document.getElementById('fa-stop');
-      {{ opt_wells|tojson }}.forEach(function(w){ var o=document.createElement('option'); o.value=w; o.textContent='скв '+w; cont.appendChild(o); });
-      function move(from,to){ Array.from(from.selectedOptions).forEach(function(o){ to.appendChild(o); o.selected=false; }); }
-      document.getElementById('to-stop').onclick=function(){ move(cont,stop); };
-      document.getElementById('to-continue').onclick=function(){ move(stop,cont); };
-      // при submit — выделить все опции «прекратить», чтобы отправились
-      document.getElementById('fa-form').addEventListener('submit',function(){
-        Array.from(stop.options).forEach(function(o){ o.selected=true; });
       });
     })();
     </script>
@@ -166,31 +146,51 @@
     </form>
   </section>
 
-  {# ── Список актов ── #}
+  {# ── Реестр: акты и счета-фактуры ── #}
   <section style="margin:16px 0;">
-    <h3 style="margin:0 0 10px;">Созданные акты</h3>
+    <h3 style="margin:0 0 10px;">Акты и счета-фактуры</h3>
     {% if docs %}
-    <table style="width:100%;border-collapse:collapse;font-size:14px;">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
       <thead><tr style="background:#f3f4f6;text-align:left;">
-        <th style="padding:8px;">Номер</th><th>Период</th><th>Статус</th><th>Сумма с НДС</th><th>Действия</th>
+        <th style="padding:8px;">Тип</th><th>Номер</th><th>Период</th><th>Создан</th><th>Сумма с НДС</th><th>Статус</th><th>Действия</th>
       </tr></thead>
       <tbody>
       {% for d in docs %}
-        <tr class="fa-actrow" data-id="{{ d.id }}" data-num="{{ d.doc_number }}"
-            onclick="faPreview({{ d.id }}, '{{ d.doc_number }}')"
+        {% set is_inv = d.doc_type and d.doc_type.code == 'financial_invoice' %}
+        {% set m = d.meta or {} %}
+        <tr class="fa-actrow" data-id="{{ d.id }}" data-num="{{ d.doc_number }}" data-type="{{ 'invoice' if is_inv else 'act' }}"
+            onclick="faPreview({{ d.id }}, '{{ d.doc_number }}', '{{ 'invoice' if is_inv else 'act' }}')"
             style="border-top:1px solid #e5e7eb;">
-          <td style="padding:8px;">{{ d.doc_number }}</td>
+          <td style="padding:8px;">{{ '📄 СФ' if is_inv else '📋 Акт' }}</td>
+          <td>{{ d.doc_number }}{% if is_inv and m.get('act_ref') %}<br><span style="color:#9ca3af;font-size:11px;">из {{ m.act_ref }}</span>{% endif %}</td>
           <td>{{ '%02d'|format(d.period_month) }}.{{ d.period_year }}</td>
-          <td>{{ d.status }}</td>
-          <td>{{ d.meta.get('total_with_vat','') if d.meta else '' }}</td>
-          <td style="display:flex;gap:6px;" onclick="event.stopPropagation();">
-            <a href="/documents/financial-acts/{{ d.id }}/download.docx"
-               style="padding:4px 10px;background:#059669;color:#fff;border-radius:6px;text-decoration:none;">.docx</a>
-            <a href="/documents/financial-acts/{{ d.id }}/download.pdf" target="_blank"
-               style="padding:4px 10px;background:#dc2626;color:#fff;border-radius:6px;text-decoration:none;">PDF</a>
+          <td>{{ d.created_at.strftime('%d.%m.%Y') if d.created_at else '' }}</td>
+          <td>{{ m.get('total_with_vat','') }}</td>
+          <td>
+            {% if m.get('accepted_at') %}<span style="color:#166534;">✅ Принят<br><span style="font-size:11px;">{{ m.accepted_at }}</span></span>
+            {% elif m.get('sent_at') %}<span style="color:#1d4ed8;">📧 Отправлен<br><span style="font-size:11px;">{{ m.sent_at }}</span></span>
+            {% else %}<span style="color:#9ca3af;">Черновик</span>{% endif %}
+          </td>
+          <td style="display:flex;gap:5px;flex-wrap:wrap;" onclick="event.stopPropagation();">
+            <a href="/documents/financial-acts/{{ d.id }}/download.docx" style="padding:3px 8px;background:#059669;color:#fff;border-radius:6px;text-decoration:none;">.docx</a>
+            <a href="/documents/financial-acts/{{ d.id }}/download.pdf" target="_blank" style="padding:3px 8px;background:#dc2626;color:#fff;border-radius:6px;text-decoration:none;">PDF</a>
+            {% if not is_inv %}
+            <form method="post" action="/documents/financial-acts/{{ d.id }}/invoice" style="margin:0;">
+              <button title="Создать/обновить счёт-фактуру" style="padding:3px 8px;background:#7c3aed;color:#fff;border:none;border-radius:6px;cursor:pointer;">→ СФ</button></form>
+            {% endif %}
+            {% if not m.get('sent_at') %}
+            <form method="post" action="/documents/financial-acts/{{ d.id }}/status" style="margin:0;"><input type="hidden" name="action" value="sent">
+              <button style="padding:3px 8px;background:#1d4ed8;color:#fff;border:none;border-radius:6px;cursor:pointer;">Отправлен</button></form>
+            {% elif not m.get('accepted_at') %}
+            <form method="post" action="/documents/financial-acts/{{ d.id }}/status" style="margin:0;"><input type="hidden" name="action" value="accepted">
+              <button style="padding:3px 8px;background:#166534;color:#fff;border:none;border-radius:6px;cursor:pointer;">Принят</button></form>
+            {% else %}
+            <form method="post" action="/documents/financial-acts/{{ d.id }}/status" style="margin:0;"><input type="hidden" name="action" value="reset">
+              <button title="Сбросить статус" style="padding:3px 8px;background:#e5e7eb;color:#374151;border:none;border-radius:6px;cursor:pointer;">↺</button></form>
+            {% endif %}
             <form method="post" action="/documents/financial-acts/{{ d.id }}/delete"
-                  onsubmit="return confirm('Удалить акт {{ d.doc_number }}?');" style="margin:0;">
-              <button style="padding:4px 10px;background:#6b7280;color:#fff;border:none;border-radius:6px;cursor:pointer;">✕</button>
+                  onsubmit="return confirm('Удалить {{ d.doc_number }}?');" style="margin:0;">
+              <button style="padding:3px 8px;background:#6b7280;color:#fff;border:none;border-radius:6px;cursor:pointer;">✕</button>
             </form>
           </td>
         </tr>
@@ -198,7 +198,7 @@
       </tbody>
     </table>
     {% else %}
-    <p style="color:#6b7280;">Актов пока нет.</p>
+    <p style="color:#6b7280;">Пока ничего нет.</p>
     {% endif %}
   </section>
 
@@ -269,8 +269,26 @@
   </section>
   </div>{# /fa-left #}
 
-  {# ── Правая панель: предпросмотр PDF выбранного акта ── #}
+  {# ── Правая панель: решения по скважинам + предпросмотр PDF ── #}
   <div class="fa-right">
+    <div id="fa-warnings"></div>
+    <form id="fa-dec-form" method="post" style="display:none;margin-bottom:10px;border:1px solid #e5e7eb;border-radius:10px;padding:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <strong>Ревизия акта</strong>
+        <button type="submit" style="padding:6px 12px;background:#7c3aed;color:#fff;border:none;border-radius:8px;cursor:pointer;">Пересобрать</button>
+      </div>
+      <div id="fa-opt-block" style="font-size:13px;display:none;">
+        <div style="font-weight:600;margin:4px 0;">Оптимизация — продолжить / прекратить работы</div>
+        <div style="margin-bottom:4px;">Пункт «продолжить» <input name="continue_clause" value="3.9" style="width:56px;padding:3px;">
+          · Пункт «прекратить» <input name="stop_clause" value="3.17" style="width:56px;padding:3px;"></div>
+        <div id="fa-opt-rows"></div>
+      </div>
+      <div id="fa-adapt-block" style="font-size:13px;display:none;">
+        <div style="font-weight:600;margin:8px 0 4px;">Адаптация — эффективность</div>
+        <div id="fa-dec-rows"></div>
+        <p style="color:#6b7280;font-size:11px;margin:6px 0 0;">«Неэффективна» → без 185М; галочки «реагенты»/«время» возмещают реагенты (дозирование) и время (оптимизация) за период адаптации.</p>
+      </div>
+    </form>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
       <strong>Предпросмотр</strong>
       <span id="fa-prev-label" style="color:#6b7280;font-size:13px;"></span>
@@ -286,17 +304,71 @@
     var frame = document.getElementById('fa-preview');
     var empty = document.getElementById('fa-prev-empty');
     var label = document.getElementById('fa-prev-label');
-    window.faPreview = function(id, num){
+    var warnBox = document.getElementById('fa-warnings');
+    var decForm = document.getElementById('fa-dec-form');
+    var decRows = document.getElementById('fa-dec-rows');
+    var optBlock = document.getElementById('fa-opt-block');
+    var optRows = document.getElementById('fa-opt-rows');
+    var adaptBlock = document.getElementById('fa-adapt-block');
+    function esc(s){ return String(s).replace(/</g,'&lt;'); }
+    function opt(v,t,cur){ return '<option value="'+v+'"'+(v===cur?' selected':'')+'>'+t+'</option>'; }
+    function renderDecisions(data){
+      warnBox.innerHTML = (data.warnings && data.warnings.length)
+        ? '<div style="background:#fef3c7;color:#92400e;border-radius:8px;padding:8px;margin-bottom:8px;font-size:13px;">⚠ '+data.warnings.map(esc).join('<br>⚠ ')+'</div>' : '';
+      var cat = data.catalog || [];
+      var opts = cat.filter(function(c){ return c.stage==='optimization'; });
+      var adapt = cat.filter(function(c){ return c.stage==='adaptation'; });
+      var stopSet = {}; (data.stop_wells||[]).forEach(function(w){ stopSet[w]=1; });
+      decForm.querySelector('[name=continue_clause]').value = data.continue_clause || '3.9';
+      decForm.querySelector('[name=stop_clause]').value = data.stop_clause || '3.17';
+      // Оптимизация — продолжить / прекратить
+      if(opts.length){
+        optBlock.style.display='block';
+        optRows.innerHTML = opts.map(function(c){
+          return '<label style="display:block;padding:2px 0;border-top:1px solid #f1f5f9;">'
+            + '<input type="checkbox" name="stop_'+esc(c.well)+'"'+(stopSet[c.well]?' checked':'')+'> '
+            + '<b>скв '+esc(c.well)+'</b> '+esc(c.period)+' ('+c.days+' сут) — <b>прекратить</b> (иначе продолжить)</label>';
+        }).join('');
+      } else { optBlock.style.display='none'; optRows.innerHTML=''; }
+      // Адаптация — эффективность
+      if(adapt.length){
+        adaptBlock.style.display='block';
+        decRows.innerHTML = adapt.map(function(c){
+          var dec = (data.decisions && data.decisions[c.well]) || {mode:c.mode, reagents:c.reagents, time:c.time};
+          return '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:4px 0;border-top:1px solid #f1f5f9;">'
+            + '<span style="min-width:130px;"><b>скв '+esc(c.well)+'</b> '+esc(c.period)+' ('+c.days+' сут)'
+            + (c.warnings&&c.warnings.length?' <span style="color:#b91c1c">⚠</span>':'')+'</span>'
+            + '<select name="mode_'+esc(c.well)+'" style="padding:4px;">'
+              + opt('adaptation','Оплатить адаптацию',dec.mode)
+              + opt('ineffective','Неэффективна',dec.mode)
+              + opt('exclude','Исключить',dec.mode)
+            + '</select>'
+            + '<label><input type="checkbox" name="reagents_'+esc(c.well)+'"'+(dec.reagents?' checked':'')+'> реагенты</label>'
+            + '<label><input type="checkbox" name="time_'+esc(c.well)+'"'+(dec.time?' checked':'')+'> время</label>'
+            + '</div>';
+        }).join('');
+      } else { adaptBlock.style.display='none'; decRows.innerHTML=''; }
+      decForm.style.display = (opts.length || adapt.length) ? 'block' : 'none';
+    }
+    window.faPreview = function(id, num, type){
       document.querySelectorAll('.fa-actrow').forEach(function(r){ r.classList.remove('active'); });
       var row = document.querySelector('.fa-actrow[data-id="'+id+'"]');
       if(row) row.classList.add('active');
       empty.style.display = 'none';
       label.textContent = num || '';
+      warnBox.innerHTML=''; decRows.innerHTML=''; decForm.style.display='none';
+      // ревизия (продолжить/прекратить, адаптация) — только для актов, не для СФ
+      if(type !== 'invoice'){
+        decForm.action = '/documents/financial-acts/'+id+'/rebuild';
+        fetch('/documents/financial-acts/'+id+'/catalog')
+          .then(function(r){ return r.ok ? r.json() : null; })
+          .then(function(data){ if(data) renderDecisions(data); })
+          .catch(function(){});
+      }
       frame.src = '/documents/financial-acts/'+id+'/download.pdf';
     };
-    // авто-предпросмотр первого (свежего) акта
     var first = document.querySelector('.fa-actrow');
-    if(first){ faPreview(first.dataset.id, first.dataset.num); }
+    if(first){ faPreview(first.dataset.id, first.dataset.num, first.dataset.type); }
     else { empty.style.display='block'; }
   })();
   </script>

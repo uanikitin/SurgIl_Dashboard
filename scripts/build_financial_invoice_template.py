@@ -1,58 +1,71 @@
-"""Однократно: строит docxtpl-шаблон Счёта-фактуры из файла клиента.
+"""Строит docxtpl-шаблон Счёта-фактуры ИЗ ШАБЛОНА АКТА.
 
-- Берёт ГОТОВУЮ таблицу работ из шаблона акта (цикл {%tr%}, итог, шрифт/ширины/
-  выравнивание уже настроены) и вставляет её в файл СФ вместо разбитой на две.
-- Тегирует номер/дату в шапке. Реквизиты банка и подписи остаются статичными.
+Акт рендерится корректно (таблица работ полной ширины), поэтому СФ делаем как
+копию шаблона акта с заменой шапки на реквизиты счёта-фактуры и удалением блока
+решения. Таблица работ (T1) и подписи (T3) переиспользуются как есть.
 
-Вход:  financial_act_template.docx (должен быть уже собран) + файл СФ клиента.
+Вход:  financial_act_template.docx (собран build_financial_act_template.py)
 Выход: backend/documents/templates/docx/financial_invoice_template.docx
 """
-import copy
 from pathlib import Path
 from docx import Document as Dx
 
 ACT_TPL = "backend/documents/templates/docx/financial_act_template.docx"
-SRC = "/Users/volodymyrnikitin/Downloads/CФ 6-с апрель_3.docx"
 OUT = Path("backend/documents/templates/docx/financial_invoice_template.docx")
 
+SERVICE = ("на оказание услуг по оптимизации эксплуатации газовых скважин с применением "
+           "твёрдых пенообразующих реагентов на скважинах месторождения Сургил")
 
-def set_para(paragraph, text: str):
-    runs = paragraph.runs
-    if not runs:
-        paragraph.add_run(text)
-        return
-    runs[0].text = text
-    for r in runs[1:]:
-        r.text = ""
+BANK_CONTRACTOR = [
+    "ИСПОЛНИТЕЛЬ / CONTRACTOR:",
+    "«UNITOOL» LLC",
+    "TIN 309222928",
+    "Kungrad district, Republic of Karakalpakstan,",
+    "Kungrad region, Azatliq MFY, G'a'rezsizlik street, house 11",
+    "Bank details:",
+    "В/а: 20208000905483697001",
+    "in OPERU JSCB «Kapitalbank»",
+    "Bank code: 00974",
+    "TIN: 203591761  OKPO: 17763371  OKED: 64190",
+]
+BANK_CUSTOMER = [
+    "ЗАКАЗЧИК / CLIENT:",
+    "JV «Uz-Kor Gas Chemical» LLC",
+    "Republic of Uzbekistan, Republic of Karakalpakstan, Nukus city, Karatau,",
+    "G'arezsizlik MFY, To'rtko'l guzari street, building 121",
+    "Address of Tashkent office: 100128, Zulfiyakhonim str. 112",
+    "Tel/fax: +998-78-129-29-00. E-mail: info@uz-kor.com",
+    "Bank details:",
+    "B/a: 20214000904704378001 in CJSC «KDB Bank Uzbekistan» Tashkent",
+    "Bank code: 00842  OKONH: 11232  TIN: 300 829 145",
+]
+
+
+def rebuild_cell(cell, lines):
+    for par in list(cell.paragraphs):
+        par._p.getparent().remove(par._p)
+    for txt in lines:
+        cell.add_paragraph(txt)
 
 
 def main():
-    act = Dx(ACT_TPL)
-    works_tbl = copy.deepcopy(act.tables[1]._tbl)  # готовая таблица работ
+    d = Dx(ACT_TPL)
+    t0 = d.tables[0]  # шапка/преамбула акта → шапка СФ
 
-    d = Dx(SRC)
-    # заголовок + номер/дата
-    for p in d.paragraphs:
-        t = p.text.strip()
-        if t.startswith("СЧЕТ-ФАКТУРА") or t.startswith("СЧЁТ-ФАКТУРА"):
-            set_para(p, "СЧЁТ-ФАКТУРА / INVOICE")
-        elif t.startswith("№"):
-            set_para(p, "№ {{ invoice_no }} от {{ act_date }}")
+    # r0: заголовок + номер + контракт + описание услуги (обе колонки)
+    rebuild_cell(t0.rows[0].cells[0], [
+        "СЧЁТ-ФАКТУРА / INVOICE",
+        "№ {{ invoice_no }} от {{ act_date }}",
+        "согласно Контракту № {{ contract_ref }} / to Contract № {{ contract_ref }}",
+        SERVICE,
+    ])
+    rebuild_cell(t0.rows[0].cells[1], [""])
+    # r1: банковские реквизиты (Исполнитель | Заказчик)
+    rebuild_cell(t0.rows[1].cells[0], BANK_CONTRACTOR)
+    rebuild_cell(t0.rows[1].cells[1], BANK_CUSTOMER)
 
-    # убрать ДУБЛИ описания услуги (в исходнике повторяется 4 раза) — оставить один раз
-    kept = 0
-    for p in list(d.paragraphs):
-        t = p.text.strip()
-        if t.startswith("на оказание услуг") or t.startswith("по оптимизации"):
-            kept += 1
-            if kept > 2:  # первые два абзаца (описание услуги) оставляем, остальные — дубли
-                p._p.getparent().remove(p._p)
-
-    # заменить разбитую таблицу работ (T1 + T2) на одну готовую
-    t1 = d.tables[1]._tbl
+    # удалить таблицу решения (T2) — в счёте-фактуре её нет
     t2 = d.tables[2]._tbl
-    t1.addprevious(works_tbl)
-    t1.getparent().remove(t1)
     t2.getparent().remove(t2)
 
     OUT.parent.mkdir(parents=True, exist_ok=True)

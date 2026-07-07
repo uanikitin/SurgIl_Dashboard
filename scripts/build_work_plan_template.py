@@ -256,8 +256,8 @@ def build_table21(doc):
     # +1 заголовок + 1 нумерация + данные
     t = doc.add_table(rows=2 + len(TABLE21), cols=5)
     _borders(t, "single")
-    # № 5%, описание 55%, ед 9%, к-во 11%, ответственный 20%
-    _set_col_widths_pct(t, [5, 55, 9, 11, 20])
+    # № 5%, описание 55%, ед 12%, к-во 9%, ответственный 19%
+    _set_col_widths_pct(t, [5, 55, 12, 9, 19])
     # Строка 0: заголовки
     hdr = ["№", "Перечень материалов и оборудования / Materials and equipment list",
            "ед", "к-во / quantity", "Ответственный / Responsibility"]
@@ -515,8 +515,9 @@ def build_safety(doc):
 def main():
     doc = Document()
     for s in doc.sections:
+        # ГОСТ: лево 20мм, право 10мм, верх/низ 15мм
+        s.left_margin = Cm(2.0); s.right_margin = Cm(1.0)
         s.top_margin = Cm(1.5); s.bottom_margin = Cm(1.5)
-        s.left_margin = Cm(2.0); s.right_margin = Cm(1.5)
 
     build_header(doc)
 

@@ -295,6 +295,7 @@ class DocumentGenerator:
         for p in cell.paragraphs:
             if "___" in p.text and "  " in p.text:
                 name_par = p
+                break  # первая строка с подчёркиванием — ФИО, не дата
         anchor_par = name_par or cell.paragraphs[-1]
 
         def add(img_path, w_mm, h_mm, x_mm, y_mm, zid, name):

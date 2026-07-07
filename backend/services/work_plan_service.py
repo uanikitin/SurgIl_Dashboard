@@ -45,31 +45,31 @@ TABLE11_KEYS = [
 
 
 def _num(v: Any) -> str:
-    """Число → строка без лишнего '.0' ('140', '41.1'). None/'' → ''."""
+    """Число → строка без лишнего '.0' ('140', '41.1'). None/'' → '-'."""
     if v is None or v == "":
-        return ""
+        return "-"
     try:
         f = float(v)
     except (TypeError, ValueError):
         return str(v)
     if f != f or f in (float("inf"), float("-inf")):  # NaN / inf
-        return ""
+        return "-"
     if f == int(f):
         return str(int(f))
     return f"{f:g}"
 
 
 def _fmt_perforation(intervals: list[dict]) -> str:
-    """[{top,bottom}] → '2276,5-2285,5 2303-2310' (запятая-десятичная, пробел между)."""
+    """[{top,bottom}] → '2276,5-2285,5 2303-2310' (запятая-десятичная, пробел между). Нет → '-'."""
     parts = []
     for it in intervals or []:
         top = _num(it.get("top_depth_m")).replace(".", ",")
         bot = _num(it.get("bottom_depth_m")).replace(".", ",")
-        if top and bot:
+        if top != "-" and bot != "-":
             parts.append(f"{top}-{bot}")
-        elif top:
+        elif top != "-":
             parts.append(top)
-    return " ".join(parts)
+    return " ".join(parts) or "-"
 
 
 def available_wells(db: Session) -> list[str]:
@@ -84,7 +84,7 @@ def available_wells(db: Session) -> list[str]:
 def build_table11_prefill(db: Session, well_no: str) -> dict[str, str]:
     """Собрать значения Таблицы 1.1 из БД по номеру скважины (все — строки)."""
     wno = str(well_no).strip()
-    t = {k: "" for k in TABLE11_KEYS}
+    t = {k: "-" for k in TABLE11_KEYS}  # нет данных → "-"
     t["well_no"] = wno
 
     # 1) Конструкция (последняя запись) + перфорация
@@ -101,7 +101,7 @@ def build_table11_prefill(db: Session, well_no: str) -> dict[str, str]:
         t["prod_casing_diam"] = _num(row[1])
         t["prod_casing_depth"] = _num(row[2])
         t["bottomhole"] = _num(row[3])
-        t["horizon"] = (row[4] or "").strip()
+        t["horizon"] = (row[4] or "").strip() or "-"
         t["tubing_diam"] = _num(row[5])
         t["tubing_shoe"] = _num(row[6])
         t["packer"] = _num(row[7])
@@ -121,7 +121,9 @@ def build_table11_prefill(db: Session, well_no: str) -> dict[str, str]:
     df = csvc.load_for_well(db, wno)
     if not df.empty:
         r = df.iloc[-1]
-        t["choke"] = _num(r.get("choke_mm")) or t["choke"]
+        # choke из well_daily переопределяет well_construction (если есть)
+        if r.get("choke_mm") is not None:
+            t["choke"] = _num(r.get("choke_mm"))
         t["p_tube"] = _num(r.get("p_wellhead"))
         t["p_annulus"] = "пак" if bool(r.get("annular_packer")) else _num(r.get("p_annular"))
         t["p_flowline"] = _num(r.get("p_flowline"))

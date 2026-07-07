@@ -393,6 +393,20 @@ class DocumentGenerator:
                 vm.set(qn("w:val"), "restart")
             tcPr.append(vm)
 
+        def close_bottom(tc):  # явная нижняя граница ячейки — закрывает merged-колонку,
+            tcPr = tc.find(W + "tcPr")   # чтобы её боковые линии не «протекали» вниз
+            if tcPr is None:
+                tcPr = OxmlElement("w:tcPr"); tc.insert(0, tcPr)
+            borders = tcPr.find(W + "tcBorders")
+            if borders is None:
+                borders = OxmlElement("w:tcBorders"); tcPr.append(borders)
+            for old in borders.findall(W + "bottom"):
+                borders.remove(old)
+            b = OxmlElement("w:bottom")
+            b.set(qn("w:val"), "single"); b.set(qn("w:sz"), "6")
+            b.set(qn("w:space"), "0"); b.set(qn("w:color"), "000000")
+            borders.append(b)
+
         d = Docx(path)
         t = d.tables[1]
         rows = t.rows
@@ -417,19 +431,8 @@ class DocumentGenerator:
                             tcPr.remove(old)
                         va = OxmlElement("w:vAlign"); va.set(qn("w:val"), "center")
                         tcPr.append(va)
-        def close_bottom(tc):  # нижняя граница ячейки (закрывает таблицу, чтобы
-            tcPr = tc.find(W + "tcPr")   # merged-колонки не «протекали» линиями вниз
-            if tcPr is None:
-                tcPr = OxmlElement("w:tcPr"); tc.insert(0, tcPr)
-            borders = tcPr.find(W + "tcBorders")
-            if borders is None:
-                borders = OxmlElement("w:tcBorders"); tcPr.append(borders)
-            for old in borders.findall(W + "bottom"):
-                borders.remove(old)
-            b = OxmlElement("w:bottom")
-            b.set(qn("w:val"), "single"); b.set(qn("w:sz"), "6")
-            b.set(qn("w:space"), "0"); b.set(qn("w:color"), "000000")
-            borders.append(b)
+                    if idx == e:                       # закрыть нижнюю границу merged-ячейки
+                        close_bottom(tcs[1])           # (иначе её боковые линии текут вниз)
 
         if n >= 2:  # жирная линия перед «Всего» + закрыть низ таблицы явной границей
             for tc in rows[n - 1]._tr.findall(W + "tc"):

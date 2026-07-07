@@ -1,0 +1,309 @@
+\documentclass[11pt]{article}
+\usepackage{fontspec}
+\IfFontExistsTF{Times New Roman}{\setmainfont{Times New Roman}}{\setmainfont{Liberation Serif}}
+\usepackage[russian,english]{babel}
+\usepackage{geometry}
+\geometry{a4paper, left=2cm, right=1.5cm, top=1.5cm, bottom=1.5cm}
+\usepackage{array, booktabs, longtable, tabularx}
+\usepackage{ragged2e}
+\usepackage{graphicx}
+\usepackage{multirow}
+\usepackage{enumitem}
+
+% Колонки для шапки
+\usepackage{multicol}
+
+% Убрать нумерацию страниц
+\pagestyle{empty}
+
+\begin{document}
+
+%% ═══════════════════════════════════════════════════════════════════════════
+%% ШАПКА: СОГЛАСОВАНО / УТВЕРЖДАЮ
+%% ═══════════════════════════════════════════════════════════════════════════
+\noindent
+\begin{minipage}[t]{0.48\textwidth}
+\centering\textbf{СОГЛАСОВАНО}\\[0.3em]
+\raggedright
+\VAR{sog_position}\\
+\VAR{sog_org}\\[0.8em]
+\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_ \VAR{sog_name}\\[0.5em]
+\_\_\_\_ \_\_\_\_\_\_\_\_\_\_\_\_\_ \VAR{sog_date}
+\end{minipage}%
+\hfill
+\begin{minipage}[t]{0.48\textwidth}
+\centering\textbf{УТВЕРЖДАЮ}\\[0.3em]
+\raggedright
+\VAR{utv_position}\\
+\VAR{utv_org}\\[0.8em]
+\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_ \VAR{utv_name}\\[0.5em]
+\_\_\_\_ \_\_\_\_\_\_\_\_\_\_\_\_\_ \VAR{utv_date}
+%% Печать и подпись накладываются генератором (overlay)
+\end{minipage}
+
+\vspace{1.2em}
+
+%% ═══════════════════════════════════════════════════════════════════════════
+%% ЗАГОЛОВОК
+%% ═══════════════════════════════════════════════════════════════════════════
+\begin{center}
+\textbf{\large ПЛАН РАБОТ / PLAN OF WORK}\\[0.4em]
+\textbf{по оптимизации работы скважины \VAR{well_no} с применением твердых пенообразующих реагентов /\\
+on optimization of well \VAR{well_no} operation with the use of solid foaming reagents}
+\end{center}
+
+\vspace{0.6em}
+
+Цель работ: подбор рецептуры, концентрации и режимов дозирования пенообразователя для обеспечения стабильной работы газодобывающей скважины путем удаления жидкости из ствола скважины. / Purpose of work: selection of formulation, concentration and dosing regimes of blowing agent to ensure stable operation of gas production well by removing fluid from the wellbore.
+
+\vspace{0.8em}
+
+%% ═══════════════════════════════════════════════════════════════════════════
+%% 1 ГЕОЛОГО-ТЕХНИЧЕСКИЕ ДАННЫЕ
+%% ═══════════════════════════════════════════════════════════════════════════
+\textbf{\large 1 ГЕОЛОГО-ТЕХНИЧЕСКИЕ ДАННЫЕ / GEOLOGICAL AND ENGINEERING DATA}
+
+\vspace{0.4em}
+\textit{Таблица 1.1: Параметры скважины / Well data}
+
+\vspace{0.2em}
+\noindent
+\begin{longtable}{|p{0.72\textwidth}|p{0.23\textwidth}|}
+\hline
+\centering\textbf{Показатель / Mark} & \centering\textbf{Значение / Value}\arraybackslash \\
+\hline
+\centering 1 & \centering 2 \arraybackslash \\
+\hline
+\endfirsthead
+\hline
+\centering 1 & \centering 2 \arraybackslash \\
+\hline
+\endhead
+№ скважины / Well No. & \VAR{t.well_no} \\
+\hline
+Диаметр эксплуатационной колонны, мм / Production casing diameter, mm & \VAR{t.prod_casing_diam} \\
+\hline
+Глубина спуска эксплуатационной колонны, м / Depth of running production casing, m & \VAR{t.prod_casing_depth} \\
+\hline
+Текущий забой, м / Current bottomhole, m & \VAR{t.bottomhole} \\
+\hline
+Горизонт / Horizon & \VAR{t.horizon} \\
+\hline
+Интервалы перфорации, м / Perforation intervals, m & \VAR{t.perforation} \\
+\hline
+Диаметр НКТ, мм / Diameter of tubing, mm & \VAR{t.tubing_diam} \\
+\hline
+Глубина башмака НКТ, м / Tubing shoe depth, m & \VAR{t.tubing_shoe} \\
+\hline
+Глубина пакера, м / Packer depth, m & \VAR{t.packer} \\
+\hline
+Глубина переводника, м / Adapter depth, m & \VAR{t.adapter} \\
+\hline
+Глубина непрохода шаблона, м / Depth of pattern stuck, m & \VAR{t.pattern_stuck} \\
+\hline
+Диаметр штуцера, мм / Choke diameter, mm & \VAR{t.choke} \\
+\hline
+Трубное давление, кгс/см$^{2}$ / Tubing pressure, kgf/cm$^{2}$ & \VAR{t.p_tube} \\
+\hline
+Затрубное давление, кгс/см$^{2}$ / Annulus pressure, kgf/cm$^{2}$ & \VAR{t.p_annulus} \\
+\hline
+Шлейфное давление, кгс/см$^{2}$ / Flowline pressure, kgf/cm$^{2}$ & \VAR{t.p_flowline} \\
+\hline
+Дебит газа, тыс.м$^{3}$/сут / Gas rate, ths.m$^{3}$/day & \VAR{t.q_gas} \\
+\hline
+Статическое давление, кгс/см$^{2}$ / Static pressure, kgf/cm$^{2}$ & \VAR{t.p_static} \\
+\hline
+Пластовое давление, кгс/см$^{2}$ / Reservoir pressure, kgf/cm$^{2}$ & \VAR{t.p_reservoir} \\
+\hline
+Периодичность продувки, час / Blowing frequency, hour & \VAR{t.purge_freq} \\
+\hline
+Длительность продувки, мин / Blowing duration, min & \VAR{t.purge_dur} \\
+\hline
+Результаты последних ГДИ/ГКИ/ОПП (прилагаются к заявке) / Results of latest GDS/GCS/PLT (attached to the application) & \VAR{t.gdi} \\
+\hline
+\end{longtable}
+
+\vspace{0.8em}
+
+%% ═══════════════════════════════════════════════════════════════════════════
+%% 2 МАТЕРИАЛЫ И ОБОРУДОВАНИЕ
+%% ═══════════════════════════════════════════════════════════════════════════
+\textbf{\large 2 МАТЕРИАЛЫ И ОБОРУДОВАНИЕ / MATERIALS AND EQUIPMENT}
+
+\vspace{0.4em}
+\textit{Таблица 2.1: Перечень оборудования и материалов / Equipment and materials list}
+
+\vspace{0.2em}
+\noindent
+\begin{longtable}{|p{0.04\textwidth}|p{0.55\textwidth}|p{0.08\textwidth}|p{0.08\textwidth}|p{0.15\textwidth}|}
+\hline
+\centering\textbf{№} & \centering\textbf{Перечень материалов и оборудования / Materials and equipment list} & \centering\textbf{ед} & \centering\textbf{к-во} & \centering\textbf{Ответственный}\arraybackslash \\
+\hline
+\centering 1 & \centering 2 & \centering 3 & \centering 4 & \centering 5 \arraybackslash \\
+\hline
+\endfirsthead
+\hline
+\centering 1 & \centering 2 & \centering 3 & \centering 4 & \centering 5 \arraybackslash \\
+\hline
+\endhead
+\centering 1. & Шлюз устьевой ШУ-50-35-550 ТУ У 29.5–40846045–002: 2018 / Wellhead launcher SHU-50-35-550 & \centering компл/kit & \centering 1 & ООО "UNITOOL" \\
+\hline
+\centering 2. & Пенообразующий реагент / Foaming reagents & \centering шт/piece & \centering в ас-те & ООО "UNITOOL" \\
+\hline
+\centering 3. & Тестовый сепаратор ФГС – 50–10,0/RS / Mobile test separator (MTS) & \centering компл/kit & \centering 1 & ООО "UNITOOL" \\
+\hline
+\centering 4. & Автономные СИ с функцией логирования / Stand-alone measuring instruments with logging function & \centering компл/kit & \centering 2 & ООО "UNITOOL" \\
+\hline
+\centering 5. & Система мониторинга регистрации параметров работы скважины / System for monitoring and recording well operating parameters SMOD & \centering компл/kit & \centering 1 & ООО "UNITOOL" \\
+\hline
+\centering 6. & Емкость для слива отсепарированного скважинного флюида объемом не менее 1 м3 с возможностью подключения дренажной линии к БРС 2" / Tank for drainage of separated well fluid with the volume not less than 1 m3 with the possibility of connecting the drainage line to the 2" quick-release connection. & \centering шт/piece & \centering 1 & ООО "UNITOOL" \\
+\hline
+\end{longtable}
+
+\vspace{0.8em}
+
+%% ═══════════════════════════════════════════════════════════════════════════
+%% 3 ПОРЯДОК ПРОВЕДЕНИЯ РАБОТ
+%% ═══════════════════════════════════════════════════════════════════════════
+\textbf{\large 3 ПОРЯДОК ПРОВЕДЕНИЯ РАБОТ / OPERATING PROCEDURE}
+
+\vspace{0.4em}
+\textit{Таблица 3.1: Перечень работ, выполняемых на скважине / List of works performed on the well}
+
+\vspace{0.2em}
+\noindent
+\begin{longtable}{|p{0.04\textwidth}|p{0.73\textwidth}|p{0.15\textwidth}|}
+\hline
+\centering\textbf{№} & \centering\textbf{Вид работ / Type of work} & \centering\textbf{Ответственный}\arraybackslash \\
+\hline
+\centering 1 & \centering 2 & \centering 3 \arraybackslash \\
+\hline
+\endfirsthead
+\hline
+\centering 1 & \centering 2 & \centering 3 \arraybackslash \\
+\hline
+\endhead
+\multicolumn{3}{|l|}{\textbf{Подготовительные работы. Этап 1 / Preparatory work. Stage 1}} \\
+\hline
+\centering 1 & Проведение ЗАКАЗЧИКОМ инструктажа по охране труда и пожарной безопасности согласно нормативным документам Республики Узбекистан. / Conducting a briefing on labor and fire safety protection in accordance with regulatory documents of the Republic of Uzbekistan. & JV "Uz-Kor Gas Chemical" LLC \\
+\hline
+\centering 2 & Ознакомление представителей ИСПОЛНИТЕЛЯ с материалами скважины, режимом и параметрами работы скважины. / Familiarization of representatives of the Contractor with Well materials, the mode and parameters of the Well. & JV "Uz-Kor Gas Chemical" LLC \\
+\hline
+\centering 3 & Ознакомление представителей ИСПОЛНИТЕЛЯ с устройством системы сбора и подготовки скважинной продукции. / Familiarization of representatives of the contractor with the device of the system of collecting and preparing well products. & JV "Uz-Kor Gas Chemical" LLC \\
+\hline
+\centering 4 & Подготовка скважины к проведению технологических операций: установка рабочей площадки для обслуживания скважин согласно требованиям нормативных документов Республики Узбекистан; проверка работоспособности запорной арматуры и герметичности фонтанной арматуры; проверка исправности контрольно-измерительных приборов (манометров) на буфере, затрубном пространстве, за штуцером и на выходе из промыслового коллектора. / Well preparation for technological operations. & JV "Uz-Kor Gas Chemical" LLC \\
+\hline
+\centering 5 & Установить на скважину измерительное оборудование / Install measuring equipment on the well & ООО "UNITOOL" \\
+\hline
+\centering 6 & Осуществить сбор технологических данных перед проведением полевых работ (температура, давление в НКТ, затрубном пространстве, давление в линии за штуцером) не менее 3 циклов. / Collect process data prior to field work for at least 3 cycles. & ООО "UNITOOL" \\
+\hline
+\centering 7 & На основании полученных данных произвести расчет текущего дебита и анализ режимов работы скважины / Based on the obtained data, calculate the current flow rate and analyze the well operation modes & ООО "UNITOOL" \\
+\hline
+\centering 8 & Произвести оценочный расчет периодичности и дозировки химреагентов с учетом фактических режимов работы скважины. / To make an estimation calculation of frequency and dosage of chemical reagents taking into account actual well operation modes. & ООО "UNITOOL" \\
+\hline
+\centering 9 & Согласовать скважину для дальнейшего проведения работ. / Coordinate the well for further work. & JV "Uz-Kor Gas Chemical" LLC\newline ООО "UNITOOL" \\
+\hline
+\multicolumn{3}{|l|}{\textbf{Проведение полевых работ по адаптации технологии к условиям скважины. Этап 2 / Conduct field work to adapt the technology to the well conditions. Stage 2}} \\
+\hline
+\centering 10 & Установка Шлюзового устройства ШУ-50-35-550 на буфере скважины и опрессовка его рабочим давлением. / Installation Wellhead Launcher SHU-50-35-550 at the well buffer and testing its working pressure. & ООО "UNITOOL" \\
+\hline
+\centering 11 & Обеспечить наличие на скважине средств мониторинга и контроля рабочих параметров скважины на НКТ и затрубном пространстве. / Ensure availability of monitoring and control of well operating parameters on tubing and annular space at the well. & ООО "UNITOOL" \\
+\hline
+\centering 12 & На основании полученных данных со средств мониторинга, произвести предварительный подбор химических реагентов для обеспечения вспенивания и выноса пластового флюида. / Based on the data received from the monitoring equipment, make a preliminary selection of chemical reagents to ensure foaming and removal of reservoir fluid. & ООО "UNITOOL" \\
+\hline
+\centering 13 & Доставка на скважину химреагентов / Delivery to the well of chemical reagents & ООО "UNITOOL" \\
+\hline
+\centering 14 & Введение расчетной дозы пенообразователя в скважину. / Injection of the calculated dose of the foaming agent in the well. & ООО "UNITOOL" \\
+\hline
+\centering 15 & Производить наблюдение контрольных параметров работы скважины (дебит газа, давления на буфере, в затрубном пространстве, после штуцера и на выходе из промыслового коллектора). / Monitor well control parameters. & JV "Uz-Kor Gas Chemical" LLC\newline ООО "UNITOOL" \\
+\hline
+\centering 16 & При падении трубного давления, установившегося после отработки скважины согласно п. 15, до давления близкого к давлению выкидной линии, произвести равномерное введение шашек пенообразователя в скважину. / When the pipe pressure drops to a pressure close to the pressure of the discharge line, make a uniform introduction of the foamers into the well. & ООО "UNITOOL" \\
+\hline
+\centering 17 & Снятие контрольных параметров не реже трех раз в течение суток. При необходимости провести замер текущего дебита газа и состав флюида. / Measurement of control parameters at least three times per day. & JV "Uz-Kor Gas Chemical" LLC\newline ООО "UNITOOL" \\
+\hline
+\centering 18 & По результатам п. 17 проводятся изменения в периодичности и количестве вводимого пенообразователя. / According to the results of p. 17 changes in the frequency and quantity of the introduced blowing agent are carried out. & ООО "UNITOOL" \\
+\hline
+\centering 19 & Произвести выбор оптимального химреагента, учитывая изменения устьевых параметров скважины после вброса реагента. / Select the optimal chemical reagent. & ООО "UNITOOL" \\
+\hline
+\centering 20 & После изменения периодичности и количества вводимого пенообразователя проводятся работы согласно п.п. 15–18 до обеспечения оптимальных условий работы скважины. / After changing the periodicity and quantity of the injected blowing agent the works according to p.p. 15-18 are carried out. & ООО "UNITOOL" \\
+\hline
+\centering 21 & Предоставление ежедневного отчета ЗАКАЗЧИКУ о выполненных работах. / Submission of a daily report to the CUSTOMER on the work performed. & ООО "UNITOOL" \\
+\hline
+\centering 23 & Предоставить рекомендации по применению дополнительных реагентов для оптимизации работы скважины. / Provide recommendations on the use of additional reagents to optimize well performance. & \\
+\hline
+\centering 24 & Сбор замечаний ЗАКАЗЧИКА к технологии с целью их устранения при дальнейшем ее использовании. / Collection of the CUSTOMER's comments on the technology. & ООО "UNITOOL" \\
+\hline
+\centering 25 & Провести анализ и оценку экономической целесообразности постоянного дозирования реагента на скважине. / Analyze and evaluate the economic feasibility of constant dosing of the reagent at the well. & \\
+\hline
+\centering 26 & Согласовать скважину для дальнейшего проведения работ. / Approve continued work on the well. & JV "Uz-Kor Gas Chemical" LLC\newline ООО "UNITOOL" \\
+\hline
+\multicolumn{3}{|l|}{\textbf{Проведение полевых работ для обеспечения стабильной работы скважины. Этап 3 / Conducting field work to ensure well stable operation. Stage 3}} \\
+\hline
+\centering 27 & Обеспечить наличие на скважине шлюзового устройства для дозирования реагента, средств мониторинга и контроля рабочих параметров скважины. / Ensure that there is a Wellhead launcher for reagent dosing, means of monitoring and control of well operating parameters. & ООО "UNITOOL" \\
+\hline
+\centering 28 & Обеспечить непрерывный мониторинг и анализ текущих рабочих параметров скважины, с ежеминутной фиксацией и логированием данных. / Provide continuous monitoring and analysis of the current operating parameters of the well, with minute-by-minute recording and logging of data. & ООО "UNITOOL" \\
+\hline
+\centering 29 & Производить вброс пенообразователя, согласно выбранного режима. Контролировать изменения устьевых параметров. / To inject the blowing agent according to the selected mode. Monitor changes in wellhead parameters. & ООО "UNITOOL" \\
+\hline
+\centering 30 & При необходимости провести замер рабочих параметров скважины с помощью мобильного сепаратора. / If necessary, measure well operating parameters using a mobile separator. & JV "Uz-Kor Gas Chemical" LLC\newline ООО "UNITOOL" \\
+\hline
+\centering 31 & Обеспечить предоставление ежедневной сводки ЗАКАЗЧИКУ о выполненных работах. / Provide the CUSTOMER with a daily summary of the work performed. & ООО "UNITOOL" \\
+\hline
+\centering 32 & Обеспечить отображение типа и количества использованных реагентов в суточных сводках. Вести учет использованных реагентов / Ensure that the type and quantity of reagents used are displayed in daily summaries. Maintain records of reagents used & ООО "UNITOOL" \\
+\hline
+\centering 33 & В конце отчетного периода предоставить Акт использованных реагентов / At the end of the reporting period, provide the Statement of used reagents & JV "Uz-Kor Gas Chemical" LLC\newline ООО "UNITOOL" \\
+\hline
+\centering 34 & В конце отчетного периода согласовать продолжение работ на следующий отчетный период / At the end of the reporting period, agree on the continuation of work for the next reporting period & JV "Uz-Kor Gas Chemical" LLC\newline ООО "UNITOOL" \\
+\hline
+\end{longtable}
+
+\vspace{0.8em}
+
+%% ═══════════════════════════════════════════════════════════════════════════
+%% 4 МЕРОПРИЯТИЯ ПО БЕЗОПАСНОМУ ВЕДЕНИЮ РАБОТ
+%% ═══════════════════════════════════════════════════════════════════════════
+\textbf{\large 4 МЕРОПРИЯТИЯ ПО БЕЗОПАСНОМУ ВЕДЕНИЮ РАБОТ / SAFETY MEASURES}
+
+\vspace{0.4em}
+
+При разработке месторождений, на которых намечается реализация технологии физико-химического воздействия, для обеспечения безопасности населения необходимо руководствоваться действующими законами, постановлениями и положениями, Правилами безопасности в нефтяной и газовой промышленности. / During the development of fields, where it is planned to implement the technology of physical-chemical impact to ensure the safety of the population must be guided by applicable laws, decrees and regulations, Safety Rules in the oil and gas industry.
+
+\vspace{0.6em}
+\textbf{4.1 Меры безопасности при работе / Safety precautions at work}
+
+\vspace{0.3em}
+
+4.1.1 В процессе проведения работ соблюдать требования действующего законодательства, иных нормативно-правовых актов и нормативных документов Республики Узбекистан в области промышленной безопасности и охраны труда. / In the course of work, comply with the requirements of the current legislation.
+
+\vspace{0.2em}
+
+4.1.2 Персонал, привлекаемый для выполнения данных работ, должен быть обучен на курсах по вопросам промышленной безопасности и охране труда. / Personnel engaged for this work shall be trained at the courses on industrial safety and labor protection issues.
+
+\vspace{0.2em}
+
+4.1.3 Все применяемые реагенты не токсичны, пожаро- и взрывобезопасны. / All reagents used are non-toxic, fire and explosion safe.
+
+\vspace{0.2em}
+
+4.1.4 Категорически запрещается использовать реагенты для нужд, не связанных с их прямой целью. / It is strictly forbidden to use reagents for purposes other than their direct purpose.
+
+\vspace{0.2em}
+
+4.1.5 При появлении признаков отравления (головной боли, головокружения, тошноты, рвоты, потери аппетита), следует обратиться к врачу и сообщить руководителю работ. / In case of signs of poisoning, consult a doctor and inform the work manager.
+
+\vspace{0.6em}
+\textbf{4.2 Охрана окружающей среды / Environmental protection}
+
+\vspace{0.3em}
+
+4.2.1 После выполнения работ необходимо / After the work is done, it is necessary to:
+
+\begin{itemize}[leftmargin=1.5em, topsep=0.2em, itemsep=0.1em]
+\item Принимать все меры безопасности, необходимые для защиты окружающей среды, оберегая окружающий воздух, поверхностные и подземные воды, почвы и грунты, недра, животный и растительный мир от неблагоприятных воздействий. / Take all safety measures necessary to protect the environment.
+
+\item Обеспечить своевременный вывоз и утилизацию коммунальных и производственных отходов. / Ensure that municipal and industrial waste is removed and disposed of in a timely manner.
+
+\item Обеспечить очистку устьевого оборудования, шахты, рекультивацию площадки, планировку и сдачу Заказчику по акту. / Ensure cleaning of wellhead equipment, shaft, site reclamation, layout and handover to the Customer under the act.
+\end{itemize}
+
+\end{document}

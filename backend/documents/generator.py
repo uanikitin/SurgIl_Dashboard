@@ -62,10 +62,14 @@ class DocumentGenerator:
         Returns:
             str: Путь к сгенерированному PDF (относительно static/)
         """
-        # Получаем имя шаблона
+        # Получаем имя шаблона (fallback для work_plan)
         template_name = document.doc_type.latex_template_name
         if not template_name:
-            raise ValueError(f"Для типа '{document.doc_type.code}' не указан LaTeX шаблон")
+            code = getattr(document.doc_type, "code", "")
+            if code == "work_plan":
+                template_name = "work_plan.tex"
+            else:
+                raise ValueError(f"Для типа '{document.doc_type.code}' не указан LaTeX шаблон")
 
         # Готовим данные для шаблона
         context = self._prepare_context(document)
@@ -117,6 +121,10 @@ class DocumentGenerator:
         # Финансовый акт и счёт-фактура (одинаковый контекст, разные шаблоны)
         if document.doc_type.code in ('financial_act', 'financial_invoice'):
             context.update(self._prepare_financial_act_context(document))
+
+        # План работ (work_plan) — Таблица 1.1 + подписанты
+        if document.doc_type.code == 'work_plan':
+            context.update(self._prepare_work_plan_context(document))
 
         return context
 
@@ -322,10 +330,11 @@ class DocumentGenerator:
                 w, h = 244, 137
             sig_w = 28.0
             sig_h = sig_w * h / w
-            # подпись над печатью, ближе к строке ФИО
-            add(sig_p, sig_w, sig_h, x_mm=18, y_mm=-42, zid=101, name="signature")
+            # подпись на подчёркивании: x=5мм, y=-5мм
+            add(sig_p, sig_w, sig_h, x_mm=5, y_mm=-5, zid=101, name="signature")
         if m.get("include_seal", True):
-            add(seal_p, 40.0, 40.0, x_mm=24, y_mm=-40, zid=100, name="seal")
+            # печать накрывает подпись, не залезает на заголовок: y=-25мм
+            add(seal_p, 40.0, 40.0, x_mm=10, y_mm=-25, zid=100, name="seal")
 
         d.save(path)
 
@@ -549,6 +558,29 @@ class DocumentGenerator:
             err = result.stderr.decode("utf-8", "ignore")
             raise RuntimeError(f"LibreOffice не создал PDF: {err}")
         document.pdf_filename = f"generated/pdf/{pdf_path.name}"
+        return document.pdf_filename
+
+    def generate_invoice_pdf(self, document: Document) -> str:
+        """PDF счёта-фактуры через xelatex/longtable.
+
+        longtable штатно повторяет на продолжении только строку номеров колонок
+        (\\endhead) и не «протекает» вертикальными линиями — то, что недостижимо
+        в docx→LibreOffice. Контекст — общий с актом (_prepare_financial_act_context).
+        Выгрузка .docx (generate_docx) остаётся отдельно, как редактируемый вариант.
+        """
+        from backend.services.daily_report_service import _get_latex_env, _compile_latex
+        ctx = self._prepare_financial_act_context(document)
+        # Формат номера СФ: «СФ-01/2026» (порядковый с нулём / год). Порядковый —
+        # ведущие цифры из invoice_no («1-с» → 1), год — из даты акта.
+        import re
+        seq = re.match(r"\d+", str(ctx.get("invoice_no") or ""))
+        seq_n = int(seq.group()) if seq else (ctx.get("act_no") or 1)
+        year = (ctx.get("act_date") or "")[-4:]
+        ctx["invoice_label"] = f"СФ-{seq_n:02d}/{year}"
+        env = _get_latex_env()
+        tex = env.get_template("financial_invoice.tex").render(**ctx)
+        pdf = _compile_latex(tex, document.doc_number.replace("/", "-"))
+        document.pdf_filename = f"generated/pdf/{pdf.name}"
         return document.pdf_filename
 
     def _prepare_reagent_expense_context(self, document: Document) -> dict:

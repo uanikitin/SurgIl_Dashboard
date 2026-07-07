@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+{% block title %}Планы работ · СУРГИЛ{% endblock %}
+{% block content %}
+<div class="page-dashboard" style="max-width:1700px;margin:0 auto;">
+  <header class="dashboard-header" style="display:flex;align-items:center;gap:12px;">
+    <a href="/documents" class="back-btn">←</a>
+    <h1>Планы работ</h1>
+  </header>
+
+  {% if msg %}
+  <div style="margin:12px 0;padding:10px 14px;border-radius:8px;
+       background:{{ '#fee2e2' if msg_type=='error' else '#dcfce7' }};
+       color:{{ '#991b1b' if msg_type=='error' else '#166534' }};">{{ msg }}</div>
+  {% endif %}
+
+  <style>
+    .wp-grid{display:flex;gap:20px;align-items:flex-start;}
+    .wp-left{flex:1 1 55%;min-width:0;}
+    .wp-right{flex:1 1 45%;position:sticky;top:12px;}
+    .wp-right iframe{width:100%;height:calc(100vh - 90px);border:1px solid #e5e7eb;border-radius:10px;background:#fff;}
+    .wp-card{margin:16px 0;padding:16px;border:1px solid #e5e7eb;border-radius:10px;}
+    .wp-t table{width:100%;border-collapse:collapse;font-size:13px;}
+    .wp-t th,.wp-t td{border:1px solid #e5e7eb;padding:4px 8px;text-align:left;}
+    .wp-fld{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;}
+    .wp-fld label{display:flex;flex-direction:column;font-size:12px;color:#374151;gap:2px;}
+    .wp-fld input{padding:5px 7px;border:1px solid #d1d5db;border-radius:6px;}
+    .wp-btn{padding:4px 9px;border-radius:6px;text-decoration:none;color:#fff;border:none;cursor:pointer;font-size:13px;}
+    .wp-sig{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;}
+    #wp-edit{display:none;}
+  </style>
+
+  <div class="wp-grid">
+  <div class="wp-left">
+
+  {# ── Создание ── #}
+  <section class="wp-card">
+    <h3 style="margin:0 0 10px;">Новый план работ (оптимизация)</h3>
+    <form method="post" action="/documents/work-plans/create"
+          style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;">
+      <label style="display:flex;flex-direction:column;font-size:13px;">Скважина №
+        <input name="well_no" list="wp-wells" required style="padding:6px;min-width:120px;">
+        <datalist id="wp-wells">
+          {% for w in wells %}<option value="{{ w }}">{% endfor %}
+        </datalist>
+      </label>
+      <label style="display:flex;flex-direction:column;font-size:13px;">Год
+        <input type="number" name="year" value="{{ cur_year }}" required style="padding:6px;width:90px;">
+      </label>
+      <button type="submit" class="wp-btn" style="background:#0d9488;">Создать</button>
+      <span style="color:#6b7280;font-size:12px;">Параметры Таблицы 1.1 подтянутся из БД, затем можно отредактировать.</span>
+    </form>
+  </section>
+
+  {# ── Реестр ── #}
+  <section class="wp-card">
+    <h3 style="margin:0 0 10px;">Реестр планов</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="background:#f9fafb;">
+        <th style="text-align:left;padding:6px;">Номер</th>
+        <th style="text-align:left;padding:6px;">Скважина</th>
+        <th style="text-align:left;padding:6px;">Создан</th>
+        <th style="text-align:left;padding:6px;">Статус</th>
+        <th style="text-align:right;padding:6px;">Действия</th>
+      </tr></thead>
+      <tbody>
+      {% for d in docs %}
+        <tr style="border-top:1px solid #eee;">
+          <td style="padding:6px;font-weight:600;">{{ d.doc_number }}</td>
+          <td style="padding:6px;">{{ d.meta.get('well_no','') }}</td>
+          <td style="padding:6px;">{{ d.created_at.strftime('%d.%m.%Y') if d.created_at else '' }}</td>
+          <td style="padding:6px;">
+            {% if d.meta.get('accepted_at') %}<span style="color:#166534;">✓ Принят {{ d.meta.get('accepted_at') }}</span>
+            {% elif d.meta.get('sent_at') %}<span style="color:#2563eb;">→ Отправлен {{ d.meta.get('sent_at') }}</span>
+            {% else %}<span style="color:#6b7280;">📝 Черновик</span>{% endif %}
+          </td>
+          <td style="padding:6px;text-align:right;white-space:nowrap;">
+            <button class="wp-btn" style="background:#4b5563;"
+                    onclick="wpEdit({{ d.id }})">✏️ Ред.</button>
+            <a class="wp-btn" style="background:#059669;"
+               href="/documents/work-plans/{{ d.id }}/download.docx">.docx</a>
+            <a class="wp-btn" style="background:#dc2626;" target="_blank"
+               href="/documents/work-plans/{{ d.id }}/download.pdf"
+               onclick="wpPreview(event,{{ d.id }})">PDF</a>
+            <form method="post" action="/documents/work-plans/{{ d.id }}/status" style="display:inline;">
+              <input type="hidden" name="action" value="sent">
+              <button class="wp-btn" style="background:#2563eb;">→отпр</button></form>
+            <form method="post" action="/documents/work-plans/{{ d.id }}/status" style="display:inline;">
+              <input type="hidden" name="action" value="accepted">
+              <button class="wp-btn" style="background:#16a34a;">✓прин</button></form>
+            <form method="post" action="/documents/work-plans/{{ d.id }}/delete" style="display:inline;"
+                  onsubmit="return confirm('Удалить план?');">
+              <button class="wp-btn" style="background:#991b1b;">🗑</button></form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" style="padding:10px;color:#6b7280;">Планов пока нет</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  {# ── Редактирование ── #}
+  <section class="wp-card" id="wp-edit">
+    <h3 style="margin:0 0 10px;">Редактирование <span id="wp-edit-num"></span></h3>
+    <form id="wp-edit-form" method="post">
+      <h4 style="margin:10px 0 6px;">Таблица 1.1 — параметры скважины</h4>
+      <div class="wp-fld" id="wp-t11"></div>
+
+      <h4 style="margin:16px 0 6px;">Подписанты</h4>
+      <div class="wp-sig">
+        <div>
+          <b>СОГЛАСОВАНО</b> (Заказчик)
+          <label style="display:block;font-size:12px;">Должность
+            <input name="sog_position" style="width:100%;padding:5px;"></label>
+          <label style="display:block;font-size:12px;">Организация
+            <input name="sog_org" style="width:100%;padding:5px;"></label>
+          <label style="display:block;font-size:12px;">ФИО
+            <input name="sog_name" style="width:100%;padding:5px;"></label>
+          <label style="display:block;font-size:12px;">Дата
+            <input name="sog_date" style="width:100%;padding:5px;"></label>
+        </div>
+        <div>
+          <b>УТВЕРЖДАЮ</b> (Исполнитель, печать+подпись)
+          <label style="display:block;font-size:12px;">Должность
+            <input name="utv_position" style="width:100%;padding:5px;"></label>
+          <label style="display:block;font-size:12px;">Организация
+            <input name="utv_org" style="width:100%;padding:5px;"></label>
+          <label style="display:block;font-size:12px;">ФИО
+            <input name="utv_name" style="width:100%;padding:5px;"></label>
+          <label style="display:block;font-size:12px;">Дата
+            <input name="utv_date" style="width:100%;padding:5px;"></label>
+        </div>
+      </div>
+
+      <h4 style="margin:16px 0 6px;">Печать и подпись</h4>
+      <div style="display:flex;flex-direction:column;gap:6px;font-size:13px;">
+        <label><input type="checkbox" name="include_signature" id="wp-inc-sig"> Вставлять подпись</label>
+        <label>Путь к подписи (png, пусто = по умолчанию)
+          <input name="signature_path" id="wp-sig-path" style="width:100%;padding:5px;"
+                 placeholder="backend/static/img/verba_signature.png"></label>
+        <label><input type="checkbox" name="include_seal" id="wp-inc-seal"> Вставлять печать</label>
+        <label>Путь к печати (png, пусто = по умолчанию)
+          <input name="seal_path" id="wp-seal-path" style="width:100%;padding:5px;"
+                 placeholder="backend/static/img/unitool_seal.png"></label>
+      </div>
+
+      <div style="margin-top:14px;display:flex;gap:8px;">
+        <button type="submit" class="wp-btn" style="background:#0d9488;">Сохранить</button>
+        <button type="button" class="wp-btn" style="background:#6b7280;"
+                onclick="document.getElementById('wp-edit').style.display='none';">Закрыть</button>
+      </div>
+    </form>
+  </section>
+
+  </div>{# /wp-left #}
+
+  <div class="wp-right">
+    <iframe id="wp-frame" src="about:blank"></iframe>
+  </div>
+  </div>{# /wp-grid #}
+</div>
+
+<script>
+const WP_LABELS = {
+  well_no:"№ скважины", prod_casing_diam:"Диаметр экспл. колонны, мм",
+  prod_casing_depth:"Глубина спуска колонны, м", bottomhole:"Текущий забой, м",
+  horizon:"Горизонт", perforation:"Интервалы перфорации, м",
+  tubing_diam:"Диаметр НКТ, мм", tubing_shoe:"Глубина башмака НКТ, м",
+  packer:"Глубина пакера, м", adapter:"Глубина переводника, м",
+  pattern_stuck:"Глубина непрохода шаблона, м", choke:"Диаметр штуцера, мм",
+  p_tube:"Трубное давление, кг/см²", p_annulus:"Затрубное давление, кг/см²",
+  p_flowline:"Шлейфное давление, кг/см²", q_gas:"Дебит газа, тыс.м³/сут",
+  p_static:"Статическое давление, кг/см²", p_reservoir:"Пластовое давление, кг/см²",
+  purge_freq:"Периодичность продувки, час", purge_dur:"Длительность продувки, мин",
+  gdi:"Результаты ГДИ/ГКИ/ОПП"
+};
+
+async function wpEdit(id){
+  const r = await fetch(`/documents/work-plans/${id}/prefill`);
+  if(!r.ok){ alert('Не удалось загрузить'); return; }
+  const d = await r.json();
+  const form = document.getElementById('wp-edit-form');
+  form.action = `/documents/work-plans/${id}/rebuild`;
+  document.getElementById('wp-edit-num').textContent = '№ ' + id;
+
+  // Таблица 1.1
+  const box = document.getElementById('wp-t11');
+  box.innerHTML = '';
+  d.table11_keys.forEach(k=>{
+    const lab = document.createElement('label');
+    const val = (d.table11[k]||'').replace(/"/g,'&quot;');
+    lab.innerHTML = `${WP_LABELS[k]||k}<input name="t_${k}" value="${val}">`;
+    box.appendChild(lab);
+  });
+  // подписанты
+  for(const k of ['sog_position','sog_org','sog_name','sog_date','utv_position','utv_org','utv_name','utv_date']){
+    if(form.elements[k]) form.elements[k].value = d.sigs[k]||'';
+  }
+  // картинки
+  document.getElementById('wp-sig-path').value = d.signature_path||'';
+  document.getElementById('wp-seal-path').value = d.seal_path||'';
+  document.getElementById('wp-inc-sig').checked = !!d.include_signature;
+  document.getElementById('wp-inc-seal').checked = !!d.include_seal;
+
+  document.getElementById('wp-edit').style.display = 'block';
+  document.getElementById('wp-edit').scrollIntoView({behavior:'smooth'});
+}
+
+function wpPreview(ev, id){
+  ev.preventDefault();
+  document.getElementById('wp-frame').src = `/documents/work-plans/${id}/download.pdf`;
+}
+</script>
+{% endblock %}
